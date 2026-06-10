@@ -9,6 +9,8 @@ Rectangle {
     id: root
     color: Theme.color.surface
 
+    property bool showLog: false
+
     function fmt(ms) {
         if (ms <= 0) return "0:00";
         var s = Math.floor(ms / 1000);
@@ -39,10 +41,20 @@ Rectangle {
         Button {
             type: "filled"
             text: "搜索"
-            anchors.right: parent.right
-            anchors.rightMargin: 12
+            anchors.right: logBtn.left
+            anchors.rightMargin: 8
             anchors.verticalCenter: parent.verticalCenter
             onClicked: player.search(query.text)
+        }
+
+        Button {
+            id: logBtn
+            type: "text"
+            text: "日志"
+            anchors.right: parent.right
+            anchors.rightMargin: 8
+            anchors.verticalCenter: parent.verticalCenter
+            onClicked: root.showLog = !root.showLog
         }
     }
 
@@ -189,6 +201,43 @@ Rectangle {
                 onClicked: player.toggle()
             }
             Button { type: "text"; text: "⏭"; onClicked: player.next() }
+        }
+    }
+
+    // --- log overlay ----------------------------------------------------
+    Rectangle {
+        id: logPanel
+        visible: root.showLog
+        anchors.fill: parent
+        color: Theme.color.surfaceContainerHighest
+
+        Row {
+            id: logBar
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            height: 56
+            spacing: 8
+            Button { type: "text"; text: "关闭"; onClicked: root.showLog = false }
+            Button { type: "text"; text: "清空"; onClicked: player.clearLog() }
+        }
+
+        Flickable {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: logBar.bottom
+            anchors.bottom: parent.bottom
+            anchors.margins: 12
+            clip: true
+            contentHeight: logText.height
+            Text {
+                id: logText
+                width: parent.width
+                text: player.logText
+                color: Theme.color.onSurfaceColor
+                fontSize: 12
+                wrapMode: Text.WrapAnywhere
+            }
         }
     }
 }

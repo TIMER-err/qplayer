@@ -11,6 +11,7 @@
     <application
         android:label="qplayer"
         android:allowBackup="false"
+        android:usesCleartextTraffic="true"
         android:supportsRtl="true">
         <activity
             android:name="dev.t1m3.qplayer.android.QPlayerActivity"

@@ -78,6 +78,10 @@ public final class PlayerController {
     public final Property<Boolean> loggedIn = new Property<>(false);
     public final Property<String> userName = new Property<>("");
 
+    /** Tail of the in-app log, newest last. Bound by the debug log panel. */
+    public final Property<String> logText = new Property<>("");
+    private long lastLogVersion = -1;
+
     public PlayerController(AudioBackend backend, MetadataReader metadataReader) {
         this(backend, metadataReader, NeteaseClient.INSTANCE);
     }
@@ -113,6 +117,21 @@ public final class PlayerController {
                 positionMs.set(backend.position());
             }
         }
+        long lv = Logger.version();
+        if (lv != lastLogVersion) {
+            lastLogVersion = lv;
+            List<String> lines = Logger.snapshot();
+            int from = Math.max(0, lines.size() - 60);
+            StringBuilder sb = new StringBuilder();
+            for (int i = from; i < lines.size(); i++) {
+                sb.append(lines.get(i)).append('\n');
+            }
+            logText.set(sb.toString());
+        }
+    }
+
+    public void clearLog() {
+        Logger.clear();
     }
 
     /** Enqueue a mutation to run on the next {@link #pump()} (render thread). */
@@ -282,11 +301,14 @@ public final class PlayerController {
     private void fetchAndPlayNetease(long songId) {
         worker.submit(() -> {
             try {
+                Logger.info("netease: fetch song {} (loggedIn={}, level={})",
+                        songId, netease.isLoggedIn(), playLevel);
                 NeteaseSong sd = netease.songDetail(songId);
                 String url = netease.songUrl(songId, playLevel);
                 NeteaseLyric nl = netease.lyric(songId);
+                Logger.info("netease: url={}", url);
                 if (url == null) {
-                    Logger.warn("netease song {} has no playable url (blocked/VIP)", songId);
+                    Logger.warn("netease song {} has no playable url (blocked/VIP/login required)", songId);
                     return;
                 }
                 Track t = new Track();
@@ -331,6 +353,7 @@ public final class PlayerController {
         durationMs.set(t.durationMs);
         positionMs.set(0L);
         lyrics.set(ly);
+        Logger.info("play netease: {} — {}", t.title, t.streamUrl);
         backend.play(t.streamUrl, 0L);
         playing.set(true);
     }

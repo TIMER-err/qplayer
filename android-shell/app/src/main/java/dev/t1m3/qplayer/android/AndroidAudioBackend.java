@@ -4,6 +4,7 @@ import android.media.AudioAttributes;
 import android.media.MediaPlayer;
 
 import dev.t1m3.qplayer.audio.AudioBackend;
+import dev.t1m3.qplayer.util.Logger;
 
 import java.io.IOException;
 
@@ -42,10 +43,12 @@ public final class AndroidAudioBackend implements AudioBackend {
                 .build());
         mp.setOnPreparedListener(p -> onPrepared());
         mp.setOnCompletionListener(p -> {
+            Logger.info("MediaPlayer: completed");
             Runnable cb = onComplete;
             if (cb != null) cb.run();
         });
         mp.setOnErrorListener((p, what, extra) -> {
+            Logger.error("MediaPlayer error: what={} extra={}", what, extra);
             // Surface as completion so the controller can advance instead of stalling.
             Runnable cb = onComplete;
             if (cb != null) cb.run();
@@ -53,15 +56,18 @@ public final class AndroidAudioBackend implements AudioBackend {
         });
         player = mp;
         try {
+            Logger.info("MediaPlayer: setDataSource + prepareAsync");
             mp.setDataSource(src);
             mp.prepareAsync();
         } catch (IOException | IllegalStateException e) {
+            Logger.error("MediaPlayer setDataSource failed: {}", e.getMessage());
             releasePlayer();
         }
     }
 
     private synchronized void onPrepared() {
         prepared = true;
+        Logger.info("MediaPlayer: prepared, duration={}ms", player.getDuration());
         applyVolume();
         if (pendingSeekMs > 0L) {
             player.seekTo((int) pendingSeekMs);
