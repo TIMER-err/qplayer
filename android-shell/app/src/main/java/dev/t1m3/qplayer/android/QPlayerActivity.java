@@ -83,6 +83,7 @@ public final class QPlayerActivity extends Activity {
         glView.setController(controller);
         setContentView(glView);
 
+        controller.loadHome();
         requestAudioPermission();
     }
 

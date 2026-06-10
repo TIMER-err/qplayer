@@ -8,6 +8,7 @@ import dev.t1m3.qplayer.lyric.LyricParser;
 import dev.t1m3.qplayer.model.Track;
 import dev.t1m3.qplayer.netease.NeteaseClient;
 import dev.t1m3.qplayer.netease.dto.NeteaseLyric;
+import dev.t1m3.qplayer.netease.dto.NeteasePlaylist;
 import dev.t1m3.qplayer.netease.dto.NeteaseSong;
 import dev.t1m3.qplayer.netease.dto.NeteaseUser;
 import dev.t1m3.qplayer.util.Logger;
@@ -15,8 +16,10 @@ import io.github.timer_err.qml4j.engine.binding.Property;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
@@ -29,13 +32,19 @@ import java.util.concurrent.Executors;
  * controller's {@code set} re-evaluates the binding) and invokes its public
  * methods from event handlers.
  *
+ * <h3>Playback queue</h3>
+ * Local files and netease lists both feed one {@link #queue} of {@link Track}s.
+ * Netease tracks carry their id + metadata but resolve their CDN url lazily on
+ * first play (so a whole playlist can be queued without fetching every url).
+ * {@code next}/{@code prev} walk the queue; auto-advance wires
+ * {@code backend.onComplete -> next}.
+ *
  * <h3>Threading</h3>
- * The qml4j renderer is single-threaded, so every {@code Property.set} must
- * happen on the render thread. Public methods invoked from QML already run
- * there and mutate Properties directly. Work that must run off the render
- * thread — audio completion callbacks, blocking netease HTTP — instead posts
- * its result via {@link #post(Runnable)}; the host drains the queue once per
- * frame by calling {@link #pump()} just before {@code renderFrame}.
+ * The qml4j renderer is single-threaded, so every {@code Property.set} must run
+ * on the render thread. QML-invoked methods run there and mutate directly. Work
+ * that must run off it — audio completion, blocking netease HTTP — posts its
+ * result via {@link #post(Runnable)}; the host drains the queue once per frame
+ * in {@link #pump()}.
  */
 public final class PlayerController {
 
@@ -49,38 +58,49 @@ public final class PlayerController {
     });
 
     private final List<Track> library = new CopyOnWriteArrayList<>();
+    private final List<Track> queue = new CopyOnWriteArrayList<>();
     private final Queue<Runnable> uiQueue = new ConcurrentLinkedQueue<>();
+    private final Set<Long> likedSet = new HashSet<>();
 
-    /** Netease stream quality (see {@link NeteaseClient#songUrl}). */
     private volatile String playLevel = "exhigh";
+    private volatile long uid;
     private long lastPositionPush;
+    private long lastLogVersion = -1;
 
-    // --- Reactive state for QML bindings ---------------------------------
+    // --- Playback state ---------------------------------------------------
     public final Property<Boolean> playing = new Property<>(false);
     public final Property<String> title = new Property<>("");
     public final Property<String> artist = new Property<>("");
     public final Property<String> album = new Property<>("");
+    public final Property<String> coverUrl = new Property<>("");
     public final Property<Long> durationMs = new Property<>(0L);
     public final Property<Long> positionMs = new Property<>(0L);
     public final Property<Integer> index = new Property<>(-1);
     public final Property<Float> volume = new Property<>(0.8f);
-
-    /** Current library (local + transient netease). Bumped on any change. */
-    public final Property<List<Track>> tracks = new Property<>(Collections.<Track>emptyList());
-    /** Reactive row counts for Repeater {@code model:} bindings (int model). */
-    public final Property<Integer> libraryCount = new Property<>(0);
-    public final Property<Integer> resultCount = new Property<>(0);
-    /** Parsed lyric lines for the current track (syllable-level when available). */
+    public final Property<Boolean> currentLiked = new Property<>(false);
     public final Property<List<LyricLine>> lyrics = new Property<>(Collections.<LyricLine>emptyList());
-    /** Latest netease search results. */
-    public final Property<List<NeteaseSong>> searchResults = new Property<>(Collections.<NeteaseSong>emptyList());
 
+    // --- Local library ----------------------------------------------------
+    public final Property<List<Track>> tracks = new Property<>(Collections.<Track>emptyList());
+    public final Property<Integer> libraryCount = new Property<>(0);
+
+    // --- Netease content (Repeater model: player.xxx; delegate reads modelData) ---
+    public final Property<List<NeteaseSong>> searchResults = new Property<>(Collections.<NeteaseSong>emptyList());
+    public final Property<Integer> resultCount = new Property<>(0);
+    public final Property<List<NeteaseSong>> recommendations = new Property<>(Collections.<NeteaseSong>emptyList());
+    public final Property<List<NeteasePlaylist>> recommendPlaylists = new Property<>(Collections.<NeteasePlaylist>emptyList());
+    public final Property<List<NeteasePlaylist>> myPlaylists = new Property<>(Collections.<NeteasePlaylist>emptyList());
+    public final Property<List<NeteaseSong>> recentSongs = new Property<>(Collections.<NeteaseSong>emptyList());
+    /** Currently opened playlist. */
+    public final Property<List<NeteaseSong>> playlistTracks = new Property<>(Collections.<NeteaseSong>emptyList());
+    public final Property<String> playlistTitle = new Property<>("");
+
+    // --- Account ----------------------------------------------------------
     public final Property<Boolean> loggedIn = new Property<>(false);
     public final Property<String> userName = new Property<>("");
 
-    /** Tail of the in-app log, newest last. Bound by the debug log panel. */
+    // --- Debug ------------------------------------------------------------
     public final Property<String> logText = new Property<>("");
-    private long lastLogVersion = -1;
 
     public PlayerController(AudioBackend backend, MetadataReader metadataReader) {
         this(backend, metadataReader, NeteaseClient.INSTANCE);
@@ -91,14 +111,16 @@ public final class PlayerController {
         this.metadataReader = metadataReader;
         this.netease = netease;
         backend.setVolume(volume.peek());
-        // Audio completion fires on the audio thread — marshal to the UI thread.
         backend.setOnComplete(() -> post(this::next));
-        loggedIn.set(netease.isLoggedIn());
+        if (netease.isLoggedIn()) {
+            loggedIn.set(true);
+            refreshLogin();
+        }
     }
 
     // --- Frame pump (render thread) --------------------------------------
 
-    /** Drain queued UI mutations and refresh the play head. Call once per frame. */
+    /** Drain queued UI mutations, refresh the play head + log. Call once per frame. */
     public void pump() {
         Runnable r;
         while ((r = uiQueue.poll()) != null) {
@@ -108,8 +130,6 @@ public final class PlayerController {
                 Logger.exception(e);
             }
         }
-        // Throttle the position push so a bound progress bar re-evaluates a few
-        // times a second, not every frame.
         long now = System.currentTimeMillis();
         if (now - lastPositionPush >= 200L) {
             lastPositionPush = now;
@@ -130,42 +150,37 @@ public final class PlayerController {
         }
     }
 
-    public void clearLog() {
-        Logger.clear();
-    }
-
-    /** Enqueue a mutation to run on the next {@link #pump()} (render thread). */
     private void post(Runnable r) {
         uiQueue.add(r);
     }
 
-    // --- Library ----------------------------------------------------------
+    public void clearLog() {
+        Logger.clear();
+    }
 
-    /** Recursively scan a folder for local audio; updates {@link #tracks} when done. */
+    // --- Local library ----------------------------------------------------
+
     public void scan(String folder) {
         worker.submit(() -> {
             try {
                 LibraryScanner scanner = new LibraryScanner(metadataReader);
                 List<Track> found = scanner.scan(folder);
-                post(() -> setLibrary(found));
+                post(() -> {
+                    library.clear();
+                    library.addAll(found);
+                    tracks.set(new ArrayList<>(library));
+                    libraryCount.set(library.size());
+                });
             } catch (Throwable e) {
                 Logger.exception(e);
             }
         });
     }
 
-    private void setLibrary(List<Track> found) {
-        library.clear();
-        library.addAll(found);
-        tracks.set(new ArrayList<>(library));
-        libraryCount.set(library.size());
-    }
-
     public int trackCount() {
         return library.size();
     }
 
-    // Row accessors for Repeater delegates (model bound to libraryCount).
     public String trackTitle(int i) {
         return i >= 0 && i < library.size() ? orEmpty(library.get(i).title) : "";
     }
@@ -174,7 +189,6 @@ public final class PlayerController {
         return i >= 0 && i < library.size() ? orEmpty(library.get(i).artist) : "";
     }
 
-    // Row accessors for search results (model bound to resultCount).
     public String resultTitle(int i) {
         List<NeteaseSong> r = searchResults.peek();
         return i >= 0 && i < r.size() ? orEmpty(r.get(i).name) : "";
@@ -190,11 +204,76 @@ public final class PlayerController {
         return i >= 0 && i < r.size() ? r.get(i).id : 0L;
     }
 
-    // --- Playback control (invoked from QML, render thread) ---------------
+    // --- Playback control -------------------------------------------------
 
+    /** Play local library starting at {@code i}. */
     public void play(int i) {
         if (i < 0 || i >= library.size()) return;
-        selectAndPlay(i, library.get(i));
+        playQueue(library, i);
+    }
+
+    /** Queue a netease song-list and start at {@code i}. */
+    public void playSearchResult(int i) {
+        playSongList(searchResults.peek(), i);
+    }
+
+    public void playRecommendation(int i) {
+        playSongList(recommendations.peek(), i);
+    }
+
+    public void playRecentSong(int i) {
+        playSongList(recentSongs.peek(), i);
+    }
+
+    public void playPlaylistTrack(int i) {
+        playSongList(playlistTracks.peek(), i);
+    }
+
+    /** Play a single netease song id (no surrounding queue). */
+    public void playNetease(long songId) {
+        Track t = new Track();
+        t.source = Track.Source.NETEASE;
+        t.neteaseId = songId;
+        playQueue(Collections.singletonList(t), 0);
+    }
+
+    private void playSongList(List<NeteaseSong> songs, int i) {
+        if (songs == null || i < 0 || i >= songs.size()) return;
+        List<Track> q = new ArrayList<>(songs.size());
+        for (NeteaseSong s : songs) q.add(toTrack(s));
+        playQueue(q, i);
+    }
+
+    private void playQueue(List<Track> q, int start) {
+        queue.clear();
+        queue.addAll(q);
+        playAt(start);
+    }
+
+    private void playAt(int i) {
+        if (i < 0 || i >= queue.size()) return;
+        Track t = queue.get(i);
+        index.set(i);
+        title.set(orEmpty(t.title));
+        artist.set(orEmpty(t.artist));
+        album.set(orEmpty(t.album));
+        coverUrl.set(orEmpty(t.coverUrl));
+        durationMs.set(t.durationMs);
+        positionMs.set(0L);
+        currentLiked.set(t.neteaseId != 0 && likedSet.contains(t.neteaseId));
+
+        if (t.source == Track.Source.LOCAL) {
+            loadLocalLyrics(t);
+            Logger.info("play local: {}", t.title);
+            backend.play(t.filePath, 0L);
+            playing.set(true);
+        } else if (t.streamUrl != null) {
+            Logger.info("play netease (cached url): {}", t.title);
+            backend.play(t.streamUrl, 0L);
+            playing.set(true);
+        } else {
+            resolveAndPlayNetease(t, i);
+        }
     }
 
     public void toggle() {
@@ -212,14 +291,14 @@ public final class PlayerController {
     }
 
     public void next() {
-        if (library.isEmpty()) return;
-        play((index.peek() + 1) % library.size());
+        if (queue.isEmpty()) return;
+        playAt((index.peek() + 1) % queue.size());
     }
 
     public void prev() {
-        if (library.isEmpty()) return;
-        int n = library.size();
-        play((index.peek() - 1 + n) % n);
+        if (queue.isEmpty()) return;
+        int n = queue.size();
+        playAt((index.peek() - 1 + n) % n);
     }
 
     public void seek(long ms) {
@@ -237,26 +316,56 @@ public final class PlayerController {
         volume.set(clamped);
     }
 
-    private void selectAndPlay(int i, Track t) {
-        index.set(i);
-        title.set(orEmpty(t.title));
-        artist.set(orEmpty(t.artist));
-        album.set(orEmpty(t.album));
-        durationMs.set(t.durationMs);
-        positionMs.set(0L);
-        loadLyrics(t);
-        String src = t.playable();
-        if (src == null && t.source == Track.Source.NETEASE) {
-            // Stream url not yet resolved — fetch then play.
-            fetchAndPlayNetease(t.neteaseId);
-            return;
-        }
-        backend.play(src, 0L);
-        playing.set(true);
+    public void setPlayLevel(String level) {
+        if (level != null && !level.isEmpty()) playLevel = level;
     }
 
-    private void loadLyrics(Track t) {
-        if (t.source == Track.Source.LOCAL && t.lyricFilePath != null) {
+    private void resolveAndPlayNetease(Track t, int expectedIndex) {
+        long songId = t.neteaseId;
+        worker.submit(() -> {
+            try {
+                Logger.info("netease: resolve song {} (loggedIn={}, level={})",
+                        songId, netease.isLoggedIn(), playLevel);
+                if (t.title == null || t.title.isEmpty()) {
+                    NeteaseSong sd = netease.songDetail(songId);
+                    if (sd != null) {
+                        t.title = sd.name;
+                        t.artist = sd.artist;
+                        t.album = sd.album;
+                        t.coverUrl = sd.coverUrl;
+                        t.durationMs = sd.durationMs;
+                    }
+                }
+                String url = netease.songUrl(songId, playLevel);
+                NeteaseLyric nl = netease.lyric(songId);
+                Logger.info("netease: url={}", url);
+                List<LyricLine> ly = nl == null ? Collections.<LyricLine>emptyList()
+                        : LyricParser.fromNeteaseStrings(nl.yrc, nl.lrc, nl.tlyric, nl.romalrc);
+                post(() -> {
+                    if (index.peek() != expectedIndex) return; // user moved on
+                    if (url == null) {
+                        Logger.warn("netease song {} has no url (blocked/VIP/login required)", songId);
+                        return;
+                    }
+                    t.streamUrl = url;
+                    title.set(orEmpty(t.title));
+                    artist.set(orEmpty(t.artist));
+                    album.set(orEmpty(t.album));
+                    coverUrl.set(orEmpty(t.coverUrl));
+                    durationMs.set(t.durationMs);
+                    lyrics.set(ly);
+                    Logger.info("play netease: {} — {}", t.title, url);
+                    backend.play(url, 0L);
+                    playing.set(true);
+                });
+            } catch (Throwable e) {
+                Logger.warn("netease resolve failed for {}: {}", songId, e.getMessage());
+            }
+        });
+    }
+
+    private void loadLocalLyrics(Track t) {
+        if (t.lyricFilePath != null) {
             try {
                 lyrics.set(LyricParser.parse(t.lyricFilePath, t.translationFilePath, t.romajiFilePath));
                 return;
@@ -267,17 +376,25 @@ public final class PlayerController {
         lyrics.set(Collections.<LyricLine>emptyList());
     }
 
+    private static Track toTrack(NeteaseSong s) {
+        Track t = new Track();
+        t.source = Track.Source.NETEASE;
+        t.neteaseId = s.id;
+        t.title = s.name;
+        t.artist = s.artist;
+        t.album = s.album;
+        t.coverUrl = s.coverUrl;
+        t.durationMs = s.durationMs;
+        return t;
+    }
+
     private static String orEmpty(String s) {
         return s == null ? "" : s;
     }
 
-    // --- Netease ----------------------------------------------------------
+    // --- Netease discovery ------------------------------------------------
 
-    public void setPlayLevel(String level) {
-        if (level != null && !level.isEmpty()) playLevel = level;
-    }
-
-    /** Search netease and publish results to {@link #searchResults}. */
+    /** Search and publish to {@link #searchResults}. */
     public void search(String keyword) {
         if (keyword == null || keyword.trim().isEmpty()) return;
         worker.submit(() -> {
@@ -293,74 +410,119 @@ public final class PlayerController {
         });
     }
 
-    /** Append a netease song to the library and start streaming it. */
-    public void playNetease(long songId) {
-        fetchAndPlayNetease(songId);
-    }
-
-    private void fetchAndPlayNetease(long songId) {
+    /** Load the home content: recommended songs (login) + recommended playlists. */
+    public void loadHome() {
         worker.submit(() -> {
             try {
-                Logger.info("netease: fetch song {} (loggedIn={}, level={})",
-                        songId, netease.isLoggedIn(), playLevel);
-                NeteaseSong sd = netease.songDetail(songId);
-                String url = netease.songUrl(songId, playLevel);
-                NeteaseLyric nl = netease.lyric(songId);
-                Logger.info("netease: url={}", url);
-                if (url == null) {
-                    Logger.warn("netease song {} has no playable url (blocked/VIP/login required)", songId);
-                    return;
-                }
-                Track t = new Track();
-                t.source = Track.Source.NETEASE;
-                t.neteaseId = songId;
-                t.streamUrl = url;
-                if (sd != null) {
-                    t.title = sd.name;
-                    t.artist = sd.artist;
-                    t.album = sd.album;
-                    t.coverUrl = sd.coverUrl;
-                    t.durationMs = sd.durationMs;
-                }
-                List<LyricLine> ly = nl == null
-                        ? Collections.<LyricLine>emptyList()
-                        : LyricParser.fromNeteaseStrings(nl.yrc, nl.lrc, nl.tlyric, nl.romalrc);
-                post(() -> addAndPlayNetease(t, ly));
+                List<NeteasePlaylist> picks = netease.personalizedPlaylists(12);
+                post(() -> recommendPlaylists.set(picks));
             } catch (Throwable e) {
-                Logger.warn("netease play failed for {}: {}", songId, e.getMessage());
+                Logger.warn("personalized playlists failed: {}", e.getMessage());
+            }
+            if (netease.isLoggedIn()) {
+                try {
+                    List<NeteaseSong> daily = netease.recommendSongs();
+                    post(() -> recommendations.set(daily));
+                } catch (Throwable e) {
+                    Logger.warn("daily recommend failed: {}", e.getMessage());
+                }
             }
         });
     }
 
-    /** UI thread: insert the resolved netease track and begin playback. */
-    private void addAndPlayNetease(Track t, List<LyricLine> ly) {
-        int last = library.size() - 1;
-        int idx;
-        if (last >= 0 && library.get(last).source == Track.Source.NETEASE
-                && library.get(last).neteaseId == t.neteaseId && t.neteaseId != 0L) {
-            library.set(last, t);
-            idx = last;
-        } else {
-            library.add(t);
-            idx = library.size() - 1;
-        }
-        tracks.set(new ArrayList<>(library));
-        libraryCount.set(library.size());
-        index.set(idx);
-        title.set(orEmpty(t.title));
-        artist.set(orEmpty(t.artist));
-        album.set(orEmpty(t.album));
-        durationMs.set(t.durationMs);
-        positionMs.set(0L);
-        lyrics.set(ly);
-        Logger.info("play netease: {} — {}", t.title, t.streamUrl);
-        backend.play(t.streamUrl, 0L);
-        playing.set(true);
+    /** Open a playlist: detail (name) + its tracks. */
+    public void openPlaylist(long playlistId) {
+        worker.submit(() -> {
+            try {
+                NeteasePlaylist detail = netease.playlistDetail(playlistId);
+                List<NeteaseSong> songs = netease.playlistTracks(playlistId, 500);
+                String name = detail != null ? detail.name : "";
+                post(() -> {
+                    playlistTitle.set(name == null ? "" : name);
+                    playlistTracks.set(songs);
+                });
+            } catch (Throwable e) {
+                Logger.warn("open playlist {} failed: {}", playlistId, e.getMessage());
+            }
+        });
+    }
+
+    /** Load the signed-in user's playlists (favorites + created). */
+    public void loadMyPlaylists() {
+        if (uid == 0) return;
+        worker.submit(() -> {
+            try {
+                List<NeteasePlaylist> pls = netease.userPlaylists(uid, 100);
+                post(() -> myPlaylists.set(pls));
+            } catch (Throwable e) {
+                Logger.warn("user playlists failed: {}", e.getMessage());
+            }
+        });
+    }
+
+    /** Recently played (netease listen history). */
+    public void loadRecent() {
+        if (uid == 0) return;
+        worker.submit(() -> {
+            try {
+                List<NeteaseSong> rec = netease.userRecord(uid, 0);
+                post(() -> recentSongs.set(rec));
+            } catch (Throwable e) {
+                Logger.warn("recent failed: {}", e.getMessage());
+            }
+        });
+    }
+
+    private void refreshLiked() {
+        if (uid == 0) return;
+        worker.submit(() -> {
+            try {
+                Set<Long> ids = netease.likedSongIds(uid);
+                post(() -> {
+                    likedSet.clear();
+                    likedSet.addAll(ids);
+                    Track cur = currentTrack();
+                    currentLiked.set(cur != null && likedSet.contains(cur.neteaseId));
+                });
+            } catch (Throwable e) {
+                Logger.warn("liked ids failed: {}", e.getMessage());
+            }
+        });
+    }
+
+    /** Like / unlike the current netease track. */
+    public void toggleLike() {
+        Track cur = currentTrack();
+        if (cur == null || cur.neteaseId == 0) return;
+        long id = cur.neteaseId;
+        boolean target = !likedSet.contains(id);
+        worker.submit(() -> {
+            try {
+                boolean ok = netease.like(id, target);
+                if (ok) {
+                    post(() -> {
+                        if (target) likedSet.add(id);
+                        else likedSet.remove(id);
+                        Track c = currentTrack();
+                        if (c != null && c.neteaseId == id) currentLiked.set(target);
+                    });
+                }
+            } catch (Throwable e) {
+                Logger.warn("like toggle failed: {}", e.getMessage());
+            }
+        });
+    }
+
+    private Track currentTrack() {
+        int i = index.peek();
+        return i >= 0 && i < queue.size() ? queue.get(i) : null;
     }
 
     // --- Login ------------------------------------------------------------
 
-    /** QR payload to encode for login (drawn by the QML login dialog). */
+    private volatile String pendingUnikey;
+
+    /** QR payload to encode for login (the QML dialog draws it via {@link #qrMatrix()}). */
     public String qrLoginContent() {
         try {
             String key = netease.qrLoginKey();
@@ -372,15 +534,13 @@ public final class PlayerController {
         }
     }
 
-    private volatile String pendingUnikey;
-
-    /** The QR module matrix for the current login key, or null. */
+    /** QR module matrix ({@code true}=dark) for the current login key, or null. */
     public boolean[][] qrMatrix() {
         String key = pendingUnikey;
         return key == null ? null : netease.qrMatrix(key);
     }
 
-    /** Poll QR scan status: 800 expired / 801 waiting / 802 scanned / 803 success. */
+    /** Poll QR status: 800 expired / 801 waiting / 802 scanned / 803 success. */
     public int qrLoginCheck() {
         String key = pendingUnikey;
         if (key == null) return 800;
@@ -396,14 +556,20 @@ public final class PlayerController {
     private void refreshLogin() {
         worker.submit(() -> {
             try {
-                long uid = netease.loginUid();
-                NeteaseUser u = uid > 0 ? netease.userDetail(uid) : null;
+                long id = netease.loginUid();
+                NeteaseUser u = id > 0 ? netease.userDetail(id) : null;
                 boolean in = netease.isLoggedIn();
                 String name = u != null ? u.nickname : "";
                 post(() -> {
+                    uid = id;
                     loggedIn.set(in);
                     userName.set(name == null ? "" : name);
                 });
+                if (in) {
+                    loadHome();
+                    loadMyPlaylists();
+                    refreshLiked();
+                }
             } catch (Throwable e) {
                 Logger.warn("refreshLogin failed: {}", e.getMessage());
             }
@@ -412,8 +578,13 @@ public final class PlayerController {
 
     public void logout() {
         netease.logout();
+        uid = 0;
         loggedIn.set(false);
         userName.set("");
+        likedSet.clear();
+        myPlaylists.set(Collections.<NeteasePlaylist>emptyList());
+        recommendations.set(Collections.<NeteaseSong>emptyList());
+        recentSongs.set(Collections.<NeteaseSong>emptyList());
     }
 
     public void shutdown() {
