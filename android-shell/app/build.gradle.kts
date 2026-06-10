@@ -78,6 +78,10 @@ dependencies {
     // The RECODE refactor merged parser/engine/compiler/render into one module.
     implementation("io.github.timer-err:qml4j-core:0.1.1")
 
+    // Our platform-neutral player core (netease + lyrics + audio abstraction +
+    // QML bridge). Pulls gson + zxing-core transitively; all Android-dexable.
+    implementation("dev.t1m3.qplayer:player-core:0.1.0-SNAPSHOT")
+
     implementation("io.github.humbleui:skija-shared:0.143.16")
     implementation("io.github.humbleui:skija-android-arm64:0.143.16")
 
