@@ -1,10 +1,11 @@
 import QtQuick
+import QtQuick.Layouts
 import md3.Core
+import "."
 
-// First end-to-end music player screen. Everything reactive is bound to the
-// `player` context global (PlayerController); taps call its methods. Layout:
-// search bar on top, a scroll of netease results + local library, a mini
-// player pinned to the bottom.
+// Player screen. Layout is driven by ColumnLayout/RowLayout + Layout.* — no
+// hand-coded x/y. Icons are Material Symbols glyphs (IconButton.icon), not
+// emoji. Everything reactive binds to the `player` context global.
 Rectangle {
     id: root
     color: Theme.color.surface
@@ -19,224 +20,204 @@ Rectangle {
         return m + ":" + (r < 10 ? "0" + r : r);
     }
 
-    // --- search bar -----------------------------------------------------
-    Rectangle {
-        id: searchBar
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        height: 72
-        color: Theme.color.surfaceContainer
+    ColumnLayout {
+        anchors.fill: parent
+        spacing: 0
 
-        TextField {
-            id: query
-            anchors.left: parent.left
-            anchors.leftMargin: 12
-            anchors.verticalCenter: parent.verticalCenter
-            width: parent.width - 120
-            placeholderText: "搜索网易云歌曲"
-            onAccepted: player.search(query.text)
-        }
+        // --- search bar -------------------------------------------------
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: 76
+            color: Theme.color.surfaceContainer
 
-        Button {
-            type: "filled"
-            text: "搜索"
-            anchors.right: logBtn.left
-            anchors.rightMargin: 8
-            anchors.verticalCenter: parent.verticalCenter
-            onClicked: player.search(query.text)
-        }
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 12
+                anchors.rightMargin: 4
+                spacing: 4
 
-        Button {
-            id: logBtn
-            type: "text"
-            text: "日志"
-            anchors.right: parent.right
-            anchors.rightMargin: 8
-            anchors.verticalCenter: parent.verticalCenter
-            onClicked: root.showLog = !root.showLog
-        }
-    }
+                TextField {
+                    id: query
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignVCenter
+                    type: "filled"
+                    leadingIcon: "search"
+                    placeholderText: "搜索网易云歌曲"
+                    onAccepted: player.search(query.text)
+                }
 
-    // --- scrollable content --------------------------------------------
-    Flickable {
-        id: scroll
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: searchBar.bottom
-        anchors.bottom: mini.top
-        clip: true
-        contentHeight: content.height
+                IconButton {
+                    Layout.alignment: Qt.AlignVCenter
+                    type: "filled"
+                    icon: "search"
+                    onClicked: player.search(query.text)
+                }
 
-        Column {
-            id: content
-            width: scroll.width
-            spacing: 0
-
-            Text {
-                visible: player.resultCount > 0
-                x: 16; height: 40
-                text: "搜索结果"
-                color: Theme.color.primary
-                fontSize: 18
-            }
-
-            Repeater {
-                model: player.resultCount
-                Rectangle {
-                    width: content.width
-                    height: 56
-                    color: rowMa.containsMouse ? Theme.color.surfaceContainerHigh
-                                               : Theme.color.surface
-                    Column {
-                        anchors.left: parent.left
-                        anchors.leftMargin: 16
-                        anchors.verticalCenter: parent.verticalCenter
-                        Text {
-                            text: player.resultTitle(index)
-                            color: Theme.color.onSurfaceColor
-                            fontSize: 16
-                        }
-                        Text {
-                            text: player.resultArtist(index)
-                            color: Theme.color.onSurfaceVariantColor
-                            fontSize: 13
-                        }
-                    }
-                    MouseArea {
-                        id: rowMa
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        onClicked: player.playNetease(player.resultId(index))
-                    }
+                IconButton {
+                    Layout.alignment: Qt.AlignVCenter
+                    type: "standard"
+                    icon: "bug_report"
+                    onClicked: root.showLog = !root.showLog
                 }
             }
+        }
 
-            Text {
-                visible: player.libraryCount > 0
-                x: 16; height: 40
-                text: "本地音乐"
-                color: Theme.color.primary
-                fontSize: 18
-            }
+        // --- scrollable content -----------------------------------------
+        Flickable {
+            id: scroll
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            clip: true
+            contentHeight: content.implicitHeight
 
-            Repeater {
-                model: player.libraryCount
-                Rectangle {
-                    width: content.width
-                    height: 56
-                    color: locMa.containsMouse ? Theme.color.surfaceContainerHigh
-                                               : Theme.color.surface
-                    Column {
-                        anchors.left: parent.left
-                        anchors.leftMargin: 16
-                        anchors.verticalCenter: parent.verticalCenter
-                        Text {
-                            text: player.trackTitle(index)
-                            color: index === player.index ? Theme.color.primary
-                                                          : Theme.color.onSurfaceColor
-                            fontSize: 16
-                        }
-                        Text {
-                            text: player.trackArtist(index)
-                            color: Theme.color.onSurfaceVariantColor
-                            fontSize: 13
-                        }
+            ColumnLayout {
+                id: content
+                width: scroll.width
+                spacing: 0
+
+                Text {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 16
+                    Layout.topMargin: 12
+                    Layout.bottomMargin: 4
+                    visible: player.resultCount > 0
+                    text: "搜索结果"
+                    color: Theme.color.primary
+                    fontSize: 18
+                }
+
+                Repeater {
+                    model: player.resultCount
+                    SongRow {
+                        rowTitle: player.resultTitle(index)
+                        rowArtist: player.resultArtist(index)
+                        onActivated: player.playSearchResult(index)
                     }
-                    MouseArea {
-                        id: locMa
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        onClicked: player.play(index)
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 16
+                    Layout.topMargin: 12
+                    Layout.bottomMargin: 4
+                    visible: player.libraryCount > 0
+                    text: "本地音乐"
+                    color: Theme.color.primary
+                    fontSize: 18
+                }
+
+                Repeater {
+                    model: player.libraryCount
+                    SongRow {
+                        rowTitle: player.trackTitle(index)
+                        rowArtist: player.trackArtist(index)
+                        highlighted: index === player.index
+                        onActivated: player.play(index)
                     }
                 }
             }
         }
-    }
 
-    // --- mini player ----------------------------------------------------
-    Rectangle {
-        id: mini
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        height: 96
-        color: Theme.color.surfaceContainerHigh
+        // --- mini player ------------------------------------------------
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: 80
+            color: Theme.color.surfaceContainerHigh
 
-        Column {
-            anchors.left: parent.left
-            anchors.leftMargin: 16
-            anchors.top: parent.top
-            anchors.topMargin: 12
-            width: parent.width - 32
-            Text {
-                text: player.title.length > 0 ? player.title : "未播放"
-                color: Theme.color.onSurfaceColor
-                fontSize: 16
-                width: parent.width
-                elide: Text.ElideRight
-            }
-            Text {
-                text: player.artist
-                color: Theme.color.onSurfaceVariantColor
-                fontSize: 13
-            }
-            Text {
-                text: fmt(player.positionMs) + " / " + fmt(player.durationMs)
-                color: Theme.color.onSurfaceVariantColor
-                fontSize: 12
-            }
-        }
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 16
+                anchors.rightMargin: 4
+                spacing: 8
 
-        Row {
-            anchors.right: parent.right
-            anchors.rightMargin: 12
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 8
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignVCenter
+                    spacing: 2
 
-            Button { type: "text"; text: "⏮"; onClicked: player.prev() }
-            Button {
-                type: "filled"
-                text: player.playing ? "⏸" : "▶"
-                onClicked: player.toggle()
+                    Text {
+                        Layout.fillWidth: true
+                        text: player.title.length > 0 ? player.title : "未播放"
+                        color: Theme.color.onSurfaceColor
+                        fontSize: 15
+                        elide: Text.ElideRight
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: player.artist + (player.durationMs > 0
+                              ? "   " + fmt(player.positionMs) + " / " + fmt(player.durationMs) : "")
+                        color: Theme.color.onSurfaceVariantColor
+                        fontSize: 12
+                        elide: Text.ElideRight
+                    }
+                }
+
+                IconButton {
+                    Layout.alignment: Qt.AlignVCenter
+                    type: "standard"
+                    icon: player.currentLiked ? "favorite" : "favorite_border"
+                    onClicked: player.toggleLike()
+                }
+                IconButton {
+                    Layout.alignment: Qt.AlignVCenter
+                    type: "standard"
+                    icon: "skip_previous"
+                    onClicked: player.prev()
+                }
+                IconButton {
+                    Layout.alignment: Qt.AlignVCenter
+                    type: "filled"
+                    icon: player.playing ? "pause" : "play_arrow"
+                    onClicked: player.toggle()
+                }
+                IconButton {
+                    Layout.alignment: Qt.AlignVCenter
+                    type: "standard"
+                    icon: "skip_next"
+                    onClicked: player.next()
+                }
             }
-            Button { type: "text"; text: "⏭"; onClicked: player.next() }
         }
     }
 
     // --- log overlay ----------------------------------------------------
     Rectangle {
-        id: logPanel
         visible: root.showLog
         anchors.fill: parent
         color: Theme.color.surfaceContainerHighest
 
-        Row {
-            id: logBar
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
-            height: 56
-            spacing: 8
-            Button { type: "text"; text: "关闭"; onClicked: root.showLog = false }
-            Button { type: "text"; text: "清空"; onClicked: player.clearLog() }
-        }
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 0
 
-        Flickable {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: logBar.bottom
-            anchors.bottom: parent.bottom
-            anchors.margins: 12
-            clip: true
-            contentHeight: logText.height
-            Text {
-                id: logText
-                width: parent.width
-                text: player.logText
-                color: Theme.color.onSurfaceColor
-                fontSize: 12
-                wrapMode: Text.WrapAnywhere
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: 8
+                spacing: 4
+                Text {
+                    Layout.fillWidth: true
+                    text: "日志"
+                    color: Theme.color.onSurfaceColor
+                    fontSize: 18
+                }
+                IconButton { type: "standard"; icon: "delete"; onClicked: player.clearLog() }
+                IconButton { type: "standard"; icon: "close"; onClicked: root.showLog = false }
+            }
+
+            Flickable {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.margins: 12
+                clip: true
+                contentHeight: logText.implicitHeight
+                Text {
+                    id: logText
+                    width: parent.width
+                    text: player.logText
+                    color: Theme.color.onSurfaceColor
+                    fontSize: 12
+                    wrapMode: Text.WrapAnywhere
+                }
             }
         }
     }
