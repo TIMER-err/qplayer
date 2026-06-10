@@ -12,7 +12,6 @@ Rectangle {
     property bool highlighted: false
     signal activated()
 
-    Layout.fillWidth: true
     implicitHeight: 64
     color: ma.containsMouse ? Theme.color.surfaceContainerHigh : "transparent"
 

@@ -63,54 +63,49 @@ Rectangle {
         }
 
         // --- scrollable content -----------------------------------------
+        // Column (positioner) gives a definite height for contentHeight, and
+        // the lists bind their List Property directly as the model so a new
+        // result set re-binds modelData even when the row count is unchanged.
         Flickable {
             id: scroll
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            contentHeight: content.implicitHeight
+            contentHeight: content.height
 
-            ColumnLayout {
+            Column {
                 id: content
                 width: scroll.width
                 spacing: 0
 
-                Text {
-                    Layout.fillWidth: true
-                    Layout.leftMargin: 16
-                    Layout.topMargin: 12
-                    Layout.bottomMargin: 4
-                    visible: player.resultCount > 0
+                SectionHeader {
+                    width: content.width
                     text: "搜索结果"
-                    color: Theme.color.primary
-                    fontSize: 18
+                    visible: player.resultCount > 0
                 }
 
                 Repeater {
-                    model: player.resultCount
+                    model: player.searchResults
                     SongRow {
-                        rowTitle: player.resultTitle(index)
-                        rowArtist: player.resultArtist(index)
+                        width: content.width
+                        rowTitle: modelData.name
+                        rowArtist: modelData.artist
                         onActivated: player.playSearchResult(index)
                     }
                 }
 
-                Text {
-                    Layout.fillWidth: true
-                    Layout.leftMargin: 16
-                    Layout.topMargin: 12
-                    Layout.bottomMargin: 4
-                    visible: player.libraryCount > 0
+                SectionHeader {
+                    width: content.width
                     text: "本地音乐"
-                    color: Theme.color.primary
-                    fontSize: 18
+                    visible: player.libraryCount > 0
                 }
 
                 Repeater {
-                    model: player.libraryCount
+                    model: player.tracks
                     SongRow {
-                        rowTitle: player.trackTitle(index)
-                        rowArtist: player.trackArtist(index)
+                        width: content.width
+                        rowTitle: modelData.title
+                        rowArtist: modelData.artist
                         highlighted: index === player.index
                         onActivated: player.play(index)
                     }
