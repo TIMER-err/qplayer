@@ -30,6 +30,7 @@ Item {
                 Repeater {
                     model: player.myPlaylists
                     PlaylistCard {
+                        tile: (col.width - 12) / 2
                         name: modelData.name
                         count: modelData.trackCount
                         onClicked: { page.pendingPlaylist = modelData; page.openPlaylist() }

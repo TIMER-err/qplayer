@@ -1,19 +1,20 @@
 import QtQuick
-import QtQuick.Layouts
 import md3.Core
 
-// A playlist tile sized by the enclosing GridLayout (Layout.fillWidth → each of
-// the two columns gets half the width, so margins stay even). Height tracks the
-// (square) cover + two text lines. Plain Item, no sizing loop. Placeholder cover.
+// A playlist tile. Its size is fixed from `tile` (computed by the page from the
+// available width), set as implicitWidth so GridLayout sizes its columns
+// correctly. No dependence on the layout-assigned width → no feedback loop.
+// Placeholder cover glyph; network covers later.
 Item {
     id: card
 
     property string name: ""
     property int count: 0
+    property real tile: 160
     signal clicked()
 
-    Layout.fillWidth: true
-    implicitHeight: width + 52
+    implicitWidth: tile
+    implicitHeight: tile + 52
 
     Column {
         anchors.top: parent.top
