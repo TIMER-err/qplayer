@@ -69,16 +69,21 @@ Rectangle {
         Repeater {
             model: rail.items
             Item {
+                id: navItem
                 Layout.fillWidth: true
                 implicitHeight: 64
                 property bool selected: index === rail.currentIndex
+                property color indColor: Theme.color.secondaryContainer
 
+                // selection pill: always present, fades its alpha in/out
                 Rectangle {
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.top: parent.top
                     anchors.topMargin: 6
                     width: 56; height: 32; radius: 16
-                    color: parent.selected ? Theme.color.secondaryContainer : "transparent"
+                    color: Qt.rgba(navItem.indColor.r, navItem.indColor.g,
+                                   navItem.indColor.b, navItem.selected ? 1 : 0)
+                    Behavior on color { ColorAnimation { duration: 200; easing.type: Easing.OutCubic } }
                 }
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -87,18 +92,22 @@ Rectangle {
                     text: modelData.icon
                     font.family: Theme.iconFont.name
                     font.pixelSize: 22
-                    color: parent.selected ? Theme.color.onSecondaryContainerColor
-                                           : Theme.color.onSurfaceVariantColor
+                    color: navItem.selected ? Theme.color.onSecondaryContainerColor
+                                            : Theme.color.onSurfaceVariantColor
+                    Behavior on color { ColorAnimation { duration: 200 } }
                 }
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.bottom: parent.bottom
                     text: modelData.label
                     fontSize: 11
-                    color: parent.selected ? Theme.color.onSurfaceColor : Theme.color.onSurfaceVariantColor
+                    color: navItem.selected ? Theme.color.onSurfaceColor
+                                            : Theme.color.onSurfaceVariantColor
+                    Behavior on color { ColorAnimation { duration: 200 } }
                 }
-                MouseArea {
+                Ripple {
                     anchors.fill: parent
+                    clipRadius: 12
                     onClicked: { rail.pendingIndex = index; rail.navigate() }
                 }
             }
