@@ -79,18 +79,20 @@ Rectangle {
                 width: 220; height: 220; radius: 12
                 color: "#ffffff"
 
-                // Spinner sits BELOW the QR (declared first) and only animates
-                // once revealed — never during the open animation, so the open
-                // stays smooth. The QR Canvas paints over it when ready.
+                // Spinner shows while loading (incl. during the open); the QR
+                // Canvas is simply hidden until the matrix is ready, so the
+                // spinner beneath is visible without relying on canvas alpha.
                 CircularProgress {
                     anchors.centerIn: parent
+                    width: 48; height: 48
                     indeterminate: true
-                    visible: dialog.ready && dialog.qr.length === 0
+                    visible: !canvas.visible
                 }
                 Canvas {
                     id: canvas
                     anchors.centerIn: parent
                     width: 200; height: 200
+                    visible: dialog.ready && dialog.qr.length > 0
                     onPaint: {
                         var ctx = getContext("2d");
                         // Stay transparent until the QR is ready so the spinner
