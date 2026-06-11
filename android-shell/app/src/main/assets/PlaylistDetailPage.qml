@@ -13,11 +13,28 @@ Rectangle {
         anchors.fill: parent
         spacing: 0
 
-        TopAppBar {
+        // Custom header: qml4j can't set a sub-property of TopAppBar's
+        // navigationIcon alias (navigationIcon.icon) via grouped binding.
+        RowLayout {
             Layout.fillWidth: true
-            title: player.playlistTitle
-            navigationIcon.icon: "arrow_back"
-            onNavigationIconClicked: page.back()
+            Layout.preferredHeight: 64
+            Layout.leftMargin: 4
+            Layout.rightMargin: 16
+            spacing: 4
+            IconButton {
+                Layout.alignment: Qt.AlignVCenter
+                type: "standard"; icon: "arrow_back"
+                onClicked: page.back()
+            }
+            Text {
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
+                text: player.playlistTitle
+                color: Theme.color.onSurfaceColor
+                font.family: Theme.typography.titleLarge.family
+                font.pixelSize: Theme.typography.titleLarge.size
+                elide: Text.ElideRight
+            }
         }
 
         VirtualSongList {
