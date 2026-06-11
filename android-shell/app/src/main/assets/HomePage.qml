@@ -43,9 +43,11 @@ Item {
 
             SectionHeader { width: col.width; text: "推荐歌单"; visible: recPlaylists.count > 0 }
 
-            Flow {
+            GridLayout {
                 width: col.width
-                spacing: 12
+                columns: 2
+                columnSpacing: 12
+                rowSpacing: 12
                 Repeater {
                     id: recPlaylists
                     model: player.recommendPlaylists

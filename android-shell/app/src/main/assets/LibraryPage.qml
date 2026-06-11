@@ -22,9 +22,11 @@ Item {
             x: 8
             width: parent.width - 16
             SectionHeader { width: col.width; text: "我的歌单" }
-            Flow {
+            GridLayout {
                 width: col.width
-                spacing: 12
+                columns: 2
+                columnSpacing: 12
+                rowSpacing: 12
                 Repeater {
                     model: player.myPlaylists
                     PlaylistCard {
