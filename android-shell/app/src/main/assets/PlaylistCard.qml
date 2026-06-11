@@ -1,30 +1,28 @@
 import QtQuick
-import QtQuick.Layouts
 import md3.Core
 
-// A playlist tile for the home / library grids: placeholder cover art, name,
-// and track count. Network cover loading is a later pass — for now a glyph.
-Item {
+// A playlist tile built on the MD3 Card (filled, with its own ripple + clicked).
+// Placeholder cover glyph for now — network covers are a later pass.
+Card {
     id: card
 
     property string name: ""
     property int count: 0
-    signal clicked()
 
-    width: 156
-    implicitHeight: 200
+    width: 160
+    height: 196
+    type: "filled"
+    padding: 8
 
-    ColumnLayout {
+    Column {
         anchors.fill: parent
-        anchors.margins: 6
-        spacing: 6
+        spacing: 8
 
         Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: width
+            width: parent.width
+            height: width
             radius: 12
-            color: cardMa.containsMouse ? Theme.color.surfaceContainerHighest
-                                        : Theme.color.surfaceContainer
+            color: Theme.color.surfaceContainerHighest
             Text {
                 anchors.centerIn: parent
                 text: "queue_music"
@@ -33,27 +31,19 @@ Item {
                 color: Theme.color.onSurfaceVariantColor
             }
         }
-
         Text {
-            Layout.fillWidth: true
+            width: parent.width
             text: card.name
             color: Theme.color.onSurfaceColor
             fontSize: 14
             elide: Text.ElideRight
         }
         Text {
-            Layout.fillWidth: true
+            width: parent.width
             visible: card.count > 0
             text: card.count + " 首"
             color: Theme.color.onSurfaceVariantColor
             fontSize: 12
         }
-    }
-
-    MouseArea {
-        id: cardMa
-        anchors.fill: parent
-        hoverEnabled: true
-        onClicked: card.clicked()
     }
 }

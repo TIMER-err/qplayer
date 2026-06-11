@@ -3,8 +3,9 @@ import QtQuick.Layouts
 import md3.Core
 import "."
 
-// SPlayer-style shell: left rail + paged content + bottom mini player, with a
-// playlist-detail overlay, the QR login dialog and the debug log on top.
+// Phone shell: TopAppBar + paged content + mini player + bottom navigation,
+// with a playlist-detail overlay, QR login dialog, a Snackbar for transient
+// messages and the debug log on top.
 Rectangle {
     id: app
     color: Theme.color.surface
@@ -14,72 +15,56 @@ Rectangle {
     property bool loginOpen: false
     property bool showLog: false
 
+    property var titles: ["推荐", "搜索", "我的", "最近", "本地"]
+
+    // surface player toasts in a Snackbar
+    property string toastWatch: player.toast
+    onToastWatchChanged: if (player.toast.length > 0) { snack.text = player.toast; snack.open() }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
 
-        // content region: rail + pages, with the detail overlay on top
+        TopAppBar {
+            Layout.fillWidth: true
+            title: app.titles[app.page]
+            showNavigationIcon: false
+
+            IconButton {
+                type: "standard"
+                icon: player.loggedIn ? "account_circle" : "login"
+                onClicked: if (!player.loggedIn) app.loginOpen = true
+            }
+            IconButton {
+                type: "standard"
+                icon: "bug_report"
+                onClicked: app.showLog = !app.showLog
+            }
+        }
+
+        // content region: pages + detail overlay
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
-            RowLayout {
+            StackLayout {
                 anchors.fill: parent
-                spacing: 0
+                currentIndex: app.page
 
-                Sidebar {
-                    id: sidebar
-                    Layout.fillHeight: true
-                    currentIndex: app.page
-                    loggedIn: player.loggedIn
-                    userName: player.userName
-                    onNavigate: {
-                        app.page = sidebar.pendingIndex;
-                        if (sidebar.pendingIndex === 2) player.loadMyPlaylists();
-                        else if (sidebar.pendingIndex === 3) player.loadRecent();
-                    }
-                    onAccount: if (!player.loggedIn) app.loginOpen = true
+                HomePage {
+                    id: home
+                    onOpenPlaylist: { player.openPlaylist(home.pendingPlaylist.id); app.detailOpen = true }
                 }
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    spacing: 0
-
-                    // slim top bar (debug access)
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 44
-                        Layout.rightMargin: 4
-                        Item { Layout.fillWidth: true }
-                        IconButton {
-                            Layout.alignment: Qt.AlignVCenter
-                            type: "standard"; icon: "bug_report"
-                            onClicked: app.showLog = !app.showLog
-                        }
-                    }
-
-                    StackLayout {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        currentIndex: app.page
-
-                        HomePage {
-                            id: home
-                            onOpenPlaylist: { player.openPlaylist(home.pendingPlaylist.id); app.detailOpen = true }
-                        }
-                        SearchPage {}
-                        LibraryPage {
-                            id: library
-                            onOpenPlaylist: { player.openPlaylist(library.pendingPlaylist.id); app.detailOpen = true }
-                            onRequestLogin: app.loginOpen = true
-                        }
-                        RecentPage {
-                            onRequestLogin: app.loginOpen = true
-                        }
-                        LocalPage {}
-                    }
+                SearchPage {}
+                LibraryPage {
+                    id: library
+                    onOpenPlaylist: { player.openPlaylist(library.pendingPlaylist.id); app.detailOpen = true }
+                    onRequestLogin: app.loginOpen = true
                 }
+                RecentPage {
+                    onRequestLogin: app.loginOpen = true
+                }
+                LocalPage {}
             }
 
             PlaylistDetailPage {
@@ -90,12 +75,25 @@ Rectangle {
         }
 
         MiniPlayer { Layout.fillWidth: true }
+
+        BottomNav {
+            id: bottomNav
+            Layout.fillWidth: true
+            currentIndex: app.page
+            onNavigate: {
+                app.page = bottomNav.pendingIndex;
+                if (bottomNav.pendingIndex === 2) player.loadMyPlaylists();
+                else if (bottomNav.pendingIndex === 3) player.loadRecent();
+            }
+        }
     }
 
     LoginDialog {
         active: app.loginOpen
         onClosed: app.loginOpen = false
     }
+
+    Snackbar { id: snack }
 
     // --- debug log overlay ---------------------------------------------
     Rectangle {

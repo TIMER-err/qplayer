@@ -101,6 +101,8 @@ public final class PlayerController {
 
     // --- Debug ------------------------------------------------------------
     public final Property<String> logText = new Property<>("");
+    /** Transient user-facing message; the UI shows a Snackbar when it changes. */
+    public final Property<String> toast = new Property<>("");
 
     public PlayerController(AudioBackend backend, MetadataReader metadataReader) {
         this(backend, metadataReader, NeteaseClient.INSTANCE);
@@ -345,6 +347,7 @@ public final class PlayerController {
                     if (index.peek() != expectedIndex) return; // user moved on
                     if (url == null) {
                         Logger.warn("netease song {} has no url (blocked/VIP/login required)", songId);
+                        toast.set(netease.isLoggedIn() ? "无法播放：VIP/灰色歌曲" : "无法播放：请先登录");
                         return;
                     }
                     t.streamUrl = url;
