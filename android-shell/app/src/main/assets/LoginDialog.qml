@@ -78,17 +78,28 @@ Rectangle {
                 Layout.alignment: Qt.AlignHCenter
                 width: 220; height: 220; radius: 12
                 color: "#ffffff"
+
+                // Spinner sits BELOW the QR (declared first) and only animates
+                // once revealed — never during the open animation, so the open
+                // stays smooth. The QR Canvas paints over it when ready.
+                CircularProgress {
+                    anchors.centerIn: parent
+                    indeterminate: true
+                    visible: dialog.ready && dialog.qr.length === 0
+                }
                 Canvas {
                     id: canvas
                     anchors.centerIn: parent
                     width: 200; height: 200
                     onPaint: {
                         var ctx = getContext("2d");
-                        ctx.fillStyle = "#ffffff";
-                        ctx.fillRect(0, 0, width, height);
+                        // Stay transparent until the QR is ready so the spinner
+                        // beneath shows through (the white box is the Rectangle).
                         if (!dialog.ready) return;
                         var m = dialog.qr;
                         if (!m || m.length <= 0) return;
+                        ctx.fillStyle = "#ffffff";
+                        ctx.fillRect(0, 0, width, height);
                         var n = m.length;
                         var cell = width / n;
                         ctx.fillStyle = "#000000";
@@ -101,11 +112,6 @@ Rectangle {
                             }
                         }
                     }
-                }
-                LoadingIndicator {
-                    anchors.centerIn: parent
-                    running: !dialog.ready || dialog.qr.length === 0
-                    visible: !dialog.ready || dialog.qr.length === 0
                 }
             }
 
