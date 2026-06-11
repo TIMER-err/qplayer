@@ -17,7 +17,18 @@ Rectangle {
     color: "#99000000"
     Behavior on opacity { NumberAnimation { duration: 150 } }
 
-    onActiveChanged: if (active) player.startQrLogin()
+    // Defer drawing the QR until the open animation finishes, so the one-off
+    // matrix paint can't hitch the scale/fade. Until then only the loading
+    // indicator shows.
+    property bool ready: false
+    onActiveChanged: {
+        if (active) { ready = false; player.startQrLogin(); revealTimer.restart(); }
+    }
+    Timer {
+        id: revealTimer
+        interval: 280
+        onTriggered: { dialog.ready = true; canvas.requestPaint(); }
+    }
 
     function statusText(code) {
         if (code === 0) return "正在获取二维码…";
@@ -27,9 +38,9 @@ Rectangle {
         return "请用网易云音乐 App 扫码";
     }
 
-    // redraw when the matrix arrives; close on success
+    // redraw when the matrix arrives (only once revealed); close on success
     property var qr: player.qrImage
-    onQrChanged: canvas.requestPaint()
+    onQrChanged: if (ready) canvas.requestPaint()
     property int st: player.qrStatus
     onStChanged: if (st === 803) dialog.closed()
 
@@ -75,6 +86,7 @@ Rectangle {
                         var ctx = getContext("2d");
                         ctx.fillStyle = "#ffffff";
                         ctx.fillRect(0, 0, width, height);
+                        if (!dialog.ready) return;
                         var m = dialog.qr;
                         if (!m || m.length <= 0) return;
                         var n = m.length;
@@ -92,8 +104,8 @@ Rectangle {
                 }
                 LoadingIndicator {
                     anchors.centerIn: parent
-                    running: dialog.st === 0
-                    visible: dialog.st === 0
+                    running: !dialog.ready || dialog.qr.length === 0
+                    visible: !dialog.ready || dialog.qr.length === 0
                 }
             }
 
