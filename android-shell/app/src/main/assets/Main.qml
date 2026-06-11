@@ -27,16 +27,26 @@ Rectangle {
         pageAnim.restart();
     }
 
+    // Driven by pageAnim; pageBody binds y + opacity to these.
+    property real pageOpacity: 1
+    property real pageShift: 0
+
     SequentialAnimation {
         id: pageAnim
         NumberAnimation {
-            target: pageWrap; property: "opacity"; to: 0
+            target: app; property: "pageOpacity"; to: 0
             duration: 90; easing.type: Easing.OutCubic
         }
-        ScriptAction { onTrigger: app.page = app.nextPage }
-        NumberAnimation {
-            target: pageWrap; property: "opacity"; from: 0; to: 1
-            duration: 170; easing.type: Easing.OutCubic
+        ScriptAction { onTrigger: { app.page = app.nextPage; app.pageShift = 28 } }
+        ParallelAnimation {
+            NumberAnimation {
+                target: app; property: "pageOpacity"; from: 0; to: 1
+                duration: 220; easing.type: Easing.OutCubic
+            }
+            NumberAnimation {
+                target: app; property: "pageShift"; from: 28; to: 0
+                duration: 220; easing.type: Easing.OutCubic
+            }
         }
     }
 
@@ -65,36 +75,46 @@ Rectangle {
             }
         }
 
-        // content region: pages + detail overlay (faded on page switch)
+        // content region. pageBody is positioned by y (not anchors) so the
+        // switch can rise it up; pageWrap clips the overshoot.
         Item {
             id: pageWrap
             Layout.fillWidth: true
             Layout.fillHeight: true
+            clip: true
 
-            StackLayout {
-                anchors.fill: parent
-                currentIndex: app.page
+            Item {
+                id: pageBody
+                width: parent.width
+                height: parent.height
+                y: app.pageShift
+                opacity: app.pageOpacity
 
-                HomePage {
-                    id: home
-                    onOpenPlaylist: { player.openPlaylist(home.pendingPlaylist.id); app.detailOpen = true }
-                }
-                SearchPage {}
-                LibraryPage {
-                    id: library
-                    onOpenPlaylist: { player.openPlaylist(library.pendingPlaylist.id); app.detailOpen = true }
-                    onRequestLogin: app.loginOpen = true
-                }
-                RecentPage {
-                    onRequestLogin: app.loginOpen = true
-                }
-                LocalPage {}
-            }
+                StackLayout {
+                    anchors.fill: parent
+                    currentIndex: app.page
 
-            PlaylistDetailPage {
-                anchors.fill: parent
-                visible: app.detailOpen
-                onBack: app.detailOpen = false
+                    HomePage {
+                        id: home
+                        onOpenPlaylist: { player.openPlaylist(home.pendingPlaylist.id); app.detailOpen = true }
+                    }
+                    SearchPage {}
+                    LibraryPage {
+                        id: library
+                        onOpenPlaylist: { player.openPlaylist(library.pendingPlaylist.id); app.detailOpen = true }
+                        onRequestLogin: app.loginOpen = true
+                    }
+                    RecentPage {
+                        onRequestLogin: app.loginOpen = true
+                    }
+                    LocalPage {}
+                }
+
+                PlaylistDetailPage {
+                    anchors.fill: parent
+                    visible: app.detailOpen
+                    onBack: app.detailOpen = false
+                }
             }
         }
 
