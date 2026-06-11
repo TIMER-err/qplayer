@@ -7,7 +7,8 @@ import "."
 // opens its detail. Prompts to log in when signed out.
 Item {
     id: page
-    signal openPlaylist(var pl)
+    property var pendingPlaylist
+    signal openPlaylist()
     signal requestLogin()
 
     Flickable {
@@ -27,7 +28,7 @@ Item {
                     PlaylistCard {
                         name: modelData.name
                         count: modelData.trackCount
-                        onClicked: page.openPlaylist(modelData)
+                        onClicked: { page.pendingPlaylist = modelData; page.openPlaylist() }
                     }
                 }
             }

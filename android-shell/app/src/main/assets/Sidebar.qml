@@ -10,7 +10,10 @@ Rectangle {
     property int currentIndex: 0
     property bool loggedIn: false
     property string userName: ""
-    signal navigate(int idx)
+    // qml4j can't resolve a custom signal's params in a cross-file handler, so
+    // signals stay parameterless and carry their payload via a property.
+    property int pendingIndex: 0
+    signal navigate()
     signal account()
 
     property var items: [
@@ -94,7 +97,10 @@ Rectangle {
                     fontSize: 11
                     color: parent.selected ? Theme.color.onSurfaceColor : Theme.color.onSurfaceVariantColor
                 }
-                MouseArea { anchors.fill: parent; onClicked: rail.navigate(index) }
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: { rail.pendingIndex = index; rail.navigate() }
+                }
             }
         }
 

@@ -28,14 +28,15 @@ Rectangle {
                 spacing: 0
 
                 Sidebar {
+                    id: sidebar
                     Layout.fillHeight: true
                     currentIndex: app.page
                     loggedIn: player.loggedIn
                     userName: player.userName
                     onNavigate: {
-                        app.page = idx;
-                        if (idx === 2) player.loadMyPlaylists();
-                        else if (idx === 3) player.loadRecent();
+                        app.page = sidebar.pendingIndex;
+                        if (sidebar.pendingIndex === 2) player.loadMyPlaylists();
+                        else if (sidebar.pendingIndex === 3) player.loadRecent();
                     }
                     onAccount: if (!player.loggedIn) app.loginOpen = true
                 }
@@ -64,11 +65,13 @@ Rectangle {
                         currentIndex: app.page
 
                         HomePage {
-                            onOpenPlaylist: { player.openPlaylist(pl.id); app.detailOpen = true }
+                            id: home
+                            onOpenPlaylist: { player.openPlaylist(home.pendingPlaylist.id); app.detailOpen = true }
                         }
                         SearchPage {}
                         LibraryPage {
-                            onOpenPlaylist: { player.openPlaylist(pl.id); app.detailOpen = true }
+                            id: library
+                            onOpenPlaylist: { player.openPlaylist(library.pendingPlaylist.id); app.detailOpen = true }
                             onRequestLogin: app.loginOpen = true
                         }
                         RecentPage {

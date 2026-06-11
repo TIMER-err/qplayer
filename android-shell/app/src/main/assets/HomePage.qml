@@ -7,7 +7,8 @@ import "."
 // in) the daily song picks.
 Item {
     id: page
-    signal openPlaylist(var pl)
+    property var pendingPlaylist
+    signal openPlaylist()
 
     function greeting() {
         var h = new Date().getHours();
@@ -49,7 +50,7 @@ Item {
                     PlaylistCard {
                         name: modelData.name
                         count: modelData.trackCount
-                        onClicked: page.openPlaylist(modelData)
+                        onClicked: { page.pendingPlaylist = modelData; page.openPlaylist() }
                     }
                 }
             }
