@@ -1,28 +1,32 @@
 import QtQuick
 import md3.Core
 
-// A playlist tile built on the MD3 Card (filled, with its own ripple + clicked).
-// Placeholder cover glyph for now — network covers are a later pass.
-Card {
+// A playlist tile. Plain Item with explicit sizes — do NOT base it on Card whose
+// implicitHeight tracks content while the content fills it back (sizing loop that
+// thrashes layout every frame). Placeholder cover glyph; network covers later.
+Item {
     id: card
 
     property string name: ""
     property int count: 0
+    signal clicked()
 
-    width: 160
-    height: 196
-    type: "filled"
-    padding: 8
+    width: 150
+    implicitHeight: 212
 
     Column {
-        anchors.fill: parent
-        spacing: 8
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.margins: 4
+        spacing: 6
 
         Rectangle {
             width: parent.width
-            height: width
-            radius: 12
-            color: Theme.color.surfaceContainerHighest
+            height: parent.width
+            radius: 14
+            color: cardMa.containsMouse ? Theme.color.surfaceContainerHighest
+                                        : Theme.color.surfaceContainer
             Text {
                 anchors.centerIn: parent
                 text: "queue_music"
@@ -45,5 +49,12 @@ Card {
             color: Theme.color.onSurfaceVariantColor
             fontSize: 12
         }
+    }
+
+    MouseArea {
+        id: cardMa
+        anchors.fill: parent
+        hoverEnabled: true
+        onClicked: card.clicked()
     }
 }
