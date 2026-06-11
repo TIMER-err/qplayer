@@ -11,11 +11,34 @@ Rectangle {
     color: Theme.color.surface
 
     property int page: 0
+    property int nextPage: 0
     property bool detailOpen: false
     property bool loginOpen: false
     property bool showLog: false
 
     property var titles: ["推荐", "搜索", "我的", "最近", "本地"]
+
+    // MD3 fade-through page switch: fade the content out, swap, fade it back in.
+    function switchTo(idx) {
+        if (idx === app.page) return;
+        app.nextPage = idx;
+        if (idx === 2) player.loadMyPlaylists();
+        else if (idx === 3) player.loadRecent();
+        pageAnim.restart();
+    }
+
+    SequentialAnimation {
+        id: pageAnim
+        NumberAnimation {
+            target: pageWrap; property: "opacity"; to: 0
+            duration: 90; easing.type: Easing.OutCubic
+        }
+        ScriptAction { onTrigger: app.page = app.nextPage }
+        NumberAnimation {
+            target: pageWrap; property: "opacity"; from: 0; to: 1
+            duration: 170; easing.type: Easing.OutCubic
+        }
+    }
 
     // surface player toasts in a Snackbar
     property string toastWatch: player.toast
@@ -42,8 +65,9 @@ Rectangle {
             }
         }
 
-        // content region: pages + detail overlay
+        // content region: pages + detail overlay (faded on page switch)
         Item {
+            id: pageWrap
             Layout.fillWidth: true
             Layout.fillHeight: true
 
@@ -80,11 +104,7 @@ Rectangle {
             id: bottomNav
             Layout.fillWidth: true
             currentIndex: app.page
-            onNavigate: {
-                app.page = bottomNav.pendingIndex;
-                if (bottomNav.pendingIndex === 2) player.loadMyPlaylists();
-                else if (bottomNav.pendingIndex === 3) player.loadRecent();
-            }
+            onNavigate: app.switchTo(bottomNav.pendingIndex)
         }
     }
 
