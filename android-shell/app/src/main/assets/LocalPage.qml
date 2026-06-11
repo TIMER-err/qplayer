@@ -7,27 +7,13 @@ import "."
 Item {
     id: page
 
-    Flickable {
+    VirtualSongList {
+        id: local
         anchors.fill: parent
-        clip: true
-        contentHeight: col.height
         visible: player.libraryCount > 0
-
-        Column {
-            id: col
-            width: parent.width
-            SectionHeader { width: col.width; text: "本地音乐" }
-            Repeater {
-                model: player.tracks
-                SongRow {
-                    width: col.width
-                    rowTitle: modelData.title
-                    rowArtist: modelData.artist
-                    highlighted: index === player.index
-                    onActivated: player.play(index)
-                }
-            }
-        }
+        list: player.tracks
+        isLocal: true
+        onActivated: player.play(local.activatedIndex)
     }
 
     Text {

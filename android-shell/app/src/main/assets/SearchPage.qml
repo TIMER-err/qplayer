@@ -32,25 +32,12 @@ Item {
             }
         }
 
-        Flickable {
+        VirtualSongList {
+            id: results
             Layout.fillWidth: true
             Layout.fillHeight: true
-            clip: true
-            contentHeight: col.height
-
-            Column {
-                id: col
-                width: parent.width
-                Repeater {
-                    model: player.searchResults
-                    SongRow {
-                        width: col.width
-                        rowTitle: modelData.name
-                        rowArtist: modelData.artist
-                        onActivated: player.playSearchResult(index)
-                    }
-                }
-            }
+            list: player.searchResults
+            onActivated: player.playSearchResult(results.activatedIndex)
         }
     }
 }

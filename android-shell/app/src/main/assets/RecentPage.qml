@@ -8,26 +8,12 @@ Item {
     id: page
     signal requestLogin()
 
-    Flickable {
+    VirtualSongList {
+        id: recent
         anchors.fill: parent
-        clip: true
-        contentHeight: col.height
         visible: player.loggedIn
-
-        Column {
-            id: col
-            width: parent.width
-            SectionHeader { width: col.width; text: "最近播放" }
-            Repeater {
-                model: player.recentSongs
-                SongRow {
-                    width: col.width
-                    rowTitle: modelData.name
-                    rowArtist: modelData.artist
-                    onActivated: player.playRecentSong(index)
-                }
-            }
-        }
+        list: player.recentSongs
+        onActivated: player.playRecentSong(recent.activatedIndex)
     }
 
     ColumnLayout {

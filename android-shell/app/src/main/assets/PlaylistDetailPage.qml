@@ -34,25 +34,12 @@ Rectangle {
             }
         }
 
-        Flickable {
+        VirtualSongList {
+            id: tracks
             Layout.fillWidth: true
             Layout.fillHeight: true
-            clip: true
-            contentHeight: col.height
-
-            Column {
-                id: col
-                width: parent.width
-                Repeater {
-                    model: player.playlistTracks
-                    SongRow {
-                        width: col.width
-                        rowTitle: modelData.name
-                        rowArtist: modelData.artist
-                        onActivated: player.playPlaylistTrack(index)
-                    }
-                }
-            }
+            list: player.playlistTracks
+            onActivated: player.playPlaylistTrack(tracks.activatedIndex)
         }
     }
 }
