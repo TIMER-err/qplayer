@@ -85,7 +85,7 @@ Rectangle {
                     anchors.centerIn: parent
                     width: 48; height: 48
                     indeterminate: true
-                    visible: !canvas.visible
+                    visible: dialog.active && !canvas.visible
                 }
                 Canvas {
                     id: canvas

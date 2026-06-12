@@ -21,6 +21,7 @@ import io.github.humbleui.skija.SurfaceOrigin;
 
 import io.github.timer_err.qml4j.engine.QmlEngine;
 import io.github.timer_err.qml4j.engine.binding.DirtyQueue;
+import io.github.timer_err.qml4j.engine.binding.Property;
 import io.github.timer_err.qml4j.render.QmlView;
 import io.github.timer_err.qml4j.render.ResourceLoader;
 import io.github.timer_err.qml4j.render.SurfaceBackend;
@@ -44,6 +45,9 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     private PlayerController controller;
     private volatile boolean failed;
     private ErrorListener errorListener;
+    // Mirror QmlView.renderFrame's idle fast-path: skip the layout pass when no
+    // property changed since the last frame, so a static screen costs only paint.
+    private long renderedVersion = -1;
 
     /** Notified (with a full stack trace) when QML load/render throws, so the
      *  host can surface the error instead of the GL thread crashing the app. */
@@ -311,9 +315,11 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
             dq.install();
             try {
                 long t0 = System.nanoTime();
+                long v0 = Property.changeVersion();
                 if (controller != null) controller.pump();
                 view.tickAnimations(System.nanoTime());
                 dq.flush();
+                profBumpTick += Property.changeVersion() - v0;
                 long t1 = System.nanoTime();
                 Canvas canvas = surface.acquireCanvas();
                 int sc = canvas.save();
@@ -322,10 +328,16 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 // loader (via resources()); reuse it rather than a bare Renderer.
                 io.github.timer_err.qml4j.render.Renderer renderer = view.renderer();
                 renderer.setGpuContext(surface.recordingContext());
-                renderer.render(canvas, view.root());
+                boolean skipLayout = Property.changeVersion() == renderedVersion;
+                if (skipLayout) profSkips++;
+                long vBeforeRender = Property.changeVersion();
+                renderer.render(canvas, view.root(), skipLayout);
+                renderedVersion = Property.changeVersion();
+                profBumpRender += renderedVersion - vBeforeRender;
                 canvas.restoreToCount(sc);
+                long t1b = System.nanoTime();
                 surface.present();
-                profileFrame(t0, t1, System.nanoTime());
+                profileFrame(t0, t1, t1b, System.nanoTime());
             } catch (Throwable t) {
                 reportError(t);
             } finally {
@@ -339,11 +351,14 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     // every ~120 frames so scroll hitches show up in the in-app log.
     private long profLastFrameNanos;
     private int profFrames;
-    private double profLayoutMs, profPaintMs, profGapMs, profMaxGapMs;
+    private int profSkips;
+    private long profBumpTick, profBumpRender;
+    private double profLayoutMs, profRenderMs, profPresentMs, profGapMs, profMaxGapMs;
 
-    private void profileFrame(long t0, long t1, long t2) {
+    private void profileFrame(long t0, long t1, long t1b, long t2) {
         profLayoutMs += (t1 - t0) / 1_000_000.0;
-        profPaintMs += (t2 - t1) / 1_000_000.0;
+        profRenderMs += (t1b - t1) / 1_000_000.0;
+        profPresentMs += (t2 - t1b) / 1_000_000.0;
         if (profLastFrameNanos != 0L) {
             double gap = (t2 - profLastFrameNanos) / 1_000_000.0;
             profGapMs += gap;
@@ -352,14 +367,15 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         profLastFrameNanos = t2;
         if (++profFrames >= 120) {
             dev.t1m3.qplayer.util.Logger.info(
-                "frame: {}fps avg {}ms (layout {} paint {}) maxGap {}ms",
+                "frame: {}fps render {}ms skip {}/{} bumps tick {} render {} (per120)",
                 Math.round(1000.0 / (profGapMs / profFrames)),
-                round1(profGapMs / profFrames),
-                round1(profLayoutMs / profFrames),
-                round1(profPaintMs / profFrames),
-                round1(profMaxGapMs));
+                round1(profRenderMs / profFrames),
+                profSkips, profFrames,
+                profBumpTick, profBumpRender);
             profFrames = 0;
-            profLayoutMs = profPaintMs = profGapMs = profMaxGapMs = 0;
+            profSkips = 0;
+            profBumpTick = profBumpRender = 0;
+            profLayoutMs = profRenderMs = profPresentMs = profGapMs = profMaxGapMs = 0;
         }
     }
 
