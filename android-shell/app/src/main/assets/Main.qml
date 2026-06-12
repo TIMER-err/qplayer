@@ -20,6 +20,7 @@ Rectangle {
 
     // MD3 fade-through page switch: fade the content out, swap, fade it back in.
     function switchTo(idx) {
+        app.detailOpen = false;          // dismiss any open playlist detail
         if (idx === app.page) return;
         app.nextPage = idx;
         if (idx === 2) player.loadMyPlaylists();

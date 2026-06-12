@@ -310,9 +310,11 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
             DirtyQueue dq = view.dirtyQueue();
             dq.install();
             try {
+                long t0 = System.nanoTime();
                 if (controller != null) controller.pump();
                 view.tickAnimations(System.nanoTime());
                 dq.flush();
+                long t1 = System.nanoTime();
                 Canvas canvas = surface.acquireCanvas();
                 int sc = canvas.save();
                 canvas.scale(uiScale, uiScale);
@@ -323,12 +325,46 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 renderer.render(canvas, view.root());
                 canvas.restoreToCount(sc);
                 surface.present();
+                profileFrame(t0, t1, System.nanoTime());
             } catch (Throwable t) {
                 reportError(t);
             } finally {
                 dq.uninstall();
             }
         }
+    }
+
+    // Lightweight frame profiler: accumulates layout (tick+flush) vs paint
+    // (render) time and the wall-clock gap between frames, logging a summary
+    // every ~120 frames so scroll hitches show up in the in-app log.
+    private long profLastFrameNanos;
+    private int profFrames;
+    private double profLayoutMs, profPaintMs, profGapMs, profMaxGapMs;
+
+    private void profileFrame(long t0, long t1, long t2) {
+        profLayoutMs += (t1 - t0) / 1_000_000.0;
+        profPaintMs += (t2 - t1) / 1_000_000.0;
+        if (profLastFrameNanos != 0L) {
+            double gap = (t2 - profLastFrameNanos) / 1_000_000.0;
+            profGapMs += gap;
+            if (gap > profMaxGapMs) profMaxGapMs = gap;
+        }
+        profLastFrameNanos = t2;
+        if (++profFrames >= 120) {
+            dev.t1m3.qplayer.util.Logger.info(
+                "frame: {}fps avg {}ms (layout {} paint {}) maxGap {}ms",
+                Math.round(1000.0 / (profGapMs / profFrames)),
+                round1(profGapMs / profFrames),
+                round1(profLayoutMs / profFrames),
+                round1(profPaintMs / profFrames),
+                round1(profMaxGapMs));
+            profFrames = 0;
+            profLayoutMs = profPaintMs = profGapMs = profMaxGapMs = 0;
+        }
+    }
+
+    private static double round1(double v) {
+        return Math.round(v * 10.0) / 10.0;
     }
 
     // First QML load/render failure: stop the loop (so it doesn't crash-spin),
