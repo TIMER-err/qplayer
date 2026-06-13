@@ -48,6 +48,9 @@ public class LyricRenderer {
      * Sub-line (translation / romaji) advance, relative to its own font size.
      */
     private static final float SUB_ROW_HEIGHT_RATIO = 1.1f;
+    // Extra gap above the translation/romaji block when the main lyric wrapped
+    // (wrapped rows sit on the tight wrap height, so the sub-line needs room).
+    private static final float WRAP_SUB_GAP = 10f;
 
     /**
      * How many lines above/below the active line to actually draw.
@@ -265,8 +268,61 @@ public class LyricRenderer {
             }
         }
         this.hasPerSyllableTiming = perSyl;
+
+        // LRC (line-level) lyrics parse to a single syllable per line, so the
+        // syllable-boundary wrap never finds a break point and long lines run
+        // off the edge. Split each line's lone syllable into wrap tokens (one
+        // per CJK char, Latin split on spaces) that share the line's timing —
+        // wrapStarts can then break between them. Per-syllable sources already
+        // carry their own break points, so leave them untouched.
+        if (!perSyl) {
+            for (LyricLine l : this.lines) {
+                if (l.syllables.size() != 1) continue;
+                List<Syllable> toks = tokenizeForWrap(l.syllables.get(0));
+                if (toks.size() > 1) {
+                    l.syllables.clear();
+                    l.syllables.addAll(toks);
+                }
+            }
+        }
+
         this.activeGroupIndex = -1;
         this.scrollAnim.setValue(0);
+    }
+
+    // Break a whole-line syllable into wrap-friendly tokens that keep its
+    // timing: each CJK character is its own token; Latin text splits on spaces
+    // (the run of spaces rides with the preceding token's trailing break).
+    private static List<Syllable> tokenizeForWrap(Syllable s) {
+        String text = s.text == null ? "" : s.text;
+        long start = s.startMs;
+        long dur = s.durationMs;
+        List<Syllable> out = new java.util.ArrayList<>();
+        int i = 0, n = text.length();
+        while (i < n) {
+            char c = text.charAt(i);
+            if (c == ' ') {
+                int j = i;
+                while (j < n && text.charAt(j) == ' ') j++;
+                out.add(new Syllable(text.substring(i, j), start, dur));
+                i = j;
+            } else if (isWrapCjk(c)) {
+                out.add(new Syllable(String.valueOf(c), start, dur));
+                i++;
+            } else {
+                int j = i;
+                while (j < n && text.charAt(j) != ' ' && !isWrapCjk(text.charAt(j))) j++;
+                out.add(new Syllable(text.substring(i, j), start, dur));
+                i = j;
+            }
+        }
+        return out;
+    }
+
+    private static boolean isWrapCjk(char c) {
+        return (c >= 0x4E00 && c <= 0x9FFF)    // CJK unified ideographs
+                || (c >= 0x3040 && c <= 0x30FF) // hiragana + katakana
+                || (c >= 0xAC00 && c <= 0xD7A3); // hangul syllables
     }
 
     /**
@@ -410,6 +466,11 @@ public class LyricRenderer {
             int subRowCount = Math.max(1, rowStarts[i].length - 1);
 
             float lh = rowHeight + (subRowCount - 1) * (isBg ? rowHeightBgWrap : rowHeightLyricWrap);
+            boolean hasSub = (line.romaji != null && showRomaji) || (line.translation != null && showTranslation);
+            // Wrapped rows use the tight wrap height, so a sub-line sitting right
+            // under the last row feels cramped — give it a little extra breathing
+            // room (reserved here so neighbours don't overlap; drawn at subY).
+            if (hasSub && subRowCount > 1) lh += WRAP_SUB_GAP;
             if (line.romaji != null && showRomaji) lh += subLineHeight;
             if (line.translation != null && showTranslation) lh += subLineHeight;
             lh += lineGap;
@@ -626,8 +687,13 @@ public class LyricRenderer {
             }
 
             // Sub-lines anchor to the lyric block's right edge (right-align)
-            // or to leftX (left-align).
-            float subY = lineYTop + subRowCount * rowHeight + 4f;
+            // or to leftX (left-align). Y must match the wrapped block's real
+            // stacked height (first row full, extra rows at the wrap height) —
+            // using subRowCount*rowHeight overshoots and pushes translation /
+            // romaji too far below a multi-row line.
+            float subY = lineYTop + rowHeight
+                    + (subRowCount - 1) * (isBg ? rowHeightBgWrap : rowHeightLyricWrap) + 4f
+                    + (subRowCount > 1 ? WRAP_SUB_GAP : 0f);
             if (line.romaji != null && showRomaji) {
                 drawSubLine(line.romaji, leftX, maxRowRightX, subY, subFont,
                         baseAlpha * 0.75f, alignRight);
