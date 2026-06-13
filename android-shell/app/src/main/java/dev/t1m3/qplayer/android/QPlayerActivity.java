@@ -82,6 +82,10 @@ public final class QPlayerActivity extends Activity {
             dev.t1m3.qplayer.android.lyric.Fonts.init(
                     readAssetBytes("fonts/Roboto-Regular.ttf"),
                     readAssetBytes("fonts/Roboto-Medium.ttf"));
+            // Material Symbols for the host-drawn lyric transport icons (drawn by
+            // shaped ligature name, same as the QML scene's icons).
+            dev.t1m3.qplayer.android.lyric.Fonts.initIcon(
+                    readAssetBytes("fonts/MaterialSymbolsOutlined.ttf"));
         } catch (IOException ignored) {
         }
 

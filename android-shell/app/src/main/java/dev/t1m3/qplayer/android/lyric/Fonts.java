@@ -22,8 +22,10 @@ public final class Fonts {
 
     private static Typeface regular;
     private static Typeface medium;
+    private static Typeface icon;
     private static boolean mediumIsFake;   // no real Medium face -> embolden at draw
     private static final Map<Long, Font> cache = new HashMap<>();
+    private static final Map<Long, Font> iconCache = new HashMap<>();
 
     public static void init(byte[] regularTtf, byte[] mediumTtf) {
         FontMgr mgr = FontMgr.getDefault();
@@ -54,6 +56,26 @@ public final class Fonts {
         } catch (Throwable t) {
             return null;
         }
+    }
+
+    // Material Symbols face for icon glyphs. Drawn via a shaped TextLine (the
+    // font's GSUB turns the ligature name into the glyph), so no codepoint table.
+    public static void initIcon(byte[] iconTtf) {
+        FontMgr mgr = FontMgr.getDefault();
+        if (mgr == null || iconTtf == null) return;
+        icon = mgr.makeFromData(Data.makeFromBytes(iconTtf));
+    }
+
+    public static Font getIcon(float size) {
+        long key = Float.floatToIntBits(size);
+        Font f = iconCache.get(key);
+        if (f == null) {
+            f = icon != null ? new Font(icon, size) : new Font().setSize(size);
+            f.setSubpixel(true);
+            f.setEdging(FontEdging.SUBPIXEL_ANTI_ALIAS);
+            iconCache.put(key, f);
+        }
+        return f;
     }
 
     public static Font getRegular(float size) {
