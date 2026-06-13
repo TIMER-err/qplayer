@@ -35,6 +35,7 @@ Flickable {
                 y: grid.pad + Math.floor(index / 2) * (grid.cardH + grid.gap)
                 name: modelData.name
                 count: modelData.trackCount
+                coverUrl: modelData.coverUrl
                 onClicked: { grid.pendingPlaylist = modelData; grid.openPlaylist() }
             }
         }

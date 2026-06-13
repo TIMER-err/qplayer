@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import md3.Core
+import "."
 
 // Bottom transport bar: cover placeholder + title/artist, a tappable progress
 // line, and like / prev / play-pause / next. Spans the full window width.
@@ -55,54 +56,55 @@ Rectangle {
         anchors.rightMargin: 4
         spacing: 12
 
-        Rectangle {
-            Layout.alignment: Qt.AlignVCenter
-            width: 52; height: 52; radius: 8
-            color: Theme.color.surfaceContainerHighest
-            Text {
-                anchors.centerIn: parent
-                text: "music_note"
-                font.family: Theme.iconFont.name
-                font.pixelSize: 26
-                color: Theme.color.onSurfaceVariantColor
-            }
-        }
-
-        ColumnLayout {
+        // Cover + title/artist: tap anywhere here to open the lyric page.
+        Item {
             Layout.fillWidth: true
-            Layout.alignment: Qt.AlignVCenter
-            spacing: 2
-            Text {
-                Layout.fillWidth: true
-                text: player.title.length > 0 ? player.title : "未播放"
-                color: Theme.color.onSurfaceColor
-                fontSize: 15
-                elide: Text.ElideRight
+            Layout.fillHeight: true
+
+            RowLayout {
+                anchors.fill: parent
+                spacing: 12
+
+                CoverImage {
+                    Layout.alignment: Qt.AlignVCenter
+                    width: 52; height: 52
+                    radius: 8
+                    source: player.coverUrl
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignVCenter
+                    spacing: 2
+                    Text {
+                        Layout.fillWidth: true
+                        text: player.title.length > 0 ? player.title : "未播放"
+                        color: Theme.color.onSurfaceColor
+                        fontSize: 15
+                        elide: Text.ElideRight
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: player.artist + (player.durationMs > 0
+                              ? "   " + fmt(player.positionMs) + " / " + fmt(player.durationMs) : "")
+                        color: Theme.color.onSurfaceVariantColor
+                        fontSize: 12
+                        elide: Text.ElideRight
+                    }
+                }
             }
-            Text {
-                Layout.fillWidth: true
-                text: player.artist + (player.durationMs > 0
-                      ? "   " + fmt(player.positionMs) + " / " + fmt(player.durationMs) : "")
-                color: Theme.color.onSurfaceVariantColor
-                fontSize: 12
-                elide: Text.ElideRight
+
+            MouseArea {
+                anchors.fill: parent
+                onClicked: mini.lyricsRequested()
             }
         }
 
-        IconButton {
-            Layout.alignment: Qt.AlignVCenter
-            type: "standard"; icon: "lyrics"
-            onClicked: mini.lyricsRequested()
-        }
         IconButton {
             Layout.alignment: Qt.AlignVCenter
             type: "standard"
             icon: player.currentLiked ? "favorite" : "favorite_border"
             onClicked: player.toggleLike()
-        }
-        IconButton {
-            Layout.alignment: Qt.AlignVCenter
-            type: "standard"; icon: "skip_previous"; onClicked: player.prev()
         }
         IconButton {
             Layout.alignment: Qt.AlignVCenter

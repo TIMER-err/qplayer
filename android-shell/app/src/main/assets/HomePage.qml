@@ -57,6 +57,7 @@ Item {
                     y: page.greetH + Math.floor(index / 2) * (page.cardH + page.gap)
                     name: modelData.name
                     count: modelData.trackCount
+                    coverUrl: modelData.coverUrl
                     onClicked: { page.pendingPlaylist = modelData; page.openPlaylist() }
                 }
             }

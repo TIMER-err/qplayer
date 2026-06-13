@@ -1,15 +1,16 @@
 import QtQuick
 import md3.Core
+import "."
 
 // A playlist tile. Its size is fixed from `tile` (computed by the page from the
 // available width), set as implicitWidth so GridLayout sizes its columns
 // correctly. No dependence on the layout-assigned width → no feedback loop.
-// Placeholder cover glyph; network covers later.
 Item {
     id: card
 
     property string name: ""
     property int count: 0
+    property string coverUrl: ""
     property real tile: 160
     signal clicked()
 
@@ -23,19 +24,13 @@ Item {
         anchors.margins: 4
         spacing: 6
 
-        Rectangle {
+        CoverImage {
             width: parent.width
             height: parent.width
             radius: 14
-            color: cardMa.containsMouse ? Theme.color.surfaceContainerHighest
-                                        : Theme.color.surfaceContainer
-            Text {
-                anchors.centerIn: parent
-                text: "queue_music"
-                font.family: Theme.iconFont.name
-                font.pixelSize: 44
-                color: Theme.color.onSurfaceVariantColor
-            }
+            icon: "queue_music"
+            iconSize: 44
+            source: card.coverUrl
         }
         Text {
             width: parent.width
