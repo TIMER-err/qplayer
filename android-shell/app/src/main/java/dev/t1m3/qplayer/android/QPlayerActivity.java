@@ -91,10 +91,81 @@ public final class QPlayerActivity extends Activity {
                 new AssetResourceLoader(getAssets()), density);
         glView.setController(controller);
         glView.setErrorListener(trace -> runOnUiThread(() -> showError(trace)));
-        setContentView(glView);
+
+        // glView under a splash overlay shown while the QML tree compiles (slow
+        // on first launch: parse -> bytecode -> dex). The splash advances with
+        // per-component compile progress and fades out at the first painted frame.
+        android.widget.FrameLayout rootView = new android.widget.FrameLayout(this);
+        rootView.addView(glView, new android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        splashView = buildSplash();
+        rootView.addView(splashView, new android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        glView.setSplashListener(new QmlGLSurfaceView.SplashListener() {
+            @Override public void onProgress(String name, int count) {
+                runOnUiThread(() -> splashStatus.setText("正在编译界面组件… " + count));
+            }
+            @Override public void onReady() {
+                runOnUiThread(QPlayerActivity.this::hideSplash);
+            }
+        });
+        setContentView(rootView);
 
         controller.loadHome();
         requestAudioPermission();
+    }
+
+    private android.view.View splashView;
+    private android.widget.TextView splashStatus;
+
+    private android.view.View buildSplash() {
+        android.widget.LinearLayout box = new android.widget.LinearLayout(this);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        box.setGravity(android.view.Gravity.CENTER);
+        box.setBackgroundColor(0xFF1A1F26);
+
+        android.widget.TextView title = new android.widget.TextView(this);
+        title.setText("qplayer");
+        title.setTextColor(0xFFE6E1E5);
+        title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 34);
+        title.setGravity(android.view.Gravity.CENTER);
+        box.addView(title);
+
+        android.widget.ProgressBar bar = new android.widget.ProgressBar(
+                this, null, android.R.attr.progressBarStyleHorizontal);
+        bar.setIndeterminate(true);
+        android.widget.LinearLayout.LayoutParams blp = new android.widget.LinearLayout.LayoutParams(
+                Math.round(getResources().getDisplayMetrics().density * 200),
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        blp.topMargin = Math.round(getResources().getDisplayMetrics().density * 24);
+        bar.setLayoutParams(blp);
+        box.addView(bar);
+
+        splashStatus = new android.widget.TextView(this);
+        splashStatus.setText("正在加载…");
+        splashStatus.setTextColor(0xFF9A9499);
+        splashStatus.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13);
+        splashStatus.setGravity(android.view.Gravity.CENTER);
+        android.widget.LinearLayout.LayoutParams slp = new android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        slp.topMargin = Math.round(getResources().getDisplayMetrics().density * 12);
+        splashStatus.setLayoutParams(slp);
+        box.addView(splashStatus);
+
+        return box;
+    }
+
+    private void hideSplash() {
+        if (splashView == null) return;
+        final android.view.View v = splashView;
+        splashView = null;
+        v.animate().alpha(0f).setDuration(280).withEndAction(() -> {
+            android.view.ViewParent p = v.getParent();
+            if (p instanceof android.view.ViewGroup) ((android.view.ViewGroup) p).removeView(v);
+        }).start();
     }
 
     private void requestAudioPermission() {

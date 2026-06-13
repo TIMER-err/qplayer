@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Matches the QML Theme.color.surface so the system bars blend into the app. -->
+    <color name="app_surface">#1a1f26</color>
+</resources>

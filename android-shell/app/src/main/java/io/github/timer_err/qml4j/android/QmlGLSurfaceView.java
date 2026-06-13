@@ -51,9 +51,22 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     private PlayerController controller;
     private volatile boolean failed;
     private ErrorListener errorListener;
+    private SplashListener splashListener;
+    private boolean readyFired;
     // Mirror QmlView.renderFrame's idle fast-path: skip the layout pass when no
     // property changed since the last frame, so a static screen costs only paint.
     private long renderedVersion = -1;
+
+    /** Drives a host splash while the QML tree compiles: per-component progress
+     *  (on the GL thread) and a one-shot ready signal at the first painted frame. */
+    public interface SplashListener {
+        void onProgress(String name, int count);
+        void onReady();
+    }
+
+    public void setSplashListener(SplashListener l) {
+        this.splashListener = l;
+    }
 
     // Host-drawn lyric page: a full-screen Skija overlay rendered on top of the
     // QML scene when controller.lyricsOpen. Drawn directly (no QML type) using
@@ -361,6 +374,10 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                         }
                     });
                     if (controller != null) view.context("player", controller);
+                    view.setCompileProgressListener((name, count) -> {
+                        SplashListener l = splashListener;
+                        if (l != null) l.onProgress(name, count);
+                    });
                     view.load(qmlSource);
                 }
                 if (view.root() != null) {
@@ -403,6 +420,11 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 long t1b = System.nanoTime();
                 surface.present();
                 profileFrame(t0, t1, t1b, System.nanoTime());
+                if (!readyFired) {
+                    readyFired = true;
+                    SplashListener l = splashListener;
+                    if (l != null) l.onReady();
+                }
             } catch (Throwable t) {
                 reportError(t);
             } finally {

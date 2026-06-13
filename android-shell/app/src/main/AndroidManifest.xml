@@ -16,6 +16,7 @@
         <activity
             android:name="dev.t1m3.qplayer.android.QPlayerActivity"
             android:exported="true"
+            android:theme="@style/AppTheme"
             android:configChanges="orientation|screenSize|keyboardHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
