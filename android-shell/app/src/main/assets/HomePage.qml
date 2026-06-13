@@ -40,6 +40,9 @@ Item {
         Item {
             width: page.width
             height: page.dailyTop + page.dailyCount * page.rowH + 12
+            // Cards/rows have fixed index-derived positions; skip re-measuring the
+            // whole page on unrelated version bumps (the play clock) once laid out.
+            cachedLayout: true
 
             Text {
                 x: 16; y: 0; height: page.greetH

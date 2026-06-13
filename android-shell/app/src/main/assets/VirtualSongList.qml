@@ -32,6 +32,11 @@ Flickable {
     Item {
         width: view.width
         height: view.contentHeight
+        // Rows sit at fixed y = index*rowH and never reflow, so the layout pass can
+        // skip re-measuring them while this item's box and row count are unchanged.
+        // Without it, the 5 Hz play clock's version bump re-measured every row of a
+        // long list each tick (a stutter that scaled with list length).
+        cachedLayout: true
 
         Repeater {
             model: view.list

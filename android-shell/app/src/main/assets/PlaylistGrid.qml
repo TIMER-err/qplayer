@@ -26,6 +26,9 @@ Flickable {
     Item {
         width: grid.width
         height: grid.contentHeight
+        // Cards sit at fixed x/y from their index and never reflow; skip re-measuring
+        // them on unrelated version bumps (the play clock) while box + count hold.
+        cachedLayout: true
 
         Repeater {
             model: grid.list
