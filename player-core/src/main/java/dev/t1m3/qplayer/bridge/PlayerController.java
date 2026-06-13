@@ -20,6 +20,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Queue;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -62,6 +63,7 @@ public final class PlayerController {
     private final List<Track> queue = new CopyOnWriteArrayList<>();
     private final Queue<Runnable> uiQueue = new ConcurrentLinkedQueue<>();
     private final Set<Long> likedSet = new HashSet<>();
+    private final Random rng = new Random();
 
     private volatile String playLevel = "exhigh";
     private volatile long uid;
@@ -82,6 +84,8 @@ public final class PlayerController {
     public final Property<Integer> index = new Property<>(-1);
     public final Property<Float> volume = new Property<>(0.8f);
     public final Property<Boolean> currentLiked = new Property<>(false);
+    // 0 = list loop (default, current behaviour), 1 = shuffle, 2 = repeat one.
+    public final Property<Integer> playMode = new Property<>(0);
     public final Property<List<LyricLine>> lyrics = new Property<>(Collections.<LyricLine>emptyList());
     /** Index of the current lyric line for player.positionMs, or -1. */
     public final Property<Integer> lyricIndex = new Property<>(-1);
@@ -121,7 +125,7 @@ public final class PlayerController {
         this.metadataReader = metadataReader;
         this.netease = netease;
         backend.setVolume(volume.peek());
-        backend.setOnComplete(() -> post(this::next));
+        backend.setOnComplete(() -> post(this::autoAdvance));
         if (netease.isLoggedIn()) {
             loggedIn.set(true);
             refreshLogin();
@@ -374,15 +378,52 @@ public final class PlayerController {
         }
     }
 
+    /** Cycle list-loop -> shuffle -> repeat-one -> list-loop. */
+    public void cyclePlayMode() {
+        playMode.set((playMode.peek() + 1) % 3);
+    }
+
+    // A different queue slot than the current one (shuffle never repeats a track
+    // back-to-back unless the queue has a single entry).
+    private int randomIndex() {
+        int n = queue.size();
+        if (n <= 1) return 0;
+        int r;
+        do {
+            r = rng.nextInt(n);
+        } while (r == index.peek());
+        return r;
+    }
+
+    // Manual skip: shuffle picks a random slot, otherwise step forward and wrap.
+    // Repeat-one only affects auto-advance -- a manual press still moves on.
     public void next() {
         if (queue.isEmpty()) return;
-        playAt((index.peek() + 1) % queue.size());
+        playAt(playMode.peek() == 1 ? randomIndex() : (index.peek() + 1) % queue.size());
     }
 
     public void prev() {
         if (queue.isEmpty()) return;
         int n = queue.size();
-        playAt((index.peek() - 1 + n) % n);
+        playAt(playMode.peek() == 1 ? randomIndex() : (index.peek() - 1 + n) % n);
+    }
+
+    // Track finished on its own: repeat-one replays it, shuffle jumps randomly,
+    // list-loop advances. Wired to backend.onComplete (not next()) so repeat-one
+    // doesn't fight a user's manual skip.
+    private void autoAdvance() {
+        if (queue.isEmpty()) return;
+        switch (playMode.peek()) {
+            case 2:
+                playAt(index.peek());
+                break;
+            case 1:
+                playAt(randomIndex());
+                break;
+            default:
+                playAt((index.peek() + 1) % queue.size());
+                break;
+        }
     }
 
     public void seek(long ms) {

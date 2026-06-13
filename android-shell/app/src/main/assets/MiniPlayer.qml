@@ -83,6 +83,16 @@ Rectangle {
         icon: player.currentLiked ? "favorite" : "favorite_border"
         onClicked: player.toggleLike()
     }
+    IconButton {
+        id: modeBtn
+        anchors.right: likeBtn.left
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.verticalCenterOffset: 1
+        type: "standard"
+        icon: player.playMode === 1 ? "shuffle"
+              : (player.playMode === 2 ? "repeat_one" : "repeat")
+        onClicked: player.cyclePlayMode()
+    }
 
     CoverImage {
         id: cover
@@ -99,7 +109,7 @@ Rectangle {
     Item {
         anchors.left: cover.right
         anchors.leftMargin: 12
-        anchors.right: likeBtn.left
+        anchors.right: modeBtn.left
         anchors.rightMargin: 4
         anchors.top: track.bottom
         anchors.bottom: parent.bottom
