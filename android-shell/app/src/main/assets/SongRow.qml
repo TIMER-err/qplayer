@@ -16,7 +16,9 @@ Rectangle {
     property string rowArtist: ""
     property string coverUrl: ""
     property bool highlighted: false
+    property bool removable: false
     signal activated()
+    signal removeRequested()
 
     // Text starts past the leading slot — a wider gap when a thumbnail is shown.
     property real leadGap: row.coverUrl.length > 0 ? 68 : 52
@@ -52,7 +54,7 @@ Rectangle {
         anchors.left: parent.left
         anchors.leftMargin: row.leadGap
         anchors.right: parent.right
-        anchors.rightMargin: 16
+        anchors.rightMargin: row.removable ? 52 : 16
         anchors.bottom: parent.verticalCenter
         anchors.bottomMargin: 1
         text: row.rowTitle
@@ -65,7 +67,7 @@ Rectangle {
         anchors.left: parent.left
         anchors.leftMargin: row.leadGap
         anchors.right: parent.right
-        anchors.rightMargin: 16
+        anchors.rightMargin: row.removable ? 52 : 16
         anchors.top: parent.verticalCenter
         anchors.topMargin: 2
         text: row.rowArtist
@@ -79,5 +81,15 @@ Rectangle {
         anchors.fill: parent
         hoverEnabled: true
         onClicked: row.activated()
+    }
+
+    // Declared after the row MouseArea so it sits on top and consumes the tap.
+    IconButton {
+        visible: row.removable
+        anchors.right: parent.right
+        anchors.rightMargin: 4
+        anchors.verticalCenter: parent.verticalCenter
+        type: "standard"; icon: "close"
+        onClicked: row.removeRequested()
     }
 }

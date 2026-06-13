@@ -19,9 +19,12 @@ Flickable {
 
     property var list
     property bool isLocal: false
+    property bool removable: false
     property int rowH: 64
     property int activatedIndex: -1
+    property int removeIndex: -1
     signal activated()
+    signal removeRequested()
 
     property int count: list ? list.length : 0
 
@@ -47,7 +50,9 @@ Flickable {
                 rowArtist: modelData.artist
                 coverUrl: modelData.coverUrl
                 highlighted: view.isLocal && index === player.index
+                removable: view.removable
                 onActivated: { view.activatedIndex = index; view.activated() }
+                onRemoveRequested: { view.removeIndex = index; view.removeRequested() }
             }
         }
     }

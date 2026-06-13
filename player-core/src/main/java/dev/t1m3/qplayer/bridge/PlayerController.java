@@ -106,6 +106,9 @@ public final class PlayerController {
     /** Currently opened playlist. */
     public final Property<List<NeteaseSong>> playlistTracks = new Property<>(Collections.<NeteaseSong>emptyList());
     public final Property<String> playlistTitle = new Property<>("");
+    /** Snapshot of the live play queue for the queue page; current track is {@link #index}. */
+    public final Property<List<Track>> queueTracks = new Property<>(Collections.<Track>emptyList());
+    public final Property<Boolean> queueOpen = new Property<>(false);
 
     // --- Account ----------------------------------------------------------
     public final Property<Boolean> loggedIn = new Property<>(false);
@@ -186,6 +189,32 @@ public final class PlayerController {
 
     public void setLyricsOpen(boolean open) {
         lyricsOpen.set(open);
+    }
+
+    public void setQueueOpen(boolean open) {
+        queueOpen.set(open);
+    }
+
+    /** Jump to a slot in the live queue (queue-page tap). */
+    public void playQueueIndex(int i) {
+        playAt(i);
+    }
+
+    /** Drop a slot from the queue; keep playing the right track. */
+    public void removeFromQueue(int i) {
+        if (i < 0 || i >= queue.size()) return;
+        int cur = index.peek();
+        queue.remove(i);
+        queueTracks.set(new ArrayList<>(queue));
+        if (queue.isEmpty()) {
+            index.set(-1);
+            return;
+        }
+        if (i < cur) {
+            index.set(cur - 1);
+        } else if (i == cur) {
+            playAt(Math.min(cur, queue.size() - 1));
+        }
     }
 
     // --- Local library ----------------------------------------------------
@@ -277,6 +306,7 @@ public final class PlayerController {
     private void playQueue(List<Track> q, int start) {
         queue.clear();
         queue.addAll(q);
+        queueTracks.set(new ArrayList<>(queue));
         playAt(start);
     }
 

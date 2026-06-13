@@ -211,6 +211,11 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
             closeLyrics();
             return true;
         }
+        if (keyCode == KeyEvent.KEYCODE_BACK
+                && controller != null && Boolean.TRUE.equals(controller.queueOpen.peek())) {
+            queueEvent(() -> controller.setQueueOpen(false));
+            return true;
+        }
         if (dispatchKeyEvent(event, true)) return true;
         return super.onKeyDown(keyCode, event);
     }

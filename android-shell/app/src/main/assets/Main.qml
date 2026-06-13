@@ -21,6 +21,7 @@ Rectangle {
     // MD3 fade-through page switch: fade the content out, swap, fade it back in.
     function switchTo(idx) {
         app.detailOpen = false;          // dismiss any open playlist detail
+        player.setQueueOpen(false);      // and the queue overlay
         if (idx === app.page) return;
         app.nextPage = idx;
         if (idx === 2) player.loadMyPlaylists();
@@ -69,6 +70,11 @@ Rectangle {
         title: app.titles[app.page]
         showNavigationIcon: false
 
+        IconButton {
+            type: "standard"
+            icon: "queue_music"
+            onClicked: player.setQueueOpen(true)
+        }
         IconButton {
             type: "standard"
             icon: player.loggedIn ? "account_circle" : "login"
@@ -132,6 +138,12 @@ Rectangle {
                 anchors.fill: parent
                 visible: app.detailOpen
                 onBack: app.detailOpen = false
+            }
+
+            QueuePage {
+                anchors.fill: parent
+                visible: player.queueOpen
+                onBack: player.setQueueOpen(false)
             }
         }
     }
