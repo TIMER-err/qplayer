@@ -3,9 +3,11 @@ import md3.Core
 
 // Rounded album-cover image with a glyph placeholder shown until the cover
 // decodes. `source` accepts a local asset path or an http(s) URL — the engine
-// Image fetches + decodes remote sources off-thread. Rounding is done with a
-// layer.effect mask: the renderer clips the layer to the mask Rectangle's
-// corner radius (same mechanism the md3 carousel uses for its cards).
+// Image fetches + decodes remote sources off-thread. Rounding is done by the
+// Image's own `radius` (a clipRRect at draw time), NOT a layer.effect mask: the
+// mask path allocates an offscreen surface per instance every frame, so a grid
+// of covers paid one saveLayer per card per frame while scrolling. clipRRect is
+// a cheap per-frame clip with no offscreen allocation.
 Item {
     id: cover
 
@@ -14,22 +16,10 @@ Item {
     property string icon: "music_note"
     property int iconSize: 26
 
-    layer.enabled: true
-    layer.effect: MultiEffect {
-        maskEnabled: true
-        maskSource: maskRect
-    }
-
-    Rectangle {
-        id: maskRect
-        anchors.fill: parent
-        radius: cover.radius
-        visible: false
-    }
-
     // Placeholder underneath; the cover image draws over it once decoded.
     Rectangle {
         anchors.fill: parent
+        radius: cover.radius
         color: Theme.color.surfaceContainerHighest
         Text {
             anchors.centerIn: parent
@@ -43,6 +33,7 @@ Item {
     Image {
         anchors.fill: parent
         source: cover.source
+        radius: cover.radius
         fillMode: "PreserveAspectCrop"
     }
 }
