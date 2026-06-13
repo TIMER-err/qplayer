@@ -75,17 +75,17 @@ public class LyricRenderer {
      * Layout height (px) reserved for the inline interlude dot row. The
      * dots scroll into the centre position like a real lyric line.
      */
-    private static final float INTERLUDE_DOTS_ROW_H = 36f;
+    private static final float INTERLUDE_DOTS_ROW_H = 52f;
     /**
      * Radius (px) of each interlude dot. Slot height + dot radius +
      * spacing all scale together to keep the dots visually balanced
      * inside their reserved row.
      */
-    private static final float INTERLUDE_DOT_RADIUS = 4.2f;
+    private static final float INTERLUDE_DOT_RADIUS = 6.8f;
     /**
      * Centre-to-centre horizontal spacing between dots.
      */
-    private static final float INTERLUDE_DOT_SPACING = 17f;
+    private static final float INTERLUDE_DOT_SPACING = 27f;
     /**
      * Peak lift amplitude in pixels (negative = upward). AMLL's
      * reference value is 0.05em ≈ 1.5 px at 30 px font. Larger values
