@@ -55,81 +55,104 @@ Rectangle {
     property string toastWatch: player.toast
     onToastWatchChanged: if (player.toast.length > 0) { snack.text = player.toast; snack.open() }
 
-    ColumnLayout {
-        anchors.fill: parent
-        spacing: 0
+    // Chrome is absolute/anchor-positioned, NOT a ColumnLayout. The play clock
+    // sets player.positionMs ~5x/s; each set bumps the engine change version and
+    // forces a whole-tree settleLayout that frame (and on coinciding scroll
+    // frames). Layout containers in the always-visible chrome re-ran their
+    // measure/fill passes every one of those ticks; anchors keep it cheap.
+    TopAppBar {
+        id: topBar
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: 64
+        title: app.titles[app.page]
+        showNavigationIcon: false
 
-        TopAppBar {
-            Layout.fillWidth: true
-            title: app.titles[app.page]
-            showNavigationIcon: false
-
-            IconButton {
-                type: "standard"
-                icon: player.loggedIn ? "account_circle" : "login"
-                onClicked: if (!player.loggedIn) app.loginOpen = true
-            }
-            IconButton {
-                type: "standard"
-                icon: "bug_report"
-                onClicked: app.showLog = !app.showLog
-            }
+        IconButton {
+            type: "standard"
+            icon: player.loggedIn ? "account_circle" : "login"
+            onClicked: if (!player.loggedIn) app.loginOpen = true
         }
+        IconButton {
+            type: "standard"
+            icon: "bug_report"
+            onClicked: app.showLog = !app.showLog
+        }
+    }
 
-        // content region. pageBody is positioned by y (not anchors) so the
-        // switch can rise it up; pageWrap clips the overshoot.
+    // content region. pageBody is positioned by y (not anchors) so the
+    // switch can rise it up; pageWrap clips the overshoot.
+    Item {
+        id: pageWrap
+        anchors.top: topBar.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: mini.top
+        clip: true
+
         Item {
-            id: pageWrap
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            clip: true
+            id: pageBody
+            width: parent.width
+            height: parent.height
+            y: app.pageShift
+            opacity: app.pageOpacity
 
-            Item {
-                id: pageBody
-                width: parent.width
-                height: parent.height
-                y: app.pageShift
-                opacity: app.pageOpacity
+            // Pages stacked + toggled by visibility (was a StackLayout). The
+            // engine doesn't recurse into an invisible child's subtree during
+            // measure, so only the current page is laid out each frame.
+            HomePage {
+                id: home
+                anchors.fill: parent
+                visible: app.page === 0
+                onOpenPlaylist: { player.openPlaylist(home.pendingPlaylist.id); app.detailOpen = true }
+            }
+            SearchPage {
+                anchors.fill: parent
+                visible: app.page === 1
+            }
+            LibraryPage {
+                id: library
+                anchors.fill: parent
+                visible: app.page === 2
+                onOpenPlaylist: { player.openPlaylist(library.pendingPlaylist.id); app.detailOpen = true }
+                onRequestLogin: app.loginOpen = true
+            }
+            RecentPage {
+                anchors.fill: parent
+                visible: app.page === 3
+                onRequestLogin: app.loginOpen = true
+            }
+            LocalPage {
+                anchors.fill: parent
+                visible: app.page === 4
+            }
 
-                StackLayout {
-                    anchors.fill: parent
-                    currentIndex: app.page
-
-                    HomePage {
-                        id: home
-                        onOpenPlaylist: { player.openPlaylist(home.pendingPlaylist.id); app.detailOpen = true }
-                    }
-                    SearchPage {}
-                    LibraryPage {
-                        id: library
-                        onOpenPlaylist: { player.openPlaylist(library.pendingPlaylist.id); app.detailOpen = true }
-                        onRequestLogin: app.loginOpen = true
-                    }
-                    RecentPage {
-                        onRequestLogin: app.loginOpen = true
-                    }
-                    LocalPage {}
-                }
-
-                PlaylistDetailPage {
-                    anchors.fill: parent
-                    visible: app.detailOpen
-                    onBack: app.detailOpen = false
-                }
+            PlaylistDetailPage {
+                anchors.fill: parent
+                visible: app.detailOpen
+                onBack: app.detailOpen = false
             }
         }
+    }
 
-        MiniPlayer {
-            Layout.fillWidth: true
-            onLyricsRequested: player.setLyricsOpen(true)
-        }
+    MiniPlayer {
+        id: mini
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: bottomNav.top
+        height: 84
+        onLyricsRequested: player.setLyricsOpen(true)
+    }
 
-        BottomNav {
-            id: bottomNav
-            Layout.fillWidth: true
-            currentIndex: app.page
-            onNavigate: app.switchTo(bottomNav.pendingIndex)
-        }
+    BottomNav {
+        id: bottomNav
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        height: 76
+        currentIndex: app.page
+        onNavigate: app.switchTo(bottomNav.pendingIndex)
     }
 
     LoginDialog {

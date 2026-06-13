@@ -1,10 +1,11 @@
 import QtQuick
-import QtQuick.Layouts
 import md3.Core
 
 // MD3-style bottom navigation bar (phone): five items spread evenly, each with
 // an animated selection pill + ripple. Parameterless signal + property payload
-// (qml4j can't read cross-file signal params).
+// (qml4j can't read cross-file signal params). Absolute positioning, not a
+// RowLayout: this bar is always visible and the 5x/s play clock forces a
+// whole-tree relayout each tick — keep it cheap to measure.
 Rectangle {
     id: bar
 
@@ -23,18 +24,20 @@ Rectangle {
     implicitHeight: 76
     color: Theme.color.surfaceContainer
 
-    RowLayout {
+    Item {
+        id: navRow
         anchors.fill: parent
         anchors.topMargin: 8
         anchors.bottomMargin: 8
-        spacing: 0
+        property real itemW: width / 5
 
         Repeater {
             model: bar.items
             Item {
                 id: navItem
-                Layout.fillWidth: true
-                Layout.fillHeight: true
+                width: navRow.itemW
+                height: navRow.height
+                x: index * navRow.itemW
                 property bool selected: index === bar.currentIndex
                 property color indColor: Theme.color.secondaryContainer
 
