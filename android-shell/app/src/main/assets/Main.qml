@@ -119,7 +119,10 @@ Rectangle {
             }
         }
 
-        MiniPlayer { Layout.fillWidth: true }
+        MiniPlayer {
+            Layout.fillWidth: true
+            onLyricsRequested: player.setLyricsOpen(true)
+        }
 
         BottomNav {
             id: bottomNav

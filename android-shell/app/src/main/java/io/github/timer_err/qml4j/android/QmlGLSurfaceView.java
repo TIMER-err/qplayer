@@ -12,6 +12,7 @@ import android.view.inputmethod.InputMethodManager;
 
 import io.github.humbleui.skija.BackendRenderTarget;
 import io.github.humbleui.skija.Canvas;
+import io.github.humbleui.skija.Paint;
 import io.github.humbleui.skija.ColorSpace;
 import io.github.humbleui.skija.ColorType;
 import io.github.humbleui.skija.DirectContext;
@@ -28,6 +29,11 @@ import io.github.timer_err.qml4j.render.SurfaceBackend;
 import io.github.timer_err.qml4j.render.items.input.TextEditable;
 
 import dev.t1m3.qplayer.bridge.PlayerController;
+import dev.t1m3.qplayer.android.lyric.LyricRenderer;
+import dev.t1m3.qplayer.android.lyric.LyricSkia;
+import dev.t1m3.qplayer.lyric.LyricLine;
+
+import java.util.List;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -48,6 +54,19 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     // Mirror QmlView.renderFrame's idle fast-path: skip the layout pass when no
     // property changed since the last frame, so a static screen costs only paint.
     private long renderedVersion = -1;
+
+    // Host-drawn lyric page: a full-screen Skija overlay rendered on top of the
+    // QML scene when controller.lyricsOpen. Drawn directly (no QML type) using
+    // Haedus's LyricRenderer. lyricSlide eases 0->1 as it opens/closes; lastLyrics
+    // detects a track change so we re-feed the renderer.
+    private final LyricRenderer lyricRenderer = new LyricRenderer();
+    private final dev.t1m3.qplayer.android.lyric.FluidBackground fluidBg =
+            new dev.t1m3.qplayer.android.lyric.FluidBackground(System.nanoTime());
+    private List<LyricLine> lastLyrics;
+    private float lyricSlide;
+    // Touch tracking while the overlay is up (device px), for swipe-down / tap-to-close.
+    private float lyricDownY, lyricDownX;
+    private boolean lyricMoved;
 
     /** Notified (with a full stack trace) when QML load/render throws, so the
      *  host can surface the error instead of the GL thread crashing the app. */
@@ -79,6 +98,11 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
 
     @Override
     public boolean onTouchEvent(MotionEvent ev) {
+        // While the lyric overlay is up it owns all touches (close gestures only);
+        // nothing reaches the QML scene behind it.
+        if (controller != null && Boolean.TRUE.equals(controller.lyricsOpen.peek())) {
+            return onLyricTouch(ev);
+        }
         final int action = ev.getActionMasked();
         final float x = ev.getX() / uiScale;
         final float y = ev.getY() / uiScale;
@@ -114,6 +138,41 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         }
     }
 
+    // Lyric overlay gestures: tap the header strip or swipe down to dismiss.
+    private boolean onLyricTouch(MotionEvent ev) {
+        switch (ev.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                lyricDownX = ev.getX();
+                lyricDownY = ev.getY();
+                lyricMoved = false;
+                return true;
+            case MotionEvent.ACTION_MOVE:
+                if (Math.abs(ev.getY() - lyricDownY) > 12 * uiScale
+                        || Math.abs(ev.getX() - lyricDownX) > 12 * uiScale) {
+                    lyricMoved = true;
+                }
+                return true;
+            case MotionEvent.ACTION_UP: {
+                float dy = ev.getY() - lyricDownY;
+                float dx = ev.getX() - lyricDownX;
+                boolean tapHeader = !lyricMoved && lyricDownY < 130 * uiScale;
+                boolean swipeDown = dy > 120 * uiScale && dy > Math.abs(dx);
+                if (tapHeader || swipeDown) closeLyrics();
+                return true;
+            }
+            default:
+                return true;
+        }
+    }
+
+    private void closeLyrics() {
+        queueEvent(new Runnable() {
+            @Override public void run() {
+                if (controller != null) controller.setLyricsOpen(false);
+            }
+        });
+    }
+
     @Override
     public boolean onCheckIsTextEditor() {
         return view != null && view.focused() instanceof TextEditable;
@@ -134,6 +193,11 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_BACK
+                && controller != null && Boolean.TRUE.equals(controller.lyricsOpen.peek())) {
+            closeLyrics();
+            return true;
+        }
         if (dispatchKeyEvent(event, true)) return true;
         return super.onKeyDown(keyCode, event);
     }
@@ -335,6 +399,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 renderedVersion = Property.changeVersion();
                 profBumpRender += renderedVersion - vBeforeRender;
                 canvas.restoreToCount(sc);
+                drawLyricOverlay(canvas);
                 long t1b = System.nanoTime();
                 surface.present();
                 profileFrame(t0, t1, t1b, System.nanoTime());
@@ -344,6 +409,75 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 dq.uninstall();
             }
         }
+    }
+
+    // Host-drawn lyric page: a fluid (SkSL, cover-keyed) backdrop with the
+    // Haedus LyricRenderer on top, sliding up over the QML scene. Runs every
+    // frame (RENDERMODE_CONTINUOUSLY) so the slide + scroll springs animate.
+    @SuppressWarnings("unchecked")
+    private void drawLyricOverlay(Canvas canvas) {
+        if (controller == null) return;
+        boolean open = Boolean.TRUE.equals(controller.lyricsOpen.peek());
+        float target = open ? 1f : 0f;
+        // critically-damped-ish ease toward the target; cheap and frame-stable.
+        lyricSlide += (target - lyricSlide) * 0.22f;
+        if (Math.abs(target - lyricSlide) < 0.002f) lyricSlide = target;
+        if (lyricSlide <= 0.001f && !open) return;
+
+        // Re-feed the renderer when the track's lyric list changes (identity).
+        Object lyObj = controller.lyrics.peek();
+        if (lyObj != lastLyrics) {
+            lastLyrics = (List<LyricLine>) lyObj;
+            lyricRenderer.setLyrics(lastLyrics);
+        }
+
+        float w = surface.width() / uiScale;
+        float h = surface.height() / uiScale;
+        float ease = lyricSlide * lyricSlide * (3f - 2f * lyricSlide);   // smoothstep
+        float offY = (1f - ease) * h;
+
+        int sc = canvas.save();
+        canvas.scale(uiScale, uiScale);
+        canvas.translate(0f, offY);
+
+        // 1) fluid backdrop, keyed by the current track.
+        byte[] cover = (byte[]) controller.coverBytes.peek();
+        String key = controller.title.peek() + "|" + controller.coverUrl.peek();
+        fluidBg.render(canvas, w, h, cover, key, System.nanoTime());
+
+        // 2) header: drag handle + title + artist.
+        float pad = 28f;
+        try (Paint p = new Paint()) {
+            p.setAntiAlias(true);
+            p.setColor(0x66FFFFFF);
+            canvas.drawRRect(io.github.humbleui.types.RRect.makeXYWH(
+                    w / 2f - 18f, 14f, 36f, 4f, 2f), p);
+
+            p.setColor(0xFFFFFFFF);
+            String title = controller.title.peek();
+            if (title != null && !title.isEmpty()) {
+                canvas.drawString(title, pad, 74f,
+                        dev.t1m3.qplayer.android.lyric.Fonts.getMedium(24f), p);
+            }
+            p.setColor(0xB3FFFFFF);
+            String artist = controller.artist.peek();
+            if (artist != null && !artist.isEmpty()) {
+                canvas.drawString(artist, pad, 102f,
+                        dev.t1m3.qplayer.android.lyric.Fonts.getRegular(15f), p);
+            }
+        }
+
+        // 3) lyrics column below the header, clipped so lines scrolling past the
+        // top/bottom don't bleed over the header or appear out of nowhere.
+        float topY = 140f;
+        float colH = h - topY - 24f;
+        int lc = canvas.save();
+        canvas.clipRect(io.github.humbleui.types.Rect.makeXYWH(0f, topY, w, colH));
+        LyricSkia.setCanvas(canvas);
+        lyricRenderer.render(canvas, pad, topY, w - 2f * pad, colH, controller.position());
+        canvas.restoreToCount(lc);
+
+        canvas.restoreToCount(sc);
     }
 
     // Lightweight frame profiler: accumulates layout (tick+flush) vs paint

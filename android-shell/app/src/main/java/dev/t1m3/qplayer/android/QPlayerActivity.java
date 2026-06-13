@@ -76,6 +76,15 @@ public final class QPlayerActivity extends Activity {
             throw new RuntimeException("failed to read Main.qml", e);
         }
 
+        // Lyric renderer fonts: bundled Roboto from assets (FontMgr has no
+        // usable default face on Android, so load real TTFs).
+        try {
+            dev.t1m3.qplayer.android.lyric.Fonts.init(
+                    readAssetBytes("fonts/Roboto-Regular.ttf"),
+                    readAssetBytes("fonts/Roboto-Medium.ttf"));
+        } catch (IOException ignored) {
+        }
+
         QmlEngine engine = new QmlEngine(new DexClassLoaderBackend(getClass().getClassLoader()));
         float density = getResources().getDisplayMetrics().density;
         glView = new QmlGLSurfaceView(this, engine, qml,
@@ -143,12 +152,16 @@ public final class QPlayerActivity extends Activity {
     }
 
     private String readAsset(String name) throws IOException {
+        return new String(readAssetBytes(name), StandardCharsets.UTF_8);
+    }
+
+    private byte[] readAssetBytes(String name) throws IOException {
         try (InputStream in = getAssets().open(name)) {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             byte[] buf = new byte[4096];
             int n;
             while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
-            return new String(out.toByteArray(), StandardCharsets.UTF_8);
+            return out.toByteArray();
         }
     }
 }

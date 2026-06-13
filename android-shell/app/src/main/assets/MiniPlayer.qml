@@ -7,6 +7,8 @@ import md3.Core
 Rectangle {
     id: mini
 
+    signal lyricsRequested()
+
     function fmt(ms) {
         if (ms <= 0) return "0:00";
         var s = Math.floor(ms / 1000);
@@ -87,6 +89,11 @@ Rectangle {
             }
         }
 
+        IconButton {
+            Layout.alignment: Qt.AlignVCenter
+            type: "standard"; icon: "lyrics"
+            onClicked: mini.lyricsRequested()
+        }
         IconButton {
             Layout.alignment: Qt.AlignVCenter
             type: "standard"

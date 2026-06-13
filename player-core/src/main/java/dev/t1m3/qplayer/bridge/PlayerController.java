@@ -5,6 +5,7 @@ import dev.t1m3.qplayer.audio.MetadataReader;
 import dev.t1m3.qplayer.library.LibraryScanner;
 import dev.t1m3.qplayer.lyric.LyricLine;
 import dev.t1m3.qplayer.lyric.LyricParser;
+import dev.t1m3.qplayer.lyric.TtmlParser;
 import dev.t1m3.qplayer.model.Track;
 import dev.t1m3.qplayer.netease.NeteaseClient;
 import dev.t1m3.qplayer.netease.dto.NeteaseLyric;
@@ -73,12 +74,19 @@ public final class PlayerController {
     public final Property<String> artist = new Property<>("");
     public final Property<String> album = new Property<>("");
     public final Property<String> coverUrl = new Property<>("");
+    /** Cover image bytes of the current track (local embedded or downloaded),
+     *  for the host-drawn fluid lyric backdrop. Null until available. */
+    public final Property<byte[]> coverBytes = new Property<>(null);
     public final Property<Long> durationMs = new Property<>(0L);
     public final Property<Long> positionMs = new Property<>(0L);
     public final Property<Integer> index = new Property<>(-1);
     public final Property<Float> volume = new Property<>(0.8f);
     public final Property<Boolean> currentLiked = new Property<>(false);
     public final Property<List<LyricLine>> lyrics = new Property<>(Collections.<LyricLine>emptyList());
+    /** Index of the current lyric line for player.positionMs, or -1. */
+    public final Property<Integer> lyricIndex = new Property<>(-1);
+    /** Whether the full-screen lyric page is open (host draws it via Skija). */
+    public final Property<Boolean> lyricsOpen = new Property<>(false);
 
     // --- Local library ----------------------------------------------------
     public final Property<List<Track>> tracks = new Property<>(Collections.<Track>emptyList());
@@ -136,7 +144,9 @@ public final class PlayerController {
         if (now - lastPositionPush >= 200L) {
             lastPositionPush = now;
             if (backend.isPlaying()) {
-                positionMs.set(backend.position());
+                long pos = backend.position();
+                positionMs.set(pos);
+                updateLyricIndex(pos);
             }
         }
         long lv = Logger.version();
@@ -152,12 +162,26 @@ public final class PlayerController {
         }
     }
 
+    private void updateLyricIndex(long pos) {
+        List<LyricLine> ly = lyrics.peek();
+        int idx = -1;
+        for (int i = 0; i < ly.size(); i++) {
+            if (ly.get(i).startMs() <= pos) idx = i;
+            else break;
+        }
+        if (idx != lyricIndex.peek()) lyricIndex.set(idx);
+    }
+
     private void post(Runnable r) {
         uiQueue.add(r);
     }
 
     public void clearLog() {
         Logger.clear();
+    }
+
+    public void setLyricsOpen(boolean open) {
+        lyricsOpen.set(open);
     }
 
     // --- Local library ----------------------------------------------------
@@ -260,6 +284,7 @@ public final class PlayerController {
         artist.set(orEmpty(t.artist));
         album.set(orEmpty(t.album));
         coverUrl.set(orEmpty(t.coverUrl));
+        updateCover(t, i);
         durationMs.set(t.durationMs);
         positionMs.set(0L);
         currentLiked.set(t.neteaseId != 0 && likedSet.contains(t.neteaseId));
@@ -275,6 +300,63 @@ public final class PlayerController {
             playing.set(true);
         } else {
             resolveAndPlayNetease(t, i);
+        }
+    }
+
+    /** Feed coverBytes for the fluid backdrop: local tracks carry embedded
+     *  bytes; NETEASE tracks download lazily off-thread, keyed by queue index
+     *  so a stale fetch for a skipped-past track is dropped. */
+    private void updateCover(Track t, int expectedIndex) {
+        if (t.coverBytes != null) {
+            coverBytes.set(t.coverBytes);
+            return;
+        }
+        coverBytes.set(null);
+        final String url = t.coverUrl;
+        if (url == null || url.isEmpty()) return;
+        worker.submit(() -> {
+            byte[] data = downloadBytes(url);
+            if (data == null) return;
+            t.coverBytes = data;
+            post(() -> {
+                if (index.peek() == expectedIndex) coverBytes.set(data);
+            });
+        });
+    }
+
+    /** Community AMLL TTML mirror: syllable-level lyrics with background-vocal
+     *  and duet annotations. Empty list on 404 / network failure / parse error,
+     *  which signals the caller to fall back to Netease's own lyric. */
+    private static List<LyricLine> tryAmllTtml(long songId) {
+        byte[] data = downloadBytes("https://amlldb.bikonoo.com/ncm-lyrics/" + songId + ".ttml");
+        if (data == null || data.length == 0) return Collections.emptyList();
+        String ttml = new String(data, java.nio.charset.StandardCharsets.UTF_8);
+        if (ttml.trim().isEmpty()) return Collections.emptyList();
+        try {
+            return TtmlParser.parse(ttml);
+        } catch (Throwable e) {
+            Logger.warn("ttml parse failed for {}: {}", songId, e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    private static byte[] downloadBytes(String url) {
+        try {
+            java.net.HttpURLConnection c =
+                    (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            c.setConnectTimeout(8000);
+            c.setReadTimeout(8000);
+            c.setRequestProperty("User-Agent", "qplayer/1.0");
+            try (java.io.InputStream in = c.getInputStream();
+                 java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                return out.toByteArray();
+            }
+        } catch (Throwable e) {
+            Logger.warn("cover fetch failed: {}", e.getMessage());
+            return null;
         }
     }
 
@@ -339,10 +421,16 @@ public final class PlayerController {
                     }
                 }
                 String url = netease.songUrl(songId, playLevel);
-                NeteaseLyric nl = netease.lyric(songId);
                 Logger.info("netease: url={}", url);
-                List<LyricLine> ly = nl == null ? Collections.<LyricLine>emptyList()
-                        : LyricParser.fromNeteaseStrings(nl.yrc, nl.lrc, nl.tlyric, nl.romalrc);
+                // Prefer the AMLL TTML mirror (full syllable + bg/duet metadata);
+                // fall back to Netease's own lyric (YRC if present, else LRC).
+                List<LyricLine> ttml = tryAmllTtml(songId);
+                if (ttml.isEmpty()) {
+                    NeteaseLyric nl = netease.lyric(songId);
+                    ttml = nl == null ? Collections.<LyricLine>emptyList()
+                            : LyricParser.fromNeteaseStrings(nl.yrc, nl.lrc, nl.tlyric, nl.romalrc);
+                }
+                final List<LyricLine> ly = ttml;
                 post(() -> {
                     if (index.peek() != expectedIndex) return; // user moved on
                     if (url == null) {
@@ -355,6 +443,7 @@ public final class PlayerController {
                     artist.set(orEmpty(t.artist));
                     album.set(orEmpty(t.album));
                     coverUrl.set(orEmpty(t.coverUrl));
+                    updateCover(t, expectedIndex);
                     durationMs.set(t.durationMs);
                     lyrics.set(ly);
                     Logger.info("play netease: {} — {}", t.title, url);
