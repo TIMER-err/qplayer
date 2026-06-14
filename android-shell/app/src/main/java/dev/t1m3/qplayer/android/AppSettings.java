@@ -23,8 +23,10 @@ public final class AppSettings extends QObject {
     public static final int MODE_LIGHT = 1;
     public static final int MODE_DARK = 2;
 
+    // Object-typed: QML numeric writes arrive as Long, so a Property<Integer> would
+    // ClassCastException in the interceptor. The interceptor normalizes to Integer.
     /** 0 = follow system, 1 = light, 2 = dark. */
-    public final Property<Integer> darkMode = new Property<>(MODE_SYSTEM);
+    public final Property<Object> darkMode = new Property<>(MODE_SYSTEM);
     public final Property<Boolean> monetEnabled = new Property<>(Boolean.TRUE);
     public final Property<Boolean> resolvedDark = new Property<>(Boolean.FALSE);
 
@@ -55,7 +57,8 @@ public final class AppSettings extends QObject {
         monetEnabled.set(prefs.getBoolean("monet", true));
         recompute();
         darkMode.setInterceptor((p, v) -> {
-            p.setBypassInterceptor(v);
+            // Normalize to Integer (QML hands us a Long) so reads compare as ints.
+            p.setBypassInterceptor(asInt(v));
             prefs.edit().putInt("darkMode", asInt(p.peek())).apply();
             recompute();
         });
