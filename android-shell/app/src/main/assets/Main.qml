@@ -19,20 +19,12 @@ Rectangle {
 
     property var titles: ["推荐", "搜索", "我的", "最近", "本地"]
 
-    // Drive the engine MD3 color scheme. isDarkTheme follows the settings policy;
-    // seedColor follows the current cover when Monet is on, else the default purple.
-    // The seed is computed into a plain property first (a reactive expression in a
-    // Binding element's `value` did not re-fire on coverSeed change).
-    property string activeSeed: (settings.monetEnabled && player.coverSeed.length > 0)
-                                ? player.coverSeed : "#6750A4"
-
+    // isDarkTheme follows the settings policy. seedColor (Monet) is driven from
+    // PlayerController in Java -- a QML Binding on StyleManager.seedColor would not
+    // re-fire when the cover seed changed.
     Binding {
         target: StyleManager; property: "isDarkTheme"
         value: settings.resolvedDark
-    }
-    Binding {
-        target: StyleManager; property: "seedColor"
-        value: app.activeSeed
     }
 
     // MD3 fade-through page switch: fade the content out, swap, fade it back in.

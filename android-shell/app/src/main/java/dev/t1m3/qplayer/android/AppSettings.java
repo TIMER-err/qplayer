@@ -36,12 +36,22 @@ public final class AppSettings extends QObject {
         void onDark(boolean dark);
     }
 
+    /** Notified when the Monet toggle changes so the host can re-apply the seed. */
+    public interface MonetListener {
+        void onMonet(boolean enabled);
+    }
+
     private SharedPreferences prefs;
     private boolean systemDark;
     private DarkListener darkListener;
+    private MonetListener monetListener;
 
     public void setDarkListener(DarkListener l) {
         this.darkListener = l;
+    }
+
+    public void setMonetListener(MonetListener l) {
+        this.monetListener = l;
     }
 
     public boolean resolvedDarkValue() {
@@ -56,6 +66,7 @@ public final class AppSettings extends QObject {
         darkMode.set(prefs.getInt("darkMode", MODE_SYSTEM));
         monetEnabled.set(prefs.getBoolean("monet", true));
         recompute();
+        if (monetListener != null) monetListener.onMonet(Boolean.TRUE.equals(monetEnabled.peek()));
         darkMode.setInterceptor((p, v) -> {
             // Normalize to Integer (QML hands us a Long) so reads compare as ints.
             p.setBypassInterceptor(asInt(v));
@@ -64,7 +75,9 @@ public final class AppSettings extends QObject {
         });
         monetEnabled.setInterceptor((p, v) -> {
             p.setBypassInterceptor(v);
-            prefs.edit().putBoolean("monet", Boolean.TRUE.equals(p.peek())).apply();
+            boolean on = Boolean.TRUE.equals(p.peek());
+            prefs.edit().putBoolean("monet", on).apply();
+            if (monetListener != null) monetListener.onMonet(on);
         });
     }
 

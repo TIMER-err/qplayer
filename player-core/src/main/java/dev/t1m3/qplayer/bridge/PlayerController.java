@@ -14,6 +14,7 @@ import dev.t1m3.qplayer.netease.dto.NeteaseSong;
 import dev.t1m3.qplayer.netease.dto.NeteaseUser;
 import dev.t1m3.qplayer.util.Logger;
 import io.github.timer_err.qml4j.engine.binding.Property;
+import io.github.timer_err.qml4j.runtime.color.StyleManager;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -54,6 +55,8 @@ public final class PlayerController {
     private final MetadataReader metadataReader;
     private final NeteaseClient netease;
     private volatile ColorExtractor colorExtractor;
+    private volatile boolean monetEnabled = true;
+    private static final String DEFAULT_SEED = "#6750A4";
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "qplayer-net");
         t.setDaemon(true);
@@ -374,17 +377,33 @@ public final class PlayerController {
         if (ex == null) return;
         if (data == null) {
             coverSeed.set("");
+            reapplySeed();
             return;
         }
         worker.submit(() -> {
             try {
                 String hex = ex.dominantHex(data);
-                Logger.info("cover seed = {}", hex);
-                if (hex != null) post(() -> coverSeed.set(hex));
+                if (hex != null) post(() -> { coverSeed.set(hex); reapplySeed(); });
             } catch (Throwable e) {
                 Logger.warn("seed extraction failed: {}", e.toString());
             }
         });
+    }
+
+    /** Toggle Monet dynamic color; re-applies the seed (render thread). */
+    public void setMonetEnabled(boolean enabled) {
+        this.monetEnabled = enabled;
+        post(this::reapplySeed);
+    }
+
+    /** Push the effective seed into StyleManager: the cover seed when Monet is on and
+     *  one exists, else the default. Driven from Java because a QML Binding on
+     *  StyleManager.seedColor did not re-fire on coverSeed changes. Render thread. */
+    private void reapplySeed() {
+        String s = coverSeed.peek();
+        String seed = (monetEnabled && s != null && !s.isEmpty()) ? s : DEFAULT_SEED;
+        StyleManager sm = (StyleManager) StyleManager.__instance();
+        sm.seedColor.set(seed);
     }
 
     /** Community AMLL TTML mirror: syllable-level lyrics with background-vocal
