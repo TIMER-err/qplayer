@@ -381,12 +381,14 @@ public final class PlayerController {
             return;
         }
         worker.submit(() -> {
+            // Cover bytes are untrusted (downloaded); a bad image must not kill the worker.
+            String hex;
             try {
-                String hex = ex.dominantHex(data);
-                if (hex != null) post(() -> { coverSeed.set(hex); reapplySeed(); });
+                hex = ex.dominantHex(data);
             } catch (Throwable e) {
-                Logger.warn("seed extraction failed: {}", e.toString());
+                return;
             }
+            if (hex != null) post(() -> { coverSeed.set(hex); reapplySeed(); });
         });
     }
 
