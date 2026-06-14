@@ -375,11 +375,10 @@ public final class PlayerController {
         coverBytes.set(data);
         final ColorExtractor ex = colorExtractor;
         if (ex == null) return;
-        if (data == null) {
-            coverSeed.set("");
-            reapplySeed();
-            return;
-        }
+        // No cover yet (a netease track's art is still downloading): keep the previous
+        // seed so the theme doesn't flash back to the default purple between songs. The
+        // new cover's seed replaces it directly once extracted.
+        if (data == null) return;
         worker.submit(() -> {
             // Cover bytes are untrusted (downloaded); a bad image must not kill the worker.
             String hex;
