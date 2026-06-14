@@ -81,6 +81,16 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     // Touch tracking while the overlay is up (device px), for swipe-down / tap-to-close.
     private float lyricDownY, lyricDownX;
     private boolean lyricMoved;
+    // The lyric overlay runs every frame; rebuilding its edge-fade + bottom-scrim
+    // gradients (native Shaders) and allocating Paints each frame was steady native
+    // churn -> GC stutter. They depend only on the surface height, so cache them and
+    // reuse the Paints (rebuild only when the height changes).
+    private float lyShaderH = -1f;
+    private io.github.humbleui.skija.Shader lyFadeShader;
+    private io.github.humbleui.skija.Shader lyScrimShader;
+    private final Paint lyHeaderPaint = new Paint();
+    private final Paint lyMaskPaint = new Paint();
+    private final Paint lyCtrlPaint = new Paint();
 
     /** Notified (with a full stack trace) when QML load/render throws, so the
      *  host can surface the error instead of the GL thread crashing the app. */
@@ -542,6 +552,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
 
         float w = surface.width() / uiScale;
         float h = surface.height() / uiScale;
+        ensureLyricShaders(h);
         float ease = lyricSlide * lyricSlide * (3f - 2f * lyricSlide);   // smoothstep
         float offY = (1f - ease) * h;
 
@@ -556,24 +567,22 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
 
         // 2) header: drag handle + title + artist.
         float pad = 28f;
-        try (Paint p = new Paint()) {
-            p.setAntiAlias(true);
-            p.setColor(0x66FFFFFF);
-            canvas.drawRRect(io.github.humbleui.types.RRect.makeXYWH(
-                    w / 2f - 18f, 14f, 36f, 4f, 2f), p);
-
-            p.setColor(0xFFFFFFFF);
-            String title = controller.title.peek();
-            if (title != null && !title.isEmpty()) {
-                canvas.drawString(title, pad, 74f,
-                        dev.t1m3.qplayer.android.lyric.Fonts.getMedium(24f), p);
-            }
-            p.setColor(0xB3FFFFFF);
-            String artist = controller.artist.peek();
-            if (artist != null && !artist.isEmpty()) {
-                canvas.drawString(artist, pad, 102f,
-                        dev.t1m3.qplayer.android.lyric.Fonts.getRegular(15f), p);
-            }
+        Paint p = lyHeaderPaint;
+        p.setAntiAlias(true);
+        p.setColor(0x66FFFFFF);
+        canvas.drawRRect(io.github.humbleui.types.RRect.makeXYWH(
+                w / 2f - 18f, 14f, 36f, 4f, 2f), p);
+        p.setColor(0xFFFFFFFF);
+        String title = controller.title.peek();
+        if (title != null && !title.isEmpty()) {
+            canvas.drawString(title, pad, 74f,
+                    dev.t1m3.qplayer.android.lyric.Fonts.getMedium(24f), p);
+        }
+        p.setColor(0xB3FFFFFF);
+        String artist = controller.artist.peek();
+        if (artist != null && !artist.isEmpty()) {
+            canvas.drawString(artist, pad, 102f,
+                    dev.t1m3.qplayer.android.lyric.Fonts.getRegular(15f), p);
         }
 
         // 3) lyrics column below the header. Render into a layer, then multiply
@@ -585,17 +594,10 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         int lc = canvas.saveLayer(colRect, null);
         LyricSkia.setCanvas(canvas);
         lyricRenderer.render(canvas, pad, topY, w - 2f * pad, colH, controller.position());
-        try (Paint mask = new Paint()) {
-            float f = Math.min(0.4f, 40f / colH);   // fade band as a fraction of the column
-            io.github.humbleui.skija.Shader grad = io.github.humbleui.skija.Shader.makeLinearGradient(
-                    0f, topY, 0f, topY + colH,
-                    new int[]{0x00FFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0x00FFFFFF},
-                    new float[]{0f, f, 1f - f, 1f});
-            mask.setShader(grad);
-            mask.setBlendMode(io.github.humbleui.skija.BlendMode.DST_IN);
-            canvas.drawRect(colRect, mask);
-            grad.close();
-        }
+        lyMaskPaint.setShader(lyFadeShader);
+        lyMaskPaint.setBlendMode(io.github.humbleui.skija.BlendMode.DST_IN);
+        canvas.drawRect(colRect, lyMaskPaint);
+        lyMaskPaint.setShader(null);
         canvas.restoreToCount(lc);
 
         // 4) transport controls along the bottom.
@@ -607,6 +609,24 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     // Reserved height (logical px) for the lyric-page transport bar at the bottom.
     private static final float L_TRANSPORT_H = 136f;
     private static final float L_PAD = 28f;
+
+    // Rebuild the cached lyric gradients only when the surface height changes.
+    private void ensureLyricShaders(float h) {
+        if (h == lyShaderH && lyFadeShader != null) return;
+        lyShaderH = h;
+        if (lyFadeShader != null) lyFadeShader.close();
+        if (lyScrimShader != null) lyScrimShader.close();
+        float topY = 140f, colH = h - topY - L_TRANSPORT_H;
+        float f = Math.min(0.4f, 40f / colH);
+        lyFadeShader = io.github.humbleui.skija.Shader.makeLinearGradient(
+                0f, topY, 0f, topY + colH,
+                new int[]{0x00FFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0x00FFFFFF},
+                new float[]{0f, f, 1f - f, 1f});
+        float barTop = h - L_TRANSPORT_H;
+        lyScrimShader = io.github.humbleui.skija.Shader.makeLinearGradient(
+                0f, barTop - 28f, 0f, h,
+                new int[]{0x00000000, 0x73000000});
+    }
 
     // Shaped icon lines cached by name@size -- a fixed, tiny set, so this never
     // grows unbounded and avoids re-shaping every frame (Painter caches the same way).
@@ -638,16 +658,12 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         float frac = dur > 0 ? Math.min(1f, Math.max(0f, (float) pos / dur)) : 0f;
 
         // Bottom scrim so white controls stay legible over a bright fluid backdrop.
-        try (Paint scrim = new Paint()) {
-            io.github.humbleui.skija.Shader g = io.github.humbleui.skija.Shader.makeLinearGradient(
-                    0f, barTop - 28f, 0f, h,
-                    new int[]{0x00000000, 0x73000000});
-            scrim.setShader(g);
-            canvas.drawRect(io.github.humbleui.types.Rect.makeXYWH(0f, barTop - 28f, w, L_TRANSPORT_H + 28f), scrim);
-            g.close();
-        }
+        lyCtrlPaint.setShader(lyScrimShader);
+        canvas.drawRect(io.github.humbleui.types.Rect.makeXYWH(0f, barTop - 28f, w, L_TRANSPORT_H + 28f), lyCtrlPaint);
+        lyCtrlPaint.setShader(null);
 
-        try (Paint p = new Paint()) {
+        {
+            Paint p = lyCtrlPaint;
             p.setAntiAlias(true);
             // progress track + fill + knob
             float py = barTop + 30f, x0 = L_PAD, x1 = w - L_PAD;
