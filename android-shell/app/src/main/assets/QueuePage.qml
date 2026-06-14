@@ -11,6 +11,9 @@ Rectangle {
     signal back()
     color: Theme.color.surface
 
+    // Swallow taps on empty areas so they don't reach the page beneath.
+    MouseArea { anchors.fill: parent }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0

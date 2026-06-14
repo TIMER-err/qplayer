@@ -12,6 +12,10 @@ Rectangle {
     signal back()
     color: Theme.color.surface
 
+    // Catch-all so taps on empty areas don't fall through to the page beneath.
+    // Declared first (lowest z); the controls above still receive their events.
+    MouseArea { anchors.fill: parent }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
