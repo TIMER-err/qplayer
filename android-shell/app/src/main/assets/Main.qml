@@ -14,13 +14,27 @@ Rectangle {
     property int nextPage: 0
     property bool detailOpen: false
     property bool loginOpen: false
+    property bool settingsOpen: false
     property bool showLog: false
 
     property var titles: ["推荐", "搜索", "我的", "最近", "本地"]
 
+    // Drive the engine MD3 color scheme. isDarkTheme follows the settings policy;
+    // seedColor follows the current cover when Monet is on, else the default purple.
+    Binding {
+        target: StyleManager; property: "isDarkTheme"
+        value: settings.resolvedDark
+    }
+    Binding {
+        target: StyleManager; property: "seedColor"
+        value: (settings.monetEnabled && player.coverSeed.length > 0)
+               ? player.coverSeed : "#6750A4"
+    }
+
     // MD3 fade-through page switch: fade the content out, swap, fade it back in.
     function switchTo(idx) {
         app.detailOpen = false;          // dismiss any open playlist detail
+        app.settingsOpen = false;        // and the settings overlay
         player.setQueueOpen(false);      // and the queue overlay
         if (idx === app.page) return;
         app.nextPage = idx;
@@ -82,6 +96,11 @@ Rectangle {
         }
         IconButton {
             type: "standard"
+            icon: "settings"
+            onClicked: app.settingsOpen = true
+        }
+        IconButton {
+            type: "standard"
             icon: "bug_report"
             onClicked: app.showLog = !app.showLog
         }
@@ -134,16 +153,40 @@ Rectangle {
                 visible: app.page === 4
             }
 
+            // Overlays animate in: detail drills in from the right, queue and
+            // settings rise from below. Kept laid out only while opacity > 0 so a
+            // closed overlay costs nothing per frame.
             PlaylistDetailPage {
-                anchors.fill: parent
-                visible: app.detailOpen
+                width: parent.width
+                height: parent.height
+                visible: opacity > 0.001
+                opacity: app.detailOpen ? 1 : 0
+                x: app.detailOpen ? 0 : 36
+                Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                Behavior on x { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
                 onBack: app.detailOpen = false
             }
 
             QueuePage {
-                anchors.fill: parent
-                visible: player.queueOpen
+                width: parent.width
+                height: parent.height
+                visible: opacity > 0.001
+                opacity: player.queueOpen ? 1 : 0
+                y: player.queueOpen ? 0 : 32
+                Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                Behavior on y { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
                 onBack: player.setQueueOpen(false)
+            }
+
+            SettingsPage {
+                width: parent.width
+                height: parent.height
+                visible: opacity > 0.001
+                opacity: app.settingsOpen ? 1 : 0
+                y: app.settingsOpen ? 0 : 32
+                Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                Behavior on y { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
+                onBack: app.settingsOpen = false
             }
         }
     }

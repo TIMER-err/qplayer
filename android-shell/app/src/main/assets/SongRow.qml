@@ -17,7 +17,20 @@ Rectangle {
     signal removeRequested()
 
     implicitHeight: 64
-    color: ma.containsMouse ? Theme.color.surfaceContainerHigh : "transparent"
+    color: "transparent"
+
+    // Inset rounded hover highlight. One constant Rectangle per row (no per-frame
+    // allocation), so the long-list fast path is unaffected. The playing row keeps
+    // its primary-tinted text/glyph rather than a fill, so it reads on either theme.
+    Rectangle {
+        anchors.fill: parent
+        anchors.leftMargin: 8
+        anchors.rightMargin: 8
+        anchors.topMargin: 4
+        anchors.bottomMargin: 4
+        radius: 12
+        color: ma.containsMouse ? Theme.color.surfaceContainerHigh : "transparent"
+    }
 
     Text {
         id: glyph

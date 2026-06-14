@@ -3,6 +3,7 @@ package dev.t1m3.qplayer.android;
 import android.Manifest;
 import android.app.Activity;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
@@ -56,6 +57,7 @@ public final class QPlayerActivity extends Activity {
     private static final int REQ_AUDIO = 1;
 
     private PlayerController controller;
+    private AppSettings settings;
     private QmlGLSurfaceView glView;
 
     @Override
@@ -68,6 +70,12 @@ public final class QPlayerActivity extends Activity {
         AudioBackend backend = new AndroidAudioBackend();
         MetadataReader reader = new AndroidMetadataReader();
         controller = new PlayerController(backend, reader);
+        controller.setColorExtractor(new AndroidColorExtractor());
+
+        settings = new AppSettings();
+        settings.setDarkListener(dark -> runOnUiThread(() -> applySystemBars(dark)));
+        settings.load(this);
+        applySystemBars(settings.resolvedDarkValue());
 
         String qml;
         try {
@@ -94,6 +102,7 @@ public final class QPlayerActivity extends Activity {
         glView = new QmlGLSurfaceView(this, engine, qml,
                 new AssetResourceLoader(getAssets()), density);
         glView.setController(controller);
+        glView.setSettings(settings);
         glView.setErrorListener(trace -> runOnUiThread(() -> showError(trace)));
 
         // glView under a splash overlay shown while the QML tree compiles (slow
@@ -191,6 +200,34 @@ public final class QPlayerActivity extends Activity {
         }
     }
 
+    /** Paint the status + navigation bars with a theme-appropriate surface and flip
+     *  the bar-icon contrast so they read on either light or dark backgrounds. */
+    private void applySystemBars(boolean dark) {
+        int surface = dark ? 0xFF141218 : 0xFFFEF7FF;
+        android.view.Window w = getWindow();
+        w.setStatusBarColor(surface);
+        w.setNavigationBarColor(surface);
+        if (Build.VERSION.SDK_INT >= 30) {
+            android.view.WindowInsetsController c = w.getInsetsController();
+            if (c != null) {
+                int mask = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                        | android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                c.setSystemBarsAppearance(dark ? 0 : mask, mask);
+            }
+        } else {
+            android.view.View dv = w.getDecorView();
+            int flags = dv.getSystemUiVisibility();
+            if (dark) {
+                flags &= ~android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+                flags &= ~android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+            } else {
+                flags |= android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+                flags |= android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+            }
+            dv.setSystemUiVisibility(flags);
+        }
+    }
+
     private void showError(String trace) {
         android.widget.TextView tv = new android.widget.TextView(this);
         tv.setText(trace);
@@ -206,6 +243,14 @@ public final class QPlayerActivity extends Activity {
         String music = Environment.getExternalStoragePublicDirectory(
                 Environment.DIRECTORY_MUSIC).getAbsolutePath();
         controller.scan(music);
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        if (glView != null) {
+            glView.onSystemNightChanged(AppSettings.isSystemDark(this));
+        }
     }
 
     @Override

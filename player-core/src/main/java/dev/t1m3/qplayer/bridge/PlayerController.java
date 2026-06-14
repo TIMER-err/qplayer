@@ -53,6 +53,7 @@ public final class PlayerController {
     private final AudioBackend backend;
     private final MetadataReader metadataReader;
     private final NeteaseClient netease;
+    private volatile ColorExtractor colorExtractor;
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "qplayer-net");
         t.setDaemon(true);
@@ -79,6 +80,9 @@ public final class PlayerController {
     /** Cover image bytes of the current track (local embedded or downloaded),
      *  for the host-drawn fluid lyric backdrop. Null until available. */
     public final Property<byte[]> coverBytes = new Property<>(null);
+    /** Material You seed color ("#rrggbb") derived from the current cover, or ""
+     *  when none. QML feeds it into StyleManager.seedColor when Monet is enabled. */
+    public final Property<String> coverSeed = new Property<>("");
     public final Property<Long> durationMs = new Property<>(0L);
     public final Property<Long> positionMs = new Property<>(0L);
     public final Property<Integer> index = new Property<>(-1);
@@ -133,6 +137,11 @@ public final class PlayerController {
             loggedIn.set(true);
             refreshLogin();
         }
+    }
+
+    /** Platform color extractor for Monet seeds; set once at startup. */
+    public void setColorExtractor(ColorExtractor extractor) {
+        this.colorExtractor = extractor;
     }
 
     // --- Frame pump (render thread) --------------------------------------
@@ -342,10 +351,10 @@ public final class PlayerController {
      *  so a stale fetch for a skipped-past track is dropped. */
     private void updateCover(Track t, int expectedIndex) {
         if (t.coverBytes != null) {
-            coverBytes.set(t.coverBytes);
+            applyCover(t.coverBytes);
             return;
         }
-        coverBytes.set(null);
+        applyCover(null);
         final String url = t.coverUrl;
         if (url == null || url.isEmpty()) return;
         worker.submit(() -> {
@@ -353,8 +362,23 @@ public final class PlayerController {
             if (data == null) return;
             t.coverBytes = data;
             post(() -> {
-                if (index.peek() == expectedIndex) coverBytes.set(data);
+                if (index.peek() == expectedIndex) applyCover(data);
             });
+        });
+    }
+
+    /** Push cover bytes (render thread) and kick off Monet seed extraction off it. */
+    private void applyCover(byte[] data) {
+        coverBytes.set(data);
+        final ColorExtractor ex = colorExtractor;
+        if (ex == null) return;
+        if (data == null) {
+            coverSeed.set("");
+            return;
+        }
+        worker.submit(() -> {
+            String hex = ex.dominantHex(data);
+            if (hex != null) post(() -> coverSeed.set(hex));
         });
     }
 

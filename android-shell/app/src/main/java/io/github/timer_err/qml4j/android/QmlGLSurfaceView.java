@@ -30,6 +30,7 @@ import io.github.timer_err.qml4j.render.SurfaceBackend;
 import io.github.timer_err.qml4j.render.items.input.TextEditable;
 
 import dev.t1m3.qplayer.bridge.PlayerController;
+import dev.t1m3.qplayer.android.AppSettings;
 import dev.t1m3.qplayer.android.lyric.LyricRenderer;
 import dev.t1m3.qplayer.android.lyric.LyricSkia;
 import dev.t1m3.qplayer.lyric.LyricLine;
@@ -50,6 +51,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     private QmlView view;
     private SkijaGlSurface surface;
     private PlayerController controller;
+    private AppSettings settings;
     private volatile boolean failed;
     private ErrorListener errorListener;
     private SplashListener splashListener;
@@ -368,6 +370,21 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         this.controller = c;
     }
 
+    /** Expose app settings to QML as the {@code settings} context global. Set before
+     *  the GL thread first lays out. */
+    public void setSettings(AppSettings s) {
+        this.settings = s;
+    }
+
+    /** Apply a system night-mode change on the render thread. */
+    public void onSystemNightChanged(final boolean dark) {
+        queueEvent(new Runnable() {
+            @Override public void run() {
+                if (settings != null) settings.applySystemDark(dark);
+            }
+        });
+    }
+
     void sendSyntheticKey(final int code, final String text) {
         queueEvent(new Runnable() {
             @Override public void run() {
@@ -461,6 +478,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                         }
                     });
                     if (controller != null) view.context("player", controller);
+                    if (settings != null) view.context("settings", settings);
                     view.setCompileProgressListener((name, count) -> {
                         SplashListener l = splashListener;
                         if (l != null) l.onProgress(name, count);
