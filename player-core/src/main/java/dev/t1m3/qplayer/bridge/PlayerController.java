@@ -73,6 +73,7 @@ public final class PlayerController {
     private volatile long uid;
     private long lastPositionPush;
     private long lastLogVersion = -1;
+    private volatile boolean logVisible = false;
 
     // --- Playback state ---------------------------------------------------
     public final Property<Boolean> playing = new Property<>(false);
@@ -171,17 +172,29 @@ public final class PlayerController {
                 updateLyricIndex(pos);
             }
         }
-        long lv = Logger.version();
-        if (lv != lastLogVersion) {
-            lastLogVersion = lv;
-            List<String> lines = Logger.snapshot();
-            int from = Math.max(0, lines.size() - 60);
-            StringBuilder sb = new StringBuilder();
-            for (int i = from; i < lines.size(); i++) {
-                sb.append(lines.get(i)).append('\n');
+        // Rebuild the debug log text only while the overlay is open. Otherwise every
+        // log line (e.g. the ~2 s frame-profiler summary) rebuilt the string and called
+        // logText.set, whose version bump forced a whole-tree relayout -- a periodic
+        // stutter even with the log closed.
+        if (logVisible) {
+            long lv = Logger.version();
+            if (lv != lastLogVersion) {
+                lastLogVersion = lv;
+                List<String> lines = Logger.snapshot();
+                int from = Math.max(0, lines.size() - 60);
+                StringBuilder sb = new StringBuilder();
+                for (int i = from; i < lines.size(); i++) {
+                    sb.append(lines.get(i)).append('\n');
+                }
+                logText.set(sb.toString());
             }
-            logText.set(sb.toString());
         }
+    }
+
+    /** The debug log overlay's visibility; gates the per-frame logText rebuild. */
+    public void setLogVisible(boolean visible) {
+        this.logVisible = visible;
+        if (visible) lastLogVersion = -1;
     }
 
     private void updateLyricIndex(long pos) {

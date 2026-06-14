@@ -19,6 +19,10 @@ Rectangle {
 
     property var titles: ["推荐", "搜索", "我的", "最近", "本地"]
 
+    // Rebuild the debug log string only while it's actually shown (its set() forces a
+    // full relayout, which periodically stuttered the scene when always rebuilt).
+    onShowLogChanged: player.setLogVisible(app.showLog)
+
     // isDarkTheme follows the settings policy. seedColor (Monet) is driven from
     // PlayerController in Java -- a QML Binding on StyleManager.seedColor would not
     // re-fire when the cover seed changed.
