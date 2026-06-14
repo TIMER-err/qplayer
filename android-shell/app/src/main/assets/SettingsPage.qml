@@ -147,7 +147,9 @@ Rectangle {
                                 font.pixelSize: Theme.typography.bodyLarge.size
                             }
                             Text {
-                                text: "随封面动态生成主题配色"
+                                text: player.coverSeed.length > 0
+                                      ? ("随封面动态生成 · " + player.coverSeed)
+                                      : "随封面动态生成主题配色"
                                 color: Theme.color.onSurfaceVariantColor
                                 font.family: Theme.typography.bodySmall.family
                                 font.pixelSize: Theme.typography.bodySmall.size
