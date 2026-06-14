@@ -75,7 +75,6 @@ public final class QPlayerActivity extends Activity {
         settings = new AppSettings();
         settings.setDarkListener(dark -> runOnUiThread(() -> applySystemBars(dark)));
         settings.load(this);
-        applySystemBars(settings.resolvedDarkValue());
 
         String qml;
         try {
@@ -125,6 +124,7 @@ public final class QPlayerActivity extends Activity {
             }
         });
         setContentView(rootView);
+        applySystemBars(settings.resolvedDarkValue());
 
         controller.loadHome();
         requestAudioPermission();
@@ -203,8 +203,12 @@ public final class QPlayerActivity extends Activity {
     /** Paint the status + navigation bars with a theme-appropriate surface and flip
      *  the bar-icon contrast so they read on either light or dark backgrounds. */
     private void applySystemBars(boolean dark) {
-        int surface = dark ? 0xFF141218 : 0xFFFEF7FF;
         android.view.Window w = getWindow();
+        // The dark listener can fire during settings.load(), before setContentView
+        // has created the decor view; getInsetsController() NPEs then. Skip until the
+        // window is ready -- the post-setContentView call applies the initial state.
+        if (w == null || w.peekDecorView() == null) return;
+        int surface = dark ? 0xFF141218 : 0xFFFEF7FF;
         w.setStatusBarColor(surface);
         w.setNavigationBarColor(surface);
         if (Build.VERSION.SDK_INT >= 30) {
