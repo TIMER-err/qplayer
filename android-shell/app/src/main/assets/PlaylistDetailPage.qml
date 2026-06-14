@@ -40,12 +40,25 @@ Rectangle {
             }
         }
 
-        VirtualSongList {
-            id: tracks
+        Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            list: player.playlistTracks
-            onActivated: player.playPlaylistTrack(tracks.activatedIndex)
+
+            VirtualSongList {
+                id: tracks
+                anchors.fill: parent
+                visible: !player.playlistLoading
+                list: player.playlistTracks
+                onActivated: player.playPlaylistTrack(tracks.activatedIndex)
+            }
+
+            LoadingIndicator {
+                anchors.centerIn: parent
+                visible: player.playlistLoading
+                running: player.playlistLoading
+                withContainer: true
+                size: 56
+            }
         }
     }
 }

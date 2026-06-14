@@ -113,6 +113,9 @@ public final class PlayerController {
     /** Currently opened playlist. */
     public final Property<List<NeteaseSong>> playlistTracks = new Property<>(Collections.<NeteaseSong>emptyList());
     public final Property<String> playlistTitle = new Property<>("");
+    /** True while an opened playlist's tracks are loading, so the detail page shows a
+     *  spinner instead of the previous playlist's content. */
+    public final Property<Boolean> playlistLoading = new Property<>(false);
     /** Snapshot of the live play queue for the queue page; current track is {@link #index}. */
     public final Property<List<Track>> queueTracks = new Property<>(Collections.<Track>emptyList());
     public final Property<Boolean> queueOpen = new Property<>(false);
@@ -644,6 +647,11 @@ public final class PlayerController {
 
     /** Open a playlist: detail (name) + its tracks. */
     public void openPlaylist(long playlistId) {
+        // Called on the render thread from QML: clear the previous playlist and show
+        // the spinner immediately, before the off-thread fetch starts.
+        playlistLoading.set(true);
+        playlistTracks.set(Collections.<NeteaseSong>emptyList());
+        playlistTitle.set("");
         worker.submit(() -> {
             try {
                 NeteasePlaylist detail = netease.playlistDetail(playlistId);
@@ -652,9 +660,11 @@ public final class PlayerController {
                 post(() -> {
                     playlistTitle.set(name == null ? "" : name);
                     playlistTracks.set(songs);
+                    playlistLoading.set(false);
                 });
             } catch (Throwable e) {
                 Logger.warn("open playlist {} failed: {}", playlistId, e.getMessage());
+                post(() -> playlistLoading.set(false));
             }
         });
     }
