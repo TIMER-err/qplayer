@@ -20,9 +20,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
@@ -68,6 +70,24 @@ public final class PlayerController {
     private final Queue<Runnable> uiQueue = new ConcurrentLinkedQueue<>();
     private final Set<Long> likedSet = new HashSet<>();
     private final Random rng = new Random();
+
+    // --- Search cache ------------------------------------------------------
+    /** TTL for cached search results: 5 minutes. */
+    private static final long SEARCH_CACHE_TTL_MS = 5 * 60 * 1000L;
+    private final Map<String, CacheEntry> searchCache = new ConcurrentHashMap<>();
+
+    /** Holds a cached search result with its creation timestamp. */
+    private static final class CacheEntry {
+        final List<NeteaseSong> songs;
+        final long timestamp;
+        CacheEntry(List<NeteaseSong> songs) {
+            this.songs = songs;
+            this.timestamp = System.currentTimeMillis();
+        }
+        boolean isExpired() {
+            return System.currentTimeMillis() - timestamp > SEARCH_CACHE_TTL_MS;
+        }
+    }
 
     private volatile String playLevel = "exhigh";
     private volatile long uid;
@@ -648,12 +668,34 @@ public final class PlayerController {
 
     // --- Netease discovery ------------------------------------------------
 
-    /** Search and publish to {@link #searchResults}. */
+    /** Search and publish to {@link #searchResults}. Results are cached for
+     *  {@value #SEARCH_CACHE_TTL_MS} ms; a cache hit returns immediately without
+     *  a network round-trip. */
     public void search(String keyword) {
         if (keyword == null || keyword.trim().isEmpty()) return;
+        final String key = keyword.trim().toLowerCase();
+        // Fast path: check cache on the calling (render) thread.
+        CacheEntry entry = searchCache.get(key);
+        if (entry != null && !entry.isExpired()) {
+            searchResults.set(entry.songs);
+            resultCount.set(entry.songs.size());
+            Logger.debug("search cache hit: {}", key);
+            return;
+        }
         worker.submit(() -> {
             try {
+                // Double-check: another search for the same keyword may have
+                // completed while we were waiting for the worker slot.
+                CacheEntry existing = searchCache.get(key);
+                if (existing != null && !existing.isExpired()) {
+                    post(() -> {
+                        searchResults.set(existing.songs);
+                        resultCount.set(existing.songs.size());
+                    });
+                    return;
+                }
                 List<NeteaseSong> r = netease.searchSongs(keyword, 30, 0);
+                searchCache.put(key, new CacheEntry(r));
                 post(() -> {
                     searchResults.set(r);
                     resultCount.set(r.size());
