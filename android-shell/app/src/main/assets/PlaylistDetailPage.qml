@@ -9,6 +9,11 @@ Rectangle {
     signal back()
     color: Theme.color.surface
 
+    // Reset the scroll to the top whenever a new playlist starts loading, so the
+    // previous playlist's scroll position doesn't carry over.
+    property bool loadingWatch: player.playlistLoading
+    onLoadingWatchChanged: if (player.playlistLoading) tracks.contentY = 0
+
     // Swallow taps on empty areas so they don't reach the page beneath.
     MouseArea { anchors.fill: parent }
 
