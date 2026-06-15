@@ -108,6 +108,12 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         this.uiScale = uiScale > 0 ? uiScale : 1f;
         setEGLContextClientVersion(2);
         setEGLConfigChooser(8, 8, 8, 8, 0, 8);
+        // Keep the EGL context across pause/resume. Otherwise the context (and all GL
+        // resources) is destroyed when the app backgrounds, so Canvas-backed content
+        // drawn into offscreen buffers -- the QR code, LoadingIndicator, the wavy
+        // progress -- comes back blank until something triggers a repaint (a static
+        // Canvas like the QR never does).
+        setPreserveEGLContextOnPause(true);
         setRenderer(new GlRenderer());
         setRenderMode(RENDERMODE_CONTINUOUSLY);
         setFocusable(true);
