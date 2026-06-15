@@ -102,6 +102,10 @@ public final class PlayerController {
     /** Host-published lyric-overlay slide progress (0 closed .. 1 open); the QML
      *  LyricOverlay chrome fades with it in lockstep with the host lyric layer. */
     public final Property<Double> lyricSlide = new Property<>(0.0);
+    /** Host-published playback fraction (0..1) for the lyric page progress bar, set
+     *  every frame from the live position so the wavy bar advances smoothly (the 5 Hz
+     *  positionMs would step it). */
+    public final Property<Double> lyricProgress = new Property<>(0.0);
 
     // --- Local library ----------------------------------------------------
     public final Property<List<Track>> tracks = new Property<>(Collections.<Track>emptyList());

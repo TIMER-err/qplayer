@@ -455,6 +455,11 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         if (Math.abs(target - lyricSlide) < 0.002f) lyricSlide = target;
         // Publish to QML so the LyricOverlay chrome fades in/out in lockstep.
         controller.lyricSlide.set((double) lyricSlide);
+        // Per-frame playback fraction for the QML wavy progress bar -- smooth, unlike
+        // the 5 Hz positionMs the QML would otherwise step through.
+        long durMs = controller.durationMs.peek();
+        controller.lyricProgress.set(durMs > 0
+                ? Math.min(1.0, controller.position() / (double) durMs) : 0.0);
         if (lyricSlide <= 0.001f && !open) return;
 
         // Re-feed the renderer when the track's lyric list changes (identity).
