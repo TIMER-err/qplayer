@@ -226,6 +226,10 @@ public class LyricRenderer {
     // reused buffers). Mirrors the engine's "don't recompute invariants per frame".
     private int[][] cachedRowStarts;
     private float[] cachedLineHeights;
+    // Wrapped sub-line rows per line (null when absent/hidden), cached with the layout
+    // so the per-frame draw never re-splits or allocates.
+    private String[][] cachedRomajiRows;
+    private String[][] cachedTranslationRows;
     private float[] lineTopsBuf = new float[0];
     private float[] interludeBuf = new float[0];
     // Reused per active line each frame (syllable left edges); was new float[n+1].
@@ -470,6 +474,8 @@ public class LyricRenderer {
         if (!layoutValid) {
             int[][] rowStarts = new int[n][];
             float[] lineHeights = new float[n];
+            String[][] romajiRows = new String[n][];
+            String[][] translationRows = new String[n][];
             for (int i = 0; i < n; i++) {
                 LyricLine line = lines.get(i);
                 boolean isBg = isBackground(line.vocalChannel);
@@ -485,8 +491,14 @@ public class LyricRenderer {
                 // under the last row feels cramped — give it a little extra breathing
                 // room (reserved here so neighbours don't overlap; drawn at subY).
                 if (hasSub && subRowCount > 1) lh += WRAP_SUB_GAP;
-                if (line.romaji != null && showRomaji) lh += subLineHeight;
-                if (line.translation != null && showTranslation) lh += subLineHeight;
+                if (line.romaji != null && showRomaji) {
+                    romajiRows[i] = wrapText(line.romaji, subFont, columnWidth);
+                    lh += subLineHeight * romajiRows[i].length;
+                }
+                if (line.translation != null && showTranslation) {
+                    translationRows[i] = wrapText(line.translation, subFont, columnWidth);
+                    lh += subLineHeight * translationRows[i].length;
+                }
                 lh += lineGap;
                 // BG lines reserve their full layout height upfront so neighbouring
                 // lines never shift when the BG scales in / collapses.
@@ -494,6 +506,8 @@ public class LyricRenderer {
             }
             cachedRowStarts = rowStarts;
             cachedLineHeights = lineHeights;
+            cachedRomajiRows = romajiRows;
+            cachedTranslationRows = translationRows;
             layoutKeyLines = lines;
             layoutKeyN = n;
             layoutKeyLyricSize = lyricFontSize;
@@ -734,14 +748,21 @@ public class LyricRenderer {
             float subY = lineYTop + rowHeight
                     + (subRowCount - 1) * (isBg ? rowHeightBgWrap : rowHeightLyricWrap) + 4f
                     + (subRowCount > 1 ? WRAP_SUB_GAP : 0f);
-            if (line.romaji != null && showRomaji) {
-                drawSubLine(line.romaji, leftX, maxRowRightX, subY, subFont,
-                        baseAlpha * 0.75f, alignRight);
-                subY += subLineHeight;
+            String[] romajiRows = cachedRomajiRows[i];
+            if (romajiRows != null && showRomaji) {
+                for (int r = 0; r < romajiRows.length; r++) {
+                    drawSubLine(romajiRows[r], leftX, maxRowRightX, subY, subFont,
+                            baseAlpha * 0.75f, alignRight);
+                    subY += subLineHeight;
+                }
             }
-            if (line.translation != null && showTranslation) {
-                drawSubLine(line.translation, leftX, maxRowRightX, subY, subFont,
-                        baseAlpha * 0.75f, alignRight);
+            String[] translationRows = cachedTranslationRows[i];
+            if (translationRows != null && showTranslation) {
+                for (int r = 0; r < translationRows.length; r++) {
+                    drawSubLine(translationRows[r], leftX, maxRowRightX, subY, subFont,
+                            baseAlpha * 0.75f, alignRight);
+                    subY += subLineHeight;
+                }
             }
 
             if (bgTransform) {
@@ -1007,6 +1028,42 @@ public class LyricRenderer {
             w += perCharWidth(syllables.get(i).text, font);
         }
         return w;
+    }
+
+    /**
+     * Greedy width-wrap of a plain sub-line (romaji / translation) into rows that fit
+     * {@code maxWidth}. Breaks at spaces when present (latin / romaji), else at the
+     * character boundary (CJK translations have no spaces). Called only from the cached
+     * layout pass, so the per-row allocation is not on the per-frame path.
+     */
+    private static String[] wrapText(String text, Font font, float maxWidth) {
+        if (text == null || text.isEmpty()) return new String[]{""};
+        if (font.measureTextWidth(text) <= maxWidth) return new String[]{text};
+        java.util.List<String> rows = new java.util.ArrayList<>();
+        int n = text.length();
+        int lineStart = 0;
+        int lastSpace = -1;
+        float w = 0f;
+        int i = 0;
+        while (i < n) {
+            char c = text.charAt(i);
+            float cw = font.measureTextWidth(String.valueOf(c));
+            if (c == ' ') lastSpace = i;
+            if (w + cw > maxWidth && i > lineStart) {
+                int breakAt = lastSpace > lineStart ? lastSpace : i;
+                int nextStart = lastSpace > lineStart ? lastSpace + 1 : i;
+                rows.add(text.substring(lineStart, breakAt));
+                lineStart = nextStart;
+                lastSpace = -1;
+                i = nextStart;
+                w = 0f;
+                continue;
+            }
+            w += cw;
+            i++;
+        }
+        if (lineStart < n) rows.add(text.substring(lineStart));
+        return rows.toArray(new String[0]);
     }
 
     private static void drawSubLine(String text, float leftX, float rightAnchorX, float y,
