@@ -69,7 +69,7 @@ public final class NeteaseClient {
      * {@code csrf_token} from the cookie jar if the caller didn't supply
      * one. Returns the raw response body as UTF-8 text — caller parses.
      */
-    public synchronized String weapiCall(String path, Map<String, Object> json) throws IOException {
+    public String weapiCall(String path, Map<String, Object> json) throws IOException {
         String csrf = cookies.getOrDefault("__csrf", "");
         Map<String, Object> body = json == null ? new HashMap<String, Object>() : new HashMap<String, Object>(json);
         if (!body.containsKey("csrf_token")) body.put("csrf_token", csrf);
@@ -105,12 +105,7 @@ public final class NeteaseClient {
 
             int code = conn.getResponseCode();
             InputStream is = (code >= 400) ? conn.getErrorStream() : conn.getInputStream();
-            String resp;
-            try {
-                resp = readAll(is);
-            } finally {
-                if (is != null) { try { is.close(); } catch (IOException ignored) {} }
-            }
+            String resp = readAll(is);
             captureSetCookies(conn.getHeaderFields().get("Set-Cookie"));
 
             if (code >= 400) {
@@ -150,26 +145,6 @@ public final class NeteaseClient {
      * subscription cookie.
      */
     public String songUrl(long songId, String level) throws IOException {
-        UrlInfo info = songUrlInfo(songId, level);
-        return info == null ? null : info.url;
-    }
-
-    /** Official-url result with trial detection. {@link #url} is the CDN url (null
-     *  if blocked/VIP/login-required); {@link #trial} is true when the only url
-     *  netease returned is a {@code freeTrialInfo} preview clip, which callers
-     *  may want to replace via an unblock source before settling for it. */
-    public static final class UrlInfo {
-        public final String url;
-        public final boolean trial;
-        public UrlInfo(String url, boolean trial) {
-            this.url = url;
-            this.trial = trial;
-        }
-    }
-
-    /** Like {@link #songUrl} but also reports whether the returned url is a
-     *  trial-only preview ({@code freeTrialInfo != null}). */
-    public UrlInfo songUrlInfo(long songId, String level) throws IOException {
         Map<String, Object> body = new HashMap<>();
         body.put("ids", "[" + songId + "]");
         body.put("level", level == null ? "standard" : level);
@@ -179,11 +154,9 @@ public final class NeteaseClient {
         if (obj.get("data").getAsJsonArray().size() == 0) return null;
         JsonElement first = obj.get("data").getAsJsonArray().get(0);
         if (!first.isJsonObject()) return null;
-        JsonObject song = first.getAsJsonObject();
-        JsonElement url = song.get("url");
+        JsonElement url = first.getAsJsonObject().get("url");
         if (url == null || url.isJsonNull()) return null;
-        boolean trial = song.has("freeTrialInfo") && !song.get("freeTrialInfo").isJsonNull();
-        return new UrlInfo(url.getAsString(), trial);
+        return url.getAsString();
     }
 
     // ---- Discovery / search / playlist (N5) ----
@@ -280,10 +253,8 @@ public final class NeteaseClient {
         for (JsonElement el : pl.getAsJsonArray("trackIds")) {
             if (n >= limit) break;
             JsonObject ti = el.getAsJsonObject();
-            JsonElement idEl = ti.get("id");
-            if (idEl == null || idEl.isJsonNull()) continue;
             if (n > 0) ids.append(',');
-            ids.append("{\"id\":").append(idEl.getAsLong()).append('}');
+            ids.append("{\"id\":").append(ti.get("id").getAsLong()).append('}');
             n++;
         }
         ids.append(']');
@@ -302,8 +273,8 @@ public final class NeteaseClient {
     /** Common JSON decode for /cloudsearch songs[] / /song/detail songs[] / playlist tracks[]. */
     private static NeteaseSong parseSong(JsonObject s) {
         NeteaseSong out = new NeteaseSong();
-        if (s.has("id") && !s.get("id").isJsonNull()) out.id = s.get("id").getAsLong();
-        if (s.has("name") && !s.get("name").isJsonNull()) out.name = s.get("name").getAsString();
+        if (s.has("id")) out.id = s.get("id").getAsLong();
+        if (s.has("name")) out.name = s.get("name").getAsString();
         if (s.has("dt"))   out.durationMs = s.get("dt").getAsLong();
         else if (s.has("duration")) out.durationMs = s.get("duration").getAsLong();
         if (s.has("fee"))  out.fee = s.get("fee").getAsInt() == 1;
@@ -335,8 +306,8 @@ public final class NeteaseClient {
 
     private static NeteasePlaylist parsePlaylist(JsonObject p) {
         NeteasePlaylist out = new NeteasePlaylist();
-        if (p.has("id") && !p.get("id").isJsonNull()) out.id = p.get("id").getAsLong();
-        if (p.has("name") && !p.get("name").isJsonNull()) out.name = p.get("name").getAsString();
+        if (p.has("id")) out.id = p.get("id").getAsLong();
+        if (p.has("name")) out.name = p.get("name").getAsString();
         if (p.has("picUrl")) out.coverUrl = p.get("picUrl").getAsString();
         else if (p.has("coverImgUrl")) out.coverUrl = p.get("coverImgUrl").getAsString();
         if (p.has("trackCount")) out.trackCount = p.get("trackCount").getAsInt();
@@ -365,6 +336,19 @@ public final class NeteaseClient {
         JsonArray arr = obj.getAsJsonArray("songs");
         if (arr.size() == 0 || !arr.get(0).isJsonObject()) return null;
         return parseSong(arr.get(0).getAsJsonObject());
+    }
+
+    /** Batch-fetch metadata for multiple songs. idsJson: [{"id":123},...]. */
+    public List<NeteaseSong> songDetails(String idsJson) throws IOException {
+        List<NeteaseSong> out = new ArrayList<>();
+        Map<String, Object> body = new HashMap<>();
+        body.put("c", idsJson);
+        JsonObject obj = weapiJson("v3/song/detail", body);
+        if (!obj.has("songs") || !obj.get("songs").isJsonArray()) return out;
+        for (JsonElement el : obj.getAsJsonArray("songs")) {
+            if (el.isJsonObject()) out.add(parseSong(el.getAsJsonObject()));
+        }
+        return out;
     }
 
     // ---- User account / library (N6) ----
@@ -712,7 +696,6 @@ public final class NeteaseClient {
         if (!Files.exists(cookieFile)) return;
         try {
             String txt = new String(Files.readAllBytes(cookieFile), StandardCharsets.UTF_8);
-            if (txt == null || txt.trim().isEmpty()) return;
             JsonElement el = new JsonParser().parse(txt);
             if (!el.isJsonObject()) return;
             for (Map.Entry<String, JsonElement> e : el.getAsJsonObject().entrySet()) {

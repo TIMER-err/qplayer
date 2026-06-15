@@ -2,11 +2,11 @@ package dev.t1m3.qplayer.android;
 
 import android.Manifest;
 import android.app.Activity;
-import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 
 import io.github.timer_err.qml4j.android.AssetResourceLoader;
 import io.github.timer_err.qml4j.android.DexClassLoaderBackend;
@@ -16,14 +16,12 @@ import io.github.timer_err.qml4j.engine.QmlEngine;
 import dev.t1m3.qplayer.audio.AudioBackend;
 import dev.t1m3.qplayer.audio.MetadataReader;
 import dev.t1m3.qplayer.bridge.PlayerController;
-import dev.t1m3.qplayer.model.Track;
 import dev.t1m3.qplayer.store.AppDirs;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 
 /**
  * Music player entry point: builds the {@link PlayerController} over the
@@ -57,13 +55,10 @@ public final class QPlayerActivity extends Activity {
     }
 
     private static final int REQ_AUDIO = 1;
-    private static final int REQ_NOTIF = 2;
 
     private PlayerController controller;
     private AppSettings settings;
     private QmlGLSurfaceView glView;
-    private MetadataReader reader;
-    private android.os.Handler mainHandler;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -72,28 +67,14 @@ public final class QPlayerActivity extends Activity {
         // Cookies / config live in app-private storage on Android.
         AppDirs.setBase(getFilesDir().getAbsolutePath());
 
-        AudioBackend backend = new AndroidAudioBackend(this);
-        reader = new AndroidMetadataReader();
+        AudioBackend backend = new AndroidAudioBackend();
+        MetadataReader reader = new AndroidMetadataReader();
         controller = new PlayerController(backend, reader);
         controller.setColorExtractor(new AndroidColorExtractor());
-
-        // Playback control runs on the main thread (alive in the background, unlike
-        // the GL render thread); the service mirrors state to the media session and
-        // keeps playback foregrounded so it survives + auto-advances when backgrounded.
-        mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-        controller.setMainExecutor(mainHandler::post);
-        PlaybackService.controller = controller;
-        // Boot-start listener: starts the foreground service (from the foreground, on
-        // first play). Once alive the service registers itself and handles refreshes
-        // in-process, so this only fires before the service exists.
-        PlayerController.PlaybackListener bootstrap = this::onPlaybackChanged;
-        PlaybackService.bootstrapListener = bootstrap;
-        controller.setPlaybackListener(bootstrap);
 
         settings = new AppSettings();
         settings.setDarkListener(dark -> runOnUiThread(() -> applySystemBars(dark)));
         settings.setMonetListener(on -> controller.setMonetEnabled(on));
-        settings.setUnblockListener(on -> controller.setUnblockEnabled(on));
         settings.load(this);
 
         String qml;
@@ -145,7 +126,7 @@ public final class QPlayerActivity extends Activity {
                 runOnUiThread(() -> splashStatus.setText("正在编译界面组件… " + count));
             }
             @Override public void onReady() {
-                runOnUiThread(QPlayerActivity.this::onSceneReady);
+                runOnUiThread(QPlayerActivity.this::hideSplash);
             }
         });
         setContentView(rootView);
@@ -154,39 +135,7 @@ public final class QPlayerActivity extends Activity {
         applySystemBars(settings.resolvedDarkValue());
 
         controller.loadHome();
-        // The audio-permission dialog is deferred to onSceneReady: requesting it
-        // here pops a system dialog during the QML compile, and the resulting
-        // pause/resume + the concurrent MediaStore scan racing the dex compile
-        // crashes on first launch. Once the scene has rendered, it's safe.
-    }
-
-    /** First painted frame: the QML tree is fully built and rendering. Now hide the
-     *  splash and request the audio permission (and scan) — see onCreate. */
-    private void onSceneReady() {
-        hideSplash();
         requestAudioPermission();
-        requestNotificationPermission();
-    }
-
-    /** Playback state / track changed (main thread): poke the foreground service to
-     *  refresh the media session + notification. */
-    private void onPlaybackChanged() {
-        try {
-            Intent i = new Intent(this, PlaybackService.class).setAction(PlaybackService.ACTION_REFRESH);
-            androidx.core.content.ContextCompat.startForegroundService(this, i);
-        } catch (Throwable e) {
-            dev.t1m3.qplayer.util.Logger.error("startForegroundService failed: {}", e.toString());
-        }
-    }
-
-    /** Android 13+ needs runtime POST_NOTIFICATIONS for the media notification to show.
-     *  Best-effort: playback still works if denied, just without the notification UI. */
-    private void requestNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= 33
-                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
-                    != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIF);
-        }
     }
 
     private android.view.View splashView;
@@ -366,15 +315,9 @@ public final class QPlayerActivity extends Activity {
     }
 
     private void scanMusic() {
-        // Android 11+ Scoped Storage: Files.walk() cannot traverse external storage.
-        // Use MediaStore API instead — it works with READ_MEDIA_AUDIO permission.
-        // Run off the main thread to avoid ANR on large libraries.
-        AndroidLibraryScanner scanner = new AndroidLibraryScanner(
-                getContentResolver(), reader);
-        new Thread(() -> {
-            List<Track> tracks = scanner.scan();
-            runOnUiThread(() -> controller.scanTracks(tracks));
-        }, "qplayer-scan").start();
+        String music = Environment.getExternalStoragePublicDirectory(
+                Environment.DIRECTORY_MUSIC).getAbsolutePath();
+        controller.scan(music);
     }
 
     @Override
@@ -400,14 +343,13 @@ public final class QPlayerActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        // Keep the engine alive while audio is playing so background playback (driven
-        // by the foreground service) survives the activity being destroyed, e.g. a
-        // recents swipe. When idle, release as before.
-        if (controller != null && !controller.isPlaying()) controller.shutdown();
-        if (glView != null) {
-            glView = null;
-        }
-        reader = null;
+        if (controller != null) controller.shutdown();
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (controller != null && controller.goBack()) return;
+        super.onBackPressed();
     }
 
     private String readAsset(String name) throws IOException {
