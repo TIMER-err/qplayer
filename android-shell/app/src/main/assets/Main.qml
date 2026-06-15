@@ -31,6 +31,22 @@ Rectangle {
         value: settings.resolvedDark
     }
 
+    // System back press (hardware + gesture): the host bumps player.backTick; pop the
+    // topmost open overlay/page, and only ask the host to exit when nothing is open.
+    property int backTick: player.backTick
+    onBackTickChanged: app.handleBack()
+
+    function handleBack() {
+        if (app.showLog)            { app.showLog = false; return; }
+        if (app.loginOpen)          { app.loginOpen = false; return; }
+        if (app.settingsOpen)       { app.settingsOpen = false; return; }
+        if (player.lyricsOpen)      { player.setLyricsOpen(false); return; }
+        if (player.queueOpen)       { player.setQueueOpen(false); return; }
+        if (app.detailOpen)         { app.detailOpen = false; return; }
+        if (app.page !== 0)         { app.switchTo(0); return; }
+        player.requestExit();
+    }
+
     // MD3 fade-through page switch: fade the content out, swap, fade it back in.
     function switchTo(idx) {
         app.detailOpen = false;          // dismiss any open playlist detail

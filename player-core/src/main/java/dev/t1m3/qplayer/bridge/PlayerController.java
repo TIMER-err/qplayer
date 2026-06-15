@@ -309,6 +309,32 @@ public final class PlayerController {
         queueOpen.set(open);
     }
 
+    /** Bumped by the host on a system back press; QML watches it and pops the topmost
+     *  open overlay/page, calling {@link #requestExit()} when there's nothing to pop. */
+    public final Property<Integer> backTick = new Property<>(0);
+
+    /** Host hook to finish the activity when QML has nothing left to navigate back from. */
+    public interface ExitListener {
+        void onExit();
+    }
+
+    private volatile ExitListener exitListener;
+
+    public void setExitListener(ExitListener l) {
+        this.exitListener = l;
+    }
+
+    /** Host calls this on a back press; routed to QML via {@link #backTick}. */
+    public void pressBack() {
+        post(() -> backTick.set(backTick.peek() + 1));
+    }
+
+    /** Invoked from QML when no overlay/page consumed the back press. */
+    public void requestExit() {
+        ExitListener l = exitListener;
+        if (l != null) onMain(l::onExit);
+    }
+
     /** Jump to a slot in the live queue (queue-page tap). */
     public void playQueueIndex(int i) {
         playAt(i);
@@ -680,14 +706,17 @@ public final class PlayerController {
             try {
                 Logger.info("netease: resolve song {} (loggedIn={}, level={})",
                         songId, netease.isLoggedIn(), playLevel);
-                if (t.title == null || t.title.isEmpty()) {
+                // Legacy /search/get returns no album picUrl, so search-sourced tracks
+                // arrive without a cover; fetch song detail to fill any missing field.
+                if (t.title == null || t.title.isEmpty()
+                        || t.coverUrl == null || t.coverUrl.isEmpty()) {
                     NeteaseSong sd = netease.songDetail(songId);
                     if (sd != null) {
-                        t.title = sd.name;
-                        t.artist = sd.artist;
-                        t.album = sd.album;
-                        t.coverUrl = sd.coverUrl;
-                        t.durationMs = sd.durationMs;
+                        if (t.title == null || t.title.isEmpty()) t.title = sd.name;
+                        if (t.artist == null || t.artist.isEmpty()) t.artist = sd.artist;
+                        if (t.album == null || t.album.isEmpty()) t.album = sd.album;
+                        if (t.coverUrl == null || t.coverUrl.isEmpty()) t.coverUrl = sd.coverUrl;
+                        if (t.durationMs <= 0) t.durationMs = sd.durationMs;
                     }
                 }
                 NeteaseClient.UrlInfo info = netease.songUrlInfo(songId, playLevel);

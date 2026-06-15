@@ -169,14 +169,6 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         }
     }
 
-    private void closeLyrics() {
-        queueEvent(new Runnable() {
-            @Override public void run() {
-                if (controller != null) controller.setLyricsOpen(false);
-            }
-        });
-    }
-
     @Override
     public boolean onCheckIsTextEditor() {
         return view != null && view.focused() instanceof TextEditable;
@@ -197,16 +189,8 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (keyCode == KeyEvent.KEYCODE_BACK
-                && controller != null && Boolean.TRUE.equals(controller.lyricsOpen.peek())) {
-            closeLyrics();
-            return true;
-        }
-        if (keyCode == KeyEvent.KEYCODE_BACK
-                && controller != null && Boolean.TRUE.equals(controller.queueOpen.peek())) {
-            queueEvent(() -> controller.setQueueOpen(false));
-            return true;
-        }
+        // BACK is handled centrally in QPlayerActivity.onBackPressed (so hardware and
+        // gesture back share one path); let it fall through to the activity.
         if (dispatchKeyEvent(event, true)) return true;
         return super.onKeyDown(keyCode, event);
     }

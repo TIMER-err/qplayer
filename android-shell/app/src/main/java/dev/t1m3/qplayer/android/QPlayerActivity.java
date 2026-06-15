@@ -89,6 +89,7 @@ public final class QPlayerActivity extends Activity {
         PlayerController.PlaybackListener bootstrap = this::onPlaybackChanged;
         PlaybackService.bootstrapListener = bootstrap;
         controller.setPlaybackListener(bootstrap);
+        controller.setExitListener(() -> runOnUiThread(this::finish));
 
         settings = new AppSettings();
         settings.setDarkListener(dark -> runOnUiThread(() -> applySystemBars(dark)));
@@ -395,6 +396,17 @@ public final class QPlayerActivity extends Activity {
     protected void onResume() {
         super.onResume();
         if (glView != null) glView.onResume();
+    }
+
+    @Override
+    public void onBackPressed() {
+        // Route every back press (hardware + gesture) into QML, which pops the topmost
+        // overlay/page and calls controller.requestExit() -> finish() when empty.
+        if (controller != null) {
+            controller.pressBack();
+        } else {
+            super.onBackPressed();
+        }
     }
 
     @Override
