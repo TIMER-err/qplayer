@@ -10,7 +10,7 @@ Rectangle {
     id: app
     // Transparent while the lyric page is up so the host-drawn fluid + lyrics (rendered
     // underneath the QML scene) show through; opaque surface otherwise.
-    color: player.lyricSlide > 0.001 ? "transparent" : Theme.color.surface
+    color: player.lyricsOpen ? "transparent" : Theme.color.surface
 
     property int page: 0
     property int nextPage: 0
@@ -84,10 +84,10 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         height: 64
-        // Main chrome fades out as the lyric page opens (host lyrics + QML
-        // LyricOverlay take over); hidden once fully open so it costs nothing.
-        opacity: 1 - player.lyricSlide
-        visible: player.lyricSlide < 0.999
+        // Hidden the instant the lyric page opens: the host lyric layer sits UNDER the
+        // QML scene, so a fading main UI would render on top of (cover) it. Cut it out
+        // so the lyric page (host fluid + QML LyricOverlay) is unobstructed.
+        visible: !player.lyricsOpen
         title: app.titles[app.page]
         showNavigationIcon: false
 
@@ -122,8 +122,7 @@ Rectangle {
         anchors.right: parent.right
         anchors.bottom: mini.top
         clip: true
-        opacity: 1 - player.lyricSlide
-        visible: player.lyricSlide < 0.999
+        visible: !player.lyricsOpen
 
         Item {
             id: pageBody
@@ -206,8 +205,7 @@ Rectangle {
         anchors.right: parent.right
         anchors.bottom: bottomNav.top
         height: 84
-        opacity: 1 - player.lyricSlide
-        visible: player.lyricSlide < 0.999
+        visible: !player.lyricsOpen
         onLyricsRequested: player.setLyricsOpen(true)
     }
 
@@ -219,8 +217,7 @@ Rectangle {
         // Nav content sits in the top 76; the extra height is background that fills
         // behind the gesture/navigation bar (edge-to-edge).
         height: 76 + settings.bottomInset
-        opacity: 1 - player.lyricSlide
-        visible: player.lyricSlide < 0.999
+        visible: !player.lyricsOpen
         currentIndex: app.page
         onNavigate: app.switchTo(bottomNav.pendingIndex)
     }
