@@ -59,6 +59,7 @@ public final class QPlayerActivity extends Activity {
     private PlayerController controller;
     private AppSettings settings;
     private QmlGLSurfaceView glView;
+    private MetadataReader reader;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -68,7 +69,7 @@ public final class QPlayerActivity extends Activity {
         AppDirs.setBase(getFilesDir().getAbsolutePath());
 
         AudioBackend backend = new AndroidAudioBackend();
-        MetadataReader reader = new AndroidMetadataReader();
+        reader = new AndroidMetadataReader();
         controller = new PlayerController(backend, reader);
         controller.setColorExtractor(new AndroidColorExtractor());
 
@@ -315,9 +316,13 @@ public final class QPlayerActivity extends Activity {
     }
 
     private void scanMusic() {
-        String music = Environment.getExternalStoragePublicDirectory(
+        // Android 11+ Scoped Storage: Files.walk() cannot traverse external storage.
+        // Use MediaStore API instead — it works with READ_MEDIA_AUDIO permission.
+        String musicDir = Environment.getExternalStoragePublicDirectory(
                 Environment.DIRECTORY_MUSIC).getAbsolutePath();
-        controller.scan(music);
+        AndroidLibraryScanner scanner = new AndroidLibraryScanner(
+                getContentResolver(), reader, musicDir);
+        controller.scanTracks(scanner.scan());
     }
 
     @Override

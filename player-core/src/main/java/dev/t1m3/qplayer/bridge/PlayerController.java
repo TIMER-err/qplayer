@@ -254,21 +254,29 @@ public final class PlayerController {
 
     // --- Local library ----------------------------------------------------
 
+    /** Scan a local folder for audio files (platform-neutral, uses Files.walk). */
     public void scan(String folder) {
         worker.submit(() -> {
             try {
                 LibraryScanner scanner = new LibraryScanner(metadataReader);
                 List<Track> found = scanner.scan(folder);
-                post(() -> {
-                    library.clear();
-                    library.addAll(found);
-                    tracks.set(new ArrayList<>(library));
-                    libraryCount.set(library.size());
-                });
+                post(() -> applyLibrary(found));
             } catch (Throwable e) {
                 Logger.exception(e);
             }
         });
+    }
+
+    /** Accept a pre-scanned track list (e.g. from MediaStore on Android 11+). */
+    public void scanTracks(List<Track> tracks) {
+        post(() -> applyLibrary(tracks));
+    }
+
+    private void applyLibrary(List<Track> found) {
+        library.clear();
+        library.addAll(found);
+        tracks.set(new ArrayList<>(library));
+        libraryCount.set(library.size());
     }
 
     public int trackCount() {
