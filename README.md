@@ -39,20 +39,19 @@
 |---|---|
 | `player-core/` | Platform-neutral core (Maven, `dev.t1m3.qplayer`): the QML-facing `PlayerController`, NetEase API, lyric parsers (LRC / YRC / TTML), audio + metadata abstractions. |
 | `android-shell/` | Android app (Gradle, `applicationId dev.t1m3.qplayer`, minSdk 26). QML UI in `app/src/main/assets/*.qml`; host integration + the Skija lyric page in `…/android/`. |
-| `qml4j/` | The QML engine (separate repo, [TIMER-err/qml4j](https://github.com/TIMER-err/qml4j)). Shared components live in `qml4j/shared-qml` (`md3.Core` + fonts). |
+| [qml4j](https://github.com/TIMER-err/qml4j) | The QML engine + `md3.Core` component library. A published dependency, **not** part of this repo. |
 
-The app depends on `qml4j-core` via Maven Local and bundles `qml4j/shared-qml` as its QML asset root.
+`qml4j-core` is pulled from Maven Central; only the in-repo `player-core` module is built locally.
 
 ## Build
 
+Requires JDK 21 and the Android SDK.
+
 ```sh
-# 1. engine → Maven Local (run from the qml4j repo root)
-cd qml4j && mvn -q -DskipTests -Dcheckstyle.skip=true install
+# player core → Maven Local
+cd player-core && mvn -q -DskipTests install
 
-# 2. player core → Maven Local
-cd ../player-core && mvn -q -DskipTests install
-
-# 3. the APK
+# the APK (qml4j-core resolves from Maven Central)
 cd ../android-shell && ./gradlew :app:assembleDebug
 # → app/build/outputs/apk/debug/app-debug.apk
 ```
