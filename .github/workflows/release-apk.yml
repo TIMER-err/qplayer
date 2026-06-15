@@ -11,6 +11,12 @@ permissions:
 jobs:
   apk:
     runs-on: ubuntu-latest
+    env:
+      # Signing material comes from repo secrets; absent on forks / unconfigured
+      # repos, in which case the release build is produced unsigned.
+      QPLAYER_STORE_PASSWORD: ${{ secrets.QPLAYER_STORE_PASSWORD }}
+      QPLAYER_KEY_ALIAS: ${{ secrets.QPLAYER_KEY_ALIAS }}
+      QPLAYER_KEY_PASSWORD: ${{ secrets.QPLAYER_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -31,16 +37,34 @@ jobs:
           mvn -q -B -N install
           mvn -q -B -DskipTests install -f player-core/pom.xml
 
-      - name: Build APK
+      # Decode the base64 keystore secret to a file and point the Gradle build at it.
+      # Skipped (release stays unsigned) when the secret isn't configured.
+      - name: Decode keystore
+        env:
+          QPLAYER_KEYSTORE_BASE64: ${{ secrets.QPLAYER_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$QPLAYER_KEYSTORE_BASE64" ]; then
+            echo "$QPLAYER_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/qplayer.jks"
+            echo "QPLAYER_KEYSTORE=$RUNNER_TEMP/qplayer.jks" >> "$GITHUB_ENV"
+            echo "Keystore decoded; release will be signed."
+          else
+            echo "::warning::QPLAYER_KEYSTORE_BASE64 not set — release will be UNSIGNED."
+          fi
+
+      - name: Build release APK
         run: |
           chmod +x android-shell/gradlew
-          cd android-shell && ./gradlew --no-daemon :app:assembleDebug
+          cd android-shell && ./gradlew --no-daemon :app:assembleRelease
 
+      # The signed output is app-release.apk; without signing Gradle emits
+      # app-release-unsigned.apk. Pick whichever exists.
       - name: Stage APK
         run: |
           mkdir -p out
-          cp android-shell/app/build/outputs/apk/debug/app-debug.apk \
-             "out/qplayer-${{ github.ref_name }}.apk"
+          dir=android-shell/app/build/outputs/apk/release
+          apk="$dir/app-release.apk"
+          [ -f "$apk" ] || apk="$dir/app-release-unsigned.apk"
+          cp "$apk" "out/qplayer-${{ github.ref_name }}.apk"
 
       - name: Attach to release
         if: github.event_name == 'release'
