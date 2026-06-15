@@ -65,7 +65,6 @@ public final class AndroidLibraryScanner {
             int albumCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM);
             int durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION);
             int dataCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA);
-            int bucketCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.BUCKET_DISPLAY_PATH);
 
             while (cursor.moveToNext()) {
                 String filePath = cursor.getString(dataCol);

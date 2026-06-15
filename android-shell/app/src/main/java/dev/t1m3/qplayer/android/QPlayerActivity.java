@@ -356,7 +356,6 @@ public final class QPlayerActivity extends Activity {
         super.onDestroy();
         if (controller != null) controller.shutdown();
         if (glView != null) {
-            glView.onDestroy();
             glView = null;
         }
         reader = null;
