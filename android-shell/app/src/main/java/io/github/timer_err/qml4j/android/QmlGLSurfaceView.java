@@ -12,7 +12,6 @@ import android.view.inputmethod.InputMethodManager;
 
 import io.github.humbleui.skija.BackendRenderTarget;
 import io.github.humbleui.skija.Canvas;
-import io.github.humbleui.skija.Font;
 import io.github.humbleui.skija.Paint;
 import io.github.humbleui.skija.ColorSpace;
 import io.github.humbleui.skija.ColorType;
@@ -80,19 +79,12 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
             new dev.t1m3.qplayer.android.lyric.FluidBackground(System.nanoTime());
     private List<LyricLine> lastLyrics;
     private float lyricSlide;
-    // Touch tracking while the overlay is up (device px), for swipe-down / tap-to-close.
-    private float lyricDownY, lyricDownX;
-    private boolean lyricMoved;
-    // The lyric overlay runs every frame; rebuilding its edge-fade + bottom-scrim
-    // gradients (native Shaders) and allocating Paints each frame was steady native
-    // churn -> GC stutter. They depend only on the surface height, so cache them and
-    // reuse the Paints (rebuild only when the height changes).
+    // The lyric edge-fade gradient (native Shader) + its mask Paint depend only on the
+    // surface height, so cache them and rebuild only when the height changes (rebuilding
+    // every frame was steady native churn -> GC stutter).
     private float lyShaderH = -1f;
     private io.github.humbleui.skija.Shader lyFadeShader;
-    private io.github.humbleui.skija.Shader lyScrimShader;
-    private final Paint lyHeaderPaint = new Paint();
     private final Paint lyMaskPaint = new Paint();
-    private final Paint lyCtrlPaint = new Paint();
 
     /** Notified (with a full stack trace) when QML load/render throws, so the
      *  host can surface the error instead of the GL thread crashing the app. */
@@ -124,11 +116,9 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
 
     @Override
     public boolean onTouchEvent(MotionEvent ev) {
-        // While the lyric overlay is up it owns all touches (close gestures only);
-        // nothing reaches the QML scene behind it.
-        if (controller != null && Boolean.TRUE.equals(controller.lyricsOpen.peek())) {
-            return onLyricTouch(ev);
-        }
+        // The lyric page chrome (title / progress / buttons) is QML on top of the host
+        // lyric layer, so touches dispatch to the QML scene as usual -- the LyricOverlay
+        // handles seek, transport and close.
         final int action = ev.getActionMasked();
         final float x = ev.getX() / uiScale;
         final float y = ev.getY() / uiScale;
@@ -162,104 +152,6 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
             default:
                 return false;
         }
-    }
-
-    // Lyric overlay gestures: the bottom transport bar (progress drag + buttons),
-    // otherwise tap the header strip or swipe down to dismiss.
-    private boolean lyDragProg;
-    private int lyDownBtn = -1;
-
-    private boolean onLyricTouch(MotionEvent ev) {
-        float w = surface.width() / uiScale, h = surface.height() / uiScale;
-        float lx = ev.getX() / uiScale, ly = ev.getY() / uiScale;
-        float barTop = h - L_TRANSPORT_H;
-        switch (ev.getActionMasked()) {
-            case MotionEvent.ACTION_DOWN:
-                lyricDownX = ev.getX();
-                lyricDownY = ev.getY();
-                lyricMoved = false;
-                lyDragProg = false;
-                lyDownBtn = -1;
-                if (ly >= barTop) {
-                    if (onProgress(lx, ly, w, barTop)) {
-                        lyDragProg = true;
-                        seekToFrac(lx, w);
-                    } else {
-                        lyDownBtn = buttonAt(lx, ly, w, barTop);
-                    }
-                }
-                return true;
-            case MotionEvent.ACTION_MOVE:
-                if (lyDragProg) {
-                    seekToFrac(lx, w);
-                    return true;
-                }
-                if (lyDownBtn < 0
-                        && (Math.abs(ev.getY() - lyricDownY) > 12 * uiScale
-                            || Math.abs(ev.getX() - lyricDownX) > 12 * uiScale)) {
-                    lyricMoved = true;
-                }
-                return true;
-            case MotionEvent.ACTION_UP:
-            case MotionEvent.ACTION_CANCEL: {
-                if (lyDragProg) {
-                    lyDragProg = false;
-                    return true;
-                }
-                if (lyDownBtn >= 0) {
-                    if (buttonAt(lx, ly, w, barTop) == lyDownBtn) fireLyricButton(lyDownBtn);
-                    lyDownBtn = -1;
-                    return true;
-                }
-                float dy = ev.getY() - lyricDownY;
-                float dx = ev.getX() - lyricDownX;
-                boolean tapHeader = !lyricMoved && lyricDownY < 130 * uiScale;
-                boolean swipeDown = dy > 120 * uiScale && dy > Math.abs(dx);
-                if (tapHeader || swipeDown) closeLyrics();
-                return true;
-            }
-            default:
-                return true;
-        }
-    }
-
-    private boolean onProgress(float lx, float ly, float w, float barTop) {
-        float py = barTop + 30f;
-        return ly >= py - 18f && ly <= py + 14f && lx >= L_PAD - 10f && lx <= w - L_PAD + 10f;
-    }
-
-    // 0 mode, 1 prev, 2 play/pause, 3 next, 4 like; -1 if no button is hit.
-    private int buttonAt(float lx, float ly, float w, float barTop) {
-        float cy = barTop + 94f;
-        if (ly < cy - 30f || ly > cy + 30f) return -1;
-        float cx = w / 2f, gap = 62f;
-        float[] xs = {cx - 2f * gap, cx - gap, cx, cx + gap, cx + 2f * gap};
-        for (int i = 0; i < xs.length; i++) {
-            if (Math.abs(lx - xs[i]) < 30f) return i;
-        }
-        return -1;
-    }
-
-    private void seekToFrac(float lx, float w) {
-        float frac = Math.max(0f, Math.min(1f, (lx - L_PAD) / (w - 2f * L_PAD)));
-        final long ms = (long) (frac * controller.durationMs.peek());
-        queueEvent(() -> {
-            if (controller != null) controller.seek(ms);
-        });
-    }
-
-    private void fireLyricButton(int b) {
-        queueEvent(() -> {
-            if (controller == null) return;
-            switch (b) {
-                case 0: controller.cyclePlayMode(); break;
-                case 1: controller.prev(); break;
-                case 2: controller.toggle(); break;
-                case 3: controller.next(); break;
-                case 4: controller.toggleLike(); break;
-                default: break;
-            }
-        });
     }
 
     private void closeLyrics() {
@@ -508,30 +400,26 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 profBumpTick += Property.changeVersion() - v0;
                 long t1 = System.nanoTime();
                 Canvas canvas = surface.acquireCanvas();
-                // When the lyric page is fully open it covers the screen with an
-                // opaque backdrop, so skip rendering the QML scene underneath
-                // entirely — otherwise a heavy list page keeps repainting behind
-                // it and drops frames. Render the scene during the slide (when
-                // part of it still shows) and whenever the page isn't fully open.
-                boolean lyricsOpen = controller != null
-                        && Boolean.TRUE.equals(controller.lyricsOpen.peek());
-                boolean sceneCovered = lyricsOpen && lyricSlide >= 0.999f;
-                if (!sceneCovered) {
-                    int sc = canvas.save();
-                    canvas.scale(uiScale, uiScale);
-                    // The view's own renderer is wired with the component factory + resource
-                    // loader (via resources()); reuse it rather than a bare Renderer.
-                    io.github.timer_err.qml4j.render.Renderer renderer = view.renderer();
-                    renderer.setGpuContext(surface.recordingContext());
-                    boolean skipLayout = Property.changeVersion() == renderedVersion;
-                    if (skipLayout) profSkips++;
-                    long vBeforeRender = Property.changeVersion();
-                    renderer.render(canvas, view.root(), skipLayout);
-                    renderedVersion = Property.changeVersion();
-                    profBumpRender += renderedVersion - vBeforeRender;
-                    canvas.restoreToCount(sc);
-                }
+                // The host lyric layer (fluid backdrop + per-syllable lyrics) draws
+                // FIRST, underneath the QML scene, so the QML lyric chrome (title /
+                // wavy progress / icon buttons) composites on top of the fluid. When
+                // the page is closed drawLyricOverlay paints nothing. The QML scene
+                // always renders; its main UI fades out as the lyric page opens, so
+                // only the (cheap) LyricOverlay chrome remains over the fluid.
                 drawLyricOverlay(canvas);
+                int sc = canvas.save();
+                canvas.scale(uiScale, uiScale);
+                // The view's own renderer is wired with the component factory + resource
+                // loader (via resources()); reuse it rather than a bare Renderer.
+                io.github.timer_err.qml4j.render.Renderer renderer = view.renderer();
+                renderer.setGpuContext(surface.recordingContext());
+                boolean skipLayout = Property.changeVersion() == renderedVersion;
+                if (skipLayout) profSkips++;
+                long vBeforeRender = Property.changeVersion();
+                renderer.render(canvas, view.root(), skipLayout);
+                renderedVersion = Property.changeVersion();
+                profBumpRender += renderedVersion - vBeforeRender;
+                canvas.restoreToCount(sc);
                 long t1b = System.nanoTime();
                 surface.present();
                 profileFrame(t0, t1, t1b, System.nanoTime());
@@ -559,6 +447,8 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         // critically-damped-ish ease toward the target; cheap and frame-stable.
         lyricSlide += (target - lyricSlide) * 0.22f;
         if (Math.abs(target - lyricSlide) < 0.002f) lyricSlide = target;
+        // Publish to QML so the LyricOverlay chrome fades in/out in lockstep.
+        controller.lyricSlide.set((double) lyricSlide);
         if (lyricSlide <= 0.001f && !open) return;
 
         // Re-feed the renderer when the track's lyric list changes (identity).
@@ -583,29 +473,11 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         String key = controller.title.peek() + "|" + controller.coverUrl.peek();
         fluidBg.render(canvas, w, h, cover, key, System.nanoTime());
 
-        // 2) header: drag handle + title + artist.
+        // 2) fluid backdrop already drawn. The title (top band) and transport
+        // (bottom band) are drawn by the QML LyricOverlay on top of this; only the
+        // lyrics column is host-drawn. Render into a layer, then multiply a vertical
+        // alpha gradient (DST_IN) so lines fade toward the top/bottom edges.
         float pad = 28f;
-        Paint p = lyHeaderPaint;
-        p.setAntiAlias(true);
-        p.setColor(0x66FFFFFF);
-        canvas.drawRRect(io.github.humbleui.types.RRect.makeXYWH(
-                w / 2f - 18f, 14f, 36f, 4f, 2f), p);
-        p.setColor(0xFFFFFFFF);
-        String title = controller.title.peek();
-        if (title != null && !title.isEmpty()) {
-            canvas.drawString(title, pad, 74f,
-                    dev.t1m3.qplayer.android.lyric.Fonts.getMedium(24f), p);
-        }
-        p.setColor(0xB3FFFFFF);
-        String artist = controller.artist.peek();
-        if (artist != null && !artist.isEmpty()) {
-            canvas.drawString(artist, pad, 102f,
-                    dev.t1m3.qplayer.android.lyric.Fonts.getRegular(15f), p);
-        }
-
-        // 3) lyrics column below the header. Render into a layer, then multiply
-        // a vertical alpha gradient (DST_IN) so lines fade to transparent toward
-        // the top/bottom edges instead of being hard-clipped.
         float topY = 140f;
         float colH = h - topY - L_TRANSPORT_H;
         io.github.humbleui.types.Rect colRect = io.github.humbleui.types.Rect.makeXYWH(0f, topY, w, colH);
@@ -618,104 +490,25 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         lyMaskPaint.setShader(null);
         canvas.restoreToCount(lc);
 
-        // 4) transport controls along the bottom.
-        drawLyricTransport(canvas, w, h);
-
         canvas.restoreToCount(sc);
     }
 
     // Reserved height (logical px) for the lyric-page transport bar at the bottom.
     private static final float L_TRANSPORT_H = 136f;
-    private static final float L_PAD = 28f;
 
     // Rebuild the cached lyric gradients only when the surface height changes.
     private void ensureLyricShaders(float h) {
         if (h == lyShaderH && lyFadeShader != null) return;
         lyShaderH = h;
         if (lyFadeShader != null) lyFadeShader.close();
-        if (lyScrimShader != null) lyScrimShader.close();
         float topY = 140f, colH = h - topY - L_TRANSPORT_H;
         float f = Math.min(0.4f, 40f / colH);
         lyFadeShader = io.github.humbleui.skija.Shader.makeLinearGradient(
                 0f, topY, 0f, topY + colH,
                 new int[]{0x00FFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0x00FFFFFF},
                 new float[]{0f, f, 1f - f, 1f});
-        float barTop = h - L_TRANSPORT_H;
-        lyScrimShader = io.github.humbleui.skija.Shader.makeLinearGradient(
-                0f, barTop - 28f, 0f, h,
-                new int[]{0x00000000, 0x73000000});
     }
 
-    // Shaped icon lines cached by name@size -- a fixed, tiny set, so this never
-    // grows unbounded and avoids re-shaping every frame (Painter caches the same way).
-    private final java.util.Map<String, io.github.humbleui.skija.TextLine> lyricIcons =
-            new java.util.HashMap<>();
-
-    private io.github.humbleui.skija.TextLine iconLine(String name, float size) {
-        String key = name + "@" + size;
-        io.github.humbleui.skija.TextLine l = lyricIcons.get(key);
-        if (l == null) {
-            l = io.github.humbleui.skija.TextLine.make(
-                    name, dev.t1m3.qplayer.android.lyric.Fonts.getIcon(size));
-            lyricIcons.put(key, l);
-        }
-        return l;
-    }
-
-    private void drawIcon(Canvas canvas, String name, float cx, float cy, float size, int color, Paint p) {
-        io.github.humbleui.skija.TextLine line = iconLine(name, size);
-        p.setColor(color);
-        canvas.drawTextLine(line, cx - line.getWidth() / 2f, cy + size * 0.36f, p);
-    }
-
-    private void drawLyricTransport(Canvas canvas, float w, float h) {
-        if (controller == null) return;
-        float barTop = h - L_TRANSPORT_H;
-        long dur = controller.durationMs.peek();
-        long pos = controller.position();
-        float frac = dur > 0 ? Math.min(1f, Math.max(0f, (float) pos / dur)) : 0f;
-
-        // Bottom scrim so white controls stay legible over a bright fluid backdrop.
-        lyCtrlPaint.setShader(lyScrimShader);
-        canvas.drawRect(io.github.humbleui.types.Rect.makeXYWH(0f, barTop - 28f, w, L_TRANSPORT_H + 28f), lyCtrlPaint);
-        lyCtrlPaint.setShader(null);
-
-        {
-            Paint p = lyCtrlPaint;
-            p.setAntiAlias(true);
-            // progress track + fill + knob
-            float py = barTop + 30f, x0 = L_PAD, x1 = w - L_PAD;
-            p.setColor(0x40FFFFFF);
-            canvas.drawRRect(io.github.humbleui.types.RRect.makeXYWH(x0, py - 2f, x1 - x0, 4f, 2f), p);
-            p.setColor(0xFFFFFFFF);
-            float fw = (x1 - x0) * frac;
-            if (fw > 0f) canvas.drawRRect(io.github.humbleui.types.RRect.makeXYWH(x0, py - 2f, fw, 4f, 2f), p);
-            canvas.drawCircle(x0 + fw, py, 6f, p);
-            // times
-            Font tf = dev.t1m3.qplayer.android.lyric.Fonts.getRegular(11f);
-            p.setColor(0xB3FFFFFF);
-            canvas.drawString(fmtTime(pos), x0, py + 22f, tf, p);
-            String tot = fmtTime(dur);
-            canvas.drawString(tot, x1 - tf.measureTextWidth(tot), py + 22f, tf, p);
-            // buttons
-            float cy = barTop + 94f, cx = w / 2f, gap = 62f;
-            int mode = controller.playMode.peek();
-            String modeIcon = mode == 1 ? "shuffle" : (mode == 2 ? "repeat_one" : "repeat");
-            drawIcon(canvas, modeIcon, cx - 2f * gap, cy, 26f, mode == 0 ? 0x99FFFFFF : 0xFF82B1FF, p);
-            drawIcon(canvas, "skip_previous", cx - gap, cy, 32f, 0xFFFFFFFF, p);
-            drawIcon(canvas, Boolean.TRUE.equals(controller.playing.peek()) ? "pause" : "play_arrow",
-                    cx, cy, 44f, 0xFFFFFFFF, p);
-            drawIcon(canvas, "skip_next", cx + gap, cy, 32f, 0xFFFFFFFF, p);
-            boolean liked = Boolean.TRUE.equals(controller.currentLiked.peek());
-            drawIcon(canvas, "favorite", cx + 2f * gap, cy, 26f, liked ? 0xFFFF5277 : 0x99FFFFFF, p);
-        }
-    }
-
-    private static String fmtTime(long ms) {
-        if (ms <= 0) return "0:00";
-        long s = ms / 1000, m = s / 60, r = s % 60;
-        return m + ":" + (r < 10 ? "0" + r : r);
-    }
 
     // Lightweight frame profiler: accumulates layout (tick+flush) vs paint
     // (render) time and the wall-clock gap between frames, logging a summary

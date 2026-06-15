@@ -99,6 +99,9 @@ public final class PlayerController {
     public final Property<Integer> lyricIndex = new Property<>(-1);
     /** Whether the full-screen lyric page is open (host draws it via Skija). */
     public final Property<Boolean> lyricsOpen = new Property<>(false);
+    /** Host-published lyric-overlay slide progress (0 closed .. 1 open); the QML
+     *  LyricOverlay chrome fades with it in lockstep with the host lyric layer. */
+    public final Property<Double> lyricSlide = new Property<>(0.0);
 
     // --- Local library ----------------------------------------------------
     public final Property<List<Track>> tracks = new Property<>(Collections.<Track>emptyList());

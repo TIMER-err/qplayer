@@ -82,6 +82,10 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         height: 64
+        // Main chrome fades out as the lyric page opens (host lyrics + QML
+        // LyricOverlay take over); hidden once fully open so it costs nothing.
+        opacity: 1 - player.lyricSlide
+        visible: player.lyricSlide < 0.999
         title: app.titles[app.page]
         showNavigationIcon: false
 
@@ -116,6 +120,8 @@ Rectangle {
         anchors.right: parent.right
         anchors.bottom: mini.top
         clip: true
+        opacity: 1 - player.lyricSlide
+        visible: player.lyricSlide < 0.999
 
         Item {
             id: pageBody
@@ -198,6 +204,8 @@ Rectangle {
         anchors.right: parent.right
         anchors.bottom: bottomNav.top
         height: 84
+        opacity: 1 - player.lyricSlide
+        visible: player.lyricSlide < 0.999
         onLyricsRequested: player.setLyricsOpen(true)
     }
 
@@ -209,8 +217,18 @@ Rectangle {
         // Nav content sits in the top 76; the extra height is background that fills
         // behind the gesture/navigation bar (edge-to-edge).
         height: 76 + settings.bottomInset
+        opacity: 1 - player.lyricSlide
+        visible: player.lyricSlide < 0.999
         currentIndex: app.page
         onNavigate: app.switchTo(bottomNav.pendingIndex)
+    }
+
+    // Lyric page chrome (title / wavy progress / transport), over the host-drawn
+    // fluid backdrop + lyrics. Fades in with the host layer via player.lyricSlide.
+    LyricOverlay {
+        anchors.fill: parent
+        visible: player.lyricSlide > 0.001
+        opacity: player.lyricSlide
     }
 
     LoginDialog {
