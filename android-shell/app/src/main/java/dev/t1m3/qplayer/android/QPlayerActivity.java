@@ -6,7 +6,6 @@ import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 
 import io.github.timer_err.qml4j.android.AssetResourceLoader;
 import io.github.timer_err.qml4j.android.DexClassLoaderBackend;
@@ -16,12 +15,14 @@ import io.github.timer_err.qml4j.engine.QmlEngine;
 import dev.t1m3.qplayer.audio.AudioBackend;
 import dev.t1m3.qplayer.audio.MetadataReader;
 import dev.t1m3.qplayer.bridge.PlayerController;
+import dev.t1m3.qplayer.model.Track;
 import dev.t1m3.qplayer.store.AppDirs;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 /**
  * Music player entry point: builds the {@link PlayerController} over the
@@ -59,6 +60,7 @@ public final class QPlayerActivity extends Activity {
     private PlayerController controller;
     private AppSettings settings;
     private QmlGLSurfaceView glView;
+    private MetadataReader reader;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -68,7 +70,7 @@ public final class QPlayerActivity extends Activity {
         AppDirs.setBase(getFilesDir().getAbsolutePath());
 
         AudioBackend backend = new AndroidAudioBackend();
-        MetadataReader reader = new AndroidMetadataReader();
+        reader = new AndroidMetadataReader();
         controller = new PlayerController(backend, reader);
         controller.setColorExtractor(new AndroidColorExtractor());
 
@@ -316,9 +318,15 @@ public final class QPlayerActivity extends Activity {
     }
 
     private void scanMusic() {
-        String music = Environment.getExternalStoragePublicDirectory(
-                Environment.DIRECTORY_MUSIC).getAbsolutePath();
-        controller.scan(music);
+        // Android 11+ Scoped Storage: Files.walk() cannot traverse external storage.
+        // Use MediaStore API instead — it works with READ_MEDIA_AUDIO permission.
+        // Run off the main thread to avoid ANR on large libraries.
+        AndroidLibraryScanner scanner = new AndroidLibraryScanner(
+                getContentResolver(), reader);
+        new Thread(() -> {
+            List<Track> tracks = scanner.scan();
+            runOnUiThread(() -> controller.scanTracks(tracks));
+        }, "qplayer-scan").start();
     }
 
     @Override
@@ -345,6 +353,10 @@ public final class QPlayerActivity extends Activity {
     protected void onDestroy() {
         super.onDestroy();
         if (controller != null) controller.shutdown();
+        if (glView != null) {
+            glView = null;
+        }
+        reader = null;
     }
 
     private String readAsset(String name) throws IOException {

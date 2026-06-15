@@ -239,6 +239,8 @@ public class LyricRenderer {
     // lifetime (one line's saveLayer/restore completes before the next), so the
     // "keep alive until restore" constraint below is satisfied without per-call new.
     private final io.github.humbleui.skija.Paint lyricLayerPaint = new io.github.humbleui.skija.Paint();
+    /** Reusable paint for interlude dots — avoids per-frame allocation. */
+    private final io.github.humbleui.skija.Paint dotPaint = new io.github.humbleui.skija.Paint();
     private List<LyricLine> layoutKeyLines;
     private int layoutKeyN;
     private int layoutKeyLyricSize;
@@ -914,7 +916,7 @@ public class LyricRenderer {
         try {
             double[] ops = {globalOpacity * op0, globalOpacity * op1, globalOpacity * op2};
             for (int i = 0; i < 3; i++) {
-                Paint p = LyricSkia.scratchPaint();
+                Paint p = dotPaint;
                 p.setColor(0xFFFFFFFF);
                 float a = (float) Math.max(0.0, Math.min(1.0, ops[i]));
                 p.setAlphaf(a);

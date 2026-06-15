@@ -133,15 +133,19 @@ public final class LrcParser {
     }
 
     private static long parseTime(String minStr, String secStr, String fracStr) {
-        long min = Long.parseLong(minStr);
-        long sec = Long.parseLong(secStr);
-        long frac = 0L;
-        if (fracStr != null) {
-            // 2 digits = centiseconds, 3 = ms — normalise to ms.
-            if (fracStr.length() == 2) frac = Long.parseLong(fracStr) * 10L;
-            else if (fracStr.length() == 3) frac = Long.parseLong(fracStr);
-            else frac = Long.parseLong(fracStr.substring(0, Math.min(3, fracStr.length())));
+        try {
+            long min = Long.parseLong(minStr);
+            long sec = Long.parseLong(secStr);
+            long frac = 0L;
+            if (fracStr != null) {
+                // 2 digits = centiseconds, 3 = ms — normalise to ms.
+                if (fracStr.length() == 2) frac = Long.parseLong(fracStr) * 10L;
+                else if (fracStr.length() == 3) frac = Long.parseLong(fracStr);
+                else frac = Long.parseLong(fracStr.substring(0, Math.min(3, fracStr.length())));
+            }
+            return min * 60_000L + sec * 1000L + frac;
+        } catch (NumberFormatException e) {
+            return 0L;
         }
-        return min * 60_000L + sec * 1000L + frac;
     }
 }

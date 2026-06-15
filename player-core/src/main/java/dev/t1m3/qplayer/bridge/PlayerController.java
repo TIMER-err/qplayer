@@ -21,9 +21,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
@@ -69,6 +71,24 @@ public final class PlayerController {
     private final Queue<Runnable> uiQueue = new ConcurrentLinkedQueue<>();
     private final Set<Long> likedSet = new HashSet<>();
     private final Random rng = new Random();
+
+    // --- Search cache ------------------------------------------------------
+    /** TTL for cached search results: 5 minutes. */
+    private static final long SEARCH_CACHE_TTL_MS = 5 * 60 * 1000L;
+    private final Map<String, CacheEntry> searchCache = new ConcurrentHashMap<>();
+
+    /** Holds a cached search result with its creation timestamp. */
+    private static final class CacheEntry {
+        final List<NeteaseSong> songs;
+        final long timestamp;
+        CacheEntry(List<NeteaseSong> songs) {
+            this.songs = songs;
+            this.timestamp = System.currentTimeMillis();
+        }
+        boolean isExpired() {
+            return System.currentTimeMillis() - timestamp > SEARCH_CACHE_TTL_MS;
+        }
+    }
 
     private volatile String playLevel = "exhigh";
     private volatile boolean unblockEnabled = true;
@@ -208,6 +228,7 @@ public final class PlayerController {
 
     private void updateLyricIndex(long pos) {
         List<LyricLine> ly = lyrics.peek();
+        if (ly == null || ly.isEmpty()) return;
         int idx = -1;
         for (int i = 0; i < ly.size(); i++) {
             if (ly.get(i).startMs() <= pos) idx = i;
@@ -256,21 +277,30 @@ public final class PlayerController {
 
     // --- Local library ----------------------------------------------------
 
+    /** Scan a local folder for audio files (platform-neutral, uses Files.walk). */
     public void scan(String folder) {
         worker.submit(() -> {
             try {
                 LibraryScanner scanner = new LibraryScanner(metadataReader);
                 List<Track> found = scanner.scan(folder);
-                post(() -> {
-                    library.clear();
-                    library.addAll(found);
-                    tracks.set(new ArrayList<>(library));
-                    libraryCount.set(library.size());
-                });
+                post(() -> applyLibrary(found));
             } catch (Throwable e) {
                 Logger.exception(e);
+                post(() -> toast.set("扫描失败：" + e.getMessage()));
             }
         });
+    }
+
+    /** Accept a pre-scanned track list (e.g. from MediaStore on Android 11+). */
+    public void scanTracks(List<Track> tracks) {
+        post(() -> applyLibrary(tracks));
+    }
+
+    private void applyLibrary(List<Track> found) {
+        library.clear();
+        library.addAll(found);
+        tracks.set(new ArrayList<>(library));
+        libraryCount.set(library.size());
     }
 
     public int trackCount() {
@@ -361,6 +391,7 @@ public final class PlayerController {
         currentLiked.set(t.neteaseId != 0 && likedSet.contains(t.neteaseId));
 
         if (t.source == Track.Source.LOCAL) {
+            if (t.filePath == null || t.filePath.isEmpty()) return;
             loadLocalLyrics(t);
             Logger.info("play local: {}", t.title);
             backend.play(t.filePath, 0L);
@@ -449,9 +480,9 @@ public final class PlayerController {
     }
 
     private static byte[] downloadBytes(String url) {
+        java.net.HttpURLConnection c = null;
         try {
-            java.net.HttpURLConnection c =
-                    (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
             c.setConnectTimeout(8000);
             c.setReadTimeout(8000);
             c.setRequestProperty("User-Agent", "qplayer/1.0");
@@ -465,6 +496,8 @@ public final class PlayerController {
         } catch (Throwable e) {
             Logger.warn("cover fetch failed: {}", e.getMessage());
             return null;
+        } finally {
+            if (c != null) c.disconnect();
         }
     }
 
@@ -491,7 +524,8 @@ public final class PlayerController {
     // back-to-back unless the queue has a single entry).
     private int randomIndex() {
         int n = queue.size();
-        if (n <= 1) return 0;
+        if (n <= 0) return 0;
+        if (n == 1) return 0;
         int r;
         do {
             r = rng.nextInt(n);
@@ -624,6 +658,7 @@ public final class PlayerController {
                 });
             } catch (Throwable e) {
                 Logger.warn("netease resolve failed for {}: {}", songId, e.getMessage());
+                post(() -> toast.set("播放失败：" + e.getMessage()));
             }
         });
     }
@@ -658,12 +693,34 @@ public final class PlayerController {
 
     // --- Netease discovery ------------------------------------------------
 
-    /** Search and publish to {@link #searchResults}. */
+    /** Search and publish to {@link #searchResults}. Results are cached for
+     *  {@value #SEARCH_CACHE_TTL_MS} ms; a cache hit returns immediately without
+     *  a network round-trip. */
     public void search(String keyword) {
         if (keyword == null || keyword.trim().isEmpty()) return;
+        final String key = keyword.trim().toLowerCase();
+        // Fast path: check cache on the calling (render) thread.
+        CacheEntry entry = searchCache.get(key);
+        if (entry != null && !entry.isExpired()) {
+            searchResults.set(entry.songs);
+            resultCount.set(entry.songs.size());
+            Logger.debug("search cache hit: {}", key);
+            return;
+        }
         worker.submit(() -> {
             try {
+                // Double-check: another search for the same keyword may have
+                // completed while we were waiting for the worker slot.
+                CacheEntry existing = searchCache.get(key);
+                if (existing != null && !existing.isExpired()) {
+                    post(() -> {
+                        searchResults.set(existing.songs);
+                        resultCount.set(existing.songs.size());
+                    });
+                    return;
+                }
                 List<NeteaseSong> r = netease.searchSongs(keyword, 30, 0);
+                searchCache.put(key, new CacheEntry(r));
                 post(() -> {
                     searchResults.set(r);
                     resultCount.set(r.size());
