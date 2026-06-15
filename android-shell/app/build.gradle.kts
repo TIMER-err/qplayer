@@ -113,4 +113,8 @@ dependencies {
     implementation("com.android.tools:r8:8.13.17")
 
     implementation("androidx.appcompat:appcompat:1.7.0")
+
+    // MediaSessionCompat + MediaStyle notification + media-button handling for
+    // system media controls (lockscreen / notification / bluetooth).
+    implementation("androidx.media:media:1.7.0")
 }

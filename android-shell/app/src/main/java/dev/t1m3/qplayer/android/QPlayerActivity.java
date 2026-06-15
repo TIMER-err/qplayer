@@ -2,6 +2,7 @@ package dev.t1m3.qplayer.android;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.os.Build;
@@ -56,11 +57,13 @@ public final class QPlayerActivity extends Activity {
     }
 
     private static final int REQ_AUDIO = 1;
+    private static final int REQ_NOTIF = 2;
 
     private PlayerController controller;
     private AppSettings settings;
     private QmlGLSurfaceView glView;
     private MetadataReader reader;
+    private android.os.Handler mainHandler;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -73,6 +76,14 @@ public final class QPlayerActivity extends Activity {
         reader = new AndroidMetadataReader();
         controller = new PlayerController(backend, reader);
         controller.setColorExtractor(new AndroidColorExtractor());
+
+        // Playback control runs on the main thread (alive in the background, unlike
+        // the GL render thread); the service mirrors state to the media session and
+        // keeps playback foregrounded so it survives + auto-advances when backgrounded.
+        mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+        controller.setMainExecutor(mainHandler::post);
+        PlaybackService.controller = controller;
+        controller.setPlaybackListener(this::onPlaybackChanged);
 
         settings = new AppSettings();
         settings.setDarkListener(dark -> runOnUiThread(() -> applySystemBars(dark)));
@@ -149,6 +160,28 @@ public final class QPlayerActivity extends Activity {
     private void onSceneReady() {
         hideSplash();
         requestAudioPermission();
+        requestNotificationPermission();
+    }
+
+    /** Playback state / track changed (main thread): poke the foreground service to
+     *  refresh the media session + notification. */
+    private void onPlaybackChanged() {
+        try {
+            Intent i = new Intent(this, PlaybackService.class).setAction(PlaybackService.ACTION_REFRESH);
+            androidx.core.content.ContextCompat.startForegroundService(this, i);
+        } catch (Throwable e) {
+            dev.t1m3.qplayer.util.Logger.error("startForegroundService failed: {}", e.toString());
+        }
+    }
+
+    /** Android 13+ needs runtime POST_NOTIFICATIONS for the media notification to show.
+     *  Best-effort: playback still works if denied, just without the notification UI. */
+    private void requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIF);
+        }
     }
 
     private android.view.View splashView;
@@ -362,7 +395,10 @@ public final class QPlayerActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (controller != null) controller.shutdown();
+        // Keep the engine alive while audio is playing so background playback (driven
+        // by the foreground service) survives the activity being destroyed, e.g. a
+        // recents swipe. When idle, release as before.
+        if (controller != null && !controller.isPlaying()) controller.shutdown();
         if (glView != null) {
             glView = null;
         }

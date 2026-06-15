@@ -72,6 +72,47 @@ public final class PlayerController {
     private final Set<Long> likedSet = new HashSet<>();
     private final Random rng = new Random();
 
+    // Playback control runs on the host's main thread (always alive — unlike the GL
+    // render thread, which pauses in the background and would stall auto-advance);
+    // UI Property writes still marshal to the render thread via post()/pump().
+    // mainExec is null on hosts with no main loop (desktop), where control runs inline.
+    private volatile java.util.concurrent.Executor mainExec;
+    // Source-of-truth play position. The `index` Property mirrors it for the UI but
+    // lags in the background (pump paused), so all playback logic uses this instead.
+    private volatile int playIndex = -1;
+    // Intended play/pause state. The backend (MediaPlayer) prepares asynchronously, so
+    // backend.isPlaying() is briefly false right after play() — reporting that to the
+    // media session shows a stale "paused". The session uses this intent instead.
+    private volatile boolean playingIntent = false;
+    private volatile PlaybackListener playbackListener;
+
+    /** Host hook (e.g. the Android foreground service) notified on the main thread
+     *  whenever the current track or play/pause state changes, so it can refresh the
+     *  media session + notification. */
+    public interface PlaybackListener {
+        void onPlaybackChanged();
+    }
+
+    public void setMainExecutor(java.util.concurrent.Executor e) {
+        this.mainExec = e;
+    }
+
+    public void setPlaybackListener(PlaybackListener l) {
+        this.playbackListener = l;
+    }
+
+    /** Run playback control on the main thread (inline if the host has no executor). */
+    private void onMain(Runnable r) {
+        java.util.concurrent.Executor e = mainExec;
+        if (e != null) e.execute(r);
+        else r.run();
+    }
+
+    private void notifyPlayback() {
+        PlaybackListener l = playbackListener;
+        if (l != null) onMain(l::onPlaybackChanged);
+    }
+
     // --- Search cache ------------------------------------------------------
     /** TTL for cached search results: 5 minutes. */
     private static final long SEARCH_CACHE_TTL_MS = 5 * 60 * 1000L;
@@ -168,7 +209,10 @@ public final class PlayerController {
         this.metadataReader = metadataReader;
         this.netease = netease;
         backend.setVolume(volume.peek());
-        backend.setOnComplete(() -> post(this::autoAdvance));
+        backend.setOnComplete(() -> onMain(this::autoAdvance));
+        // Re-baseline the media session's position once audio actually starts (the
+        // backend prepares asynchronously, so the position at play() time is stale).
+        backend.setOnStarted(this::notifyPlayback);
         if (netease.isLoggedIn()) {
             loggedIn.set(true);
             refreshLogin();
@@ -261,17 +305,19 @@ public final class PlayerController {
     /** Drop a slot from the queue; keep playing the right track. */
     public void removeFromQueue(int i) {
         if (i < 0 || i >= queue.size()) return;
-        int cur = index.peek();
+        int cur = playIndex;
         queue.remove(i);
         queueTracks.set(new ArrayList<>(queue));
         if (queue.isEmpty()) {
+            playIndex = -1;
             index.set(-1);
             return;
         }
         if (i < cur) {
+            playIndex = cur - 1;
             index.set(cur - 1);
         } else if (i == cur) {
-            playAt(Math.min(cur, queue.size() - 1));
+            onMain(() -> playAt(Math.min(cur, queue.size() - 1)));
         }
     }
 
@@ -374,32 +420,43 @@ public final class PlayerController {
         queue.clear();
         queue.addAll(q);
         queueTracks.set(new ArrayList<>(queue));
-        playAt(start);
+        onMain(() -> playAt(start));
     }
 
+    // Runs on the main thread (via onMain). Updates the plain playIndex synchronously,
+    // marshals UI Property writes to the render thread via post(), and drives the
+    // backend directly so playback advances even while the GL pump is paused.
     private void playAt(int i) {
         if (i < 0 || i >= queue.size()) return;
-        Track t = queue.get(i);
-        index.set(i);
-        title.set(orEmpty(t.title));
-        artist.set(orEmpty(t.artist));
-        album.set(orEmpty(t.album));
-        coverUrl.set(orEmpty(t.coverUrl));
+        playIndex = i;
+        final int idx = i;
+        final Track t = queue.get(i);
+        post(() -> {
+            index.set(idx);
+            title.set(orEmpty(t.title));
+            artist.set(orEmpty(t.artist));
+            album.set(orEmpty(t.album));
+            coverUrl.set(orEmpty(t.coverUrl));
+            durationMs.set(t.durationMs);
+            positionMs.set(0L);
+            currentLiked.set(t.neteaseId != 0 && likedSet.contains(t.neteaseId));
+        });
         updateCover(t, i);
-        durationMs.set(t.durationMs);
-        positionMs.set(0L);
-        currentLiked.set(t.neteaseId != 0 && likedSet.contains(t.neteaseId));
 
         if (t.source == Track.Source.LOCAL) {
             if (t.filePath == null || t.filePath.isEmpty()) return;
             loadLocalLyrics(t);
             Logger.info("play local: {}", t.title);
             backend.play(t.filePath, 0L);
-            playing.set(true);
+            playingIntent = true;
+            post(() -> playing.set(true));
+            notifyPlayback();
         } else if (t.streamUrl != null) {
             Logger.info("play netease (cached url): {}", t.title);
             backend.play(t.streamUrl, 0L);
-            playing.set(true);
+            playingIntent = true;
+            post(() -> playing.set(true));
+            notifyPlayback();
         } else {
             resolveAndPlayNetease(t, i);
         }
@@ -410,10 +467,12 @@ public final class PlayerController {
      *  so a stale fetch for a skipped-past track is dropped. */
     private void updateCover(Track t, int expectedIndex) {
         if (t.coverBytes != null) {
-            applyCover(t.coverBytes);
+            final byte[] cb = t.coverBytes;
+            post(() -> applyCover(cb));
+            notifyPlayback();
             return;
         }
-        applyCover(null);
+        post(() -> applyCover(null));
         final String url = t.coverUrl;
         if (url == null || url.isEmpty()) return;
         worker.submit(() -> {
@@ -421,8 +480,9 @@ public final class PlayerController {
             if (data == null) return;
             t.coverBytes = data;
             post(() -> {
-                if (index.peek() == expectedIndex) applyCover(data);
+                if (playIndex == expectedIndex) applyCover(data);
             });
+            notifyPlayback(); // refresh the media-notification artwork
         });
     }
 
@@ -502,17 +562,22 @@ public final class PlayerController {
     }
 
     public void toggle() {
-        if (index.peek() < 0 && !library.isEmpty()) {
-            play(0);
-            return;
-        }
-        if (backend.isPlaying()) {
-            backend.pause();
-            playing.set(false);
-        } else {
-            backend.resume();
-            playing.set(true);
-        }
+        onMain(() -> {
+            if (playIndex < 0 && !library.isEmpty()) {
+                play(0);
+                return;
+            }
+            if (playingIntent) {
+                backend.pause();
+                playingIntent = false;
+                post(() -> playing.set(false));
+            } else {
+                backend.resume();
+                playingIntent = true;
+                post(() -> playing.set(true));
+            }
+            notifyPlayback();
+        });
     }
 
     /** Cycle list-loop -> shuffle -> repeat-one -> list-loop. */
@@ -529,44 +594,52 @@ public final class PlayerController {
         int r;
         do {
             r = rng.nextInt(n);
-        } while (r == index.peek());
+        } while (r == playIndex);
         return r;
     }
 
     // Manual skip: shuffle picks a random slot, otherwise step forward and wrap.
     // Repeat-one only affects auto-advance -- a manual press still moves on.
     public void next() {
-        if (queue.isEmpty()) return;
-        playAt(playMode.peek() == 1 ? randomIndex() : (index.peek() + 1) % queue.size());
+        onMain(() -> {
+            if (queue.isEmpty()) return;
+            playAt(playMode.peek() == 1 ? randomIndex() : (playIndex + 1) % queue.size());
+        });
     }
 
     public void prev() {
-        if (queue.isEmpty()) return;
-        int n = queue.size();
-        playAt(playMode.peek() == 1 ? randomIndex() : (index.peek() - 1 + n) % n);
+        onMain(() -> {
+            if (queue.isEmpty()) return;
+            int n = queue.size();
+            playAt(playMode.peek() == 1 ? randomIndex() : (playIndex - 1 + n) % n);
+        });
     }
 
     // Track finished on its own: repeat-one replays it, shuffle jumps randomly,
     // list-loop advances. Wired to backend.onComplete (not next()) so repeat-one
-    // doesn't fight a user's manual skip.
+    // doesn't fight a user's manual skip. Already on the main thread (onComplete).
     private void autoAdvance() {
         if (queue.isEmpty()) return;
         switch (playMode.peek()) {
             case 2:
-                playAt(index.peek());
+                playAt(playIndex);
                 break;
             case 1:
                 playAt(randomIndex());
                 break;
             default:
-                playAt((index.peek() + 1) % queue.size());
+                playAt((playIndex + 1) % queue.size());
                 break;
         }
     }
 
     public void seek(long ms) {
-        backend.seek(ms);
-        positionMs.set(Math.max(0L, ms));
+        final long t = Math.max(0L, ms);
+        onMain(() -> {
+            backend.seek(t);
+            post(() -> positionMs.set(t));
+            notifyPlayback();
+        });
     }
 
     public long position() {
@@ -635,26 +708,33 @@ public final class PlayerController {
                 }
                 final List<LyricLine> ly = ttml;
                 final String playUrl = url;
-                post(() -> {
-                    if (index.peek() != expectedIndex) return; // user moved on
+                // Hop to the main thread for the backend control (works backgrounded);
+                // UI Property writes still marshal to the render thread via post().
+                onMain(() -> {
+                    if (playIndex != expectedIndex) return; // user moved on
                     if (playUrl == null) {
                         Logger.warn("netease song {} has no url (blocked/VIP/login required)", songId);
-                        toast.set(netease.isLoggedIn() ? "无法播放：VIP/灰色歌曲" : "无法播放：请先登录");
+                        post(() -> toast.set(netease.isLoggedIn()
+                                ? "无法播放：VIP/灰色歌曲" : "无法播放：请先登录"));
                         return;
                     }
-                    if (isUnblocked) toast.set("已为该歌曲自动换源");
-                    else if (isTrialOnly) toast.set("当前歌曲仅可试听");
                     t.streamUrl = playUrl;
-                    title.set(orEmpty(t.title));
-                    artist.set(orEmpty(t.artist));
-                    album.set(orEmpty(t.album));
-                    coverUrl.set(orEmpty(t.coverUrl));
+                    post(() -> {
+                        if (isUnblocked) toast.set("已为该歌曲自动换源");
+                        else if (isTrialOnly) toast.set("当前歌曲仅可试听");
+                        title.set(orEmpty(t.title));
+                        artist.set(orEmpty(t.artist));
+                        album.set(orEmpty(t.album));
+                        coverUrl.set(orEmpty(t.coverUrl));
+                        durationMs.set(t.durationMs);
+                        lyrics.set(ly);
+                    });
                     updateCover(t, expectedIndex);
-                    durationMs.set(t.durationMs);
-                    lyrics.set(ly);
                     Logger.info("play netease: {} — {}", t.title, playUrl);
                     backend.play(playUrl, 0L);
-                    playing.set(true);
+                    playingIntent = true;
+                    post(() -> playing.set(true));
+                    notifyPlayback();
                 });
             } catch (Throwable e) {
                 Logger.warn("netease resolve failed for {}: {}", songId, e.getMessage());
@@ -841,9 +921,24 @@ public final class PlayerController {
         });
     }
 
-    private Track currentTrack() {
-        int i = index.peek();
+    /** Current queue track (the playback source of truth) or null. Safe off the
+     *  render thread — reads the plain playIndex, not the lagging Property. Used by
+     *  the host media service to build the notification / session metadata. */
+    public Track currentTrack() {
+        int i = playIndex;
         return i >= 0 && i < queue.size() ? queue.get(i) : null;
+    }
+
+    /** Intended play state for the media session — true from play/resume until pause,
+     *  unaffected by the backend's brief async-prepare gap. */
+    public boolean isPlaying() {
+        return playingIntent;
+    }
+
+    /** Current source duration in ms (0 if unknown). */
+    public long duration() {
+        long d = backend.duration();
+        return d > 0 ? d : 0L;
     }
 
     // --- Login (fully async: qrLoginKey/qrLoginCheck are blocking HTTP, must

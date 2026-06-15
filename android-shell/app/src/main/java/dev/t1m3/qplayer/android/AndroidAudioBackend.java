@@ -26,6 +26,7 @@ public final class AndroidAudioBackend implements AudioBackend {
     private float volume = 0.8f;
     private boolean prepared;
     private Runnable onComplete;
+    private Runnable onStarted;
 
     @Override
     public synchronized void play(String src, long startMs) {
@@ -74,6 +75,8 @@ public final class AndroidAudioBackend implements AudioBackend {
         }
         if (wantPlay) {
             player.start();
+            Runnable cb = onStarted;
+            if (cb != null) cb.run();
         }
     }
 
@@ -143,6 +146,11 @@ public final class AndroidAudioBackend implements AudioBackend {
         if (player != null && prepared) {
             player.setVolume(volume, volume);
         }
+    }
+
+    @Override
+    public synchronized void setOnStarted(Runnable callback) {
+        this.onStarted = callback;
     }
 
     @Override

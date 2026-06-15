@@ -47,6 +47,13 @@ public interface AudioBackend {
      */
     void setOnComplete(Runnable callback);
 
+    /**
+     * Callback invoked when playback actually begins (e.g. after an async prepare),
+     * so a media session can re-baseline its reported position. May fire on the
+     * audio thread. Default no-op for backends that don't need it.
+     */
+    default void setOnStarted(Runnable callback) { }
+
     /** Stop playback and free native resources. */
     void release();
 }
