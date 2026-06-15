@@ -19,10 +19,28 @@ android {
         targetCompatibility = JavaVersion.VERSION_1_8
     }
 
+    // Release signing is driven by env vars so the keystore never lives in the repo.
+    // CI decodes a base64 keystore secret to a file and exports QPLAYER_KEYSTORE; a
+    // local/secret-less build skips signing and produces an unsigned release apk.
+    val keystorePath = System.getenv("QPLAYER_KEYSTORE")
+    val hasSigning = keystorePath != null && file(keystorePath).exists()
+
+    signingConfigs {
+        if (hasSigning) {
+            create("release") {
+                storeFile = file(keystorePath!!)
+                storePassword = System.getenv("QPLAYER_STORE_PASSWORD")
+                keyAlias = System.getenv("QPLAYER_KEY_ALIAS")
+                keyPassword = System.getenv("QPLAYER_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         named("release") {
             isMinifyEnabled = false
             isShrinkResources = false
+            if (hasSigning) signingConfig = signingConfigs.getByName("release")
         }
     }
 

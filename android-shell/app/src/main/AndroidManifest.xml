@@ -9,7 +9,7 @@
         android:maxSdkVersion="32" />
 
     <application
-        android:label="qplayer"
+        android:label="QPlayer"
         android:allowBackup="false"
         android:usesCleartextTraffic="true"
         android:supportsRtl="true">
