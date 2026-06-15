@@ -28,8 +28,10 @@ import java.util.Map;
  * The repo convention is {@code person → MAIN}, {@code other → BACKGROUND};
  * we extend so that further agent ids fall through to MAIN.
  *
- * <p>Translation / romaji sidecars are not consumed here — the dispatcher
- * still attaches separate {@code .tlrc} / {@code .romaji.lrc} files.
+ * <p>Inline translation ({@code ttm:role="x-translation"}) and romaji
+ * ({@code ttm:role="x-roman"}) sidecar spans are consumed onto the line's
+ * {@code translation} / {@code romaji} fields; head-level
+ * {@code <transliterations>} are also honoured (inline wins).
  */
 public final class TtmlParser {
 
@@ -89,6 +91,17 @@ public final class TtmlParser {
                             if (t != null && !t.trim().isEmpty()) ll.translation = t.trim();
                             continue;
                         }
+                        // Inline romaji/transliteration sidecar. AMLL emits these as
+                        // untimed spans after the syllables; without this branch they
+                        // fall through to the syllable path below, polluting the main
+                        // line's text and zeroing its end time (begin/end absent →
+                        // parseClock 0 → endMs() 0, so the line vanishes instantly).
+                        // Inline wins over any head-level transliteration match above.
+                        if (roleLc.startsWith("x-roman")) {
+                            String r = span.getTextContent();
+                            if (r != null && !r.trim().isEmpty()) ll.romaji = r.trim();
+                            continue;
+                        }
                         // Background vocal — own LyricLine with its own
                         // syllables, channel mirrors the main line's duet
                         // side so right-channel BG aligns right too.
@@ -103,13 +116,16 @@ public final class TtmlParser {
                         if (text == null) text = "";
                         ll.syllables.add(new Syllable(text, s, Math.max(0L, e - s)));
                     } else if (kid.getNodeType() == Node.TEXT_NODE) {
-                        // Whitespace between spans — preserve as a zero-time spacer
-                        // so the renderer can space syllables visually.
                         String t = kid.getNodeValue();
-                        if (t != null && !t.trim().isEmpty()) {
-                            // Use the most recent end time as the cursor; ASCII space
-                            // ends up with duration 0 which the renderer treats as
-                            // instantly visible alongside the previous syllable.
+                        if (t == null || t.isEmpty()) continue;
+                        if (t.trim().isEmpty()) {
+                            // Inter-span whitespace (the space in `</span> <span>`):
+                            // fold a single space onto the previous syllable so words
+                            // don't run together. Matters for space-separated scripts;
+                            // a no-op for CJK, which has no inter-syllable spaces.
+                            appendSpaceToLast(ll.syllables);
+                        } else {
+                            // Bare untimed text content (rare): keep as instant spacer.
                             long cursor = ll.syllables.isEmpty()
                                     ? lineStart
                                     : ll.syllables.get(ll.syllables.size() - 1).endMs();
@@ -168,9 +184,15 @@ public final class TtmlParser {
                 Element span = (Element) innerNode;
                 String role = attr(span, "ttm:role");
                 if (role == null) role = attr(span, "role");
-                if (role != null && role.toLowerCase(Locale.ROOT).startsWith("x-translation")) {
+                String roleLc = role == null ? "" : role.toLowerCase(Locale.ROOT);
+                if (roleLc.startsWith("x-translation")) {
                     String t = span.getTextContent();
                     if (t != null && !t.trim().isEmpty()) bg.translation = t.trim();
+                    continue;
+                }
+                if (roleLc.startsWith("x-roman")) {
+                    String r = span.getTextContent();
+                    if (r != null && !r.trim().isEmpty()) bg.romaji = r.trim();
                     continue;
                 }
                 long s = parseClock(attr(span, "begin"));
@@ -180,7 +202,10 @@ public final class TtmlParser {
                 bg.syllables.add(new Syllable(text, s, Math.max(0L, e - s)));
             } else if (innerNode.getNodeType() == Node.TEXT_NODE) {
                 String t = innerNode.getNodeValue();
-                if (t != null && !t.trim().isEmpty() && !bg.syllables.isEmpty()) {
+                if (t == null || t.isEmpty()) continue;
+                if (t.trim().isEmpty()) {
+                    appendSpaceToLast(bg.syllables);
+                } else if (!bg.syllables.isEmpty()) {
                     long cursor = bg.syllables.get(bg.syllables.size() - 1).endMs();
                     bg.syllables.add(new Syllable(t, cursor, 0L));
                 }
@@ -246,6 +271,16 @@ public final class TtmlParser {
             if (!text.isEmpty()) out.put(forKey, text);
         }
         return out;
+    }
+
+    /** Fold a single trailing space onto the last syllable (idempotent), so
+     *  inter-span whitespace survives without spawning empty spacer syllables. */
+    private static void appendSpaceToLast(List<Syllable> syllables) {
+        if (syllables.isEmpty()) return;
+        Syllable last = syllables.get(syllables.size() - 1);
+        if (last.text.endsWith(" ")) return;
+        syllables.set(syllables.size() - 1,
+                new Syllable(last.text + " ", last.startMs, last.durationMs));
     }
 
     private static String attr(Element el, String name) {

@@ -9,6 +9,7 @@ import dev.t1m3.qplayer.lyric.TtmlParser;
 import dev.t1m3.qplayer.model.Track;
 import dev.t1m3.qplayer.netease.NeteaseClient;
 import dev.t1m3.qplayer.netease.dto.NeteaseLyric;
+import dev.t1m3.qplayer.unblock.SongUnblocker;
 import dev.t1m3.qplayer.netease.dto.NeteasePlaylist;
 import dev.t1m3.qplayer.netease.dto.NeteaseSong;
 import dev.t1m3.qplayer.netease.dto.NeteaseUser;
@@ -70,6 +71,7 @@ public final class PlayerController {
     private final Random rng = new Random();
 
     private volatile String playLevel = "exhigh";
+    private volatile boolean unblockEnabled = true;
     private volatile long uid;
     private long lastPositionPush;
     private long lastLogVersion = -1;
@@ -547,6 +549,12 @@ public final class PlayerController {
         if (level != null && !level.isEmpty()) playLevel = level;
     }
 
+    /** Toggle source-switching: when on, blocked/trial netease tracks fall back to
+     *  the unblock sources (gdstudio / bodian / kuwo) before being skipped. */
+    public void setUnblockEnabled(boolean enabled) {
+        this.unblockEnabled = enabled;
+    }
+
     private void resolveAndPlayNetease(Track t, int expectedIndex) {
         long songId = t.neteaseId;
         worker.submit(() -> {
@@ -563,8 +571,26 @@ public final class PlayerController {
                         t.durationMs = sd.durationMs;
                     }
                 }
-                String url = netease.songUrl(songId, playLevel);
-                Logger.info("netease: url={}", url);
+                NeteaseClient.UrlInfo info = netease.songUrlInfo(songId, playLevel);
+                // Official url wins only when it's a full track. A trial-only clip,
+                // a missing url, or a blocked/VIP song all fall through to the
+                // unblock sources; the trial clip is kept as a last-resort fallback.
+                String url = (info != null && !info.trial) ? info.url : null;
+                boolean unblocked = false;
+                if (url == null && unblockEnabled) {
+                    String un = SongUnblocker.resolve(songId, t.title, t.artist);
+                    if (un != null) {
+                        url = un;
+                        unblocked = true;
+                    }
+                }
+                if (url == null && info != null && info.trial && info.url != null) {
+                    url = info.url; // nothing better available — play the preview clip
+                }
+                final boolean isUnblocked = unblocked;
+                final boolean isTrialOnly = !unblocked && info != null && info.trial
+                        && url != null && url.equals(info.url);
+                Logger.info("netease: url={} (unblocked={}, trial={})", url, unblocked, isTrialOnly);
                 // Prefer the AMLL TTML mirror (full syllable + bg/duet metadata);
                 // fall back to Netease's own lyric (YRC if present, else LRC).
                 List<LyricLine> ttml = tryAmllTtml(songId);
@@ -574,14 +600,17 @@ public final class PlayerController {
                             : LyricParser.fromNeteaseStrings(nl.yrc, nl.lrc, nl.tlyric, nl.romalrc);
                 }
                 final List<LyricLine> ly = ttml;
+                final String playUrl = url;
                 post(() -> {
                     if (index.peek() != expectedIndex) return; // user moved on
-                    if (url == null) {
+                    if (playUrl == null) {
                         Logger.warn("netease song {} has no url (blocked/VIP/login required)", songId);
                         toast.set(netease.isLoggedIn() ? "无法播放：VIP/灰色歌曲" : "无法播放：请先登录");
                         return;
                     }
-                    t.streamUrl = url;
+                    if (isUnblocked) toast.set("已为该歌曲自动换源");
+                    else if (isTrialOnly) toast.set("当前歌曲仅可试听");
+                    t.streamUrl = playUrl;
                     title.set(orEmpty(t.title));
                     artist.set(orEmpty(t.artist));
                     album.set(orEmpty(t.album));
@@ -589,8 +618,8 @@ public final class PlayerController {
                     updateCover(t, expectedIndex);
                     durationMs.set(t.durationMs);
                     lyrics.set(ly);
-                    Logger.info("play netease: {} — {}", t.title, url);
-                    backend.play(url, 0L);
+                    Logger.info("play netease: {} — {}", t.title, playUrl);
+                    backend.play(playUrl, 0L);
                     playing.set(true);
                 });
             } catch (Throwable e) {

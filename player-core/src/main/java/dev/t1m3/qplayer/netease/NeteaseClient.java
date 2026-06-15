@@ -145,6 +145,26 @@ public final class NeteaseClient {
      * subscription cookie.
      */
     public String songUrl(long songId, String level) throws IOException {
+        UrlInfo info = songUrlInfo(songId, level);
+        return info == null ? null : info.url;
+    }
+
+    /** Official-url result with trial detection. {@link #url} is the CDN url (null
+     *  if blocked/VIP/login-required); {@link #trial} is true when the only url
+     *  netease returned is a {@code freeTrialInfo} preview clip, which callers
+     *  may want to replace via an unblock source before settling for it. */
+    public static final class UrlInfo {
+        public final String url;
+        public final boolean trial;
+        public UrlInfo(String url, boolean trial) {
+            this.url = url;
+            this.trial = trial;
+        }
+    }
+
+    /** Like {@link #songUrl} but also reports whether the returned url is a
+     *  trial-only preview ({@code freeTrialInfo != null}). */
+    public UrlInfo songUrlInfo(long songId, String level) throws IOException {
         Map<String, Object> body = new HashMap<>();
         body.put("ids", "[" + songId + "]");
         body.put("level", level == null ? "standard" : level);
@@ -154,9 +174,11 @@ public final class NeteaseClient {
         if (obj.get("data").getAsJsonArray().size() == 0) return null;
         JsonElement first = obj.get("data").getAsJsonArray().get(0);
         if (!first.isJsonObject()) return null;
-        JsonElement url = first.getAsJsonObject().get("url");
+        JsonObject song = first.getAsJsonObject();
+        JsonElement url = song.get("url");
         if (url == null || url.isJsonNull()) return null;
-        return url.getAsString();
+        boolean trial = song.has("freeTrialInfo") && !song.get("freeTrialInfo").isJsonNull();
+        return new UrlInfo(url.getAsString(), trial);
     }
 
     // ---- Discovery / search / playlist (N5) ----

@@ -28,6 +28,7 @@
 
 - **End-to-end playback** over the NetEase Cloud Music API — recommendations, search, your playlists, recent, and local files.
 - **QR login** to NetEase; like/unlike, play queue, play modes (list-loop / shuffle / repeat-one).
+- **Source switching** — grey/VIP/trial tracks fall back automatically to alternate audio sources (GD音乐台 / 波点 / 酷我), matched by title + artist before playing (toggleable).
 - **Material 3 UI** — the whole interface is QML (`md3.Core`), running on the qml4j engine.
 - **Dynamic color (Monet)** — the theme reseeds from the current cover art (toggleable); full **dark / light / follow-system** modes.
 - **Lyric page** — host-drawn with Skija: per-syllable scrolling (AMLL TTML mirror, NetEase fallback), an Apple-Music-style SkSL fluid backdrop tinted from the cover, romaji + translation with wrapping, a Material wavy progress bar and an icon-button transport.

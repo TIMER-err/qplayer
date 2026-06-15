@@ -29,6 +29,8 @@ public final class AppSettings extends QObject {
     public final Property<Object> darkMode = new Property<>(MODE_SYSTEM);
     public final Property<Boolean> monetEnabled = new Property<>(Boolean.TRUE);
     public final Property<Boolean> resolvedDark = new Property<>(Boolean.FALSE);
+    /** Source-switching for grey/VIP/trial netease tracks (gdstudio / bodian / kuwo). */
+    public final Property<Boolean> unblockEnabled = new Property<>(Boolean.TRUE);
 
     // System-bar insets in QML logical units (px / density), for edge-to-edge layout:
     // the top bar drops below the status bar, the bottom nav clears the gesture bar.
@@ -52,10 +54,16 @@ public final class AppSettings extends QObject {
         void onMonet(boolean enabled);
     }
 
+    /** Notified when the source-switching toggle changes. */
+    public interface UnblockListener {
+        void onUnblock(boolean enabled);
+    }
+
     private SharedPreferences prefs;
     private boolean systemDark;
     private DarkListener darkListener;
     private MonetListener monetListener;
+    private UnblockListener unblockListener;
 
     public void setDarkListener(DarkListener l) {
         this.darkListener = l;
@@ -63,6 +71,10 @@ public final class AppSettings extends QObject {
 
     public void setMonetListener(MonetListener l) {
         this.monetListener = l;
+    }
+
+    public void setUnblockListener(UnblockListener l) {
+        this.unblockListener = l;
     }
 
     public boolean resolvedDarkValue() {
@@ -76,8 +88,10 @@ public final class AppSettings extends QObject {
         systemDark = isSystemDark(ctx);
         darkMode.set(prefs.getInt("darkMode", MODE_SYSTEM));
         monetEnabled.set(prefs.getBoolean("monet", true));
+        unblockEnabled.set(prefs.getBoolean("unblock", true));
         recompute();
         if (monetListener != null) monetListener.onMonet(Boolean.TRUE.equals(monetEnabled.peek()));
+        if (unblockListener != null) unblockListener.onUnblock(Boolean.TRUE.equals(unblockEnabled.peek()));
         darkMode.setInterceptor((p, v) -> {
             // Normalize to Integer (QML hands us a Long) so reads compare as ints.
             p.setBypassInterceptor(asInt(v));
@@ -89,6 +103,12 @@ public final class AppSettings extends QObject {
             boolean on = Boolean.TRUE.equals(p.peek());
             prefs.edit().putBoolean("monet", on).apply();
             if (monetListener != null) monetListener.onMonet(on);
+        });
+        unblockEnabled.setInterceptor((p, v) -> {
+            p.setBypassInterceptor(v);
+            boolean on = Boolean.TRUE.equals(p.peek());
+            prefs.edit().putBoolean("unblock", on).apply();
+            if (unblockListener != null) unblockListener.onUnblock(on);
         });
     }
 

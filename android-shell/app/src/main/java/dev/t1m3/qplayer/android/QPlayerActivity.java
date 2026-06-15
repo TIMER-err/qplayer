@@ -75,6 +75,7 @@ public final class QPlayerActivity extends Activity {
         settings = new AppSettings();
         settings.setDarkListener(dark -> runOnUiThread(() -> applySystemBars(dark)));
         settings.setMonetListener(on -> controller.setMonetEnabled(on));
+        settings.setUnblockListener(on -> controller.setUnblockEnabled(on));
         settings.load(this);
 
         String qml;
