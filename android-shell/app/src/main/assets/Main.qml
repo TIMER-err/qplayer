@@ -8,9 +8,7 @@ import "."
 // messages and the debug log on top.
 Rectangle {
     id: app
-    // Transparent while the lyric page is sliding/open so the host-drawn fluid + lyrics
-    // (rendered underneath the QML scene) show through; opaque surface otherwise.
-    color: player.lyricSlide > 0.001 ? "transparent" : Theme.color.surface
+    color: Theme.color.surface
 
     property int page: 0
     property int nextPage: 0
@@ -84,10 +82,6 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         height: 64
-        // Hidden the instant the lyric page opens: the host lyric layer sits UNDER the
-        // QML scene, so a fading main UI would render on top of (cover) it. Cut it out
-        // so the lyric page (host fluid + QML LyricOverlay) is unobstructed.
-        visible: player.lyricSlide < 0.001
         title: app.titles[app.page]
         showNavigationIcon: false
 
@@ -122,7 +116,6 @@ Rectangle {
         anchors.right: parent.right
         anchors.bottom: mini.top
         clip: true
-        visible: player.lyricSlide < 0.001
 
         Item {
             id: pageBody
@@ -205,7 +198,6 @@ Rectangle {
         anchors.right: parent.right
         anchors.bottom: bottomNav.top
         height: 84
-        visible: player.lyricSlide < 0.001
         onLyricsRequested: player.setLyricsOpen(true)
     }
 
@@ -217,7 +209,6 @@ Rectangle {
         // Nav content sits in the top 76; the extra height is background that fills
         // behind the gesture/navigation bar (edge-to-edge).
         height: 76 + settings.bottomInset
-        visible: player.lyricSlide < 0.001
         currentIndex: app.page
         onNavigate: app.switchTo(bottomNav.pendingIndex)
     }
@@ -226,6 +217,7 @@ Rectangle {
     // fluid backdrop + lyrics. Slides up from the bottom in lockstep with the host
     // layer -- same smoothstep(player.lyricSlide) offset the host applies.
     LyricOverlay {
+        objectName: "lyricChrome"   // host renders this subtree in its own pass, over the fluid
         width: parent.width
         height: parent.height
         visible: player.lyricSlide > 0.001

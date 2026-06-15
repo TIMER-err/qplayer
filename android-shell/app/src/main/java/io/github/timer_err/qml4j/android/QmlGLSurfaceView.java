@@ -26,6 +26,7 @@ import io.github.timer_err.qml4j.engine.binding.Property;
 import io.github.timer_err.qml4j.render.QmlView;
 import io.github.timer_err.qml4j.render.ResourceLoader;
 import io.github.timer_err.qml4j.render.SurfaceBackend;
+import io.github.timer_err.qml4j.render.items.core.Item;
 import io.github.timer_err.qml4j.render.items.input.TextEditable;
 
 import dev.t1m3.qplayer.bridge.PlayerController;
@@ -79,6 +80,9 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
             new dev.t1m3.qplayer.android.lyric.FluidBackground(System.nanoTime());
     private List<LyricLine> lastLyrics;
     private float lyricSlide;
+    // The QML lyric-chrome subtree (tagged objectName "lyricChrome"), rendered in its own
+    // pass on top of the host fluid; looked up once after the scene loads.
+    private Item lyricChrome;
     // Wall-clock extrapolation of the coarse backend position, for a smooth progress bar.
     private long lyRawLast = -1;
     private boolean lyPlayingLast;
@@ -411,26 +415,38 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 profBumpTick += Property.changeVersion() - v0;
                 long t1 = System.nanoTime();
                 Canvas canvas = surface.acquireCanvas();
-                // The host lyric layer (fluid backdrop + per-syllable lyrics) draws
-                // FIRST, underneath the QML scene, so the QML lyric chrome (title /
-                // wavy progress / icon buttons) composites on top of the fluid. When
-                // the page is closed drawLyricOverlay paints nothing. The QML scene
-                // always renders; its main UI fades out as the lyric page opens, so
-                // only the (cheap) LyricOverlay chrome remains over the fluid.
-                drawLyricOverlay(canvas);
-                int sc = canvas.save();
-                canvas.scale(uiScale, uiScale);
-                // The view's own renderer is wired with the component factory + resource
-                // loader (via resources()); reuse it rather than a bare Renderer.
                 io.github.timer_err.qml4j.render.Renderer renderer = view.renderer();
                 renderer.setGpuContext(surface.recordingContext());
-                boolean skipLayout = Property.changeVersion() == renderedVersion;
-                if (skipLayout) profSkips++;
-                long vBeforeRender = Property.changeVersion();
-                renderer.render(canvas, view.root(), skipLayout);
-                renderedVersion = Property.changeVersion();
-                profBumpRender += renderedVersion - vBeforeRender;
-                canvas.restoreToCount(sc);
+                float lw = surface.width() / uiScale, lh = surface.height() / uiScale;
+                if (lyricChrome == null) lyricChrome = view.findByObjectName("lyricChrome");
+
+                // Three layers so the lyric page slides up OVER the main UI while its md3
+                // chrome still sits above the host fluid:
+                //  1) the QML main scene (skipped once the lyric page fully covers it),
+                //  2) the host fluid backdrop + per-syllable lyrics (slides up),
+                //  3) the lyric chrome subtree (title / wavy progress / transport), drawn
+                //     again on top of the fluid.
+                double slidePrev = controller != null ? controller.lyricSlide.peek() : 0.0;
+                boolean fullyCovered = slidePrev >= 0.999;
+                if (!fullyCovered) {
+                    int sc = canvas.save();
+                    canvas.scale(uiScale, uiScale);
+                    boolean skipLayout = Property.changeVersion() == renderedVersion;
+                    if (skipLayout) profSkips++;
+                    long vBeforeRender = Property.changeVersion();
+                    renderer.render(canvas, view.root(), skipLayout);
+                    renderedVersion = Property.changeVersion();
+                    profBumpRender += renderedVersion - vBeforeRender;
+                    canvas.restoreToCount(sc);
+                }
+                drawLyricOverlay(canvas);
+                double slideNow = controller != null ? controller.lyricSlide.peek() : 0.0;
+                if (slideNow > 0.001 && lyricChrome != null) {
+                    int scC = canvas.save();
+                    canvas.scale(uiScale, uiScale);
+                    renderer.renderSubtree(canvas, lyricChrome, lw, lh);
+                    canvas.restoreToCount(scC);
+                }
                 long t1b = System.nanoTime();
                 surface.present();
                 profileFrame(t0, t1, t1b, System.nanoTime());
@@ -492,14 +508,8 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         int sc = canvas.save();
         canvas.scale(uiScale, uiScale);
 
-        // The page slides up from the bottom. Fill behind it with a dark backdrop so the
-        // area above the rising sheet isn't a stale buffer (the main UI is hidden during
-        // the slide). The QML LyricOverlay chrome slides with the same offset.
-        lyMaskPaint.setShader(null);
-        lyMaskPaint.setBlendMode(io.github.humbleui.skija.BlendMode.SRC_OVER);
-        lyMaskPaint.setColor(0xFF0B0B10);
-        canvas.drawRect(io.github.humbleui.types.Rect.makeXYWH(0f, 0f, w, h), lyMaskPaint);
-
+        // The page slides up from the bottom over the QML main scene (drawn in the prior
+        // pass). The LyricOverlay chrome slides with the same smoothstep offset.
         float ease = lyricSlide * lyricSlide * (3f - 2f * lyricSlide); // smoothstep
         canvas.translate(0f, (1f - ease) * h);
 
