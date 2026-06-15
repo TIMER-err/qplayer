@@ -10,6 +10,13 @@ import "."
 Item {
     id: overlay
 
+    // Smoothed playback fraction. player.positionMs lands at ~5 Hz, which makes the
+    // wavy bar step; a Behavior eases between updates (per frame) so it flows. (Behavior
+    // on a bound property animates in qml4j -- same as BottomNav's pill color.)
+    property real seekFrac: player.durationMs > 0
+                            ? Math.min(1, player.positionMs / player.durationMs) : 0
+    Behavior on seekFrac { NumberAnimation { duration: 220; easing.type: Easing.Linear } }
+
     function fmt(ms) {
         if (ms <= 0) return "0:00";
         var s = Math.floor(ms / 1000), m = Math.floor(s / 60), r = s % 60;
@@ -77,8 +84,7 @@ Item {
             anchors.right: parent.right
             anchors.top: parent.top
             wavy: true
-            value: player.durationMs > 0
-                   ? Math.min(1, player.positionMs / player.durationMs) : 0
+            value: overlay.seekFrac
         }
         MouseArea {
             anchors.fill: progress
