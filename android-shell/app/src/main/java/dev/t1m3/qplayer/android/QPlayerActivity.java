@@ -93,7 +93,7 @@ public final class QPlayerActivity extends Activity {
             // Material Symbols for the host-drawn lyric transport icons (drawn by
             // shaped ligature name, same as the QML scene's icons).
             dev.t1m3.qplayer.android.lyric.Fonts.initIcon(
-                    readAssetBytes("fonts/MaterialSymbolsOutlined.ttf"));
+                    readAssetBytes("fonts/MaterialSymbolsRounded.ttf"));
         } catch (IOException ignored) {
         }
 
