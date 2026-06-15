@@ -432,11 +432,7 @@ public final class PlayerController {
         // No cover yet (a netease track's art is still downloading): keep the previous
         // seed so the theme doesn't flash back to the default purple between songs. The
         // new cover's seed replaces it directly once extracted.
-        if (data == null) {
-            // Explicitly cleared (e.g. track with no art at all): fall back to default.
-            post(() -> { coverSeed.set(""); reapplySeed(); });
-            return;
-        }
+        if (data == null) return;
         worker.submit(() -> {
             // Cover bytes are untrusted (downloaded); a bad image must not kill the worker.
             String hex;

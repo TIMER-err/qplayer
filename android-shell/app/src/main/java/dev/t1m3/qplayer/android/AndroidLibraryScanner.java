@@ -24,12 +24,10 @@ public final class AndroidLibraryScanner {
 
     private final ContentResolver resolver;
     private final MetadataReader reader;
-    private final String musicDirPath;
 
-    public AndroidLibraryScanner(ContentResolver resolver, MetadataReader reader, String musicDirPath) {
+    public AndroidLibraryScanner(ContentResolver resolver, MetadataReader reader) {
         this.resolver = resolver;
         this.reader = reader;
-        this.musicDirPath = musicDirPath;
     }
 
     /**

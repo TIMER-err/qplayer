@@ -6,7 +6,6 @@ import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 
 import io.github.timer_err.qml4j.android.AssetResourceLoader;
 import io.github.timer_err.qml4j.android.DexClassLoaderBackend;
@@ -321,10 +320,8 @@ public final class QPlayerActivity extends Activity {
         // Android 11+ Scoped Storage: Files.walk() cannot traverse external storage.
         // Use MediaStore API instead — it works with READ_MEDIA_AUDIO permission.
         // Run off the main thread to avoid ANR on large libraries.
-        String musicDir = Environment.getExternalStoragePublicDirectory(
-                Environment.DIRECTORY_MUSIC).getAbsolutePath();
         AndroidLibraryScanner scanner = new AndroidLibraryScanner(
-                getContentResolver(), reader, musicDir);
+                getContentResolver(), reader);
         new Thread(() -> {
             List<Track> tracks = scanner.scan();
             runOnUiThread(() -> controller.scanTracks(tracks));
