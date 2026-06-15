@@ -45,7 +45,6 @@ public final class AndroidLibraryScanner {
                 MediaStore.Audio.Media.ALBUM,
                 MediaStore.Audio.Media.DURATION,
                 MediaStore.Audio.Media.DATA,
-                MediaStore.Audio.Media.BUCKET_DISPLAY_PATH,
         };
 
         // Only scan music files, ordered by title.

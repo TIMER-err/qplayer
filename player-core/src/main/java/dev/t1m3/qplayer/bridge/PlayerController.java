@@ -704,7 +704,7 @@ public final class PlayerController {
         if (entry != null && !entry.isExpired()) {
             searchResults.set(entry.songs);
             resultCount.set(entry.songs.size());
-            Logger.debug("search cache hit: {}", key);
+            Logger.info("search cache hit: {}", key);
             return;
         }
         worker.submit(() -> {
