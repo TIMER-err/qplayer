@@ -129,7 +129,7 @@ public final class QPlayerActivity extends Activity {
                 runOnUiThread(() -> splashStatus.setText("正在编译界面组件… " + count));
             }
             @Override public void onReady() {
-                runOnUiThread(QPlayerActivity.this::hideSplash);
+                runOnUiThread(QPlayerActivity.this::onSceneReady);
             }
         });
         setContentView(rootView);
@@ -138,6 +138,16 @@ public final class QPlayerActivity extends Activity {
         applySystemBars(settings.resolvedDarkValue());
 
         controller.loadHome();
+        // The audio-permission dialog is deferred to onSceneReady: requesting it
+        // here pops a system dialog during the QML compile, and the resulting
+        // pause/resume + the concurrent MediaStore scan racing the dex compile
+        // crashes on first launch. Once the scene has rendered, it's safe.
+    }
+
+    /** First painted frame: the QML tree is fully built and rendering. Now hide the
+     *  splash and request the audio permission (and scan) — see onCreate. */
+    private void onSceneReady() {
+        hideSplash();
         requestAudioPermission();
     }
 

@@ -12,6 +12,7 @@ android {
         targetSdk = 34
         versionCode = 2
         versionName = "0.1.1"
+        manifestPlaceholders["appLabel"] = "QPlayer"
     }
 
     compileOptions {
@@ -47,6 +48,7 @@ android {
         named("debug") {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+            manifestPlaceholders["appLabel"] = "QPlayer (debug)"
         }
     }
 
