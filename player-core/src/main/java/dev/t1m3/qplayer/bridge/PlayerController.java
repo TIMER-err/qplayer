@@ -462,9 +462,9 @@ public final class PlayerController {
     }
 
     private static byte[] downloadBytes(String url) {
+        java.net.HttpURLConnection c = null;
         try {
-            java.net.HttpURLConnection c =
-                    (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
             c.setConnectTimeout(8000);
             c.setReadTimeout(8000);
             c.setRequestProperty("User-Agent", "qplayer/1.0");
@@ -478,6 +478,8 @@ public final class PlayerController {
         } catch (Throwable e) {
             Logger.warn("cover fetch failed: {}", e.getMessage());
             return null;
+        } finally {
+            if (c != null) c.disconnect();
         }
     }
 

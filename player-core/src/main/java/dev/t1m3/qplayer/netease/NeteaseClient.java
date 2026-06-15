@@ -69,7 +69,7 @@ public final class NeteaseClient {
      * {@code csrf_token} from the cookie jar if the caller didn't supply
      * one. Returns the raw response body as UTF-8 text — caller parses.
      */
-    public String weapiCall(String path, Map<String, Object> json) throws IOException {
+    public synchronized String weapiCall(String path, Map<String, Object> json) throws IOException {
         String csrf = cookies.getOrDefault("__csrf", "");
         Map<String, Object> body = json == null ? new HashMap<String, Object>() : new HashMap<String, Object>(json);
         if (!body.containsKey("csrf_token")) body.put("csrf_token", csrf);
@@ -105,7 +105,12 @@ public final class NeteaseClient {
 
             int code = conn.getResponseCode();
             InputStream is = (code >= 400) ? conn.getErrorStream() : conn.getInputStream();
-            String resp = readAll(is);
+            String resp;
+            try {
+                resp = readAll(is);
+            } finally {
+                if (is != null) { try { is.close(); } catch (IOException ignored) {} }
+            }
             captureSetCookies(conn.getHeaderFields().get("Set-Cookie"));
 
             if (code >= 400) {
@@ -253,8 +258,10 @@ public final class NeteaseClient {
         for (JsonElement el : pl.getAsJsonArray("trackIds")) {
             if (n >= limit) break;
             JsonObject ti = el.getAsJsonObject();
+            JsonElement idEl = ti.get("id");
+            if (idEl == null || idEl.isJsonNull()) continue;
             if (n > 0) ids.append(',');
-            ids.append("{\"id\":").append(ti.get("id").getAsLong()).append('}');
+            ids.append("{\"id\":").append(idEl.getAsLong()).append('}');
             n++;
         }
         ids.append(']');
@@ -273,8 +280,8 @@ public final class NeteaseClient {
     /** Common JSON decode for /cloudsearch songs[] / /song/detail songs[] / playlist tracks[]. */
     private static NeteaseSong parseSong(JsonObject s) {
         NeteaseSong out = new NeteaseSong();
-        if (s.has("id")) out.id = s.get("id").getAsLong();
-        if (s.has("name")) out.name = s.get("name").getAsString();
+        if (s.has("id") && !s.get("id").isJsonNull()) out.id = s.get("id").getAsLong();
+        if (s.has("name") && !s.get("name").isJsonNull()) out.name = s.get("name").getAsString();
         if (s.has("dt"))   out.durationMs = s.get("dt").getAsLong();
         else if (s.has("duration")) out.durationMs = s.get("duration").getAsLong();
         if (s.has("fee"))  out.fee = s.get("fee").getAsInt() == 1;
@@ -306,8 +313,8 @@ public final class NeteaseClient {
 
     private static NeteasePlaylist parsePlaylist(JsonObject p) {
         NeteasePlaylist out = new NeteasePlaylist();
-        if (p.has("id")) out.id = p.get("id").getAsLong();
-        if (p.has("name")) out.name = p.get("name").getAsString();
+        if (p.has("id") && !p.get("id").isJsonNull()) out.id = p.get("id").getAsLong();
+        if (p.has("name") && !p.get("name").isJsonNull()) out.name = p.get("name").getAsString();
         if (p.has("picUrl")) out.coverUrl = p.get("picUrl").getAsString();
         else if (p.has("coverImgUrl")) out.coverUrl = p.get("coverImgUrl").getAsString();
         if (p.has("trackCount")) out.trackCount = p.get("trackCount").getAsInt();
