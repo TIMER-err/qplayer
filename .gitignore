@@ -8,6 +8,9 @@ build/
 .gradle/
 *.class
 
+# Local machine config (Android SDK path, Termux toolchain overrides, ...)
+local.properties
+
 # IDE
 .idea/
 *.iml
