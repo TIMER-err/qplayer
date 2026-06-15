@@ -42,6 +42,12 @@ android {
             isShrinkResources = false
             if (hasSigning) signingConfig = signingConfigs.getByName("release")
         }
+        // Distinct applicationId so a debug build installs alongside the
+        // (differently-signed) release without a signature-mismatch conflict.
+        named("debug") {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
     }
 
     packaging {

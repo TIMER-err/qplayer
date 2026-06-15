@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="108" y2="108">
+      <stop offset="0%" stop-color="#141E2A"/>
+      <stop offset="100%" stop-color="#1E2D3D"/>
+    </linearGradient>
+    <linearGradient id="disc" x1="54" y1="20" x2="54" y2="88" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#DFEAF6"/>
+      <stop offset="50%" stop-color="#C8DAEC"/>
+      <stop offset="100%" stop-color="#ABC4DE"/>
+    </linearGradient>
+    <radialGradient id="shine" cx="38%" cy="32%" r="50%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="accent" x1="30" y1="22" x2="78" y2="86" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#3B5998"/>
+      <stop offset="100%" stop-color="#5B7BC0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="108" height="108" rx="26" fill="url(#bg)"/>
+
+  <!-- Vinyl record -->
+  <circle cx="54" cy="54" r="34" fill="url(#disc)"/>
+
+  <!-- Groove rings -->
+  <circle cx="54" cy="54" r="28.5" fill="none" stroke="#8BA8CC" stroke-opacity="0.25" stroke-width="0.6"/>
+  <circle cx="54" cy="54" r="23" fill="none" stroke="#8BA8CC" stroke-opacity="0.18" stroke-width="0.5"/>
+  <circle cx="54" cy="54" r="17.5" fill="none" stroke="#8BA8CC" stroke-opacity="0.12" stroke-width="0.45"/>
+  <circle cx="54" cy="54" r="12" fill="none" stroke="#8BA8CC" stroke-opacity="0.08" stroke-width="0.4"/>
+
+  <!-- Center label -->
+  <circle cx="54" cy="54" r="7.5" fill="url(#accent)"/>
+  <circle cx="54" cy="54" r="2.2" fill="#141E2A"/>
+
+  <!-- Specular highlight -->
+  <ellipse cx="44" cy="36" rx="20" ry="14" fill="url(#shine)" transform="rotate(-18 44 36)"/>
+
+  <!-- Play bar (tonearm hint) -->
+  <rect x="66" y="27" width="3.2" height="26" rx="1.6" fill="#DFEAF6" opacity="0.85" transform="rotate(28 67.6 40)"/>
+  <circle cx="72" cy="28" r="3" fill="none" stroke="#DFEAF6" stroke-width="1.8" opacity="0.7" transform="rotate(28 72 28)"/>
+</svg>

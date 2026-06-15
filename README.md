@@ -1,4 +1,8 @@
-<h1 align="center">qplayer</h1>
+<p align="center">
+  <img src="docs/icon.png" width="128" alt="QPlayer icon">
+</p>
+
+<h1 align="center">QPlayer</h1>
 
 <p align="center">
   <b>A NetEase Cloud Music player for Android, rendered entirely with QML.</b><br>
