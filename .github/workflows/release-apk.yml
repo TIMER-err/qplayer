@@ -22,10 +22,14 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      # player-core is an in-repo SNAPSHOT the app depends on; install it to the local
-      # repo. qml4j-core resolves from Maven Central, md3.Core + fonts are vendored.
+      # player-core is an in-repo SNAPSHOT the app depends on; install it (and its parent
+      # pom, which Gradle also resolves) to the local repo. qml4j-core comes from Maven
+      # Central; md3.Core + fonts are vendored. Install the parent non-recursively first
+      # so we don't also build the desktop-host module.
       - name: Install player-core (Maven Local)
-        run: mvn -q -B -DskipTests install -f player-core/pom.xml
+        run: |
+          mvn -q -B -N install
+          mvn -q -B -DskipTests install -f player-core/pom.xml
 
       - name: Build APK
         run: |
