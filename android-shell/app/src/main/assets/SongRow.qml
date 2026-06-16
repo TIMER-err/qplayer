@@ -4,13 +4,14 @@ import md3.Core
 // One song/track row. Plain anchors — NOT nested RowLayout/ColumnLayout: the
 // Layout measure passes run for every visible row on every dirty frame (playback
 // ticks the scene ~5x/s), which was a real source of stutter. `highlighted`
-// marks the playing entry. Leading glyph only (album thumbnails were reverted:
-// instantiating a CoverImage subtree per row cost too much on long lists).
+// marks the playing entry. A pre-cached local-file Image replaces the glyph
+// when a thumbnail is available — zero network overhead while scrolling.
 Rectangle {
     id: row
 
     property string rowTitle: ""
     property string rowArtist: ""
+    property string coverThumbPath: ""
     property bool highlighted: false
     property bool removable: false
     signal activated()
@@ -32,19 +33,33 @@ Rectangle {
         color: ma.containsMouse ? Theme.color.surfaceContainerHigh : "transparent"
     }
 
-    Text {
-        id: glyph
+    Item {
+        id: leading
         anchors.left: parent.left
-        anchors.leftMargin: 16
+        anchors.leftMargin: 10
         anchors.verticalCenter: parent.verticalCenter
-        text: row.highlighted ? "equalizer" : "music_note"
-        font.family: Theme.iconFont.name
-        font.pixelSize: 22
-        color: row.highlighted ? Theme.color.primary : Theme.color.onSurfaceVariantColor
+        width: 44
+        height: 44
+
+        Image {
+            anchors.fill: parent
+            visible: row.coverThumbPath != ""
+            source: "file:///" + row.coverThumbPath
+            fillMode: Image.PreserveAspectCrop
+        }
+
+        Text {
+            anchors.centerIn: parent
+            visible: row.coverThumbPath == ""
+            text: row.highlighted ? "equalizer" : "music_note"
+            font.family: Theme.iconFont.name
+            font.pixelSize: 22
+            color: row.highlighted ? Theme.color.primary : Theme.color.onSurfaceVariantColor
+        }
     }
 
     Text {
-        anchors.left: glyph.right
+        anchors.left: leading.right
         anchors.leftMargin: 14
         anchors.right: parent.right
         anchors.rightMargin: row.removable ? 52 : 16
@@ -57,7 +72,7 @@ Rectangle {
     }
 
     Text {
-        anchors.left: glyph.right
+        anchors.left: leading.right
         anchors.leftMargin: 14
         anchors.right: parent.right
         anchors.rightMargin: row.removable ? 52 : 16

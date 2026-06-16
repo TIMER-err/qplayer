@@ -13,10 +13,12 @@ import dev.t1m3.qplayer.unblock.SongUnblocker;
 import dev.t1m3.qplayer.netease.dto.NeteasePlaylist;
 import dev.t1m3.qplayer.netease.dto.NeteaseSong;
 import dev.t1m3.qplayer.netease.dto.NeteaseUser;
+import dev.t1m3.qplayer.store.AppDirs;
 import dev.t1m3.qplayer.util.Logger;
 import io.github.timer_err.qml4j.engine.binding.Property;
 import io.github.timer_err.qml4j.runtime.color.StyleManager;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -30,6 +32,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 /**
  * The single QML-facing object. Registered as a context global
@@ -62,6 +66,12 @@ public final class PlayerController {
     private static final String DEFAULT_SEED = "#6750A4";
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "qplayer-net");
+        t.setDaemon(true);
+        return t;
+    });
+
+    private final ExecutorService thumbnailPool = Executors.newFixedThreadPool(3, r -> {
+        Thread t = new Thread(r, "qplayer-thumb");
         t.setDaemon(true);
         return t;
     });
@@ -117,6 +127,7 @@ public final class PlayerController {
     /** TTL for cached search results: 5 minutes. */
     private static final long SEARCH_CACHE_TTL_MS = 5 * 60 * 1000L;
     private final Map<String, CacheEntry> searchCache = new ConcurrentHashMap<>();
+    private final Map<String, String> thumbCache = new ConcurrentHashMap<>();
 
     /** Holds a cached search result with its creation timestamp. */
     private static final class CacheEntry {
@@ -841,6 +852,7 @@ public final class PlayerController {
                     return;
                 }
                 List<NeteaseSong> r = netease.searchSongs(keyword, 30, 0);
+                downloadThumbnails(r);
                 searchCache.put(key, new CacheEntry(r));
                 post(() -> {
                     searchResults.set(r);
@@ -850,6 +862,44 @@ public final class PlayerController {
                 Logger.warn("search failed: {}", e.getMessage());
             }
         });
+    }
+
+    private void downloadThumbnails(List<NeteaseSong> songs) {
+        if (songs == null || songs.isEmpty()) return;
+        File thumbDir = new File(AppDirs.base(), "thumbs");
+        thumbDir.mkdirs();
+        List<Future<?>> futures = new ArrayList<>();
+        for (NeteaseSong song : songs) {
+            String coverUrl = song.coverUrl;
+            if (coverUrl == null || coverUrl.isEmpty()) continue;
+            String cached = thumbCache.get(coverUrl);
+            if (cached != null) { song.coverThumbPath = cached; continue; }
+            String path = new File(thumbDir, song.id + ".jpg").getAbsolutePath();
+            File f = new File(path);
+            if (f.exists() && f.length() > 0) {
+                song.coverThumbPath = path;
+                thumbCache.put(coverUrl, path);
+                continue;
+            }
+            futures.add(thumbnailPool.submit(() -> {
+                try {
+                    String u = coverUrl.contains("?") ? coverUrl + "&param=128y128" : coverUrl + "?param=128y128";
+                    byte[] data = downloadBytes(u);
+                    if (data != null && data.length > 0) {
+                        try (java.io.FileOutputStream fos = new java.io.FileOutputStream(path)) {
+                            fos.write(data);
+                        }
+                        song.coverThumbPath = path;
+                        thumbCache.put(coverUrl, path);
+                    }
+                } catch (Throwable e) {
+                    Logger.warn("thumb {}: {}", song.id, e.getMessage());
+                }
+            }));
+        }
+        for (Future<?> f : futures) {
+            try { f.get(5, TimeUnit.SECONDS); } catch (Throwable ignored) {}
+        }
     }
 
     /** Load the home content: recommended songs (login) + recommended playlists. */
@@ -1079,5 +1129,6 @@ public final class PlayerController {
     public void shutdown() {
         backend.release();
         worker.shutdownNow();
+        thumbnailPool.shutdownNow();
     }
 }

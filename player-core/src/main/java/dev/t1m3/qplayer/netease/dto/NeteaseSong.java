@@ -13,6 +13,9 @@ public class NeteaseSong {
     public String album;
     /** Album cover URL (CDN, jpg/png). Renderer fetches bytes lazily. */
     public String coverUrl;
+    /** Local file path to a pre-cached thumbnail (128px). Set by the thumbnail
+     *  downloader after a search completes; null until cached. */
+    public String coverThumbPath;
     /** Track length in milliseconds (field "dt" in the JSON). */
     public long durationMs;
     /** Set when the song is VIP / unavailable to anonymous clients. */

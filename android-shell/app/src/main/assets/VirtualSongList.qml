@@ -48,6 +48,7 @@ Flickable {
                 y: index * view.rowH
                 rowTitle: view.isLocal ? modelData.title : modelData.name
                 rowArtist: modelData.artist
+                coverThumbPath: modelData.coverThumbPath || ""
                 highlighted: view.isLocal && index === player.index
                 removable: view.removable
                 onActivated: { view.activatedIndex = index; view.activated() }
