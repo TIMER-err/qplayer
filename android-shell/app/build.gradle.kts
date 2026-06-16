@@ -10,8 +10,8 @@ android {
         applicationId = "dev.t1m3.qplayer"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "0.2.0"
+        versionCode = 5
+        versionName = "0.3.0"
         manifestPlaceholders["appLabel"] = "QPlayer"
     }
 
@@ -92,16 +92,17 @@ tasks.matching {
 android {
     sourceSets["main"].jniLibs.srcDir(skijaJniDir)
     // Vendored md3.Core component library + fonts (from the qml4j repo's shared-qml),
-    // bundled here so the app builds standalone -- qml4j-core (the engine classes) comes
-    // from Maven Central, but those QML/font assets are not published in the jar.
-    sourceSets["main"].assets.srcDir("${rootDir}/shared-qml")
+    // at the repo root so desktop-host can share it too. rootDir is android-shell/,
+    // so the repo root is one level up. These QML/font assets aren't published in the
+    // qml4j-core jar, so the app bundles them to build standalone.
+    sourceSets["main"].assets.srcDir("${rootDir}/../shared-qml")
 }
 
 dependencies {
     skijaNative("io.github.humbleui:skija-android-arm64:0.143.16")
 
     // The RECODE refactor merged parser/engine/compiler/render into one module.
-    implementation("io.github.timer-err:qml4j-core:0.2.4")
+    implementation("io.github.timer-err:qml4j-core:0.2.5")
 
     // Our platform-neutral player core (netease + lyrics + audio abstraction +
     // QML bridge). Pulls gson + zxing-core transitively; all Android-dexable.

@@ -107,12 +107,14 @@ public final class QPlayerActivity extends Activity {
             throw new RuntimeException("failed to read Main.qml", e);
         }
 
-        // Lyric renderer fonts: bundled Roboto from assets (FontMgr has no
-        // usable default face on Android, so load real TTFs).
+        // Lyric renderer fonts: the bundled PingFang SC weights from shared-qml
+        // (the lyric face must itself cover CJK + Latin — no automatic fallback).
         try {
             dev.t1m3.qplayer.android.lyric.Fonts.init(
-                    readAssetBytes("fonts/Roboto-Regular.ttf"),
-                    readAssetBytes("fonts/Roboto-Medium.ttf"));
+                    readAssetBytes("fonts/PingFangSC-Thin.otf"),
+                    readAssetBytes("fonts/PingFangSC-Light.otf"),
+                    readAssetBytes("fonts/PingFangSC-Regular.otf"),
+                    readAssetBytes("fonts/PingFangSC-Medium.otf"));
             // Material Symbols for the host-drawn lyric transport icons (drawn by
             // shaped ligature name, same as the QML scene's icons).
             dev.t1m3.qplayer.android.lyric.Fonts.initIcon(

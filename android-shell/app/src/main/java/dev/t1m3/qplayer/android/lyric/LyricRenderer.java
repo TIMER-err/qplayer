@@ -155,7 +155,11 @@ public class LyricRenderer {
      * out fast (with overshoot) while the row's alpha still crossfades
      * at its calmer pace.
      */
-    private static final long BG_POP_IN_MS = 220L;
+    private static final long BG_POP_IN_MS = 460L;
+    /**
+     * Small lead so the BG row trails the main line a touch before popping in.
+     */
+    private static final long BG_POP_IN_DELAY_MS = 150L;
     /**
      * Pop-out (collapse) window. Slightly longer so the shrink reads as deliberate.
      */
@@ -246,9 +250,19 @@ public class LyricRenderer {
     private int layoutKeyLyricSize;
     private int layoutKeySubSize;
     private int layoutKeyColW = -1;
-    private boolean layoutKeyBold;
+    private Fonts.Weight layoutKeyWeight;
+    private float layoutKeyRowRatio = -1f;
     private boolean layoutKeyRomaji;
     private boolean layoutKeyTranslation;
+
+    private static Fonts.Weight toFontsWeight(LyricConfig.FontWeight w) {
+        switch (w) {
+            case THIN: return Fonts.Weight.THIN;
+            case LIGHT: return Fonts.Weight.LIGHT;
+            case MEDIUM: return Fonts.Weight.MEDIUM;
+            default: return Fonts.Weight.REGULAR;
+        }
+    }
 
     /**
      * Renderer has at least one parsed lyric line — used by the view
@@ -431,11 +445,12 @@ public class LyricRenderer {
         // gap made the active line drift toward the column edge during
         // group transitions.
         float lineGap = 0f;
-        boolean useBold = cfg.fontWeight.getValue() == LyricConfig.FontWeight.MEDIUM;
+        Fonts.Weight weight = toFontsWeight(cfg.fontWeight.getValue());
+        float rowHeightRatio = cfg.lineSpacing.getValue();
 
-        Font lyricFont = useBold ? Fonts.getMedium(lyricFontSize) : Fonts.getRegular(lyricFontSize);
-        Font subFont = useBold ? Fonts.getMedium(subFontSize) : Fonts.getRegular(subFontSize);
-        Font bgFont = useBold ? Fonts.getMedium(bgFontSize) : Fonts.getRegular(bgFontSize);
+        Font lyricFont = Fonts.get(weight, lyricFontSize);
+        Font subFont = Fonts.get(weight, subFontSize);
+        Font bgFont = Fonts.get(weight, bgFontSize);
 
         // Animation-friendly font flags. Skia defaults snap text baselines
         // to integer pixels (isBaselineSnapped=true) and grid-fit glyphs
@@ -449,9 +464,9 @@ public class LyricRenderer {
         // and consistent with the lyric font's anti-alias level.
         configureForAnimation(subFont);
 
-        float rowHeightLyric = lyricFontSize * ROW_HEIGHT_RATIO;
+        float rowHeightLyric = lyricFontSize * rowHeightRatio;
         float rowHeightLyricWrap = lyricFontSize * WRAPPED_ROW_HEIGHT_RATIO;
-        float rowHeightBg = bgFontSize * ROW_HEIGHT_RATIO;
+        float rowHeightBg = bgFontSize * rowHeightRatio;
         float rowHeightBgWrap = bgFontSize * WRAPPED_ROW_HEIGHT_RATIO;
         float subLineHeight = subFontSize * SUB_ROW_HEIGHT_RATIO;
 
@@ -470,7 +485,8 @@ public class LyricRenderer {
                 && layoutKeyLyricSize == lyricFontSize
                 && layoutKeySubSize == subFontSize
                 && layoutKeyColW == colW
-                && layoutKeyBold == useBold
+                && layoutKeyWeight == weight
+                && layoutKeyRowRatio == rowHeightRatio
                 && layoutKeyRomaji == showRomaji
                 && layoutKeyTranslation == showTranslation;
         if (!layoutValid) {
@@ -515,7 +531,8 @@ public class LyricRenderer {
             layoutKeyLyricSize = lyricFontSize;
             layoutKeySubSize = subFontSize;
             layoutKeyColW = colW;
-            layoutKeyBold = useBold;
+            layoutKeyWeight = weight;
+            layoutKeyRowRatio = rowHeightRatio;
             layoutKeyRomaji = showRomaji;
             layoutKeyTranslation = showTranslation;
         }
@@ -790,7 +807,14 @@ public class LyricRenderer {
             if (slotH > 4f) {
                 float dotsTop = centerY + lineTops[interludeNext.from] - slotH - scrollY;
                 float anchorY = dotsTop + (slotH * 0.5f - INTERLUDE_DOT_RADIUS); // vertical centre - dot radius
-                renderInterludeDots(canvas, leftX, anchorY,
+                // Place the dots on the side the upcoming line is aligned to: left for
+                // MAIN / left-duet, right for right-channel lines.
+                LyricLine.VocalChannel nextCh = lines.get(interludeNext.from).vocalChannel;
+                boolean dotsRight = nextCh == LyricLine.VocalChannel.DUET_RIGHT
+                        || nextCh == LyricLine.VocalChannel.BACKGROUND_RIGHT;
+                float dotsWidth = 2f * INTERLUDE_DOT_RADIUS + 2f * INTERLUDE_DOT_SPACING;
+                float dotsX = dotsRight ? Math.max(leftX, leftX + columnWidth - dotsWidth) : leftX;
+                renderInterludeDots(canvas, dotsX, anchorY,
                         positionMs - interludeStartMs, interludeDur);
             }
         }
@@ -1311,22 +1335,32 @@ public class LyricRenderer {
     }
 
     /**
-     * BG line scale curve. Snappy non-linear ease (smoothstep S-curve)
-     * without any spring overshoot — earlier overshoot via easeOutBack
-     * read as a "twitch" on a small element like the BG row. Pop-in
-     * and pop-out are symmetric: scale rises smoothly 0→1 over
-     * {@link #BG_POP_IN_MS}, falls smoothly 1→0 over {@link #BG_POP_OUT_MS}.
+     * BG line scale curve. The row trails the main line by
+     * {@link #BG_POP_IN_DELAY_MS}, then pops in over {@link #BG_POP_IN_MS} with a
+     * small easeOutBack overshoot (a gentle bounce that settles back to 1). Pop-out
+     * stays a plain smoothstep collapse over {@link #BG_POP_OUT_MS}.
      */
     private static float computeBgScaleK(long positionMs, LineGroup g) {
-        if (positionMs < g.startMs - BG_POP_IN_MS) return 0f;
-        if (positionMs < g.startMs) {
-            float k = (positionMs - (g.startMs - BG_POP_IN_MS)) / (float) BG_POP_IN_MS;
-            return smoothstep(0f, 1f, k);
+        long popStart = g.startMs + BG_POP_IN_DELAY_MS;
+        if (positionMs < popStart) return 0f;
+        if (positionMs < popStart + BG_POP_IN_MS) {
+            float k = (positionMs - popStart) / (float) BG_POP_IN_MS;
+            return easeOutBackSmall(k);
         }
         if (positionMs < g.endMs) return 1f;
         float dt = (positionMs - g.endMs) / (float) BG_POP_OUT_MS;
         if (dt >= 1f) return 0f;
         return 1f - smoothstep(0f, 1f, dt);
+    }
+
+    // easeOutBack: rises past 1 then recoils back to it. Over the longer
+    // BG_POP_IN_MS window this reads as a slow, visible bounce-back (the
+    // "回弹" the user wants) rather than a quick twitch.
+    private static float easeOutBackSmall(float x) {
+        float c1 = 1.7f;
+        float c3 = c1 + 1f;
+        float t = x - 1f;
+        return 1f + c3 * t * t * t + c1 * t * t;
     }
 
     /**

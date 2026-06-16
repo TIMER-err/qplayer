@@ -37,11 +37,13 @@ Rectangle {
     onBackTickChanged: app.handleBack()
 
     function handleBack() {
+        // Order = top-most layer first. The lyric page (host-drawn) and the queue
+        // sit above the QML overlays, so they must close before settings/login/log.
+        if (player.lyricsOpen)      { player.setLyricsOpen(false); return; }
+        if (player.queueOpen)       { player.setQueueOpen(false); return; }
         if (app.showLog)            { app.showLog = false; return; }
         if (app.loginOpen)          { app.loginOpen = false; return; }
         if (app.settingsOpen)       { app.settingsOpen = false; return; }
-        if (player.lyricsOpen)      { player.setLyricsOpen(false); return; }
-        if (player.queueOpen)       { player.setQueueOpen(false); return; }
         if (app.detailOpen)         { app.detailOpen = false; return; }
         if (app.page !== 0)         { app.switchTo(0); return; }
         player.requestExit();

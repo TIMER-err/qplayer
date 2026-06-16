@@ -374,6 +374,14 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                         SplashListener l = splashListener;
                         if (l != null) l.onProgress(name, count);
                     });
+                    // Provide the app fonts to the engine (it ships none of its own):
+                    // bundled PingFang for the whole UI (Latin + CJK) + Material Symbols
+                    // for icon glyphs.
+                    byte[] reg = resources.load("fonts/PingFangSC-Regular.otf");
+                    byte[] med = resources.load("fonts/PingFangSC-Medium.otf");
+                    if (reg != null || med != null) view.uiTypefaces(reg, med);
+                    byte[] iconFont = resources.load("fonts/MaterialSymbolsRounded.ttf");
+                    if (iconFont != null) view.iconTypeface(iconFont);
                     view.load(qmlSource);
                 }
                 if (view.root() != null) {

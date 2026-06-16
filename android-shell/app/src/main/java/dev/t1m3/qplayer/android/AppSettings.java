@@ -7,6 +7,8 @@ import android.content.res.Configuration;
 import io.github.timer_err.qml4j.engine.QObject;
 import io.github.timer_err.qml4j.engine.binding.Property;
 
+import dev.t1m3.qplayer.android.lyric.LyricConfig;
+
 /**
  * QML-facing app settings ({@code settings} context global): dark-mode policy and
  * Monet toggle, persisted to SharedPreferences. {@link #resolvedDark} folds the
@@ -31,6 +33,14 @@ public final class AppSettings extends QObject {
     public final Property<Boolean> resolvedDark = new Property<>(Boolean.FALSE);
     /** Source-switching for grey/VIP/trial netease tracks (gdstudio / bodian / kuwo). */
     public final Property<Boolean> unblockEnabled = new Property<>(Boolean.TRUE);
+
+    // Lyric-page typography (Object-typed: QML numeric writes arrive as Long).
+    /** Lyric main font size in px (14–40). */
+    public final Property<Object> lyricFontSize = new Property<>(28);
+    /** Lyric font weight: 0 Thin, 1 Light, 2 Regular, 3 Medium. */
+    public final Property<Object> lyricFontWeight = new Property<>(2);
+    /** Lyric line-height as a percent of font size (100–250 → 1.0×–2.5×). */
+    public final Property<Object> lyricLineSpacing = new Property<>(200);
 
     // System-bar insets in QML logical units (px / density), for edge-to-edge layout:
     // the top bar drops below the status bar, the bottom nav clears the gesture bar.
@@ -110,6 +120,35 @@ public final class AppSettings extends QObject {
             prefs.edit().putBoolean("unblock", on).apply();
             if (unblockListener != null) unblockListener.onUnblock(on);
         });
+
+        lyricFontSize.set(prefs.getInt("lyricFontSize", 28));
+        lyricFontWeight.set(prefs.getInt("lyricFontWeight", 2));
+        lyricLineSpacing.set(prefs.getInt("lyricLineSpacing", 200));
+        applyLyricConfig();
+        lyricFontSize.setInterceptor((p, v) -> {
+            p.setBypassInterceptor(asInt(v));
+            prefs.edit().putInt("lyricFontSize", asInt(p.peek())).apply();
+            applyLyricConfig();
+        });
+        lyricFontWeight.setInterceptor((p, v) -> {
+            p.setBypassInterceptor(asInt(v));
+            prefs.edit().putInt("lyricFontWeight", asInt(p.peek())).apply();
+            applyLyricConfig();
+        });
+        lyricLineSpacing.setInterceptor((p, v) -> {
+            p.setBypassInterceptor(asInt(v));
+            prefs.edit().putInt("lyricLineSpacing", asInt(p.peek())).apply();
+            applyLyricConfig();
+        });
+    }
+
+    /** Push the lyric typography settings into the host renderer's config. */
+    private void applyLyricConfig() {
+        LyricConfig c = LyricConfig.instance;
+        c.lyricFontSize.setValue(asInt(lyricFontSize.peek()));
+        int w = Math.max(0, Math.min(3, asInt(lyricFontWeight.peek())));
+        c.fontWeight.setValue(LyricConfig.FontWeight.values()[w]);
+        c.lineSpacing.setValue(asInt(lyricLineSpacing.peek()) / 100f);
     }
 
     /** System night mode changed; call on the render thread. */

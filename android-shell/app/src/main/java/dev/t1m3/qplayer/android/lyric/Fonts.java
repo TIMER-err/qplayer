@@ -4,55 +4,41 @@ import io.github.humbleui.skija.Data;
 import io.github.humbleui.skija.Font;
 import io.github.humbleui.skija.FontEdging;
 import io.github.humbleui.skija.FontMgr;
-import io.github.humbleui.skija.FontStyle;
 import io.github.humbleui.skija.Typeface;
 
 import java.util.HashMap;
 import java.util.Map;
 
 // Font cache for the lyric renderer. drawString uses a single typeface with no
-// automatic fallback, so the lyric face must itself cover the glyphs we draw:
-// CJK lyrics need a CJK-capable system face (Noto Sans CJK contains Latin too).
-// Roboto (bundled, injected via init) is only a fallback when no CJK face is
-// found. Fonts are CPU objects, safe to cache by (weight, size) across frames.
+// automatic fallback, so the lyric face must itself cover the glyphs we draw —
+// the bundled PingFang SC covers Latin + CJK across four weights. Fonts are CPU
+// objects, safe to cache by (weight, size) across frames.
 public final class Fonts {
 
     private Fonts() {
     }
 
-    private static Typeface regular;
-    private static Typeface medium;
+    public enum Weight { THIN, LIGHT, REGULAR, MEDIUM }
+
+    private static final Typeface[] faces = new Typeface[Weight.values().length];
     private static Typeface icon;
-    private static boolean mediumIsFake;   // no real Medium face -> embolden at draw
     private static final Map<Long, Font> cache = new HashMap<>();
     private static final Map<Long, Font> iconCache = new HashMap<>();
 
-    public static void init(byte[] regularTtf, byte[] mediumTtf) {
+    /** Load the four bundled PingFang weights (any may be null → falls back to Regular). */
+    public static void init(byte[] thin, byte[] light, byte[] regular, byte[] medium) {
         FontMgr mgr = FontMgr.getDefault();
         if (mgr == null) return;
-
-        Typeface cjk = matchCjk(mgr, FontStyle.NORMAL);
-        if (cjk != null) {
-            regular = cjk;
-            Typeface cjkMed = matchCjk(mgr, new FontStyle(500, 5, FontStyle.NORMAL.getSlant()));
-            if (cjkMed != null && !cjkMed.equals(cjk)) {
-                medium = cjkMed;
-            } else {
-                medium = cjk;
-                mediumIsFake = true;
-            }
-            return;
-        }
-        // No CJK face: fall back to bundled Roboto (Latin-only lyrics still work).
-        if (regularTtf != null) regular = mgr.makeFromData(Data.makeFromBytes(regularTtf));
-        if (mediumTtf != null) medium = mgr.makeFromData(Data.makeFromBytes(mediumTtf));
-        if (medium == null) medium = regular;
+        faces[Weight.THIN.ordinal()] = make(mgr, thin);
+        faces[Weight.LIGHT.ordinal()] = make(mgr, light);
+        faces[Weight.REGULAR.ordinal()] = make(mgr, regular);
+        faces[Weight.MEDIUM.ordinal()] = make(mgr, medium);
     }
 
-    private static Typeface matchCjk(FontMgr mgr, FontStyle style) {
+    private static Typeface make(FontMgr mgr, byte[] bytes) {
+        if (bytes == null) return null;
         try {
-            return mgr.matchFamilyStyleCharacter(
-                    null, style, new String[]{"zh-Hans", "zh-CN", "ja"}, 0x4E2D);
+            return mgr.makeFromData(Data.makeFromBytes(bytes));
         } catch (Throwable t) {
             return null;
         }
@@ -63,7 +49,7 @@ public final class Fonts {
     public static void initIcon(byte[] iconTtf) {
         FontMgr mgr = FontMgr.getDefault();
         if (mgr == null || iconTtf == null) return;
-        icon = mgr.makeFromData(Data.makeFromBytes(iconTtf));
+        icon = make(mgr, iconTtf);
     }
 
     public static Font getIcon(float size) {
@@ -78,21 +64,13 @@ public final class Fonts {
         return f;
     }
 
-    public static Font getRegular(float size) {
-        return font(false, size);
-    }
-
-    public static Font getMedium(float size) {
-        return font(true, size);
-    }
-
-    private static Font font(boolean med, float size) {
-        long key = ((long) Float.floatToIntBits(size) << 1) | (med ? 1 : 0);
+    public static Font get(Weight w, float size) {
+        long key = ((long) Float.floatToIntBits(size) << 2) | w.ordinal();
         Font f = cache.get(key);
         if (f == null) {
-            Typeface tf = med ? medium : regular;
+            Typeface tf = faces[w.ordinal()];
+            if (tf == null) tf = faces[Weight.REGULAR.ordinal()];
             f = tf != null ? new Font(tf, size) : new Font().setSize(size);
-            if (med && mediumIsFake) f.setEmboldened(true);
             f.setSubpixel(true);
             f.setEdging(FontEdging.SUBPIXEL_ANTI_ALIAS);
             cache.put(key, f);
