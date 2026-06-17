@@ -20,19 +20,26 @@ jobs:
           java-version: '21'
           cache: maven
 
+      - uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK licenses
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Install player-core
         run: |
-          mvn -q -B -N install
-          mvn -q -B -DskipTests install -f player-core/pom.xml
+          mvn -B -N install
+          mvn -B -DskipTests install -f player-core/pom.xml
 
       - name: Build debug APK
         run: |
           chmod +x android-shell/gradlew
-          cd android-shell && ./gradlew --no-daemon :app:assembleDebug
+          cd android-shell && ./gradlew --no-daemon --stacktrace --info :app:assembleDebug 2>&1
 
       - name: Upload artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: qplayer-debug-apk
