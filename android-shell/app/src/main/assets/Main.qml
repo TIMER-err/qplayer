@@ -15,6 +15,7 @@ Rectangle {
     property bool detailOpen: false
     property bool loginOpen: false
     property bool settingsOpen: false
+    property bool accountOpen: false
     property bool showLog: false
 
     property var titles: ["推荐", "搜索", "我的", "最近", "本地"]
@@ -43,6 +44,7 @@ Rectangle {
         if (player.queueOpen)       { player.setQueueOpen(false); return; }
         if (app.showLog)            { app.showLog = false; return; }
         if (app.loginOpen)          { app.loginOpen = false; return; }
+        if (app.accountOpen)        { app.accountOpen = false; return; }
         if (app.settingsOpen)       { app.settingsOpen = false; return; }
         if (app.detailOpen)         { app.detailOpen = false; return; }
         if (app.page !== 0)         { app.switchTo(0); return; }
@@ -53,6 +55,7 @@ Rectangle {
     function switchTo(idx) {
         app.detailOpen = false;          // dismiss any open playlist detail
         app.settingsOpen = false;        // and the settings overlay
+        app.accountOpen = false;         // and the account overlay
         player.setQueueOpen(false);      // and the queue overlay
         if (idx === app.page) return;
         app.nextPage = idx;
@@ -111,7 +114,7 @@ Rectangle {
         IconButton {
             type: "standard"
             icon: player.loggedIn ? "account_circle" : "login"
-            onClicked: if (!player.loggedIn) app.loginOpen = true
+            onClicked: if (player.loggedIn) app.accountOpen = true; else app.loginOpen = true
         }
         IconButton {
             type: "standard"
@@ -206,6 +209,17 @@ Rectangle {
                 Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
                 Behavior on y { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
                 onBack: app.settingsOpen = false
+            }
+
+            AccountPage {
+                width: parent.width
+                height: parent.height
+                visible: opacity > 0.001
+                opacity: app.accountOpen ? 1 : 0
+                y: app.accountOpen ? 0 : 32
+                Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                Behavior on y { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
+                onBack: app.accountOpen = false
             }
         }
     }

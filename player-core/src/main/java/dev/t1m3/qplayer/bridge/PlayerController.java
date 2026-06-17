@@ -194,6 +194,18 @@ public final class PlayerController {
     // --- Account ----------------------------------------------------------
     public final Property<Boolean> loggedIn = new Property<>(false);
     public final Property<String> userName = new Property<>("");
+    /** Square avatar URL; the QML Image fetches + decodes it off-thread. */
+    public final Property<String> userAvatar = new Property<>("");
+    /** 0 = free, 10/11 = VIP. */
+    public final Property<Integer> userVipType = new Property<>(0);
+    /** Account level (roughly 1-10). */
+    public final Property<Integer> userLevel = new Property<>(0);
+    public final Property<String> userSignature = new Property<>("");
+    /** Counts for the account page header stats. Kept in sync with the
+     *  liked-id set and the my-playlists list so QML binds an int, not a
+     *  Java List length (which the engine doesn't expose to QML). */
+    public final Property<Integer> likedCount = new Property<>(0);
+    public final Property<Integer> playlistCount = new Property<>(0);
 
     // --- Debug ------------------------------------------------------------
     public final Property<String> logText = new Property<>("");
@@ -902,7 +914,10 @@ public final class PlayerController {
         worker.submit(() -> {
             try {
                 List<NeteasePlaylist> pls = netease.userPlaylists(uid, 100);
-                post(() -> myPlaylists.set(pls));
+                post(() -> {
+                    myPlaylists.set(pls);
+                    playlistCount.set(pls != null ? pls.size() : 0);
+                });
             } catch (Throwable e) {
                 Logger.warn("user playlists failed: {}", e.getMessage());
             }
@@ -930,6 +945,7 @@ public final class PlayerController {
                 post(() -> {
                     likedSet.clear();
                     likedSet.addAll(ids);
+                    likedCount.set(likedSet.size());
                     Track cur = currentTrack();
                     currentLiked.set(cur != null && likedSet.contains(cur.neteaseId));
                 });
@@ -952,6 +968,7 @@ public final class PlayerController {
                     post(() -> {
                         if (target) likedSet.add(id);
                         else likedSet.remove(id);
+                        likedCount.set(likedSet.size());
                         Track c = currentTrack();
                         if (c != null && c.neteaseId == id) currentLiked.set(target);
                     });
@@ -1045,6 +1062,10 @@ public final class PlayerController {
                 NeteaseUser u = id > 0 ? netease.userDetail(id) : null;
                 boolean in = netease.isLoggedIn();
                 String name = u != null ? u.nickname : "";
+                String avatar = u != null && u.avatarUrl != null ? u.avatarUrl : "";
+                int vip = u != null ? u.vipType : 0;
+                int lvl = u != null ? u.level : 0;
+                String sig = u != null && u.signature != null ? u.signature : "";
                 // uid is a plain volatile field (not a Property), so set it here on
                 // the worker thread -- refreshLiked() runs synchronously right below
                 // and reads uid; deferring it via post() left uid == 0 there, so the
@@ -1053,6 +1074,10 @@ public final class PlayerController {
                 post(() -> {
                     loggedIn.set(in);
                     userName.set(name == null ? "" : name);
+                    userAvatar.set(avatar);
+                    userVipType.set(vip);
+                    userLevel.set(lvl);
+                    userSignature.set(sig);
                 });
                 if (in) {
                     loadHome();
@@ -1070,10 +1095,17 @@ public final class PlayerController {
         uid = 0;
         loggedIn.set(false);
         userName.set("");
+        userAvatar.set("");
+        userVipType.set(0);
+        userLevel.set(0);
+        userSignature.set("");
         likedSet.clear();
+        likedCount.set(0);
+        playlistCount.set(0);
         myPlaylists.set(Collections.<NeteasePlaylist>emptyList());
         recommendations.set(Collections.<NeteaseSong>emptyList());
         recentSongs.set(Collections.<NeteaseSong>emptyList());
+        toast.set("已退出登录");
     }
 
     public void shutdown() {
