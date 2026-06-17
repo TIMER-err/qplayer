@@ -215,10 +215,13 @@ public class LyricRenderer {
     // scroll spring the way the spring-progress version did.
     private static final long EMPHASIS_DELAY_MS = 90L;
     private static final long EMPHASIS_RAMP_MS = 240L;
-    // Per-line scroll cascade (Apple Specs.lineDelay = 0.05): each line trails the
-    // anchor by this much per line of distance, capped so far lines don't lag.
+    // Per-line scroll cascade (Apple Specs.lineDelay = 0.05). The active line and
+    // everything ABOVE it move together (delay 0) — lockstep preserves their
+    // spacing so the active line never rises into a still-stationary line above it
+    // (the overlap) and never stalls before moving (the hitch). Only the lines
+    // BELOW the active line trail, with a shrinking step, for a downward wave.
     private static final double LINE_DELAY_S = 0.05;
-    private static final int LINE_DELAY_MAX_DIST = 6;
+    private static final double LINE_DELAY_DECAY = 1.05;
 
     private List<LyricLine> lines = Collections.emptyList();
     /**
@@ -293,6 +296,8 @@ public class LyricRenderer {
     // snap to target. Active only when spring physics is on.
     private float[] lineCurTop = new float[0];
     private float[] lineVelTop = new float[0];
+    // Per-line cascade delay (seconds) over the visible window. Reused buffer.
+    private double[] cascadeDelayBuf = new double[0];
     private boolean lineSpringInit = false;
     private int prevVisStart = 0;
     private int prevVisEnd = 0;
@@ -859,6 +864,22 @@ public class LyricRenderer {
             scrollDamping = Math.sqrt(scrollStiffness) * SCROLL_DAMPING_MULT;
         }
 
+        // Per-line cascade delays: 0 for the active line and everything above it
+        // (move in lockstep → no overlap, no stall), accumulating with a shrinking
+        // step for the lines below (downward wave).
+        if (cascadeDelayBuf.length < n) cascadeDelayBuf = new double[n];
+        double cascDelay = 0.0;
+        double cascStep = LINE_DELAY_S;
+        for (int i = start; i < end; i++) {
+            if (i <= anchorIdx) {
+                cascadeDelayBuf[i] = 0.0;
+            } else {
+                cascDelay += cascStep;
+                cascStep /= LINE_DELAY_DECAY;
+                cascadeDelayBuf[i] = cascDelay;
+            }
+        }
+
         for (int i = start; i < end; i++) {
             LyricLine line = lines.get(i);
             LineGroup myGroup = groups.get(lineToGroup[i]);
@@ -893,8 +914,7 @@ public class LyricRenderer {
                     lineCurTop[i] = restTop;
                     lineVelTop[i] = 0f;
                 } else {
-                    double delay = LINE_DELAY_S * Math.min(LINE_DELAY_MAX_DIST, Math.abs(i - anchorIdx));
-                    if (sinceAnchorChange >= delay && springDt > 0.0) {
+                    if (sinceAnchorChange >= cascadeDelayBuf[i] && springDt > 0.0) {
                         stepLineSpring(i, restTop, springDt, scrollStiffness, scrollDamping);
                     }
                 }
