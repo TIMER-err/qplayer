@@ -9,7 +9,6 @@ import io.github.humbleui.skija.FontEdging;
 import io.github.humbleui.skija.FontHinting;
 import io.github.humbleui.skija.Paint;
 import io.github.humbleui.skija.Shader;
-import io.github.humbleui.types.Point;
 import io.github.humbleui.types.Rect;
 
 import java.util.ArrayList;
@@ -234,6 +233,12 @@ public class LyricRenderer {
     // so the per-frame draw never re-splits or allocates.
     private String[][] cachedRomajiRows;
     private String[][] cachedTranslationRows;
+    // Per-syllable advance widths per line, cached with the layout. Measuring a
+    // syllable's width re-shapes text and (via perCharWidth) allocated a String
+    // per character every frame for every visible row — the lyric page's biggest
+    // per-frame garbage source. Widths depend only on (text, font), which the
+    // layout key already covers, so cache them and the per-frame draw reads floats.
+    private float[][] cachedSylWidths;
     private float[] lineTopsBuf = new float[0];
     private float[] interludeBuf = new float[0];
     // Reused per active line each frame (syllable left edges); was new float[n+1].
@@ -245,6 +250,13 @@ public class LyricRenderer {
     private final io.github.humbleui.skija.Paint lyricLayerPaint = new io.github.humbleui.skija.Paint();
     /** Reusable paint for interlude dots — avoids per-frame allocation. */
     private final io.github.humbleui.skija.Paint dotPaint = new io.github.humbleui.skija.Paint();
+    // Reused sweep-mask state — the gradient draw on the active row ran a
+    // new Paint + new int[]/float[] + 2 Points every frame. Colours/stops are
+    // mutated in place; only the native Shader is unavoidably per-frame (its
+    // stops move with the play head), and it's closed right after the draw.
+    private final io.github.humbleui.skija.Paint sweepPaint = new io.github.humbleui.skija.Paint();
+    private final int[] sweepColors = {0xFFFFFFFF, 0xFFFFFFFF, 0, 0};
+    private final float[] sweepStops = new float[4];
     private List<LyricLine> layoutKeyLines;
     private int layoutKeyN;
     private int layoutKeyLyricSize;
@@ -494,13 +506,20 @@ public class LyricRenderer {
             float[] lineHeights = new float[n];
             String[][] romajiRows = new String[n][];
             String[][] translationRows = new String[n][];
+            float[][] sylWidths = new float[n][];
             for (int i = 0; i < n; i++) {
                 LyricLine line = lines.get(i);
                 boolean isBg = isBackground(line.vocalChannel);
                 Font font = isBg ? bgFont : lyricFont;
                 float rowHeight = isBg ? rowHeightBg : rowHeightLyric;
 
-                rowStarts[i] = wrapStarts(line.syllables, font, columnWidth);
+                int sylCount = line.syllables.size();
+                float[] widths = new float[sylCount];
+                for (int s = 0; s < sylCount; s++) {
+                    widths[s] = perCharWidth(line.syllables.get(s).text, font);
+                }
+                sylWidths[i] = widths;
+                rowStarts[i] = wrapStarts(widths, columnWidth);
                 int subRowCount = Math.max(1, rowStarts[i].length - 1);
 
                 float lh = rowHeight + (subRowCount - 1) * (isBg ? rowHeightBgWrap : rowHeightLyricWrap);
@@ -526,6 +545,7 @@ public class LyricRenderer {
             cachedLineHeights = lineHeights;
             cachedRomajiRows = romajiRows;
             cachedTranslationRows = translationRows;
+            cachedSylWidths = sylWidths;
             layoutKeyLines = lines;
             layoutKeyN = n;
             layoutKeyLyricSize = lyricFontSize;
@@ -538,6 +558,15 @@ public class LyricRenderer {
         }
         int[][] rowStarts = cachedRowStarts;
         float[] lineHeights = cachedLineHeights;
+        float[][] sylWidths = cachedSylWidths;
+
+        // Font vertical metrics are invariant per (face,size) but Font.getMetrics()
+        // allocates a fresh FontMetrics on every call — pull them once per frame
+        // instead of per visible row.
+        float lyricDescent = lyricFont.getMetrics().getDescent();
+        float lyricAscent = lyricFont.getMetrics().getAscent();
+        float bgDescent = bgFont.getMetrics().getDescent();
+        float bgAscent = bgFont.getMetrics().getAscent();
 
         // Interlude row height — DYNAMIC, play-head driven. Grows 0 → full as the
         // play head nears the gap, holds, collapses as the next group starts; lines
@@ -691,6 +720,9 @@ public class LyricRenderer {
 
             Font font = isBg ? bgFont : lyricFont;
             float rowHeight = isBg ? rowHeightBg : rowHeightLyric;
+            float descent = isBg ? bgDescent : lyricDescent;
+            float ascent = isBg ? bgAscent : lyricAscent;
+            float[] lineSylW = sylWidths[i];
             // baseAlpha interpolates idle ↔ active so the line's overall
             // brightness rises/falls with the group transition rather
             // than snapping at the boundary.
@@ -736,13 +768,13 @@ public class LyricRenderer {
                 int from = starts[r];
                 int to = (r + 1 < starts.length) ? starts[r + 1] : line.syllables.size();
 
-                float rowWidth = measureRange(line.syllables, from, to, font);
+                float rowWidth = sumWidths(lineSylW, from, to);
                 float rowX = alignRight
                         ? Math.max(leftX, leftX + columnWidth - rowWidth)
                         : leftX;
 
                 float wrapRowH = (r == 0) ? rowHeight : (isBg ? rowHeightBgWrap : rowHeightLyricWrap);
-                float rowBaselineY = lineYTop + rowHeight + r * wrapRowH - font.getMetrics().getDescent() - 4f;
+                float rowBaselineY = lineYTop + rowHeight + r * wrapRowH - descent - 4f;
                 // Per-syllable lift gates on the SOURCE type, not the
                 // line. A YRC song with an occasional one-字 line should
                 // still lift that line; an LRC song should never lift.
@@ -750,8 +782,8 @@ public class LyricRenderer {
                 // setLyrics time so the lift amplitude is consistent
                 // across every line of the same song.
                 boolean enableLift = hasPerSyllableTiming;
-                drawSyllableRange(line.syllables, from, to, rowX, rowBaselineY, font,
-                        positionMs, baseAlpha, activeK, enableLift);
+                drawSyllableRange(line.syllables, lineSylW, from, to, rowX, rowBaselineY, font,
+                        ascent, descent, positionMs, baseAlpha, activeK, enableLift);
 
                 if (rowWidth > maxRowWidth) {
                     maxRowWidth = rowWidth;
@@ -982,15 +1014,15 @@ public class LyricRenderer {
      * column edge; the surrounding panel clipRect saves it from spilling
      * over the cover or the controls.
      */
-    private static int[] wrapStarts(List<Syllable> syllables, Font font, float maxW) {
-        int sz = syllables.size();
+    private static int[] wrapStarts(float[] sylWidths, float maxW) {
+        int sz = sylWidths.length;
         if (sz == 0) return new int[]{0, 0};
 
         java.util.ArrayList<Integer> starts = new java.util.ArrayList<>();
         starts.add(0);
         float curW = 0f;
         for (int i = 0; i < sz; i++) {
-            float sw = perCharWidth(syllables.get(i).text, font);
+            float sw = sylWidths[i];
             if (i > 0 && curW + sw > maxW) {
                 starts.add(i);
                 curW = 0f;
@@ -1048,11 +1080,10 @@ public class LyricRenderer {
         return w;
     }
 
-    private static float measureRange(List<Syllable> syllables, int from, int to, Font font) {
+    /** Sum cached per-syllable widths over {@code [from, to)} — no measuring, no alloc. */
+    private static float sumWidths(float[] sylWidths, int from, int to) {
         float w = 0f;
-        for (int i = from; i < to; i++) {
-            w += perCharWidth(syllables.get(i).text, font);
-        }
+        for (int i = from; i < to; i++) w += sylWidths[i];
         return w;
     }
 
@@ -1143,22 +1174,22 @@ public class LyricRenderer {
      * <p>{@code activeK ≤ 0.001} short-circuits to a flat per-syllable
      * draw — past the group's fade-out window, no animation work needed.
      */
-    private void drawSyllableRange(List<Syllable> syllables, int from, int to,
-                                   float startX, float baselineY, Font font, long pos,
+    private void drawSyllableRange(List<Syllable> syllables, float[] sylWidths, int from, int to,
+                                   float startX, float baselineY, Font font,
+                                   float ascent, float descent, long pos,
                                    float baseAlpha, float activeK, boolean enableLift) {
         if (from >= to) return;
         Canvas canvas = LyricSkia.getCanvas();
 
         if (activeK <= 0.001f) {
             float x = startX;
+            Paint paint = LyricSkia.scratchPaint();
+            paint.setColor(0xFFFFFFFF);
+            paint.setAlphaf(baseAlpha);
+            paint.setAntiAlias(true);
             for (int i = from; i < to; i++) {
-                Syllable s = syllables.get(i);
-                Paint paint = LyricSkia.scratchPaint();
-                paint.setColor(0xFFFFFFFF);
-                paint.setAlphaf(baseAlpha);
-                paint.setAntiAlias(true);
-                canvas.drawString(s.text, x, baselineY, font, paint);
-                x += perCharWidth(s.text, font);
+                canvas.drawString(syllables.get(i).text, x, baselineY, font, paint);
+                x += sylWidths[i];
             }
             return;
         }
@@ -1169,7 +1200,7 @@ public class LyricRenderer {
         float[] sylLeft = sylLeftBuf;
         sylLeft[0] = startX;
         for (int i = 0; i < n; i++) {
-            sylLeft[i + 1] = sylLeft[i] + perCharWidth(syllables.get(from + i).text, font);
+            sylLeft[i + 1] = sylLeft[i] + sylWidths[from + i];
         }
         float rowRightX = sylLeft[n];
         if (rowRightX - startX <= 0f) return;
@@ -1182,8 +1213,7 @@ public class LyricRenderer {
         float sweepX = animate ? computeSweepX(syllables, from, to, sylLeft, pos) : 0f;
 
         // Layer bounds wide enough for the peak lift + glyph descender.
-        float ascent = font.getMetrics().getAscent();   // negative
-        float descent = font.getMetrics().getDescent(); // positive
+        // ascent (negative) / descent (positive) are passed in pre-measured.
         Rect layerBounds = Rect.makeLTRB(
                 startX - 4f,
                 baselineY + ascent - LIFT_PEAK_PX - 4f,
@@ -1293,14 +1323,14 @@ public class LyricRenderer {
      * alpha — bright (1.0) on the left of the sweep, dark (DARK_MASK_ALPHA)
      * on the right, with a {@code SWEEP_FADE_PX}-wide blend.
      */
-    private static void applySweepMask(Canvas canvas, Rect bounds, float sweepX, float darkAlpha) {
-        int bright = 0xFFFFFFFF;
+    private void applySweepMask(Canvas canvas, Rect bounds, float sweepX, float darkAlpha) {
         int dark = ((int) (darkAlpha * 255f) << 24) | 0x00FFFFFF;
 
         float x0 = sweepX - SWEEP_FADE_PX * 0.5f;
         float x1 = sweepX + SWEEP_FADE_PX * 0.5f;
         float left = bounds.getLeft() - 1f;
         float right = bounds.getRight() + 1f;
+        float top = bounds.getTop();
         float span = right - left;
         if (span <= 0f) span = 1f;
         float u0 = (x0 - left) / span;
@@ -1309,18 +1339,23 @@ public class LyricRenderer {
         if (u1 > 1f) u1 = 1f;
         if (u1 <= u0) u1 = Math.min(1f, u0 + 0.0001f);
 
-        int[] colors = {bright, bright, dark, dark};
-        float[] stops = {0f, u0, u1, 1f};
+        // Reused buffers — only the dark colour + sweep stops vary per frame.
+        sweepColors[2] = dark;
+        sweepColors[3] = dark;
+        sweepStops[0] = 0f;
+        sweepStops[1] = u0;
+        sweepStops[2] = u1;
+        sweepStops[3] = 1f;
 
-        try (Paint p = new Paint();
-             Shader g = Shader.makeLinearGradient(
-                     new Point(left, bounds.getTop()),
-                     new Point(right, bounds.getTop()),
-                     colors, stops)) {
-            p.setShader(g);
-            p.setBlendMode(BlendMode.DST_IN);
-            canvas.drawRect(bounds, p);
-        }
+        // Float-coordinate overload avoids the two per-call Point allocations.
+        // The gradient's stops move with the play head, so the native shader is
+        // unavoidably rebuilt each frame — close it right after the draw.
+        Shader g = Shader.makeLinearGradient(left, top, right, top, sweepColors, sweepStops);
+        sweepPaint.setShader(g);
+        sweepPaint.setBlendMode(BlendMode.DST_IN);
+        canvas.drawRect(bounds, sweepPaint);
+        sweepPaint.setShader(null);
+        if (g != null) g.close();
     }
 
     /**

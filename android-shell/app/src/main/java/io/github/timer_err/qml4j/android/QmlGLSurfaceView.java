@@ -94,6 +94,13 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     private float lyShaderH = -1f;
     private io.github.humbleui.skija.Shader lyFadeShader;
     private final Paint lyMaskPaint = new Paint();
+    // Cached lyric-column rect (rebuilt on size change) + cover key string. Both
+    // were rebuilt every frame -- the key via string concat -- adding steady
+    // garbage to the per-frame lyric path.
+    private io.github.humbleui.types.Rect lyColRect;
+    private float lyColW = -1f, lyColH = -1f;
+    private Object lyKeyTitle, lyKeyUrl;
+    private String lyCoverKey;
 
     /** Notified (with a full stack trace) when QML load/render throws, so the
      *  host can surface the error instead of the GL thread crashing the app. */
@@ -505,10 +512,17 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         float ease = lyricSlide * lyricSlide * (3f - 2f * lyricSlide); // smoothstep
         canvas.translate(0f, (1f - ease) * h);
 
-        // 1) fluid backdrop, keyed by the current track.
+        // 1) fluid backdrop, keyed by the current track. The key only changes on a
+        // track switch, so rebuild the concatenated string only when an input does.
         byte[] cover = (byte[]) controller.coverBytes.peek();
-        String key = controller.title.peek() + "|" + controller.coverUrl.peek();
-        fluidBg.render(canvas, w, h, cover, key, System.nanoTime());
+        Object title = controller.title.peek();
+        Object coverUrl = controller.coverUrl.peek();
+        if (lyCoverKey == null || title != lyKeyTitle || coverUrl != lyKeyUrl) {
+            lyKeyTitle = title;
+            lyKeyUrl = coverUrl;
+            lyCoverKey = title + "|" + coverUrl;
+        }
+        fluidBg.render(canvas, w, h, cover, lyCoverKey, System.nanoTime());
 
         // 2) fluid backdrop already drawn. The title (top band) and transport
         // (bottom band) are drawn by the QML LyricOverlay on top of this; only the
@@ -517,7 +531,12 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         float pad = 28f;
         float topY = 140f;
         float colH = h - topY - L_TRANSPORT_H;
-        io.github.humbleui.types.Rect colRect = io.github.humbleui.types.Rect.makeXYWH(0f, topY, w, colH);
+        if (lyColRect == null || lyColW != w || lyColH != colH) {
+            lyColRect = io.github.humbleui.types.Rect.makeXYWH(0f, topY, w, colH);
+            lyColW = w;
+            lyColH = colH;
+        }
+        io.github.humbleui.types.Rect colRect = lyColRect;
         int lc = canvas.saveLayer(colRect, null);
         LyricSkia.setCanvas(canvas);
         lyricRenderer.render(canvas, pad, topY, w - 2f * pad, colH, controller.position());

@@ -89,6 +89,11 @@ public final class FluidBackground {
     // Reused across frames -- the per-frame `new Paint()` was a native alloc/free
     // each frame the lyric page is visible.
     private final Paint fluidPaint = new Paint();
+    // Cached full-bleed draw rect -- rebuilt only when the viewport size changes,
+    // instead of a fresh Rect.makeXYWH every frame.
+    private Rect fullRect;
+    private float fullRectW = -1f;
+    private float fullRectH = -1f;
 
     public FluidBackground(long startNs) {
         this.startNs = startNs;
@@ -126,6 +131,12 @@ public final class FluidBackground {
 
         float time = (nowNs - startNs) / 1_000_000_000f;
 
+        if (fullRect == null || fullRectW != w || fullRectH != h) {
+            fullRect = Rect.makeXYWH(0, 0, w, h);
+            fullRectW = w;
+            fullRectH = h;
+        }
+
         // The runtime shader bakes its uniforms at makeShader time, so the animated
         // `time` forces a rebuild every frame -- but that just instantiates the
         // already-compiled effect; the cover child shader and the Paint are reused.
@@ -138,7 +149,7 @@ public final class FluidBackground {
                 shaded = b.makeShader();
             }
             fluidPaint.setShader(shaded);
-            canvas.drawRect(Rect.makeXYWH(0, 0, w, h), fluidPaint);
+            canvas.drawRect(fullRect, fluidPaint);
         } catch (Throwable e) {
             dev.t1m3.qplayer.util.Logger.warn("fluid render failed: {}", e.getMessage());
             renderFallback(canvas, w, h, 0xFF0A0A0E);
