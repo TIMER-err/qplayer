@@ -35,7 +35,10 @@
 - **Source switching** — grey/VIP/trial tracks fall back automatically to alternate audio sources (GD音乐台 / 波点 / 酷我), matched by title + artist before playing (toggleable).
 - **Material 3 UI** — the whole interface is QML (`md3.Core`), running on the qml4j engine.
 - **Dynamic color (Monet)** — the theme reseeds from the current cover art (toggleable); full **dark / light / follow-system** modes.
-- **Lyric page** — host-drawn with Skija: per-syllable scrolling (AMLL TTML mirror, NetEase fallback), an Apple-Music-style SkSL fluid backdrop tinted from the cover, romaji + translation with wrapping, a Material wavy progress bar and an icon-button transport.
+- **System media controls & background playback** — a foreground `MediaSession` service drives the lockscreen / notification / bluetooth transport, with auto-advance, position sync and audio-focus handling (pause on calls, duck on transient loss) while the app is backgrounded.
+- **Lyric page** — host-drawn with Skija: per-syllable scrolling (AMLL TTML mirror, NetEase fallback), an Apple-Music-style SkSL fluid backdrop tinted from the cover, romaji + translation with wrapping, alignment-aware interlude dots, animated background vocals, a Material wavy progress bar and an icon-button transport.
+- **Bundled PingFang font** drives the whole UI and lyric page (Latin + CJK); the lyric page's **font size, weight and line spacing** are configurable in settings.
+- **In-app back navigation** — back/gesture pops the open overlay (lyrics → queue → settings → playlist → tab) instead of exiting.
 - **Edge-to-edge** fullscreen, themed system bars, and a startup splash while the QML tree compiles (dexing is cached across launches, invalidated on reinstall).
 
 ## Project layout
@@ -44,6 +47,7 @@
 |---|---|
 | `player-core/` | Platform-neutral core (Maven, `dev.t1m3.qplayer`): the QML-facing `PlayerController`, NetEase API, lyric parsers (LRC / YRC / TTML), audio + metadata abstractions. |
 | `android-shell/` | Android app (Gradle, `applicationId dev.t1m3.qplayer`, minSdk 26). QML UI in `app/src/main/assets/*.qml`; host integration + the Skija lyric page in `…/android/`. |
+| `shared-qml/` | Vendored `md3.Core` component library + bundled fonts (PingFang / Material Symbols), at the repo root so the Android shell and a future desktop host can share it. |
 | [qml4j](https://github.com/TIMER-err/qml4j) | The QML engine. A published dependency, **not** part of this repo. |
 
 `qml4j-core` is pulled from Maven Central; only the in-repo `player-core` module is built locally.
