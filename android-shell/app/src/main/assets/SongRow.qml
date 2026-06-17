@@ -44,7 +44,7 @@ Rectangle {
         Image {
             anchors.fill: parent
             visible: row.coverThumbPath != ""
-            source: "file:///" + row.coverThumbPath
+            source: "file://" + row.coverThumbPath
             fillMode: Image.PreserveAspectCrop
         }
 
