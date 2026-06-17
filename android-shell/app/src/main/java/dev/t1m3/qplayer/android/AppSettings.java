@@ -41,6 +41,12 @@ public final class AppSettings extends QObject {
     public final Property<Object> lyricFontWeight = new Property<>(2);
     /** Lyric line-height as a percent of font size (100–250 → 1.0×–2.5×). */
     public final Property<Object> lyricLineSpacing = new Property<>(200);
+    /** Apple-style spring physics (scroll + per-syllable lift) on the lyric page. */
+    public final Property<Boolean> lyricSpring = new Property<>(Boolean.TRUE);
+    /** Active-line depth scaling (emphasis zoom) on the lyric page. */
+    public final Property<Boolean> lyricScale = new Property<>(Boolean.TRUE);
+    /** White glow behind sung syllables on the lyric page. */
+    public final Property<Boolean> lyricGlow = new Property<>(Boolean.TRUE);
 
     // System-bar insets in QML logical units (px / density), for edge-to-edge layout:
     // the top bar drops below the status bar, the bottom nav clears the gesture bar.
@@ -124,6 +130,9 @@ public final class AppSettings extends QObject {
         lyricFontSize.set(prefs.getInt("lyricFontSize", 28));
         lyricFontWeight.set(prefs.getInt("lyricFontWeight", 2));
         lyricLineSpacing.set(prefs.getInt("lyricLineSpacing", 200));
+        lyricSpring.set(prefs.getBoolean("lyricSpring", true));
+        lyricScale.set(prefs.getBoolean("lyricScale", true));
+        lyricGlow.set(prefs.getBoolean("lyricGlow", true));
         applyLyricConfig();
         lyricFontSize.setInterceptor((p, v) -> {
             p.setBypassInterceptor(asInt(v));
@@ -140,6 +149,21 @@ public final class AppSettings extends QObject {
             prefs.edit().putInt("lyricLineSpacing", asInt(p.peek())).apply();
             applyLyricConfig();
         });
+        lyricSpring.setInterceptor((p, v) -> {
+            p.setBypassInterceptor(v);
+            prefs.edit().putBoolean("lyricSpring", Boolean.TRUE.equals(p.peek())).apply();
+            applyLyricConfig();
+        });
+        lyricScale.setInterceptor((p, v) -> {
+            p.setBypassInterceptor(v);
+            prefs.edit().putBoolean("lyricScale", Boolean.TRUE.equals(p.peek())).apply();
+            applyLyricConfig();
+        });
+        lyricGlow.setInterceptor((p, v) -> {
+            p.setBypassInterceptor(v);
+            prefs.edit().putBoolean("lyricGlow", Boolean.TRUE.equals(p.peek())).apply();
+            applyLyricConfig();
+        });
     }
 
     /** Push the lyric typography settings into the host renderer's config. */
@@ -149,6 +173,9 @@ public final class AppSettings extends QObject {
         int w = Math.max(0, Math.min(3, asInt(lyricFontWeight.peek())));
         c.fontWeight.setValue(LyricConfig.FontWeight.values()[w]);
         c.lineSpacing.setValue(asInt(lyricLineSpacing.peek()) / 100f);
+        c.springPhysics.setValue(Boolean.TRUE.equals(lyricSpring.peek()));
+        c.scaleEmphasis.setValue(Boolean.TRUE.equals(lyricScale.peek()));
+        c.glow.setValue(Boolean.TRUE.equals(lyricGlow.peek()));
     }
 
     /** System night mode changed; call on the render thread. */

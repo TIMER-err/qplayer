@@ -74,7 +74,7 @@ public class LyricRenderer {
      * Layout height (px) reserved for the inline interlude dot row. The
      * dots scroll into the centre position like a real lyric line.
      */
-    private static final float INTERLUDE_DOTS_ROW_H = 52f;
+    private static final float INTERLUDE_DOTS_ROW_H = 40f;
     /**
      * Radius (px) of each interlude dot. Slot height + dot radius +
      * spacing all scale together to keep the dots visually balanced
@@ -94,7 +94,7 @@ public class LyricRenderer {
      * smooth wave flows through the line". Match AMLL exactly so
      * multiple in-flight syllables blend continuously.
      */
-    private static final float LIFT_PEAK_PX = 1.5f;
+    private static final float LIFT_PEAK_PX = 2.0f; // Apple Specs.syllableLift = 2.0
     /**
      * Per-syllable lift duration floor. AMLL uses {@code max(1000ms, wordDur)}
      * for {@code initFloatAnimation}: each syllable's translateY animation
@@ -115,7 +115,7 @@ public class LyricRenderer {
      * from {@code wordHeight × wordFadeWidth}; for a 30px font that's
      * ~30px. Wider = softer transition between lit and unlit text.
      */
-    private static final float SWEEP_FADE_PX = 30f;
+    private static final float SWEEP_FADE_PX = 40f; // Apple Specs.lineProgressionGradientFeather = 40.0
     /**
      * Mask alpha on the unlit side. AMLL defaults to {@code --dark-mask-alpha=0.2}
      * — so an inactive syllable in the active line is 20% as opaque as a
@@ -179,6 +179,47 @@ public class LyricRenderer {
      */
     private static final float ALIGN_POSITION = 0.35f;
 
+    // ---- Depth scaling (Apple Specs) -------------------------------------
+    // Inactive lines render at deselectedTransform (0.98×); the active group
+    // grows to emphasizingScaleRange's upper bound (1.14×). Interpolated by
+    // activeK so the scale crossfades with the highlight rather than snapping.
+    private static final float DESELECTED_SCALE = 0.98f;
+    private static final float EMPHASIS_SCALE = 1.14f;
+
+    // ---- Scroll spring tunings (ported from AMLL computeLinePosYSpringParams) --
+    // The per-line scroll spring is slightly OVERDAMPED (ζ = damping/(2√k) = 1.1),
+    // so it never overshoots — the "spring" feel comes from velocity carry-over and
+    // a stiffness that scales with how fast lines are arriving, not from bounce.
+    // Stiffness lerps MIN..MAX as the gap between the active line and the previous
+    // one shrinks from MAX_INTERVAL to MIN_INTERVAL (fast lines = snappier).
+    private static final double SCROLL_STIFFNESS_MIN = 170.0;
+    private static final double SCROLL_STIFFNESS_MAX = 220.0;
+    private static final double SCROLL_INTERVAL_MIN_MS = 100.0;
+    private static final double SCROLL_INTERVAL_MAX_MS = 800.0;
+    private static final double SCROLL_DAMPING_MULT = 2.2; // damping = √stiffness × 2.2 → ζ≈1.1
+    // Steadier fixed spring while seeking or during an interlude.
+    private static final double SCROLL_STIFFNESS_INTERLUDE = 90.0;
+    private static final double SCROLL_DAMPING_INTERLUDE = 15.0;
+    // Non-spring fallback: the previous slightly-overdamped tuning, no cascade.
+    private static final double SCROLL_STIFFNESS_FIRM = 180.0;
+    private static final double SCROLL_DAMPING_FIRM = 28.0;
+    // Apple liftSpring: mass 1, stiffness 14, damping 7 → ω0=√14, ζ≈0.935.
+    private static final double LIFT_OMEGA0 = 3.7416574; // sqrt(14)
+    private static final double LIFT_ZETA = 0.935414;    // 7 / (2·√14)
+    // Peak opacity of the white glow behind a fully-sung syllable.
+    private static final float GLOW_ALPHA = 0.55f;
+    // Emphasis (depth-scale) lags the line's activation slightly: it holds off
+    // EMPHASIS_DELAY_MS past startMs, then ramps over EMPHASIS_RAMP_MS, so the line
+    // lights up first and grows a beat later. Purely time-based (same curve drives
+    // the layout reflow and the visual scale), so it can't feed back into the
+    // scroll spring the way the spring-progress version did.
+    private static final long EMPHASIS_DELAY_MS = 90L;
+    private static final long EMPHASIS_RAMP_MS = 240L;
+    // Per-line scroll cascade (Apple Specs.lineDelay = 0.05): each line trails the
+    // anchor by this much per line of distance, capped so far lines don't lag.
+    private static final double LINE_DELAY_S = 0.05;
+    private static final int LINE_DELAY_MAX_DIST = 6;
+
     private List<LyricLine> lines = Collections.emptyList();
     /**
      * Whether the loaded lyric source carries per-syllable timing.
@@ -218,7 +259,9 @@ public class LyricRenderer {
     // and the column visibly bounced back. (28 > 2·√180 ≈ 26.83 is
     // very slightly overdamped, which keeps the motion strictly
     // monotonic toward the target.)
-    private final SpringAnim scrollAnim = new SpringAnim(180.0, 28.0);
+    private final SpringAnim scrollAnim = new SpringAnim(SCROLL_STIFFNESS_FIRM, SCROLL_DAMPING_FIRM);
+    // Last spring-mode flag the scrollAnim was retuned for; -1 = not yet applied.
+    private int lastSpringMode = -1;
 
     // Wrap layout cache. rowStarts (syllable break indices per line) and the
     // per-line heights depend only on (lines, font sizes, weight, column width,
@@ -241,6 +284,21 @@ public class LyricRenderer {
     private float[][] cachedSylWidths;
     private float[] lineTopsBuf = new float[0];
     private float[] interludeBuf = new float[0];
+    // Per-frame effective line heights = cached height × the line's current depth
+    // scale, so an emphasized line reserves its grown size and the lines below
+    // glide down instead of being overlapped. Reused buffer.
+    private float[] effHeightBuf = new float[0];
+    // Per-line scroll springs (cascade). lineCurTop/lineVelTop track each line's
+    // drawn top + velocity; only the visible window is integrated, off-window lines
+    // snap to target. Active only when spring physics is on.
+    private float[] lineCurTop = new float[0];
+    private float[] lineVelTop = new float[0];
+    private boolean lineSpringInit = false;
+    private int prevVisStart = 0;
+    private int prevVisEnd = 0;
+    private int springAnchorPrev = Integer.MIN_VALUE;
+    private long springAnchorChangeNs = 0L;
+    private long springLastNs = 0L;
     // Reused per active line each frame (syllable left edges); was new float[n+1].
     private float[] sylLeftBuf = new float[0];
     // Reused saveLayer paint for the active row's composite alpha; was a native
@@ -257,6 +315,18 @@ public class LyricRenderer {
     private final io.github.humbleui.skija.Paint sweepPaint = new io.github.humbleui.skija.Paint();
     private final int[] sweepColors = {0xFFFFFFFF, 0xFFFFFFFF, 0, 0};
     private final float[] sweepStops = new float[4];
+    // White glow behind active syllables (Apple Specs.glowColor/glowRadius). A blur
+    // mask filter built once (radius → sigma); only the active row pays for it.
+    private final io.github.humbleui.skija.Paint glowPaint = newGlowPaint();
+
+    private static io.github.humbleui.skija.Paint newGlowPaint() {
+        io.github.humbleui.skija.Paint p = new io.github.humbleui.skija.Paint();
+        p.setAntiAlias(true);
+        // Apple glowRadius = 5.0; Skia blur sigma ≈ radius * 0.5.
+        p.setMaskFilter(io.github.humbleui.skija.MaskFilter.makeBlur(
+                io.github.humbleui.skija.FilterBlurMode.NORMAL, 2.5f));
+        return p;
+    }
     private List<LyricLine> layoutKeyLines;
     private int layoutKeyN;
     private int layoutKeyLyricSize;
@@ -266,6 +336,7 @@ public class LyricRenderer {
     private float layoutKeyRowRatio = -1f;
     private boolean layoutKeyRomaji;
     private boolean layoutKeyTranslation;
+    private boolean layoutKeyScale = true;
 
     private static Fonts.Weight toFontsWeight(LyricConfig.FontWeight w) {
         switch (w) {
@@ -348,6 +419,8 @@ public class LyricRenderer {
 
         this.activeGroupIndex = -1;
         this.scrollAnim.setValue(0);
+        this.lineSpringInit = false;
+        this.springAnchorPrev = Integer.MIN_VALUE;
     }
 
     // Break a whole-line syllable into wrap-friendly tokens that keep its
@@ -460,6 +533,20 @@ public class LyricRenderer {
         Fonts.Weight weight = toFontsWeight(cfg.fontWeight.getValue());
         float rowHeightRatio = cfg.lineSpacing.getValue();
 
+        // Spring physics toggle: retune the scroll spring only when the flag flips
+        // (carries current value/velocity into the new tuning — no snap).
+        boolean spring = Boolean.TRUE.equals(cfg.springPhysics.getValue());
+        boolean scaleOn = Boolean.TRUE.equals(cfg.scaleEmphasis.getValue());
+        boolean glowOn = Boolean.TRUE.equals(cfg.glow.getValue());
+        int springMode = spring ? 1 : 0;
+        if (springMode != lastSpringMode) {
+            // scrollAnim only drives the non-spring fallback; per-line springs
+            // handle the cascade in spring mode and are re-seeded next frame.
+            scrollAnim.setParams(SCROLL_STIFFNESS_FIRM, SCROLL_DAMPING_FIRM);
+            lineSpringInit = false;
+            lastSpringMode = springMode;
+        }
+
         Font lyricFont = Fonts.get(weight, lyricFontSize);
         Font subFont = Fonts.get(weight, subFontSize);
         Font bgFont = Fonts.get(weight, bgFontSize);
@@ -500,7 +587,8 @@ public class LyricRenderer {
                 && layoutKeyWeight == weight
                 && layoutKeyRowRatio == rowHeightRatio
                 && layoutKeyRomaji == showRomaji
-                && layoutKeyTranslation == showTranslation;
+                && layoutKeyTranslation == showTranslation
+                && layoutKeyScale == scaleOn;
         if (!layoutValid) {
             int[][] rowStarts = new int[n][];
             float[] lineHeights = new float[n];
@@ -513,13 +601,21 @@ public class LyricRenderer {
                 Font font = isBg ? bgFont : lyricFont;
                 float rowHeight = isBg ? rowHeightBg : rowHeightLyric;
 
+                // Wrap against the EMPHASIZED width: a main line scales up to
+                // EMPHASIS_SCALE when active, so break it as if the column were
+                // 1/EMPHASIS_SCALE narrower — then the scaled-up line fills the
+                // real column exactly instead of overflowing and clipping mid-word.
+                // BG lines never scale past 1.0, and when emphasis is off no line
+                // scales, so both wrap to the full column.
+                float wrapW = (isBg || !scaleOn) ? columnWidth : columnWidth / EMPHASIS_SCALE;
+
                 int sylCount = line.syllables.size();
                 float[] widths = new float[sylCount];
                 for (int s = 0; s < sylCount; s++) {
                     widths[s] = perCharWidth(line.syllables.get(s).text, font);
                 }
                 sylWidths[i] = widths;
-                rowStarts[i] = wrapStarts(widths, columnWidth);
+                rowStarts[i] = wrapStarts(widths, wrapW);
                 int subRowCount = Math.max(1, rowStarts[i].length - 1);
 
                 float lh = rowHeight + (subRowCount - 1) * (isBg ? rowHeightBgWrap : rowHeightLyricWrap);
@@ -529,11 +625,11 @@ public class LyricRenderer {
                 // room (reserved here so neighbours don't overlap; drawn at subY).
                 if (hasSub && subRowCount > 1) lh += WRAP_SUB_GAP;
                 if (line.romaji != null && showRomaji) {
-                    romajiRows[i] = wrapText(line.romaji, subFont, columnWidth);
+                    romajiRows[i] = wrapText(line.romaji, subFont, wrapW);
                     lh += subLineHeight * romajiRows[i].length;
                 }
                 if (line.translation != null && showTranslation) {
-                    translationRows[i] = wrapText(line.translation, subFont, columnWidth);
+                    translationRows[i] = wrapText(line.translation, subFont, wrapW);
                     lh += subLineHeight * translationRows[i].length;
                 }
                 lh += lineGap;
@@ -555,6 +651,7 @@ public class LyricRenderer {
             layoutKeyRowRatio = rowHeightRatio;
             layoutKeyRomaji = showRomaji;
             layoutKeyTranslation = showTranslation;
+            layoutKeyScale = scaleOn;
         }
         int[][] rowStarts = cachedRowStarts;
         float[] lineHeights = cachedLineHeights;
@@ -584,11 +681,26 @@ public class LyricRenderer {
             interludeBefore[gi] = computeInterludeSlot(positionMs, prevEnd, effectiveEnd);
         }
 
-        // Cumulative tops = stacked cached heights + the per-frame interlude slots.
+        // Effective heights: main lines reserve their depth-scaled size (deselected
+        // 0.98× → active 1.14×) so an emphasized line — wrapped or not — pushes the
+        // lines below it down instead of overlapping them. BG lines keep their fixed
+        // pre-reserved slot (their pop scale is independent of layout).
+        if (effHeightBuf.length != n) effHeightBuf = new float[n];
+        float[] effHeights = effHeightBuf;
+        for (int i = 0; i < n; i++) {
+            if (!scaleOn || isBackground(lines.get(i).vocalChannel)) {
+                effHeights[i] = lineHeights[i];
+            } else {
+                float ek = computeEmphasisK(positionMs, groups.get(lineToGroup[i]));
+                effHeights[i] = lineHeights[i] * (DESELECTED_SCALE + (EMPHASIS_SCALE - DESELECTED_SCALE) * ek);
+            }
+        }
+
+        // Cumulative tops = stacked effective heights + the per-frame interlude slots.
         if (lineTopsBuf.length != n) lineTopsBuf = new float[n];
         float[] lineTops = lineTopsBuf;
         for (int i = 0; i < n; i++) {
-            float prevBottom = i == 0 ? 0f : lineTops[i - 1] + lineHeights[i - 1];
+            float prevBottom = i == 0 ? 0f : lineTops[i - 1] + effHeights[i - 1];
             // First line of a group with a preceding interlude gets the dot-row slot
             // inserted above it.
             int gi = lineToGroup[i];
@@ -649,7 +761,7 @@ public class LyricRenderer {
         if (activeGroup != null) {
             int mIdx = activeGroup.from;
             float mTop = lineTops[mIdx];
-            float mBottom = mTop + lineHeights[mIdx];
+            float mBottom = mTop + effHeights[mIdx];
             targetScroll = (mTop + mBottom) * 0.5f;
         }
 
@@ -693,7 +805,7 @@ public class LyricRenderer {
                 // monotonically upward toward it.
                 int nIdx = nextGroup.from;
                 float nTop = lineTops[nIdx];
-                float nBottom = nTop + lineHeights[nIdx];
+                float nBottom = nTop + effHeights[nIdx];
                 targetScroll = (nTop + nBottom) * 0.5f;
                 interludeNextGroup = -1;
             } else {
@@ -706,6 +818,46 @@ public class LyricRenderer {
         int anchorIdx = activeGroup != null ? activeGroup.from : 0;
         int start = Math.max(0, anchorIdx - VISIBLE_RADIUS);
         int end = Math.min(n, anchorIdx + VISIBLE_RADIUS + 1);
+
+        // Per-line scroll springs (spring mode only). Each visible line chases its
+        // resting top `centerY + lineTops[i] - targetScroll`; the global scrollAnim
+        // above still drives the rigid fallback when spring is off.
+        long nowNs = System.nanoTime();
+        double springDt = 0.0;
+        if (spring) {
+            if (lineCurTop.length != n) {
+                lineCurTop = new float[n];
+                lineVelTop = new float[n];
+                lineSpringInit = false;
+            }
+            if (anchorIdx != springAnchorPrev) {
+                springAnchorPrev = anchorIdx;
+                springAnchorChangeNs = nowNs;
+            }
+            springDt = (nowNs - springLastNs) / 1_000_000_000.0;
+            if (springDt > 0.05) springDt = 0.05;
+            if (springDt < 0.0) springDt = 0.0;
+            springLastNs = nowNs;
+        }
+        double sinceAnchorChange = (nowNs - springAnchorChangeNs) / 1_000_000_000.0;
+
+        // Dynamic scroll-spring tuning (AMLL): steady during an interlude, else
+        // stiffer the faster lines are arriving (shorter gap to the previous line).
+        double scrollStiffness;
+        double scrollDamping;
+        if (inInterlude) {
+            scrollStiffness = SCROLL_STIFFNESS_INTERLUDE;
+            scrollDamping = SCROLL_DAMPING_INTERLUDE;
+        } else {
+            LineGroup prevG = (activeGroupIndex > 0) ? groups.get(activeGroupIndex - 1) : null;
+            double interval = (activeGroup != null && prevG != null)
+                    ? (activeGroup.startMs - prevG.startMs) : SCROLL_INTERVAL_MAX_MS;
+            double ci = Math.max(SCROLL_INTERVAL_MIN_MS, Math.min(SCROLL_INTERVAL_MAX_MS, interval));
+            double ratio = Math.pow(1.0 - (ci - SCROLL_INTERVAL_MIN_MS)
+                    / (SCROLL_INTERVAL_MAX_MS - SCROLL_INTERVAL_MIN_MS), 0.2);
+            scrollStiffness = SCROLL_STIFFNESS_MIN + ratio * (SCROLL_STIFFNESS_MAX - SCROLL_STIFFNESS_MIN);
+            scrollDamping = Math.sqrt(scrollStiffness) * SCROLL_DAMPING_MULT;
+        }
 
         for (int i = start; i < end; i++) {
             LyricLine line = lines.get(i);
@@ -730,12 +882,26 @@ public class LyricRenderer {
             float activeBase = isBg ? 0.70f : 1f;
             float baseAlpha = idleBase + (activeBase - idleBase) * activeK;
 
-            // Top of this line's first sub-row in screen space. For BG
-            // lines this gets overridden below to sit flush against the
-            // main+sub block — lineTops[bgIdx] is exactly the same Y
-            // (BG lineHeight = 0) but reading the explicit anchor makes
-            // the intent obvious in the BG transform path.
-            float lineYTop = centerY + lineTops[i] - scrollY;
+            // Top of this line in screen space. Spring mode: each line springs to
+            // its resting top with a per-line stagger (cascade); rigid mode: the
+            // single global scrollAnim offset. BG anchors at the same top.
+            float restTop = centerY + lineTops[i] - targetScroll;
+            float lineYTop;
+            if (spring) {
+                boolean wasVisible = i >= prevVisStart && i < prevVisEnd;
+                if (!lineSpringInit || !wasVisible) {
+                    lineCurTop[i] = restTop;
+                    lineVelTop[i] = 0f;
+                } else {
+                    double delay = LINE_DELAY_S * Math.min(LINE_DELAY_MAX_DIST, Math.abs(i - anchorIdx));
+                    if (sinceAnchorChange >= delay && springDt > 0.0) {
+                        stepLineSpring(i, restTop, springDt, scrollStiffness, scrollDamping);
+                    }
+                }
+                lineYTop = lineCurTop[i];
+            } else {
+                lineYTop = centerY + lineTops[i] - scrollY;
+            }
 
             int[] starts = rowStarts[i];
             int subRowCount = Math.max(1, starts.length - 1);
@@ -751,18 +917,27 @@ public class LyricRenderer {
             // animation pops the BG content out of its own slot, but the
             // slot itself is always there so neighbouring lines never
             // shift when the BG activates / collapses.
-            boolean bgTransform = isBg;
-            if (bgTransform) {
+            // Every line gets a scale transform. BG lines keep their pop-in/out
+            // scale; main lines use depth scaling — deselected 0.98× growing to the
+            // active group's 1.14× emphasis, anchored at the line TOP (leading edge
+            // horizontally) so it grows downward into the reflow-reserved space.
+            float anchorX = alignRight ? (leftX + columnWidth) : leftX;
+            float scale;
+            if (isBg) {
                 float bgScaleK = computeBgScaleK(positionMs, myGroup);
                 if (bgScaleK < BG_VISIBLE_THRESHOLD) continue;
-                float anchorX = alignRight ? (leftX + columnWidth) : leftX;
-                float anchorY = lineYTop;
-                float scale = BG_SCALE_IDLE + (1f - BG_SCALE_IDLE) * bgScaleK;
-                canvas.save();
-                canvas.translate(anchorX, anchorY);
-                canvas.scale(scale, scale);
-                canvas.translate(-anchorX, -anchorY);
+                scale = BG_SCALE_IDLE + (1f - BG_SCALE_IDLE) * bgScaleK;
+            } else if (scaleOn) {
+                float ek = computeEmphasisK(positionMs, myGroup);
+                scale = DESELECTED_SCALE + (EMPHASIS_SCALE - DESELECTED_SCALE) * ek;
+            } else {
+                scale = 1f;
             }
+            float anchorY = lineYTop;
+            canvas.save();
+            canvas.translate(anchorX, anchorY);
+            canvas.scale(scale, scale);
+            canvas.translate(-anchorX, -anchorY);
 
             for (int r = 0; r < subRowCount; r++) {
                 int from = starts[r];
@@ -783,7 +958,7 @@ public class LyricRenderer {
                 // across every line of the same song.
                 boolean enableLift = hasPerSyllableTiming;
                 drawSyllableRange(line.syllables, lineSylW, from, to, rowX, rowBaselineY, font,
-                        ascent, descent, positionMs, baseAlpha, activeK, enableLift);
+                        ascent, descent, positionMs, baseAlpha, activeK, enableLift, spring, glowOn);
 
                 if (rowWidth > maxRowWidth) {
                     maxRowWidth = rowWidth;
@@ -816,9 +991,13 @@ public class LyricRenderer {
                 }
             }
 
-            if (bgTransform) {
-                canvas.restore();
-            }
+            canvas.restore();
+        }
+
+        if (spring) {
+            prevVisStart = start;
+            prevVisEnd = end;
+            lineSpringInit = true;
         }
 
         // ---- Interlude dots (AMLL `InterludeDots`, inline in layout) ----
@@ -837,7 +1016,13 @@ public class LyricRenderer {
             long interludeDur = effectiveEnd - interludeStartMs;
             float slotH = interludeBefore[interludeNextGroup];
             if (slotH > 4f) {
-                float dotsTop = centerY + lineTops[interludeNext.from] - slotH - scrollY;
+                // Top of the upcoming line's reserved dot slot, spring-aware so the
+                // dots ride the same cascade as the lines.
+                int nf = interludeNext.from;
+                float nextTop = (spring && nf >= start && nf < end)
+                        ? lineCurTop[nf]
+                        : centerY + lineTops[nf] - (spring ? targetScroll : scrollY);
+                float dotsTop = nextTop - slotH;
                 float anchorY = dotsTop + (slotH * 0.5f - INTERLUDE_DOT_RADIUS); // vertical centre - dot radius
                 // Place the dots on the side the upcoming line is aligned to: left for
                 // MAIN / left-duet, right for right-channel lines.
@@ -1177,7 +1362,8 @@ public class LyricRenderer {
     private void drawSyllableRange(List<Syllable> syllables, float[] sylWidths, int from, int to,
                                    float startX, float baselineY, Font font,
                                    float ascent, float descent, long pos,
-                                   float baseAlpha, float activeK, boolean enableLift) {
+                                   float baseAlpha, float activeK, boolean enableLift, boolean spring,
+                                   boolean glowOn) {
         if (from >= to) return;
         Canvas canvas = LyricSkia.getCanvas();
 
@@ -1212,13 +1398,13 @@ public class LyricRenderer {
         boolean animate = enableLift;
         float sweepX = animate ? computeSweepX(syllables, from, to, sylLeft, pos) : 0f;
 
-        // Layer bounds wide enough for the peak lift + glyph descender.
-        // ascent (negative) / descent (positive) are passed in pre-measured.
+        // Layer bounds wide enough for the peak lift + glyph descender, plus the
+        // white glow blur radius (~8px) so the glow isn't clipped at row edges.
         Rect layerBounds = Rect.makeLTRB(
-                startX - 4f,
-                baselineY + ascent - LIFT_PEAK_PX - 4f,
-                rowRightX + 4f,
-                baselineY + descent + 4f);
+                startX - 8f,
+                baselineY + ascent - LIFT_PEAK_PX - 8f,
+                rowRightX + 8f,
+                baselineY + descent + 8f);
 
         // saveLayer with the row's composite alpha. Restore will blend
         // the masked layer back into the main canvas at baseAlpha.
@@ -1254,14 +1440,33 @@ public class LyricRenderer {
                 Syllable syl = syllables.get(from + s);
                 long sStart = syl.startMs;
                 long ownEnd = sStart + Math.max(0L, syl.durationMs);
-                long effDur = Math.max(LIFT_MIN_DURATION_MS, ownEnd - sStart);
 
-                float t;
-                if (pos <= sStart) t = 0f;
-                else if (pos >= sStart + effDur) t = 1f;
-                else t = (pos - sStart) / (float) effDur;
-                float k = 1f - (1f - t) * (1f - t) * (1f - t);
+                // Lift progress k: a soft spring step (Apple liftSpring) when spring
+                // physics is on, else the fixed cubic ease-out over max(1s, dur).
+                float k;
+                if (spring) {
+                    k = liftSpringK((pos - sStart) / 1000.0);
+                } else {
+                    long effDur = Math.max(LIFT_MIN_DURATION_MS, ownEnd - sStart);
+                    float t;
+                    if (pos <= sStart) t = 0f;
+                    else if (pos >= sStart + effDur) t = 1f;
+                    else t = (pos - sStart) / (float) effDur;
+                    k = 1f - (1f - t) * (1f - t) * (1f - t);
+                }
                 float lift = enableLift ? -LIFT_PEAK_PX * k * activeK : 0f;
+
+                // White glow behind the syllable, growing with the lift progress so
+                // it tracks the sung word; the sweep mask below trims it to the
+                // sung region. Skipped once it would be invisible.
+                if (enableLift && glowOn) {
+                    float ga = activeK * k * GLOW_ALPHA;
+                    if (ga > 0.01f) {
+                        glowPaint.setColor(0xFFFFFFFF);
+                        glowPaint.setAlphaf(ga);
+                        canvas.drawString(syl.text, sylLeft[s], baselineY + lift, font, glowPaint);
+                    }
+                }
 
                 canvas.drawString(syl.text, sylLeft[s], baselineY + lift, font, textPaint);
             }
@@ -1359,6 +1564,45 @@ public class LyricRenderer {
     }
 
     /**
+     * Underdamped step response of Apple's liftSpring (mass 1, stiffness 14,
+     * damping 7). {@code tau} is elapsed seconds since the syllable started;
+     * returns ~0 at 0, settles toward 1 (fill-forwards) within ~1s with a faint
+     * overshoot. Negative tau (syllable not started) → 0.
+     */
+    /**
+     * Integrate one line's scroll spring toward {@code target} over {@code dt}
+     * seconds with the given (AMLL-derived) stiffness/damping, sub-stepping for
+     * stiff-spring stability. Mirrors {@link SpringAnim} on the per-line arrays.
+     */
+    private void stepLineSpring(int i, float target, double dt, double stiffness, double damping) {
+        double value = lineCurTop[i];
+        double vel = lineVelTop[i];
+        int steps = 1 + (int) (dt / 0.008);
+        double sub = dt / steps;
+        for (int s = 0; s < steps; s++) {
+            double a = -stiffness * (value - target) - damping * vel;
+            vel += a * sub;
+            value += vel * sub;
+        }
+        if (Math.abs(vel) < 0.01 && Math.abs(value - target) < 0.05) {
+            value = target;
+            vel = 0.0;
+        }
+        lineCurTop[i] = (float) value;
+        lineVelTop[i] = (float) vel;
+    }
+
+    private static float liftSpringK(double tau) {
+        if (tau <= 0.0) return 0f;
+        double zw = LIFT_ZETA * LIFT_OMEGA0;
+        double wd = LIFT_OMEGA0 * Math.sqrt(1.0 - LIFT_ZETA * LIFT_ZETA);
+        double env = Math.exp(-zw * tau);
+        double y = 1.0 - env * (Math.cos(wd * tau) + (zw / wd) * Math.sin(wd * tau));
+        if (y < 0.0) y = 0.0;
+        return (float) y;
+    }
+
+    /**
      * GLSL-style smoothstep: 0 below {@code a}, 1 above {@code b}, smooth in between.
      */
     private static float smoothstep(float a, float b, float x) {
@@ -1405,6 +1649,23 @@ public class LyricRenderer {
      * after {@code endMs}. Used both at render time (alpha/lift/scale)
      * and at layout time (BG lineHeight collapse).
      */
+    /**
+     * Depth-scale emphasis curve: like {@link #computeActiveK} but its rise is held
+     * off {@code EMPHASIS_DELAY_MS} past startMs and ramps over
+     * {@code EMPHASIS_RAMP_MS}, so the active line lights up first and grows a beat
+     * later. Fades back out after endMs on the activeK window.
+     */
+    private static float computeEmphasisK(long positionMs, LineGroup g) {
+        long rampStart = g.startMs + EMPHASIS_DELAY_MS;
+        if (positionMs < rampStart) return 0f;
+        if (positionMs < g.endMs) {
+            return smoothstep(0f, 1f, (positionMs - rampStart) / (float) EMPHASIS_RAMP_MS);
+        }
+        float dt = (positionMs - g.endMs) / (float) ACTIVE_FADE_OUT_MS;
+        float rampedIn = smoothstep(0f, 1f, (g.endMs - rampStart) / (float) EMPHASIS_RAMP_MS);
+        return rampedIn * (1f - smoothstep(0f, 1f, dt));
+    }
+
     private static float computeActiveK(long positionMs, LineGroup g) {
         if (positionMs < g.startMs - ACTIVE_FADE_IN_MS) return 0f;
         if (positionMs < g.startMs) {

@@ -45,6 +45,8 @@ Item {
         font.family: Theme.typography.titleLarge.family
         font.pixelSize: 22
         wrapMode: Text.WordWrap
+        maximumLineCount: 2
+        elide: Text.ElideRight
     }
     Text {
         anchors.top: titleText.bottom

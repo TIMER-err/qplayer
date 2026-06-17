@@ -92,6 +92,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     // surface height, so cache them and rebuild only when the height changes (rebuilding
     // every frame was steady native churn -> GC stutter).
     private float lyShaderH = -1f;
+    private float lyShaderTopY = -1f;
     private io.github.humbleui.skija.Shader lyFadeShader;
     private final Paint lyMaskPaint = new Paint();
     // Cached lyric-column rect (rebuilt on size change) + cover key string. Both
@@ -503,7 +504,8 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
 
         float w = surface.width() / uiScale;
         float h = surface.height() / uiScale;
-        ensureLyricShaders(h);
+        float topY = lyricTopY();
+        ensureLyricShaders(h, topY);
         int sc = canvas.save();
         canvas.scale(uiScale, uiScale);
 
@@ -529,7 +531,6 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         // lyrics column is host-drawn. Render into a layer, then multiply a vertical
         // alpha gradient (DST_IN) so lines fade toward the top/bottom edges.
         float pad = 28f;
-        float topY = 140f;
         float colH = h - topY - L_TRANSPORT_H;
         if (lyColRect == null || lyColW != w || lyColH != colH) {
             lyColRect = io.github.humbleui.types.Rect.makeXYWH(0f, topY, w, colH);
@@ -552,12 +553,26 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     // Reserved height (logical px) for the lyric-page transport bar at the bottom.
     private static final float L_TRANSPORT_H = 136f;
 
-    // Rebuild the cached lyric gradients only when the surface height changes.
-    private void ensureLyricShaders(float h) {
-        if (h == lyShaderH && lyFadeShader != null) return;
+    // Lyric column top, in logical px. Clears the QML chrome's title band: the
+    // status-bar inset, plus room for a two-line (clamped) title + artist. The
+    // title Text caps at maximumLineCount 2, so this is a fixed worst case.
+    private float lyricTopY() {
+        float inset = 0f;
+        if (settings != null) {
+            Double t = settings.topInset.peek();
+            if (t != null) inset = t.floatValue();
+        }
+        return inset + 144f;
+    }
+
+    // Rebuild the cached lyric gradients only when the surface height or column
+    // top changes (top tracks the status-bar inset, which can settle late).
+    private void ensureLyricShaders(float h, float topY) {
+        if (h == lyShaderH && topY == lyShaderTopY && lyFadeShader != null) return;
         lyShaderH = h;
+        lyShaderTopY = topY;
         if (lyFadeShader != null) lyFadeShader.close();
-        float topY = 140f, colH = h - topY - L_TRANSPORT_H;
+        float colH = h - topY - L_TRANSPORT_H;
         float f = Math.min(0.4f, 40f / colH);
         lyFadeShader = io.github.humbleui.skija.Shader.makeLinearGradient(
                 0f, topY, 0f, topY + colH,

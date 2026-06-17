@@ -17,14 +17,21 @@ package dev.t1m3.qplayer.android.lyric;
  */
 public class SpringAnim {
 
-    private final double stiffness;
-    private final double damping;
+    private double stiffness;
+    private double damping;
     private double value;
     private double velocity;
     private double target;
     private long lastNs = System.nanoTime();
 
     public SpringAnim(double stiffness, double damping) {
+        this.stiffness = stiffness;
+        this.damping = damping;
+    }
+
+    /** Retune mid-flight (e.g. a settings toggle) without snapping; the spring
+     *  carries its current value/velocity into the new stiffness/damping. */
+    public void setParams(double stiffness, double damping) {
         this.stiffness = stiffness;
         this.damping = damping;
     }

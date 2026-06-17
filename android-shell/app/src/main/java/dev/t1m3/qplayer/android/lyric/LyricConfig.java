@@ -24,4 +24,13 @@ public final class LyricConfig {
     public final Val<Float> lineSpacing = new Val<>(2.00f);
     public final Val<Boolean> showRomaji = new Val<>(Boolean.TRUE);
     public final Val<Boolean> showTranslation = new Val<>(Boolean.TRUE);
+    /** Apple-style spring physics for scroll + per-syllable lift. When off, the
+     *  scroll uses a stiffer near-critically-damped spring and the lift a fixed
+     *  cubic ease (the pre-0.4 tuning). */
+    public final Val<Boolean> springPhysics = new Val<>(Boolean.TRUE);
+    /** Active-line depth scaling (1.14× emphasis / 0.98× deselected). Off = no
+     *  scaling, full-width wrap, no layout reflow. */
+    public final Val<Boolean> scaleEmphasis = new Val<>(Boolean.TRUE);
+    /** White glow behind sung syllables on the active line. */
+    public final Val<Boolean> glow = new Val<>(Boolean.TRUE);
 }

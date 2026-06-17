@@ -324,6 +324,84 @@ Rectangle {
                                 onClicked: settings.lyricLineSpacing = Math.min(250, settings.lyricLineSpacing + 5)
                             }
                         }
+
+                        // Apple-style spring physics toggle (scroll + per-字 lift).
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 12
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+                                Text {
+                                    text: "弹簧动效"
+                                    color: Theme.color.onSurfaceColor
+                                    font.family: Theme.typography.bodyLarge.family
+                                    font.pixelSize: Theme.typography.bodyLarge.size
+                                }
+                                Text {
+                                    text: "滚动与逐字上抬使用弹簧物理"
+                                    color: Theme.color.onSurfaceVariantColor
+                                    font.family: Theme.typography.bodySmall.family
+                                    font.pixelSize: Theme.typography.bodySmall.size
+                                }
+                            }
+                            Switch {
+                                checked: settings.lyricSpring
+                                onClicked: settings.lyricSpring = checked
+                            }
+                        }
+
+                        // Active-line emphasis zoom toggle.
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 12
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+                                Text {
+                                    text: "放大缩放"
+                                    color: Theme.color.onSurfaceColor
+                                    font.family: Theme.typography.bodyLarge.family
+                                    font.pixelSize: Theme.typography.bodyLarge.size
+                                }
+                                Text {
+                                    text: "当前行放大、其余行略缩"
+                                    color: Theme.color.onSurfaceVariantColor
+                                    font.family: Theme.typography.bodySmall.family
+                                    font.pixelSize: Theme.typography.bodySmall.size
+                                }
+                            }
+                            Switch {
+                                checked: settings.lyricScale
+                                onClicked: settings.lyricScale = checked
+                            }
+                        }
+
+                        // White glow behind sung syllables toggle.
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 12
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+                                Text {
+                                    text: "演唱发光"
+                                    color: Theme.color.onSurfaceColor
+                                    font.family: Theme.typography.bodyLarge.family
+                                    font.pixelSize: Theme.typography.bodyLarge.size
+                                }
+                                Text {
+                                    text: "已唱字词白色辉光(较耗电)"
+                                    color: Theme.color.onSurfaceVariantColor
+                                    font.family: Theme.typography.bodySmall.family
+                                    font.pixelSize: Theme.typography.bodySmall.size
+                                }
+                            }
+                            Switch {
+                                checked: settings.lyricGlow
+                                onClicked: settings.lyricGlow = checked
+                            }
+                        }
                     }
                 }
 
