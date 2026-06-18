@@ -33,17 +33,37 @@ Rectangle {
         color: ma.containsMouse ? Theme.color.surfaceContainerHigh : "transparent"
     }
 
-    CoverImage {
+    Item {
         id: leading
         anchors.left: parent.left
         anchors.leftMargin: 10
         anchors.verticalCenter: parent.verticalCenter
         width: 44
         height: 44
-        radius: 8
-        source: row.coverThumbPath
-        icon: row.highlighted ? "equalizer" : "music_note"
-        iconSize: 22
+
+        // Placeholder background (shown when no cover)
+        Rectangle {
+            anchors.fill: parent
+            radius: 8
+            color: Theme.color.surfaceContainerHighest
+            visible: row.coverThumbPath == ""
+            Text {
+                anchors.centerIn: parent
+                text: row.highlighted ? "equalizer" : "music_note"
+                font.family: Theme.iconFont.name
+                font.pixelSize: 22
+                color: row.highlighted ? Theme.color.primary : Theme.color.onSurfaceVariantColor
+            }
+        }
+
+        // Cover image with native clipRRect rounding (qml4j Image.radius)
+        Image {
+            anchors.fill: parent
+            visible: row.coverThumbPath != ""
+            source: row.coverThumbPath
+            radius: 8
+            fillMode: Image.PreserveAspectCrop
+        }
     }
 
     Text {
