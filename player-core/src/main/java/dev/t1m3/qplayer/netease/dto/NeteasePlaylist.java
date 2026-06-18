@@ -10,6 +10,9 @@ public class NeteasePlaylist {
     public String name;
     /** Square cover URL (CDN). Renderer fetches bytes lazily. */
     public String coverUrl;
+    /** CDN thumbnail URL (coverUrl + ?param=512y512) for QML Image.source.
+     *  Set by the controller after playlists are loaded. */
+    public String coverThumbPath;
     public int trackCount;
     public long playCount;
     public String description;

@@ -61,6 +61,7 @@ Item {
                     name: modelData.name
                     count: modelData.trackCount
                     coverUrl: modelData.coverUrl
+                    coverThumbPath: modelData.coverThumbPath || ""
                     onClicked: { page.pendingPlaylist = modelData; page.openPlaylist() }
                 }
             }
