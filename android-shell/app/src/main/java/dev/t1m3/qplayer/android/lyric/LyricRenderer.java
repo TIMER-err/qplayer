@@ -314,13 +314,16 @@ public class LyricRenderer {
     private final io.github.humbleui.skija.Paint lyricLayerPaint = new io.github.humbleui.skija.Paint();
     /** Reusable paint for interlude dots — avoids per-frame allocation. */
     private final io.github.humbleui.skija.Paint dotPaint = new io.github.humbleui.skija.Paint();
-    // Reused sweep-mask state — the gradient draw on the active row ran a
-    // new Paint + new int[]/float[] + 2 Points every frame. Colours/stops are
-    // mutated in place; only the native Shader is unavoidably per-frame (its
-    // stops move with the play head), and it's closed right after the draw.
+    // Reused sweep-mask state. The fixed-band gradient shader is cached and only
+    // rebuilt when its dark colour changes (activeK fade); the head is positioned
+    // by translating the canvas over a cached oversized rect, so a steady sweep
+    // allocates nothing. sweepShaderDark = NaN forces the first build.
     private final io.github.humbleui.skija.Paint sweepPaint = new io.github.humbleui.skija.Paint();
-    private final int[] sweepColors = {0xFFFFFFFF, 0xFFFFFFFF, 0, 0};
-    private final float[] sweepStops = new float[4];
+    private final int[] sweepColors = new int[2];
+    private final float[] sweepStops = new float[2];
+    private Shader sweepShader;
+    private float sweepShaderDark = Float.NaN;
+    private final Rect sweepBigRect = Rect.makeLTRB(-100000f, -100000f, 100000f, 100000f);
     // White glow behind active syllables (Apple Specs.glowColor/glowRadius). A blur
     // mask filter built once (radius → sigma); only the active row pays for it.
     private final io.github.humbleui.skija.Paint glowPaint = newGlowPaint();
@@ -929,7 +932,7 @@ public class LyricRenderer {
             // baseAlpha interpolates idle ↔ active so the line's overall
             // brightness rises/falls with the group transition rather
             // than snapping at the boundary.
-            float idleBase = isBg ? 0.24f : 0.30f;
+            float idleBase = isBg ? 0.18f : 0.22f;
             float activeBase = isBg ? 0.70f : 1f;
             float baseAlpha = idleBase + (activeBase - idleBase) * activeK;
 
@@ -957,6 +960,14 @@ public class LyricRenderer {
                     }
                 }
                 lineYTop = lineCurTop[i];
+            }
+
+            // Viewport cull: VISIBLE_RADIUS keeps far lines in the spring window
+            // (stepped just above), but only a handful fit in the column — skip the
+            // draw work (saveLayer/sweep/glow/drawString) for lines fully outside it.
+            // Margin covers the emphasis zoom + glow bleed.
+            if (lineYTop + lineHeights[i] < topY - 32f || lineYTop > topY + columnHeight + 32f) {
+                continue;
             }
 
             int[] starts = rowStarts[i];
@@ -1499,44 +1510,23 @@ public class LyricRenderer {
         // Line-level (LRC) lyrics have no real per-syllable timing — the
         // karaoke sweep over the same-timed tokens would read as a fake
         // per-character wipe. Gate the sweep (and lift) on per-syllable timing;
-        // without it the line just lights up as a whole via baseAlpha/activeK.
+        // without it the line just lights up as a whole via baseAlpha.
         boolean animate = enableLift;
         float sweepX = animate ? computeSweepX(syllables, from, to, sylLeft, pos) : 0f;
 
         // Layer bounds wide enough for the peak lift + glyph descender, plus the
-        // white glow blur radius (~8px) so the glow isn't clipped at row edges.
-        Rect layerBounds = Rect.makeLTRB(
+        // white glow blur radius (~8px) so the glow isn't clipped at row edges. The
+        // float overload avoids allocating a Rect per active row per frame (the
+        // last per-frame allocation on the lyric draw path).
+        Paint layerPaint = lyricLayerPaint;
+        layerPaint.setAlphaf(baseAlpha);
+        canvas.saveLayer(
                 startX - 8f,
                 baselineY + ascent - LIFT_PEAK_PX - 8f,
                 rowRightX + 8f,
-                baselineY + descent + 8f);
-
-        // saveLayer with the row's composite alpha. Restore will blend
-        // the masked layer back into the main canvas at baseAlpha.
-        //
-        // Lifecycle warning: Skia's saveLayer keeps a *pointer* (not a
-        // copy) to the paint it was given, dereferenced on restore. So
-        // layerPaint must stay alive until canvas.restore() — closing it
-        // immediately after saveLayer (as the original try-finally did)
-        // freed the native peer mid-layer, and restore composited from a
-        // dangling pointer. Symptom: the global canvas matrix would
-        // corrupt and every subsequent HUD draw rendered scaled from
-        // (0,0) ("整个 skia 叠加层都被以(0,0)为中心放大"). Reused field, so
-        // it's always alive; never closed per call.
-        Paint layerPaint = lyricLayerPaint;
-        layerPaint.setAlphaf(baseAlpha);
-        canvas.saveLayer(layerBounds, layerPaint);
+                baselineY + descent + 8f,
+                layerPaint);
         try {
-            // 1) Per-syllable lift (translateY) — AMLL spec.
-            // Each syllable runs its own progress-based ease-out from
-            // 0 → -LIFT_PEAK_PX over LIFT_MIN_DURATION_MS (1 s). With
-            // typical lyric pacing of ~250 ms per syllable, 3-4
-            // syllables are simultaneously mid-rise at any moment, so
-            // the per-字 lifts overlap into a continuous wave that
-            // flows across the row — sung words still rising, current
-            // word rising fastest, upcoming words at 0 until their
-            // own start time. After completion each syllable holds at
-            // peak (fill-forwards), so trailing words stay lifted.
             Paint textPaint = LyricSkia.scratchPaint();
             textPaint.setColor(0xFFFFFFFF);
             textPaint.setAlphaf(1f);
@@ -1561,9 +1551,6 @@ public class LyricRenderer {
                 }
                 float lift = enableLift ? -LIFT_PEAK_PX * k * activeK : 0f;
 
-                // White glow behind the syllable, growing with the lift progress so
-                // it tracks the sung word; the sweep mask below trims it to the
-                // sung region. Skipped once it would be invisible.
                 if (enableLift && glowOn) {
                     float ga = activeK * k * GLOW_ALPHA;
                     if (ga > 0.01f) {
@@ -1576,15 +1563,11 @@ public class LyricRenderer {
                 canvas.drawString(syl.text, sylLeft[s], baselineY + lift, font, textPaint);
             }
 
-            // 2) Horizontal sweep mask via DST_IN. The "dark" side fades
-            // from 1.0 (idle: no darkening, row uniform baseAlpha) to
-            // DARK_MASK_ALPHA = 0.2 (active: unsung region visibly
-            // dimmer than sung). Coupling to activeK avoids the snap on
-            // enter: crossing startMs no longer instantly drops the
-            // unsung region from 0.42 to 0.2; both endpoints lerp.
+            // Smooth horizontal sweep (DST_IN): bright on the sung side, dark on the
+            // unsung side, blending over SWEEP_FADE_PX at the head.
             if (animate) {
                 float maskDark = 1f - (1f - DARK_MASK_ALPHA) * activeK;
-                applySweepMask(canvas, layerBounds, sweepX, maskDark);
+                applySweepMask(canvas, sweepX, maskDark);
             }
         } finally {
             canvas.restore();
@@ -1628,44 +1611,36 @@ public class LyricRenderer {
     }
 
     /**
-     * Apply AMLL's mask-image gradient as a DST_IN draw on the current
-     * saveLayer. The destination's alpha gets multiplied by the source
-     * alpha — bright (1.0) on the left of the sweep, dark (DARK_MASK_ALPHA)
-     * on the right, with a {@code SWEEP_FADE_PX}-wide blend.
+     * AMLL's mask-image gradient as a DST_IN draw on the current saveLayer: bright
+     * (1.0) on the sung side, dark ({@code maskDark}) on the unsung side, blending
+     * over {@code SWEEP_FADE_PX} at the head.
+     *
+     * <p>The gradient SHADER is built once for a fixed [0, SWEEP_FADE_PX] band
+     * (CLAMP, so it's bright to the left and dark to the right) and reused — only
+     * its dark colour changes (with activeK during the enter/exit fade), so it's
+     * rebuilt only then, not every frame. Each frame the head is positioned by
+     * translating the canvas, and a cached oversized rect is filled, so a steady
+     * sweep allocates nothing (the old per-frame {@code makeLinearGradient} +
+     * bounds Rect was the active row's residual GC churn).
      */
-    private void applySweepMask(Canvas canvas, Rect bounds, float sweepX, float darkAlpha) {
-        int dark = ((int) (darkAlpha * 255f) << 24) | 0x00FFFFFF;
-
-        float x0 = sweepX - SWEEP_FADE_PX * 0.5f;
-        float x1 = sweepX + SWEEP_FADE_PX * 0.5f;
-        float left = bounds.getLeft() - 1f;
-        float right = bounds.getRight() + 1f;
-        float top = bounds.getTop();
-        float span = right - left;
-        if (span <= 0f) span = 1f;
-        float u0 = (x0 - left) / span;
-        float u1 = (x1 - left) / span;
-        if (u0 < 0f) u0 = 0f;
-        if (u1 > 1f) u1 = 1f;
-        if (u1 <= u0) u1 = Math.min(1f, u0 + 0.0001f);
-
-        // Reused buffers — only the dark colour + sweep stops vary per frame.
-        sweepColors[2] = dark;
-        sweepColors[3] = dark;
-        sweepStops[0] = 0f;
-        sweepStops[1] = u0;
-        sweepStops[2] = u1;
-        sweepStops[3] = 1f;
-
-        // Float-coordinate overload avoids the two per-call Point allocations.
-        // The gradient's stops move with the play head, so the native shader is
-        // unavoidably rebuilt each frame — close it right after the draw.
-        Shader g = Shader.makeLinearGradient(left, top, right, top, sweepColors, sweepStops);
-        sweepPaint.setShader(g);
+    private void applySweepMask(Canvas canvas, float sweepX, float maskDark) {
+        if (sweepShader == null || sweepShaderDark != maskDark) {
+            if (sweepShader != null) sweepShader.close();
+            int dark = ((int) (maskDark * 255f) << 24) | 0x00FFFFFF;
+            sweepColors[0] = 0xFFFFFFFF;
+            sweepColors[1] = dark;
+            sweepStops[0] = 0f;
+            sweepStops[1] = 1f;
+            sweepShader = Shader.makeLinearGradient(0f, 0f, SWEEP_FADE_PX, 0f, sweepColors, sweepStops);
+            sweepShaderDark = maskDark;
+        }
+        sweepPaint.setShader(sweepShader);
         sweepPaint.setBlendMode(BlendMode.DST_IN);
-        canvas.drawRect(bounds, sweepPaint);
+        canvas.save();
+        canvas.translate(sweepX - SWEEP_FADE_PX * 0.5f, 0f);
+        canvas.drawRect(sweepBigRect, sweepPaint);
+        canvas.restore();
         sweepPaint.setShader(null);
-        if (g != null) g.close();
     }
 
     /**

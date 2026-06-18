@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory;
 import io.github.humbleui.skija.Canvas;
 import io.github.humbleui.skija.ColorAlphaType;
 import io.github.humbleui.skija.ColorType;
+import io.github.humbleui.skija.DirectContext;
 import io.github.humbleui.skija.FilterTileMode;
 import io.github.humbleui.skija.Image;
 import io.github.humbleui.skija.ImageInfo;
@@ -15,6 +16,7 @@ import io.github.humbleui.skija.RuntimeEffect;
 import io.github.humbleui.skija.RuntimeEffectBuilder;
 import io.github.humbleui.skija.SamplingMode;
 import io.github.humbleui.skija.Shader;
+import io.github.humbleui.skija.Surface;
 import io.github.humbleui.types.Rect;
 
 import java.util.Objects;
@@ -94,17 +96,27 @@ public final class FluidBackground {
     private Rect fullRect;
     private float fullRectW = -1f;
     private float fullRectH = -1f;
+    // Static-mode cache: the fluid rendered ONCE to an offscreen GPU image (at
+    // device resolution) and then blitted each frame, so static mode pays a single
+    // full-screen SkSL pass per track/size instead of one every frame. Rebuilt when
+    // the cover or the device size changes.
+    private Image staticImage;
+    private int staticW = -1;
+    private int staticH = -1;
 
     public FluidBackground(long startNs) {
         this.startNs = startNs;
     }
 
     /**
-     * Draw the fluid backdrop into [0,0,w,h]. nowNs drives the animation;
-     * coverBytes/trackKey identify the source (rebuilt when the key changes, or
-     * when bytes arrive after an initial null for the same key).
+     * Draw the fluid backdrop into [0,0,w,h] (logical px, under the caller's uiScale
+     * matrix). When {@code staticMode}, the fluid is rendered once to an offscreen
+     * image and that image is blitted every frame (no per-frame full-screen SkSL);
+     * otherwise it animates with {@code nowNs}. {@code ctx}/{@code uiScale} are only
+     * used to build the device-resolution static cache.
      */
-    public void render(Canvas canvas, float w, float h, byte[] coverBytes, String trackKey, long nowNs) {
+    public void render(Canvas canvas, DirectContext ctx, float uiScale, float w, float h,
+                       byte[] coverBytes, String trackKey, long nowNs, boolean staticMode) {
         boolean keyChanged = !Objects.equals(trackKey, coverKey);
         boolean nullButReady = cover == null && coverBytes != null && coverBytes.length > 0;
         if (keyChanged || nullButReady) {
@@ -123,6 +135,7 @@ public final class FluidBackground {
                         FilterTileMode.CLAMP, FilterTileMode.CLAMP,
                         SamplingMode.LINEAR, Matrix33.IDENTITY);
             }
+            invalidateStatic();   // the source changed -> the cached frame is stale
         }
         if (coverShader == null) {
             renderFallback(canvas, w, h, 0xFF0A0A0E);
@@ -131,32 +144,79 @@ public final class FluidBackground {
 
         float time = (nowNs - startNs) / 1_000_000_000f;
 
+        // Full-bleed dst rect, cached across frames (rebuilt only on a size change)
+        // -- shared by the static blit and the live draw so neither allocates a Rect
+        // per frame.
         if (fullRect == null || fullRectW != w || fullRectH != h) {
             fullRect = Rect.makeXYWH(0, 0, w, h);
             fullRectW = w;
             fullRectH = h;
         }
 
-        // The runtime shader bakes its uniforms at makeShader time, so the animated
-        // `time` forces a rebuild every frame -- but that just instantiates the
-        // already-compiled effect; the cover child shader and the Paint are reused.
+        // Static: blit a once-rendered, device-resolution image. Rebuild it on a
+        // cover/size change (or when first entering static mode).
+        if (staticMode && ctx != null) {
+            int dw = Math.max(1, Math.round(w * uiScale));
+            int dh = Math.max(1, Math.round(h * uiScale));
+            if (staticImage == null || staticW != dw || staticH != dh) {
+                buildStatic(ctx, dw, dh, time);
+            }
+            if (staticImage != null) {
+                canvas.drawImageRect(staticImage, fullRect);
+                return;
+            }
+            // build failed -> fall through to the live shader this frame
+        }
+
+        drawFluid(canvas, fullRect, w, h, time);
+    }
+
+    // Render the fluid shader into `dstRect` with the given resolution + time. The
+    // runtime shader bakes its uniforms at makeShader time, so an animated `time`
+    // rebuilds it each call -- but that just instantiates the already-compiled
+    // effect; the cover child shader and the Paint are reused.
+    private void drawFluid(Canvas canvas, Rect dstRect, float resW, float resH, float time) {
         Shader shaded = null;
         try {
             try (RuntimeEffectBuilder b = new RuntimeEffectBuilder(effect())) {
-                b.setUniform("resolution", w, h);
+                b.setUniform("resolution", resW, resH);
                 b.setUniform("time", time);
                 b.setChild("cover", coverShader);
                 shaded = b.makeShader();
             }
             fluidPaint.setShader(shaded);
-            canvas.drawRect(fullRect, fluidPaint);
+            canvas.drawRect(dstRect, fluidPaint);
         } catch (Throwable e) {
             dev.t1m3.qplayer.util.Logger.warn("fluid render failed: {}", e.getMessage());
-            renderFallback(canvas, w, h, 0xFF0A0A0E);
+            renderFallback(canvas, resW, resH, 0xFF0A0A0E);
         } finally {
             fluidPaint.setShader(null);
             if (shaded != null) shaded.close();
         }
+    }
+
+    // Render the fluid once into an offscreen device-resolution image (frozen at the
+    // current `time`) so static mode can blit it each frame.
+    private void buildStatic(DirectContext ctx, int dw, int dh, float time) {
+        invalidateStatic();
+        try (Surface off = Surface.makeRenderTarget(ctx, false, ImageInfo.makeN32Premul(dw, dh))) {
+            drawFluid(off.getCanvas(), Rect.makeWH(dw, dh), dw, dh, time);
+            staticImage = off.makeImageSnapshot();
+            staticW = dw;
+            staticH = dh;
+        } catch (Throwable e) {
+            dev.t1m3.qplayer.util.Logger.warn("fluid static cache failed: {}", e.getMessage());
+            invalidateStatic();
+        }
+    }
+
+    private void invalidateStatic() {
+        if (staticImage != null) {
+            staticImage.close();
+            staticImage = null;
+        }
+        staticW = -1;
+        staticH = -1;
     }
 
     public void dispose() {
@@ -168,6 +228,7 @@ public final class FluidBackground {
             cover.close();
             cover = null;
         }
+        invalidateStatic();
         fluidPaint.close();
         coverKey = null;
     }

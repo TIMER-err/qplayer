@@ -402,6 +402,44 @@ Rectangle {
                                 onClicked: settings.lyricGlow = checked
                             }
                         }
+
+                        // Fluid background mode: dynamic (animated) or static
+                        // (rendered once + cached, lighter on the GPU). Label + desc
+                        // stacked, radios on their own row so the desc has full width.
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Text {
+                                text: "背景动效"
+                                color: Theme.color.onSurfaceColor
+                                font.family: Theme.typography.bodyLarge.family
+                                font.pixelSize: Theme.typography.bodyLarge.size
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: "动态流动 / 静态(渲染一次,更省电)"
+                                color: Theme.color.onSurfaceVariantColor
+                                font.family: Theme.typography.bodySmall.family
+                                font.pixelSize: Theme.typography.bodySmall.size
+                                wrapMode: Text.WordWrap
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Layout.topMargin: 4
+                                spacing: 16
+                                RadioButton {
+                                    text: "动态"
+                                    checked: !settings.lyricBgStatic
+                                    onClicked: settings.lyricBgStatic = false
+                                }
+                                RadioButton {
+                                    text: "静态"
+                                    checked: settings.lyricBgStatic
+                                    onClicked: settings.lyricBgStatic = true
+                                }
+                                Item { Layout.fillWidth: true }
+                            }
+                        }
                     }
                 }
 

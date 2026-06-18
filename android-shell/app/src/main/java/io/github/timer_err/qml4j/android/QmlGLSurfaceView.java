@@ -475,7 +475,15 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         lyricSlide += (target - lyricSlide) * 0.22f;
         if (Math.abs(target - lyricSlide) < 0.002f) lyricSlide = target;
         // Publish to QML so the LyricOverlay chrome fades in/out in lockstep.
+        // set() no-ops on an unchanged value, so once settled-closed (slide==0) this
+        // stops bumping the change version.
         controller.lyricSlide.set((double) lyricSlide);
+        // Closed and settled: nothing more to draw. Crucially, RETURN BEFORE touching
+        // lyricProgress — that value changes every frame while playing, and setting it
+        // would bump the change version every frame, defeating the renderer's
+        // idle layout-skip (skip stayed 0/150 → the whole tree re-laid-out 60×/s).
+        if (lyricSlide <= 0.001f && !open) return;
+
         // Per-frame playback fraction for the QML wavy progress bar. backend.position()
         // is coarse (steps ~5 Hz), so extrapolate from the last change with wall-clock
         // time between updates for smooth motion; resync when the backend jumps (seek)
@@ -493,7 +501,6 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         long predMs = playing ? lyBaseMs + (nowN - lyBaseNanos) / 1_000_000L : raw;
         if (durMs > 0 && predMs > durMs) predMs = durMs;
         controller.lyricProgress.set(durMs > 0 ? Math.min(1.0, predMs / (double) durMs) : 0.0);
-        if (lyricSlide <= 0.001f && !open) return;
 
         // Re-feed the renderer when the track's lyric list changes (identity).
         Object lyObj = controller.lyrics.peek();
@@ -524,7 +531,9 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
             lyKeyUrl = coverUrl;
             lyCoverKey = title + "|" + coverUrl;
         }
-        fluidBg.render(canvas, w, h, cover, lyCoverKey, System.nanoTime());
+        boolean bgStatic = settings != null && Boolean.TRUE.equals(settings.lyricBgStatic.peek());
+        fluidBg.render(canvas, surface.recordingContext(), uiScale, w, h, cover, lyCoverKey,
+                System.nanoTime(), bgStatic);
 
         // 2) fluid backdrop already drawn. The title (top band) and transport
         // (bottom band) are drawn by the QML LyricOverlay on top of this; only the

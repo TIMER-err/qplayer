@@ -47,6 +47,8 @@ public final class AppSettings extends QObject {
     public final Property<Boolean> lyricScale = new Property<>(Boolean.TRUE);
     /** White glow behind sung syllables on the lyric page. */
     public final Property<Boolean> lyricGlow = new Property<>(Boolean.TRUE);
+    /** Static fluid background (render once + cache) vs. animated. */
+    public final Property<Boolean> lyricBgStatic = new Property<>(Boolean.FALSE);
 
     // System-bar insets in QML logical units (px / density), for edge-to-edge layout:
     // the top bar drops below the status bar, the bottom nav clears the gesture bar.
@@ -133,6 +135,7 @@ public final class AppSettings extends QObject {
         lyricSpring.set(prefs.getBoolean("lyricSpring", true));
         lyricScale.set(prefs.getBoolean("lyricScale", true));
         lyricGlow.set(prefs.getBoolean("lyricGlow", true));
+        lyricBgStatic.set(prefs.getBoolean("lyricBgStatic", false));
         applyLyricConfig();
         lyricFontSize.setInterceptor((p, v) -> {
             p.setBypassInterceptor(asInt(v));
@@ -163,6 +166,10 @@ public final class AppSettings extends QObject {
             p.setBypassInterceptor(v);
             prefs.edit().putBoolean("lyricGlow", Boolean.TRUE.equals(p.peek())).apply();
             applyLyricConfig();
+        });
+        lyricBgStatic.setInterceptor((p, v) -> {
+            p.setBypassInterceptor(v);
+            prefs.edit().putBoolean("lyricBgStatic", Boolean.TRUE.equals(p.peek())).apply();
         });
     }
 

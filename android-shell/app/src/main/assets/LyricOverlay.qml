@@ -72,7 +72,12 @@ Item {
         anchors.rightMargin: 28
         height: 120
 
-        // progress (md3 wavy) + seek
+        // progress (md3 wavy) + seek. The wavy phase is an infinite animation gated
+        // on the bar's OWN `visible` (control.visible) — own visibility is not the
+        // ancestor-effective one, so when the lyric page is closed (this whole
+        // overlay invisible) the bar's own visible stayed true and the animation
+        // kept ticking every frame, bumping the change version and defeating the
+        // renderer's idle layout-skip. Tie its visibility to the page being shown.
         LinearProgress {
             id: progress
             anchors.left: parent.left
@@ -80,6 +85,7 @@ Item {
             anchors.top: parent.top
             anchors.topMargin: 18
             wavy: true
+            visible: player.lyricSlide > 0.001
             value: player.lyricProgress
         }
         MouseArea {
