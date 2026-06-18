@@ -6,6 +6,11 @@ import md3.Core
 // ticks the scene ~5x/s), which was a real source of stutter. `highlighted`
 // marks the playing entry. A pre-cached local-file Image replaces the glyph
 // when a thumbnail is available — zero network overhead while scrolling.
+//
+// Lazy image loading: when `lazyLoad` is true, the cover Image only sets its
+// source when the row is within the Flickable viewport (+/- 3 rows preload).
+// This prevents hundreds of off-screen images from being decoded into memory
+// simultaneously in long playlists.
 Rectangle {
     id: row
 
@@ -14,6 +19,12 @@ Rectangle {
     property string coverThumbPath: ""
     property bool highlighted: false
     property bool removable: false
+    /** Enable lazy image loading based on viewport position. */
+    property bool lazyLoad: false
+    /** Parent Flickable's contentY (scroll offset). */
+    property real flickContentY: 0
+    /** Parent Flickable's visible height. */
+    property real flickHeight: 0
     signal activated()
     signal removeRequested()
 
@@ -56,11 +67,13 @@ Rectangle {
             }
         }
 
-        // Cover image with native clipRRect rounding (qml4j Image.radius)
+        // Cover image with native clipRRect rounding (qml4j Image.radius).
+        // When lazyLoad is on, only loads when the row is near the viewport.
         Image {
             anchors.fill: parent
-            visible: row.coverThumbPath != ""
-            source: row.coverThumbPath
+            visible: row.coverThumbPath != "" && (!row.lazyLoad || row._inViewport)
+            source: (row.coverThumbPath != "" && (!row.lazyLoad || row._inViewport))
+                   ? row.coverThumbPath : ""
             radius: 8
             fillMode: Image.PreserveAspectCrop
         }
@@ -120,4 +133,10 @@ Rectangle {
             color: Theme.color.onSurfaceVariantColor
         }
     }
+
+    // Whether this row is within (or near) the Flickable viewport.
+    // Preload margin: 3 rows above/below the visible area.
+    readonly property bool _inViewport: !row.lazyLoad
+        || (row.y >= row.flickContentY - row.height * 3
+            && row.y <= row.flickContentY + row.flickHeight + row.height * 3)
 }

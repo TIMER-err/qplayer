@@ -979,7 +979,7 @@ public final class PlayerController {
         worker.submit(() -> {
             try {
                 NeteasePlaylist detail = netease.playlistDetail(playlistId);
-                List<NeteaseSong> songs = netease.playlistTracks(playlistId, 500);
+                List<NeteaseSong> songs = netease.playlistTracks(playlistId, 200);
                 fillMissingCovers(songs);
                 buildSongThumbs(songs, "128");
                 String name = detail != null ? detail.name : "";
