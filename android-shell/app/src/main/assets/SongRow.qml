@@ -33,7 +33,7 @@ Rectangle {
         color: ma.containsMouse ? Theme.color.surfaceContainerHigh : "transparent"
     }
 
-    Rectangle {
+    CoverImage {
         id: leading
         anchors.left: parent.left
         anchors.leftMargin: 10
@@ -41,23 +41,9 @@ Rectangle {
         width: 44
         height: 44
         radius: 8
-        clip: true
-
-        Image {
-            anchors.fill: parent
-            visible: row.coverThumbPath != ""
-            source: row.coverThumbPath
-            fillMode: Image.PreserveAspectCrop
-        }
-
-        Text {
-            anchors.centerIn: parent
-            visible: row.coverThumbPath == ""
-            text: row.highlighted ? "equalizer" : "music_note"
-            font.family: Theme.iconFont.name
-            font.pixelSize: 22
-            color: row.highlighted ? Theme.color.primary : Theme.color.onSurfaceVariantColor
-        }
+        source: row.coverThumbPath
+        icon: row.highlighted ? "equalizer" : "music_note"
+        iconSize: 22
     }
 
     Text {
