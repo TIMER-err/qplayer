@@ -68,8 +68,6 @@ public final class QPlayerActivity extends Activity {
     /** Singleton controller — survives Activity recreations (PiP, config changes)
      *  so playback state and the foreground service stay connected across them. */
     private static volatile PlayerController sharedController;
-    /** Whether the current Activity created the controller (vs reusing an existing one). */
-    private boolean isControllerOwner = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -89,7 +87,6 @@ public final class QPlayerActivity extends Activity {
         if (controller == null) {
             controller = new PlayerController(backend, reader);
             sharedController = controller;
-            isControllerOwner = true;
         }
         controller.setColorExtractor(new AndroidColorExtractor());
 
@@ -438,10 +435,12 @@ public final class QPlayerActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        // Only the owner may release the controller. Non-owner Activities (PiP
-        // recreations) must leave it alive for the PlaybackService + any future
-        // Activity that reuses sharedController.
-        if (isControllerOwner && controller != null && !controller.isPlaying()) {
+        // Release the controller when idle (not playing). This covers both:
+        //   - owner Activities on normal exit
+        //   - non-owner Activities (PiP recreations) that outlive the owner
+        // Playing controllers must survive for background/foreground-service use;
+        // stopWithTask="true" handles the force-stop case via PlaybackService.onDestroy().
+        if (controller != null && !controller.isPlaying()) {
             controller.shutdown();
             sharedController = null;
         }
