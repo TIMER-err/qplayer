@@ -4,8 +4,9 @@ import md3.Core
 // One song/track row. Plain anchors — NOT nested RowLayout/ColumnLayout: the
 // Layout measure passes run for every visible row on every dirty frame (playback
 // ticks the scene ~5x/s), which was a real source of stutter. `highlighted`
-// marks the playing entry. A pre-cached local-file Image replaces the glyph
-// when a thumbnail is available — zero network overhead while scrolling.
+// marks the playing entry. When coverThumbPath is set, a rounded Image (the
+// engine fetches + caches the CDN thumbnail off-thread) replaces the glyph;
+// otherwise the glyph placeholder shows.
 Rectangle {
     id: row
 
@@ -20,9 +21,9 @@ Rectangle {
     implicitHeight: 64
     color: "transparent"
 
-    // Inset rounded hover highlight. One constant Rectangle per row (no per-frame
-    // allocation), so the long-list fast path is unaffected. The playing row keeps
-    // its primary-tinted text/glyph rather than a fill, so it reads on either theme.
+    // Inset rounded hover highlight. Constant Rectangle (no per-frame allocation);
+    // its opacity fades with hover instead of snapping the colour. The playing row
+    // keeps its primary-tinted text/glyph rather than a fill.
     Rectangle {
         anchors.fill: parent
         anchors.leftMargin: 8
@@ -30,16 +31,21 @@ Rectangle {
         anchors.topMargin: 4
         anchors.bottomMargin: 4
         radius: 12
-        color: ma.containsMouse ? Theme.color.surfaceContainerHigh : "transparent"
+        color: Theme.color.surfaceContainerHigh
+        opacity: ripple.containsMouse ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
     }
 
+    // Cover sits 4px inside the hover pill on every side, and its radius is the
+    // pill's radius minus that 4px gap (12 - 4 = 8) so the two rounded corners are
+    // concentric: leftMargin 8(pill)+4, size 64-2*(4+4) = 48, radius 8.
     Item {
         id: leading
         anchors.left: parent.left
-        anchors.leftMargin: 10
+        anchors.leftMargin: 12
         anchors.verticalCenter: parent.verticalCenter
-        width: 44
-        height: 44
+        width: 48
+        height: 48
 
         // Placeholder background (shown when no cover)
         Rectangle {
@@ -92,10 +98,18 @@ Rectangle {
         fontSize: 12
     }
 
-    MouseArea {
-        id: ma
+    // Tap + Material ripple, clipped to the inset pill shape. Idle cost is nil
+    // (Ripple gates its MultiEffect on live-wave count); a wave only renders while
+    // a row is being pressed.
+    Ripple {
+        id: ripple
         anchors.fill: parent
-        hoverEnabled: true
+        anchors.leftMargin: 8
+        anchors.rightMargin: 8
+        anchors.topMargin: 4
+        anchors.bottomMargin: 4
+        clipRadius: 12
+        rippleColor: Theme.color.onSurfaceColor
         onClicked: row.activated()
     }
 

@@ -81,6 +81,7 @@ Item {
                     y: page.dailyTop + index * page.rowH
                     rowTitle: modelData.name
                     rowArtist: modelData.artist
+                    coverThumbPath: modelData.coverThumbPath || ""
                     onActivated: player.playRecommendation(index)
                 }
             }

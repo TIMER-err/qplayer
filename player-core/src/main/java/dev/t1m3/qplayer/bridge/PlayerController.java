@@ -135,6 +135,10 @@ public final class PlayerController {
     private volatile String playLevel = "exhigh";
     private volatile boolean unblockEnabled = true;
     private volatile long uid;
+    // neteaseId of the track we last re-resolved after a playback error; cleared
+    // when a track actually starts. Stops a persistently-failing track from looping
+    // error→re-resolve→error forever instead of advancing.
+    private volatile long errorRetryId = -1;
     private long lastPositionPush;
     private long lastLogVersion = -1;
     private volatile boolean logVisible = false;
@@ -225,7 +229,7 @@ public final class PlayerController {
         backend.setOnComplete(() -> onMain(this::autoAdvance));
         // Re-baseline the media session's position once audio actually starts (the
         // backend prepares asynchronously, so the position at play() time is stale).
-        backend.setOnStarted(this::notifyPlayback);
+        backend.setOnStarted(() -> { errorRetryId = -1; notifyPlayback(); });
         // Audio-focus driven pause/resume (phone call, another player): keep the
         // intended-play state, the UI, and the media session in sync.
         backend.setOnPaused(() -> {
@@ -821,6 +825,7 @@ public final class PlayerController {
         t.artist = s.artist;
         t.album = s.album;
         t.coverUrl = s.coverUrl;
+        t.coverThumbPath = s.coverThumbPath != null ? s.coverThumbPath : NeteaseClient.thumbUrl(s.coverUrl);
         t.durationMs = s.durationMs;
         return t;
     }
@@ -858,17 +863,12 @@ public final class PlayerController {
                     return;
                 }
                 List<NeteaseSong> r = netease.searchSongs(keyword, 30, 0);
-                // Legacy /search/get omits album picUrl; batch-fetch details.
+                // Legacy /search/get omits album picUrl; batch-fetch details, then
+                // refresh the thumbnail URL for the rows whose cover we just filled
+                // (parseSong already set it for songs that had a cover).
                 fillMissingCovers(r);
-                // Build thumbnail URLs from coverUrl (CDN image with size param).
-                // No local download needed — QML Image loads them directly.
                 for (NeteaseSong s : r) {
-                    if (s.coverUrl != null && !s.coverUrl.isEmpty()) {
-                        String thumb = s.coverUrl.contains("?")
-                                ? s.coverUrl + "&param=128y128"
-                                : s.coverUrl + "?param=128y128";
-                        s.coverThumbPath = thumb;
-                    }
+                    if (s.coverThumbPath == null) s.coverThumbPath = NeteaseClient.thumbUrl(s.coverUrl);
                 }
                 searchCache.put(key, new CacheEntry(r));
                 post(() -> {
@@ -912,7 +912,12 @@ public final class PlayerController {
      *  the cache and re-resolve. Everything else falls through to autoAdvance. */
     private void onPlaybackError() {
         Track t = currentTrack();
-        if (t != null && t.source == Track.Source.NETEASE && t.streamUrl != null) {
+        // Retry a netease track once: clear the (likely stale) url and re-resolve.
+        // errorRetryId guards against an endless error→re-resolve loop when the
+        // fresh url also fails; it's reset when a track actually starts playing.
+        if (t != null && t.source == Track.Source.NETEASE && t.streamUrl != null
+                && t.neteaseId != errorRetryId) {
+            errorRetryId = t.neteaseId;
             int idx = playIndex;
             Logger.warn("playback error on netease track {}, clearing stale url and retrying", t.neteaseId);
             t.streamUrl = null;

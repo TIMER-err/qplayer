@@ -125,13 +125,25 @@ Rectangle {
             fontSize: 15
             elide: Text.ElideRight
         }
+        // Time on the right, pinned to its own width so it's never clipped; the
+        // artist fills the space to its left and elides on its own.
         Text {
-            anchors.left: parent.left
+            id: timeText
             anchors.right: parent.right
             anchors.top: parent.verticalCenter
             anchors.topMargin: 2
-            text: player.artist + (player.durationMs > 0
-                  ? "   " + fmt(player.positionMs) + " / " + fmt(player.durationMs) : "")
+            text: player.durationMs > 0
+                  ? fmt(player.positionMs) + " / " + fmt(player.durationMs) : ""
+            color: Theme.color.onSurfaceVariantColor
+            fontSize: 12
+        }
+        Text {
+            anchors.left: parent.left
+            anchors.right: timeText.text.length > 0 ? timeText.left : parent.right
+            anchors.rightMargin: timeText.text.length > 0 ? 8 : 0
+            anchors.top: parent.verticalCenter
+            anchors.topMargin: 2
+            text: player.artist
             color: Theme.color.onSurfaceVariantColor
             fontSize: 12
             elide: Text.ElideRight

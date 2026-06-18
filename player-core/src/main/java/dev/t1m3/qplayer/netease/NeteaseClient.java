@@ -331,7 +331,15 @@ public final class NeteaseClient {
             if (al.has("name") && !al.get("name").isJsonNull()) out.album = al.get("name").getAsString();
             if (al.has("picUrl") && !al.get("picUrl").isJsonNull()) out.coverUrl = al.get("picUrl").getAsString();
         }
+        out.coverThumbPath = thumbUrl(out.coverUrl);
         return out;
+    }
+
+    /** CDN thumbnail URL (128×128) for a cover, or null. Used as a list-row
+     *  Image.source so every list shows album art, not just search results. */
+    public static String thumbUrl(String coverUrl) {
+        if (coverUrl == null || coverUrl.isEmpty()) return null;
+        return coverUrl + (coverUrl.contains("?") ? "&" : "?") + "param=128y128";
     }
 
     private static NeteasePlaylist parsePlaylist(JsonObject p) {

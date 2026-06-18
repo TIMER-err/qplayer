@@ -10,8 +10,8 @@ android {
         applicationId = "dev.t1m3.qplayer"
         minSdk = 26
         targetSdk = 34
-        versionCode = 8
-        versionName = "0.4.2"
+        versionCode = 9
+        versionName = "0.5.0"
         manifestPlaceholders["appLabel"] = "QPlayer"
     }
 
@@ -102,7 +102,7 @@ dependencies {
     skijaNative("io.github.humbleui:skija-android-arm64:0.143.16")
 
     // The RECODE refactor merged parser/engine/compiler/render into one module.
-    implementation("io.github.timer-err:qml4j-core:0.2.8")
+    implementation("io.github.timer-err:qml4j-core:0.2.9")
 
     // Our platform-neutral player core (netease + lyrics + audio abstraction +
     // QML bridge). Pulls gson + zxing-core transitively; all Android-dexable.
