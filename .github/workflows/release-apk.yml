@@ -26,6 +26,18 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      # qml4j-core is normally pulled from Maven Central, but a freshly-tagged
+      # engine may not be published yet (Central monthly publish quota). Build the
+      # matching tag from source into the local Maven repo; gradle's mavenLocal()
+      # resolves it ahead of Central, so the release never blocks on a publish.
+      - name: Build qml4j-core from source
+        run: |
+          QV=$(grep -oP 'qml4j-core:\K[0-9]+\.[0-9]+\.[0-9]+' android-shell/app/build.gradle.kts)
+          echo "qml4j-core version: $QV"
+          git clone --depth 1 --branch "v$QV" https://github.com/TIMER-err/qml4j.git "$RUNNER_TEMP/qml4j"
+          mvn -q -B -N install -f "$RUNNER_TEMP/qml4j/pom.xml"
+          mvn -q -B -DskipTests -Dcheckstyle.skip=true install -f "$RUNNER_TEMP/qml4j/qml4j-core/pom.xml"
+
       - name: Install player-core
         run: |
           mvn -q -B -N install
