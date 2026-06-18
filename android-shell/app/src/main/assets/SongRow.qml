@@ -68,11 +68,15 @@ Rectangle {
         }
 
         // Cover image with native clipRRect rounding (qml4j Image.radius).
-        // When lazyLoad is on, only loads when the row is near the viewport.
+        // When lazyLoad is on, source is set once when the row enters the viewport
+        // preload zone and never cleared — this avoids re-fetching/re-decoding on
+        // scroll-back while still preventing all-off-screen images from loading
+        // at list creation time.
         Image {
+            id: coverImg
             anchors.fill: parent
-            visible: row.coverThumbPath != "" && (!row.lazyLoad || row._inViewport)
-            source: (row.coverThumbPath != "" && (!row.lazyLoad || row._inViewport))
+            visible: row.coverThumbPath != "" && (!row.lazyLoad || row._loadTriggered)
+            source: (row.coverThumbPath != "" && (!row.lazyLoad || row._loadTriggered))
                    ? row.coverThumbPath : ""
             radius: 8
             fillMode: Image.PreserveAspectCrop
@@ -139,4 +143,9 @@ Rectangle {
     readonly property bool _inViewport: !row.lazyLoad
         || (row.y >= row.flickContentY - row.height * 3
             && row.y <= row.flickContentY + row.flickHeight + row.height * 3)
+
+    // Latches to true the first time _inViewport becomes true, so that once
+    // an image starts loading it is never unloaded (avoids re-fetch flicker).
+    property bool _loadTriggered: row._inViewport
+    on_InViewportChanged: { if (row._inViewport) row._loadTriggered = true; }
 }
