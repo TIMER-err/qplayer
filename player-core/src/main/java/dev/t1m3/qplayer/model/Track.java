@@ -13,6 +13,9 @@ public class Track {
 
     /** Local file path (LOCAL source); null for NETEASE. */
     public String filePath;
+    /** Content URI (LOCAL source on Android 13+). Preferred over filePath because
+     *  Scoped Storage blocks direct file-path access to /storage/emulated/0/. */
+    public String contentUri;
     /** Direct HTTP CDN url (NETEASE source) — fetched lazily, may be null. */
     public String streamUrl;
     /** Netease song id (NETEASE source); 0 for LOCAL. Lets the controller
@@ -34,9 +37,10 @@ public class Track {
     public String translationFilePath;
     public String romajiFilePath;
 
-    /** The source string the audio backend should open: file path or stream url. */
+    /** The source string the audio backend should open: content URI, file path, or stream url. */
     public String playable() {
-        return source == Source.NETEASE ? streamUrl : filePath;
+        if (source == Source.NETEASE) return streamUrl;
+        return contentUri != null ? contentUri : filePath;
     }
 
     @Override

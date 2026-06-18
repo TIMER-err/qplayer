@@ -64,12 +64,19 @@ public final class AndroidLibraryScanner {
             int dataCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA);
 
             while (cursor.moveToNext()) {
+                long id = cursor.getLong(idCol);
                 String filePath = cursor.getString(dataCol);
                 if (filePath == null) continue;
 
                 Track t = new Track();
                 t.source = Track.Source.LOCAL;
                 t.filePath = filePath;
+                // Build content URI from the MediaStore ID — MediaPlayer accepts
+                // content:// URIs natively, and they bypass Scoped Storage file-path
+                // restrictions on Android 13+ that cause EACCES for /storage/emulated/0/.
+                t.contentUri = Uri.withAppendedPath(
+                        MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL),
+                        String.valueOf(id)).toString();
 
                 // MediaStore metadata as defaults; MetadataReader may overwrite.
                 String title = cursor.getString(titleCol);

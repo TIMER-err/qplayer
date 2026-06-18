@@ -487,16 +487,17 @@ public final class PlayerController {
         updateCover(t, i);
 
         if (t.source == Track.Source.LOCAL) {
-            if (t.filePath == null || t.filePath.isEmpty()) return;
+            String src = t.playable();
+            if (src == null || src.isEmpty()) return;
             loadLocalLyrics(t);
             Logger.info("play local: {}", t.title);
-            backend.play(t.filePath, 0L);
+            backend.play(src, 0L);
             playingIntent = true;
             post(() -> playing.set(true));
             notifyPlayback();
         } else if (t.streamUrl != null) {
             Logger.info("play netease (cached url): {}", t.title);
-            backend.play(t.streamUrl, 0L);
+            backend.play(t.playable(), 0L);
             playingIntent = true;
             post(() -> playing.set(true));
             notifyPlayback();
