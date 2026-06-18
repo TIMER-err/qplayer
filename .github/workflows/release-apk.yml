@@ -1,4 +1,4 @@
-name: Build & attach APK
+name: Build & attach release APK
 
 on:
   release:
@@ -6,14 +6,12 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # upload release assets
+  contents: write
 
 jobs:
   apk:
     runs-on: ubuntu-latest
     env:
-      # Signing material comes from repo secrets; absent on forks / unconfigured
-      # repos, in which case the release build is produced unsigned.
       QPLAYER_STORE_PASSWORD: ${{ secrets.QPLAYER_STORE_PASSWORD }}
       QPLAYER_KEY_ALIAS: ${{ secrets.QPLAYER_KEY_ALIAS }}
       QPLAYER_KEY_PASSWORD: ${{ secrets.QPLAYER_KEY_PASSWORD }}
@@ -28,17 +26,11 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      # player-core is an in-repo SNAPSHOT the app depends on; install it (and its parent
-      # pom, which Gradle also resolves) to the local repo. qml4j-core comes from Maven
-      # Central; md3.Core + fonts are vendored. Install the parent non-recursively first
-      # so we don't also build the desktop-host module.
-      - name: Install player-core (Maven Local)
+      - name: Install player-core
         run: |
           mvn -q -B -N install
           mvn -q -B -DskipTests install -f player-core/pom.xml
 
-      # Decode the base64 keystore secret to a file and point the Gradle build at it.
-      # Skipped (release stays unsigned) when the secret isn't configured.
       - name: Decode keystore
         env:
           QPLAYER_KEYSTORE_BASE64: ${{ secrets.QPLAYER_KEYSTORE_BASE64 }}
@@ -56,8 +48,6 @@ jobs:
           chmod +x android-shell/gradlew
           cd android-shell && ./gradlew --no-daemon :app:assembleRelease
 
-      # The signed output is app-release.apk; without signing Gradle emits
-      # app-release-unsigned.apk. Pick whichever exists.
       - name: Stage APK
         run: |
           mkdir -p out
@@ -72,7 +62,7 @@ jobs:
         with:
           files: out/qplayer-*.apk
 
-      - name: Upload as artifact
+      - name: Upload artifact
         if: github.event_name != 'release'
         uses: actions/upload-artifact@v4
         with:

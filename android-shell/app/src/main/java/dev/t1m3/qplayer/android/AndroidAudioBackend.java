@@ -32,6 +32,7 @@ public final class AndroidAudioBackend implements AudioBackend {
     private Runnable onStarted;
     private Runnable onPaused;
     private Runnable onResumed;
+    private Runnable onError;
 
     // Audio focus: pause on loss (call / other player), duck on transient-can-duck,
     // resume on regain when the loss was transient.
@@ -69,6 +70,7 @@ public final class AndroidAudioBackend implements AudioBackend {
         });
         mp.setOnErrorListener((p, what, extra) -> {
             Logger.error("MediaPlayer error: what={} extra={}", what, extra);
+            fire(onError);
             // Surface as completion so the controller can advance instead of stalling.
             Runnable cb = onComplete;
             if (cb != null) cb.run();
@@ -181,6 +183,11 @@ public final class AndroidAudioBackend implements AudioBackend {
     @Override
     public synchronized void setOnResumed(Runnable callback) {
         this.onResumed = callback;
+    }
+
+    @Override
+    public synchronized void setOnError(Runnable callback) {
+        this.onError = callback;
     }
 
     @Override

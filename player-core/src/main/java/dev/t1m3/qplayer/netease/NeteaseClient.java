@@ -28,6 +28,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -330,7 +331,15 @@ public final class NeteaseClient {
             if (al.has("name") && !al.get("name").isJsonNull()) out.album = al.get("name").getAsString();
             if (al.has("picUrl") && !al.get("picUrl").isJsonNull()) out.coverUrl = al.get("picUrl").getAsString();
         }
+        out.coverThumbPath = thumbUrl(out.coverUrl);
         return out;
+    }
+
+    /** CDN thumbnail URL (128×128) for a cover, or null. Used as a list-row
+     *  Image.source so every list shows album art, not just search results. */
+    public static String thumbUrl(String coverUrl) {
+        if (coverUrl == null || coverUrl.isEmpty()) return null;
+        return coverUrl + (coverUrl.contains("?") ? "&" : "?") + "param=128y128";
     }
 
     private static NeteasePlaylist parsePlaylist(JsonObject p) {
@@ -365,6 +374,30 @@ public final class NeteaseClient {
         JsonArray arr = obj.getAsJsonArray("songs");
         if (arr.size() == 0 || !arr.get(0).isJsonObject()) return null;
         return parseSong(arr.get(0).getAsJsonObject());
+    }
+
+    /**
+     * Batch-fetch full metadata for multiple songs. Always includes
+     * {@code picUrl} even when the search API omits it.
+     */
+    public List<NeteaseSong> songDetails(List<Long> ids) throws IOException {
+        if (ids == null || ids.isEmpty()) return Collections.emptyList();
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < ids.size(); i++) {
+            if (i > 0) sb.append(',');
+            sb.append("{\"id\":").append(ids.get(i)).append('}');
+        }
+        sb.append(']');
+        Map<String, Object> body = new HashMap<>();
+        body.put("c", sb.toString());
+        JsonObject obj = weapiJson("v3/song/detail", body);
+        List<NeteaseSong> out = new ArrayList<>();
+        if (!obj.has("songs") || !obj.get("songs").isJsonArray()) return out;
+        for (JsonElement el : obj.getAsJsonArray("songs")) {
+            if (!el.isJsonObject()) continue;
+            out.add(parseSong(el.getAsJsonObject()));
+        }
+        return out;
     }
 
     // ---- User account / library (N6) ----

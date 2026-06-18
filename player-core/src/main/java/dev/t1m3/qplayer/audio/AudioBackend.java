@@ -63,6 +63,13 @@ public interface AudioBackend {
 
     default void setOnResumed(Runnable callback) { }
 
+    /**
+     * Callback invoked when the backend encounters a playback error (e.g.
+     * MediaPlayer error, invalid source). May fire on the audio thread.
+     * Default no-op.
+     */
+    default void setOnError(Runnable callback) { }
+
     /** Stop playback and free native resources. */
     void release();
 }

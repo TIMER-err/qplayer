@@ -28,6 +28,8 @@ public class Track {
     public byte[] coverBytes;
     /** Remote cover URL (NETEASE source); resolved lazily when coverBytes is null. */
     public String coverUrl;
+    /** CDN thumbnail URL for list-row art (coverUrl + size param); null if none. */
+    public String coverThumbPath;
 
     /** Sidecar lyric paths discovered next to a LOCAL file; null if absent. */
     public String lyricFilePath;

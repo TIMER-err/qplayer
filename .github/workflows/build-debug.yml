@@ -1,0 +1,46 @@
+name: Build debug APK
+
+# Manually triggered only — for testing on forks / CI without a signing keystore.
+# Produces an auto-signed debug APK that can be installed directly.
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK licenses
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install player-core
+        run: |
+          mvn -B -N install
+          mvn -B -DskipTests install -f player-core/pom.xml
+
+      - name: Build debug APK
+        run: |
+          chmod +x android-shell/gradlew
+          cd android-shell && ./gradlew --no-daemon --stacktrace --info :app:assembleDebug 2>&1
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qplayer-debug-apk
+          path: android-shell/app/build/outputs/apk/debug/app-debug.apk
