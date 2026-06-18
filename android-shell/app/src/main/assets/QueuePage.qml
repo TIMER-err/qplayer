@@ -44,7 +44,12 @@ Rectangle {
             id: q
             Layout.fillWidth: true
             Layout.fillHeight: true
-            list: player.queueTracks
+            // Only hold row delegates while the page is actually shown (visible
+            // tracks the open/close fade). A closed queue page is invisible but
+            // still in the tree, so binding straight to queueTracks kept N hidden
+            // SongRow delegates alive after playing a big playlist — steady GC
+            // pressure on every other screen. Null when closed disposes them.
+            list: page.visible ? player.queueTracks : null
             isLocal: true
             removable: true
             onActivated: player.playQueueIndex(q.activatedIndex)

@@ -53,7 +53,10 @@ Rectangle {
                 id: tracks
                 anchors.fill: parent
                 visible: !player.playlistLoading
-                list: player.playlistTracks
+                // Drop the row delegates when the detail page is closed (see
+                // QueuePage): an invisible detail otherwise keeps the whole
+                // playlist's SongRows alive after you return home.
+                list: page.visible ? player.playlistTracks : null
                 onActivated: player.playPlaylistTrack(tracks.activatedIndex)
             }
 
