@@ -35,8 +35,8 @@ jobs:
           QV=$(grep -oP 'qml4j-core:\K[0-9]+\.[0-9]+\.[0-9]+' android-shell/app/build.gradle.kts)
           echo "qml4j-core version: $QV"
           git clone --depth 1 --branch "v$QV" https://github.com/TIMER-err/qml4j.git "$RUNNER_TEMP/qml4j"
-          mvn -q -B -N install -f "$RUNNER_TEMP/qml4j/pom.xml"
-          mvn -q -B -DskipTests -Dcheckstyle.skip=true install -f "$RUNNER_TEMP/qml4j/qml4j-core/pom.xml"
+          mvn -q -B -N -Dpmd.skip=true -Dcheckstyle.skip=true install -f "$RUNNER_TEMP/qml4j/pom.xml"
+          mvn -q -B -DskipTests -Dpmd.skip=true -Dcpd.skip=true -Dcheckstyle.skip=true install -f "$RUNNER_TEMP/qml4j/qml4j-core/pom.xml"
 
       - name: Install player-core
         run: |
