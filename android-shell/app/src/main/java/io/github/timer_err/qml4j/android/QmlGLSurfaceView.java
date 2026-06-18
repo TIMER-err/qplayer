@@ -438,6 +438,18 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                     renderedVersion = Property.changeVersion();
                     profBumpRender += renderedVersion - vBeforeRender;
                     canvas.restoreToCount(sc);
+                } else if (Property.changeVersion() != renderedVersion) {
+                    // Lyric page fully covers the main scene so we skip drawing it —
+                    // but the chrome subtree (renderSubtree doesn't settle layout)
+                    // relies on the main render's layout pass. When something changed
+                    // (e.g. the new song's title now wraps to two lines), settle once
+                    // so the chrome's anchors reflow; the draw is painted over by the
+                    // fluid backdrop, so it stays invisible. Steady state still skips.
+                    int sc = canvas.save();
+                    canvas.scale(uiScale, uiScale);
+                    renderer.render(canvas, view.root(), false);
+                    renderedVersion = Property.changeVersion();
+                    canvas.restoreToCount(sc);
                 }
                 drawLyricOverlay(canvas);
                 double slideNow = controller != null ? controller.lyricSlide.peek() : 0.0;

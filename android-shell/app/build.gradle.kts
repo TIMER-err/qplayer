@@ -11,7 +11,7 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 10
-        versionName = "0.5.1"
+        versionName = "0.5.2"
         manifestPlaceholders["appLabel"] = "QPlayer"
     }
 
