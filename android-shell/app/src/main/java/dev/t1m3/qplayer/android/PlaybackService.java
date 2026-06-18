@@ -122,9 +122,13 @@ public final class PlaybackService extends Service {
 
     @Override
     public void onDestroy() {
-        // Hand the listener back so the next play boot-starts a fresh service.
+        // Stop playback and release audio backend — called when the task is
+        // swiped away (stopWithTask="true") or explicitly stopped.
         PlayerController c = controller;
-        if (c != null) c.setPlaybackListener(bootstrapListener);
+        if (c != null) {
+            if (c.isPlaying()) c.toggle();
+            c.setPlaybackListener(bootstrapListener);
+        }
         session.setActive(false);
         session.release();
         super.onDestroy();
