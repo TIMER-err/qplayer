@@ -26,7 +26,6 @@ import java.util.Map;
 import java.util.Queue;
 import java.util.Random;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
@@ -117,7 +116,18 @@ public final class PlayerController {
     // --- Search cache ------------------------------------------------------
     /** TTL for cached search results: 5 minutes. */
     private static final long SEARCH_CACHE_TTL_MS = 5 * 60 * 1000L;
-    private final Map<String, CacheEntry> searchCache = new ConcurrentHashMap<>();
+    /** Max number of search results to keep in memory (LRU eviction). */
+    private static final int SEARCH_CACHE_MAX_SIZE = 20;
+    /** Bounded LRU cache: evicts oldest entry when capacity is reached. */
+    @SuppressWarnings("serial")
+    private final Map<String, CacheEntry> searchCache =
+            Collections.synchronizedMap(new LinkedHashMap<String, CacheEntry>(
+                    SEARCH_CACHE_MAX_SIZE + 1, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, CacheEntry> eldest) {
+                    return size() > SEARCH_CACHE_MAX_SIZE;
+                }
+            });
 
     /** Holds a cached search result with its creation timestamp. */
     private static final class CacheEntry {
