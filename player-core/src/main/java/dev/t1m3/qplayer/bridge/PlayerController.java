@@ -20,6 +20,7 @@ import io.github.timer_err.qml4j.runtime.color.StyleManager;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -900,31 +901,20 @@ public final class PlayerController {
 
     private void downloadThumbnails(List<NeteaseSong> songs) {
         if (songs == null || songs.isEmpty()) return;
-        File thumbDir = new File(AppDirs.base(), "thumbs");
-        thumbDir.mkdirs();
         List<Future<?>> futures = new ArrayList<>();
         for (NeteaseSong song : songs) {
             String coverUrl = song.coverUrl;
             if (coverUrl == null || coverUrl.isEmpty()) continue;
             String cached = thumbCache.get(coverUrl);
             if (cached != null) { song.coverThumbPath = cached; continue; }
-            String path = new File(thumbDir, song.id + ".jpg").getAbsolutePath();
-            File f = new File(path);
-            if (f.exists() && f.length() > 0) {
-                song.coverThumbPath = path;
-                thumbCache.put(coverUrl, path);
-                continue;
-            }
             futures.add(thumbnailPool.submit(() -> {
                 try {
                     String u = coverUrl.contains("?") ? coverUrl + "&param=128y128" : coverUrl + "?param=128y128";
                     byte[] data = downloadBytes(u);
                     if (data != null && data.length > 0) {
-                        try (java.io.FileOutputStream fos = new java.io.FileOutputStream(path)) {
-                            fos.write(data);
-                        }
-                        song.coverThumbPath = path;
-                        thumbCache.put(coverUrl, path);
+                        String dataUri = "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(data);
+                        song.coverThumbPath = dataUri;
+                        thumbCache.put(coverUrl, dataUri);
                     }
                 } catch (Throwable e) {
                     Logger.warn("thumb {}: {}", song.id, e.getMessage());
