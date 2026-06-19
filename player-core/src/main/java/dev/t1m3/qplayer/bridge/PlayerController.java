@@ -556,6 +556,15 @@ public final class PlayerController {
         }
     }
 
+    /** Open an arbitrary external url via the host browser (e.g. the project page). */
+    public void openExternalUrl(String url) {
+        UrlOpener o = urlOpener;
+        if (o != null && url != null && !url.isEmpty()) {
+            final String u = url;
+            onMain(() -> o.open(u));
+        }
+    }
+
     /** Open the stored download url via the host (invoked from the QML dialog). */
     public void openUpdateUrl() {
         UrlOpener o = urlOpener;

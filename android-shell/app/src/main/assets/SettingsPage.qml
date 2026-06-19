@@ -547,26 +547,37 @@ Rectangle {
                     Layout.rightMargin: 12
                     radius: 18
                     color: Theme.color.surfaceContainerHighest
-                    implicitHeight: aboutCol.implicitHeight + 32
+                    implicitHeight: aboutRow.implicitHeight + 32
 
-                    ColumnLayout {
-                        id: aboutCol
+                    RowLayout {
+                        id: aboutRow
                         anchors.left: parent.left
                         anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: 16
-                        spacing: 2
-                        Text {
-                            text: "qplayer"
-                            color: Theme.color.onSurfaceColor
-                            font.family: Theme.typography.bodyLarge.family
-                            font.pixelSize: Theme.typography.bodyLarge.size
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: 16
+                        anchors.rightMargin: 8
+                        spacing: 12
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Text {
+                                text: "QPlayer"
+                                color: Theme.color.onSurfaceColor
+                                font.family: Theme.typography.bodyLarge.family
+                                font.pixelSize: Theme.typography.bodyLarge.size
+                            }
+                            Text {
+                                text: "基于 qml4j 纯 Java QML 引擎"
+                                color: Theme.color.onSurfaceVariantColor
+                                font.family: Theme.typography.bodySmall.family
+                                font.pixelSize: Theme.typography.bodySmall.size
+                            }
                         }
-                        Text {
-                            text: "基于 qml4j 纯 Java QML 引擎"
-                            color: Theme.color.onSurfaceVariantColor
-                            font.family: Theme.typography.bodySmall.family
-                            font.pixelSize: Theme.typography.bodySmall.size
+                        IconButton {
+                            type: "standard"
+                            icon: "link"
+                            onClicked: player.openExternalUrl("https://github.com/TIMER-err/qplayer")
                         }
                     }
                 }

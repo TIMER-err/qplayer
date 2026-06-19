@@ -303,7 +303,10 @@ public final class QPlayerActivity extends Activity {
         hideSplash();
         requestAudioPermission();
         requestNotificationPermission();
-        controller.checkForUpdate();
+        // Don't auto-check for updates on debug builds — only release builds nag.
+        if ((getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0) {
+            controller.checkForUpdate();
+        }
     }
 
     /** Playback state / track changed (main thread): poke the foreground service to
