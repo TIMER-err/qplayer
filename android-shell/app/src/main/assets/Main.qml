@@ -264,6 +264,37 @@ Rectangle {
         onClosed: app.loginOpen = false
     }
 
+    // New-version dialog: the host's startup check sets player.updateAvailable when a
+    // newer GitHub release exists; we pop a dialog showing the release notes + an
+    // update button that hands the APK url back to the host to download.
+    Dialog {
+        id: updateDialog
+        title: "发现新版本"
+        icon: "system_update"
+        text: "新版本 " + player.updateVersion + " 现已发布"
+        acceptText: "立即更新"
+        rejectText: "稍后"
+        onAccepted: player.openUpdateUrl()
+
+        Flickable {
+            width: parent.width
+            height: Math.min(notesText.height, 260)
+            contentHeight: notesText.height
+            clip: true
+            Text {
+                id: notesText
+                width: parent.width
+                text: player.updateNotes
+                color: Theme.color.onSurfaceVariantColor
+                fontSize: 13
+                wrapMode: Text.Wrap
+            }
+        }
+    }
+
+    property bool updateWatch: player.updateAvailable
+    onUpdateWatchChanged: if (player.updateAvailable) updateDialog.open()
+
     Snackbar { id: snack }
 
     // --- debug log overlay ---------------------------------------------

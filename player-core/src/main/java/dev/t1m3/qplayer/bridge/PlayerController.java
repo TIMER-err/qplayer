@@ -14,6 +14,10 @@ import dev.t1m3.qplayer.netease.dto.NeteasePlaylist;
 import dev.t1m3.qplayer.netease.dto.NeteaseSong;
 import dev.t1m3.qplayer.netease.dto.NeteaseUser;
 import dev.t1m3.qplayer.util.Logger;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import io.github.timer_err.qml4j.engine.binding.Property;
 import io.github.timer_err.qml4j.runtime.color.StyleManager;
 
@@ -367,6 +371,181 @@ public final class PlayerController {
     public void requestExit() {
         ExitListener l = exitListener;
         if (l != null) onMain(l::onExit);
+    }
+
+    // --- App update check --------------------------------------------------
+    // On startup the host calls checkForUpdate(); we GET the latest GitHub
+    // release, compare its tag against the running version, and (if newer) expose
+    // the version + release notes + download url so QML pops an update dialog.
+
+    /** Latest GitHub release endpoint for the qplayer repo. (Not mirrored: gh-proxy
+     *  only proxies release/raw downloads, not api.github.com — which is reachable.) */
+    private static final String RELEASE_API =
+            "https://api.github.com/repos/TIMER-err/qplayer/releases/latest";
+    /** gh-proxy (hunshcn/gh-proxy) prefix for github.com release downloads. */
+    private static final String MIRROR_PREFIX = "https://gh-proxy.com/";
+
+    /** When true, the APK download url is routed through {@link #MIRROR_PREFIX}. */
+    private volatile boolean updateMirror = false;
+
+    /** Toggle the GitHub download mirror (driven by the settings switch). */
+    public void setUpdateMirror(boolean enabled) {
+        this.updateMirror = enabled;
+    }
+
+    /** True once a newer release than the running version is found; QML watches it
+     *  to pop the update dialog. */
+    public final Property<Boolean> updateAvailable = new Property<>(false);
+    /** The newer release's version (tag without the leading "v"). */
+    public final Property<String> updateVersion = new Property<>("");
+    /** The newer release's notes (GitHub release body / changelog). */
+    public final Property<String> updateNotes = new Property<>("");
+
+    /** APK asset (or release page) url of the newer release; opened by the host. */
+    private volatile String updateUrl = "";
+    /** Running app version, injected by the host (PackageInfo.versionName). */
+    private volatile String currentVersion = "";
+
+    /** Host hook to open a url externally (browser / package installer). */
+    public interface UrlOpener {
+        void open(String url);
+    }
+
+    private volatile UrlOpener urlOpener;
+
+    public void setUrlOpener(UrlOpener o) {
+        this.urlOpener = o;
+    }
+
+    /** Host injects the running app version (e.g. "0.5.2") for the update compare. */
+    public void setCurrentVersion(String version) {
+        this.currentVersion = version == null ? "" : version;
+    }
+
+    /** Fetch the latest release off the worker thread; on a newer version, publish
+     *  it to the update Properties (QML pops the dialog). Best-effort: any failure
+     *  (offline, rate-limited, parse error) just logs and leaves the dialog closed. */
+    public void checkForUpdate() {
+        worker.submit(() -> {
+            try {
+                String json = httpGet(RELEASE_API);
+                JsonElement root = new JsonParser().parse(json);
+                if (!root.isJsonObject()) return;
+                JsonObject obj = root.getAsJsonObject();
+
+                String tag = optString(obj, "tag_name");
+                String latest = tag.startsWith("v") ? tag.substring(1) : tag;
+                if (!isNewer(latest, currentVersion)) return;
+
+                String notes = optString(obj, "body");
+                String apk = "";
+                if (obj.has("assets") && obj.get("assets").isJsonArray()) {
+                    JsonArray assets = obj.getAsJsonArray("assets");
+                    for (JsonElement e : assets) {
+                        if (!e.isJsonObject()) continue;
+                        JsonObject a = e.getAsJsonObject();
+                        if (optString(a, "name").toLowerCase().endsWith(".apk")) {
+                            apk = optString(a, "browser_download_url");
+                            break;
+                        }
+                    }
+                }
+                // Mirror only the APK download (a github.com release asset gh-proxy can
+                // proxy); fall back to the release page (opened directly) when no APK.
+                String dl;
+                if (!apk.isEmpty()) {
+                    dl = updateMirror ? MIRROR_PREFIX + apk : apk;
+                } else {
+                    dl = optString(obj, "html_url");
+                }
+
+                final String fUrl = dl;
+                final String fVer = latest;
+                final String fNotes = notes;
+                post(() -> {
+                    updateUrl = fUrl;
+                    updateVersion.set(fVer);
+                    updateNotes.set(fNotes);
+                    updateAvailable.set(true);
+                });
+                Logger.info("update available: {} (running {})", latest, currentVersion);
+            } catch (Throwable e) {
+                Logger.warn("update check failed: {}", e.toString());
+            }
+        });
+    }
+
+    /** Open the stored download url via the host (invoked from the QML dialog). */
+    public void openUpdateUrl() {
+        UrlOpener o = urlOpener;
+        String url = updateUrl;
+        if (o != null && url != null && !url.isEmpty()) {
+            final String u = url;
+            onMain(() -> o.open(u));
+        }
+    }
+
+    private static String optString(JsonObject obj, String key) {
+        JsonElement e = obj.get(key);
+        return (e == null || e.isJsonNull()) ? "" : e.getAsString();
+    }
+
+    /** Semver compare on the first three numeric components; pre-release/suffix
+     *  parts (e.g. the "-debug" on debug builds) are ignored. */
+    private static boolean isNewer(String latest, String current) {
+        if (latest == null || latest.isEmpty() || current == null || current.isEmpty()) {
+            return false;
+        }
+        int[] a = parseVersion(latest);
+        int[] b = parseVersion(current);
+        for (int i = 0; i < 3; i++) {
+            if (a[i] != b[i]) return a[i] > b[i];
+        }
+        return false;
+    }
+
+    private static int[] parseVersion(String v) {
+        int[] out = new int[3];
+        String[] parts = v.split("[.+\\-]");
+        for (int i = 0; i < 3 && i < parts.length; i++) {
+            try {
+                out[i] = Integer.parseInt(parts[i].trim());
+            } catch (NumberFormatException ignored) {
+                // leave 0
+            }
+        }
+        return out;
+    }
+
+    /** Minimal HTTP GET (same HttpURLConnection-only stance as NeteaseClient — no
+     *  extra deps). GitHub requires a User-Agent and rejects requests without one. */
+    private static String httpGet(String urlStr) throws java.io.IOException {
+        java.net.HttpURLConnection conn =
+                (java.net.HttpURLConnection) new java.net.URL(urlStr).openConnection();
+        try {
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(10_000);
+            conn.setReadTimeout(15_000);
+            conn.setRequestProperty("User-Agent", "qplayer-update-check");
+            conn.setRequestProperty("Accept", "application/vnd.github+json");
+            int code = conn.getResponseCode();
+            java.io.InputStream is =
+                    (code >= 400) ? conn.getErrorStream() : conn.getInputStream();
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            if (is != null) {
+                byte[] buf = new byte[4096];
+                int n;
+                while ((n = is.read(buf)) > 0) out.write(buf, 0, n);
+                is.close();
+            }
+            String body = new String(out.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
+            if (code >= 400) {
+                throw new java.io.IOException("HTTP " + code);
+            }
+            return body;
+        } finally {
+            conn.disconnect();
+        }
     }
 
     /** Jump to a slot in the live queue (queue-page tap). */

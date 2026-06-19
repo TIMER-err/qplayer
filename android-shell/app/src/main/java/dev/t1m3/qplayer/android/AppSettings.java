@@ -33,6 +33,9 @@ public final class AppSettings extends QObject {
     public final Property<Boolean> resolvedDark = new Property<>(Boolean.FALSE);
     /** Source-switching for grey/VIP/trial netease tracks (gdstudio / bodian / kuwo). */
     public final Property<Boolean> unblockEnabled = new Property<>(Boolean.TRUE);
+    /** Route GitHub release (update) downloads through the gh-proxy mirror. Default on
+     *  for Simplified-Chinese systems, where github.com downloads are slow/blocked. */
+    public final Property<Boolean> mirrorEnabled = new Property<>(Boolean.TRUE);
 
     // Lyric-page typography (Object-typed: QML numeric writes arrive as Long).
     /** Lyric main font size in px (14–40). */
@@ -77,11 +80,17 @@ public final class AppSettings extends QObject {
         void onUnblock(boolean enabled);
     }
 
+    /** Notified when the update-mirror toggle changes. */
+    public interface MirrorListener {
+        void onMirror(boolean enabled);
+    }
+
     private SharedPreferences prefs;
     private boolean systemDark;
     private DarkListener darkListener;
     private MonetListener monetListener;
     private UnblockListener unblockListener;
+    private MirrorListener mirrorListener;
 
     public void setDarkListener(DarkListener l) {
         this.darkListener = l;
@@ -93,6 +102,10 @@ public final class AppSettings extends QObject {
 
     public void setUnblockListener(UnblockListener l) {
         this.unblockListener = l;
+    }
+
+    public void setMirrorListener(MirrorListener l) {
+        this.mirrorListener = l;
     }
 
     public boolean resolvedDarkValue() {
@@ -107,9 +120,11 @@ public final class AppSettings extends QObject {
         darkMode.set(prefs.getInt("darkMode", MODE_SYSTEM));
         monetEnabled.set(prefs.getBoolean("monet", true));
         unblockEnabled.set(prefs.getBoolean("unblock", true));
+        mirrorEnabled.set(prefs.getBoolean("mirror", isSimplifiedChinese()));
         recompute();
         if (monetListener != null) monetListener.onMonet(Boolean.TRUE.equals(monetEnabled.peek()));
         if (unblockListener != null) unblockListener.onUnblock(Boolean.TRUE.equals(unblockEnabled.peek()));
+        if (mirrorListener != null) mirrorListener.onMirror(Boolean.TRUE.equals(mirrorEnabled.peek()));
         darkMode.setInterceptor((p, v) -> {
             // Normalize to Integer (QML hands us a Long) so reads compare as ints.
             p.setBypassInterceptor(asInt(v));
@@ -127,6 +142,12 @@ public final class AppSettings extends QObject {
             boolean on = Boolean.TRUE.equals(p.peek());
             prefs.edit().putBoolean("unblock", on).apply();
             if (unblockListener != null) unblockListener.onUnblock(on);
+        });
+        mirrorEnabled.setInterceptor((p, v) -> {
+            p.setBypassInterceptor(v);
+            boolean on = Boolean.TRUE.equals(p.peek());
+            prefs.edit().putBoolean("mirror", on).apply();
+            if (mirrorListener != null) mirrorListener.onMirror(on);
         });
 
         lyricFontSize.set(prefs.getInt("lyricFontSize", 28));
@@ -197,6 +218,16 @@ public final class AppSettings extends QObject {
         boolean dark = mode == MODE_DARK || (mode == MODE_SYSTEM && systemDark);
         resolvedDark.set(dark);
         if (darkListener != null) darkListener.onDark(dark);
+    }
+
+    /** Whether the system locale is Simplified Chinese (zh, excluding the Traditional
+     *  TW/HK/MO regions) — used to default the GitHub download mirror on. */
+    private static boolean isSimplifiedChinese() {
+        java.util.Locale loc = java.util.Locale.getDefault();
+        if (!"zh".equals(loc.getLanguage())) return false;
+        if ("Hant".equalsIgnoreCase(loc.getScript())) return false;
+        String c = loc.getCountry();
+        return !("TW".equals(c) || "HK".equals(c) || "MO".equals(c));
     }
 
     public static boolean isSystemDark(Context ctx) {

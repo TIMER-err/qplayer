@@ -211,6 +211,48 @@ Rectangle {
                     }
                 }
 
+                // GitHub download mirror: route app-update APK downloads through the
+                // gh-proxy mirror (faster/reachable on mainland networks).
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 12
+                    Layout.rightMargin: 12
+                    radius: 18
+                    color: Theme.color.surfaceContainerHighest
+                    implicitHeight: mirrorRow.implicitHeight + 32
+
+                    RowLayout {
+                        id: mirrorRow
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: 16
+                        anchors.rightMargin: 16
+                        spacing: 12
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Text {
+                                text: "下载加速镜像"
+                                color: Theme.color.onSurfaceColor
+                                font.family: Theme.typography.bodyLarge.family
+                                font.pixelSize: Theme.typography.bodyLarge.size
+                            }
+                            Text {
+                                text: "通过 gh-proxy 镜像下载应用更新"
+                                color: Theme.color.onSurfaceVariantColor
+                                font.family: Theme.typography.bodySmall.family
+                                font.pixelSize: Theme.typography.bodySmall.size
+                            }
+                        }
+                        Switch {
+                            checked: settings.mirrorEnabled
+                            onClicked: settings.mirrorEnabled = checked
+                        }
+                    }
+                }
+
                 Text {
                     Layout.leftMargin: 20
                     Layout.topMargin: 6

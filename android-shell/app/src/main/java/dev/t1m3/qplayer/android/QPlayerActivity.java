@@ -90,6 +90,23 @@ public final class QPlayerActivity extends Activity {
         }
         controller.setColorExtractor(new AndroidColorExtractor());
 
+        // App update check: feed the running version + a url opener so the controller
+        // can compare against the latest GitHub release and the dialog can launch the
+        // APK download. The check itself is kicked off in onSceneReady (network-safe).
+        try {
+            controller.setCurrentVersion(
+                    getPackageManager().getPackageInfo(getPackageName(), 0).versionName);
+        } catch (PackageManager.NameNotFoundException ignored) {
+        }
+        controller.setUrlOpener(url -> runOnUiThread(() -> {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                        .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (Throwable e) {
+                dev.t1m3.qplayer.util.Logger.error("open update url failed: {}", e.toString());
+            }
+        }));
+
         // Playback control runs on the main thread (alive in the background, unlike
         // the GL render thread); the service mirrors state to the media session and
         // keeps playback foregrounded so it survives + auto-advances when backgrounded.
@@ -111,6 +128,7 @@ public final class QPlayerActivity extends Activity {
         settings.setDarkListener(dark -> runOnUiThread(() -> applySystemBars(dark)));
         settings.setMonetListener(on -> controller.setMonetEnabled(on));
         settings.setUnblockListener(on -> controller.setUnblockEnabled(on));
+        settings.setMirrorListener(on -> controller.setUpdateMirror(on));
         settings.load(this);
 
         String qml;
@@ -185,6 +203,7 @@ public final class QPlayerActivity extends Activity {
         hideSplash();
         requestAudioPermission();
         requestNotificationPermission();
+        controller.checkForUpdate();
     }
 
     /** Playback state / track changed (main thread): poke the foreground service to
