@@ -12,7 +12,9 @@ Item {
         id: recent
         anchors.fill: parent
         visible: player.loggedIn
-        list: player.recentSongs
+        // Same guard as LocalPage/QueuePage: this page is always in the tree, so a
+        // bare bind keeps a SongRow per history entry alive while 最近 is hidden.
+        list: page.visible ? player.recentSongs : null
         onActivated: player.playRecentSong(recent.activatedIndex)
     }
 

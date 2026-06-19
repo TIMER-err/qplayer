@@ -233,8 +233,13 @@ public final class NeteaseClient {
         JsonObject obj = weapiJson("personalized/playlist", body);
         List<NeteasePlaylist> out = new ArrayList<>();
         if (obj.has("result") && obj.get("result").isJsonArray()) {
+            // Cap to the requested limit: without a logged-in cookie the endpoint
+            // ignores `limit` and can return the full pool (hundreds+), which the
+            // home grid then instantiates as one PlaylistCard each -> OOM. We asked
+            // for `limit`; never build more than that regardless of what comes back.
             for (JsonElement el : obj.getAsJsonArray("result")) {
                 if (!el.isJsonObject()) continue;
+                if (out.size() >= limit) break;
                 out.add(parsePlaylist(el.getAsJsonObject()));
             }
         }
