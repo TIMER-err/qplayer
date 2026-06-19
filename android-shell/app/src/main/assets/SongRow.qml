@@ -116,14 +116,17 @@ Rectangle {
 
     // Tap + Material ripple, clipped to the inset pill shape. Idle cost is nil
     // (Ripple gates its MultiEffect on live-wave count); a wave only renders while
-    // a row is being pressed.
+    // a row is being pressed. Reactive geometry, NOT anchors: under cachedLayout
+    // (long lists) the measure pass that resolves anchors is skipped once the
+    // container box is stable, so an anchor-sized ripple stays stuck at the row's
+    // first (often zero, hence -16 after margins) width — the mispositioned/half/
+    // crashing ripple. Width bindings track row.width and update without a re-measure.
     Ripple {
         id: ripple
-        anchors.fill: parent
-        anchors.leftMargin: 8
-        anchors.rightMargin: 8
-        anchors.topMargin: 4
-        anchors.bottomMargin: 4
+        x: 8
+        y: 4
+        width: row.width - 16
+        height: row.height - 8
         clipRadius: 12
         rippleColor: Theme.color.onSurfaceColor
         onClicked: row.activated()
