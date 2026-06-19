@@ -62,8 +62,7 @@ Rectangle {
                     font.pixelSize: Theme.typography.titleSmall.size
                 }
 
-                // Dark-mode policy: self-managed three-way segment (avoids relying on
-                // a cross-file signal parameter) writing settings.darkMode.
+                // Dark-mode policy: three-way segmented button writing settings.darkMode.
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.leftMargin: 12
@@ -86,27 +85,14 @@ Rectangle {
                             font.family: Theme.typography.bodyLarge.family
                             font.pixelSize: Theme.typography.bodyLarge.size
                         }
-                        RowLayout {
+                        SegmentedButton {
                             Layout.fillWidth: true
-                            spacing: 8
-                            Button {
-                                Layout.fillWidth: true
-                                type: settings.darkMode === 0 ? "filled" : "outlined"
-                                text: "跟随系统"
-                                onClicked: settings.darkMode = 0
-                            }
-                            Button {
-                                Layout.fillWidth: true
-                                type: settings.darkMode === 1 ? "filled" : "outlined"
-                                text: "浅色"
-                                onClicked: settings.darkMode = 1
-                            }
-                            Button {
-                                Layout.fillWidth: true
-                                type: settings.darkMode === 2 ? "filled" : "outlined"
-                                text: "深色"
-                                onClicked: settings.darkMode = 2
-                            }
+                            buttons: [
+                                { text: "跟随系统", selected: settings.darkMode === 0 },
+                                { text: "浅色", selected: settings.darkMode === 1 },
+                                { text: "深色", selected: settings.darkMode === 2 }
+                            ]
+                            onClicked: settings.darkMode = index
                         }
                     }
                 }
@@ -311,33 +297,15 @@ Rectangle {
                             font.family: Theme.typography.bodyLarge.family
                             font.pixelSize: Theme.typography.bodyLarge.size
                         }
-                        RowLayout {
+                        SegmentedButton {
                             Layout.fillWidth: true
-                            spacing: 6
-                            Button {
-                                Layout.fillWidth: true
-                                type: settings.lyricFontWeight === 0 ? "filled" : "outlined"
-                                text: "极细"
-                                onClicked: settings.lyricFontWeight = 0
-                            }
-                            Button {
-                                Layout.fillWidth: true
-                                type: settings.lyricFontWeight === 1 ? "filled" : "outlined"
-                                text: "细"
-                                onClicked: settings.lyricFontWeight = 1
-                            }
-                            Button {
-                                Layout.fillWidth: true
-                                type: settings.lyricFontWeight === 2 ? "filled" : "outlined"
-                                text: "常规"
-                                onClicked: settings.lyricFontWeight = 2
-                            }
-                            Button {
-                                Layout.fillWidth: true
-                                type: settings.lyricFontWeight === 3 ? "filled" : "outlined"
-                                text: "中等"
-                                onClicked: settings.lyricFontWeight = 3
-                            }
+                            buttons: [
+                                { text: "极细", selected: settings.lyricFontWeight === 0 },
+                                { text: "细", selected: settings.lyricFontWeight === 1 },
+                                { text: "常规", selected: settings.lyricFontWeight === 2 },
+                                { text: "中等", selected: settings.lyricFontWeight === 3 }
+                            ]
+                            onClicked: settings.lyricFontWeight = index
                         }
 
                         // Line-spacing stepper (percent of font size, shown as ×).
