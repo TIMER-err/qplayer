@@ -105,6 +105,7 @@ public final class QPlayerActivity extends Activity {
                 dev.t1m3.qplayer.util.Logger.error("open update url failed: {}", e.toString());
             }
         }));
+        controller.setInstaller(this::downloadAndInstallUpdate);
 
         // Playback control runs on the main thread (alive in the background, unlike
         // the GL render thread); the service mirrors state to the media session and
@@ -195,6 +196,75 @@ public final class QPlayerActivity extends Activity {
         // here pops a system dialog during the QML compile, and the resulting
         // pause/resume + the concurrent MediaStore scan racing the dex compile
         // crashes on first launch. Once the scene has rendered, it's safe.
+    }
+
+    /** Download the update APK (through the mirror url) to app storage with progress,
+     *  then hand it to the system package installer. Off the main thread. */
+    private void downloadAndInstallUpdate(String url) {
+        new Thread(() -> {
+            java.io.File out = new java.io.File(getExternalFilesDir(null), "updates/qplayer-update.apk");
+            try {
+                java.io.File dir = out.getParentFile();
+                if (dir != null) dir.mkdirs();
+                java.net.HttpURLConnection conn =
+                        (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+                conn.setInstanceFollowRedirects(true);
+                conn.setConnectTimeout(15_000);
+                conn.setReadTimeout(30_000);
+                conn.setRequestProperty("User-Agent", "qplayer-updater");
+                int code = conn.getResponseCode();
+                if (code >= 400) throw new IOException("HTTP " + code);
+                int total = conn.getContentLength();
+                try (InputStream in = conn.getInputStream();
+                     java.io.FileOutputStream fos = new java.io.FileOutputStream(out)) {
+                    byte[] buf = new byte[16384];
+                    long read = 0;
+                    int n;
+                    int lastPct = -1;
+                    while ((n = in.read(buf)) > 0) {
+                        fos.write(buf, 0, n);
+                        read += n;
+                        if (total > 0) {
+                            int pct = (int) (read * 100 / total);
+                            if (pct != lastPct) {
+                                lastPct = pct;
+                                controller.setUpdateProgress(pct);
+                            }
+                        }
+                    }
+                }
+                conn.disconnect();
+                controller.setUpdateProgress(100);
+                runOnUiThread(() -> installApk(out));
+            } catch (Throwable e) {
+                dev.t1m3.qplayer.util.Logger.error("update download failed: {}", e.toString());
+                controller.setUpdateProgress(-2);
+            }
+        }, "qplayer-update-dl").start();
+    }
+
+    /** Launch the system package installer for the downloaded APK via FileProvider. */
+    private void installApk(java.io.File apk) {
+        try {
+            // Android O+ gates sideload installs behind a per-app "unknown sources"
+            // grant; send the user to grant it, then they re-trigger the update.
+            if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+                controller.setUpdateProgress(-1);
+                startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        android.net.Uri.parse("package:" + getPackageName()))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                return;
+            }
+            android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(
+                    this, getPackageName() + ".fileprovider", apk);
+            startActivity(new Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(uri, "application/vnd.android.package-archive")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK));
+            controller.setUpdateProgress(-1);
+        } catch (Throwable e) {
+            dev.t1m3.qplayer.util.Logger.error("install apk failed: {}", e.toString());
+            controller.setUpdateProgress(-2);
+        }
     }
 
     /** First painted frame: the QML tree is fully built and rendering. Now hide the

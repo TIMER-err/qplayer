@@ -265,8 +265,8 @@ Rectangle {
     }
 
     // New-version dialog: the host's startup check sets player.updateAvailable when a
-    // newer GitHub release exists; we pop a dialog showing the release notes + an
-    // update button that hands the APK url back to the host to download.
+    // newer GitHub release exists; the update button downloads the APK in-app (through
+    // the mirror) and hands it to the system installer.
     Dialog {
         id: updateDialog
         title: "发现新版本"
@@ -274,7 +274,7 @@ Rectangle {
         text: "新版本 " + player.updateVersion + " 现已发布"
         acceptText: "立即更新"
         rejectText: "稍后"
-        onAccepted: player.openUpdateUrl()
+        onAccepted: player.startUpdateDownload()
 
         Flickable {
             width: parent.width
@@ -294,6 +294,28 @@ Rectangle {
 
     property bool updateWatch: player.updateAvailable
     onUpdateWatchChanged: if (player.updateAvailable) updateDialog.open()
+
+    // In-app update download progress, driven by the host (-1 idle, 0..100, -2 fail).
+    property int updateProgWatch: player.updateProgress
+    onUpdateProgWatchChanged: if (player.updateProgress === -2) { snack.text = "更新下载失败，请稍后重试"; snack.open() }
+
+    Rectangle {
+        visible: player.updateProgress >= 0 && player.updateProgress < 100
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        height: 48 + settings.bottomInset
+        color: Theme.color.surfaceContainerHigh
+        z: 9000
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top: parent.top
+            anchors.topMargin: 14
+            text: "正在下载更新… " + player.updateProgress + "%"
+            color: Theme.color.onSurfaceColor
+            fontSize: 14
+        }
+    }
 
     Snackbar { id: snack }
 

@@ -417,7 +417,7 @@ public final class PlayerController {
     /** Running app version, injected by the host (PackageInfo.versionName). */
     private volatile String currentVersion = "";
 
-    /** Host hook to open a url externally (browser / package installer). */
+    /** Host hook to open a url externally (browser fallback for the update). */
     public interface UrlOpener {
         void open(String url);
     }
@@ -426,6 +426,42 @@ public final class PlayerController {
 
     public void setUrlOpener(UrlOpener o) {
         this.urlOpener = o;
+    }
+
+    /** Host hook to download an APK in-app (through the mirror) and launch the
+     *  system package installer. */
+    public interface Installer {
+        void downloadAndInstall(String url);
+    }
+
+    private volatile Installer installer;
+
+    public void setInstaller(Installer i) {
+        this.installer = i;
+    }
+
+    /** In-app update download progress: -1 idle, 0..100 downloading, 100 handing off
+     *  to the installer, -2 failed. QML shows it and the host drives it. */
+    public final Property<Integer> updateProgress = new Property<>(-1);
+
+    /** Push download progress from the host (any thread). */
+    public void setUpdateProgress(int pct) {
+        post(() -> updateProgress.set(pct));
+    }
+
+    /** Start the in-app download + install of the pending update (QML "更新" button).
+     *  Falls back to opening the url in a browser when no installer is wired. */
+    public void startUpdateDownload() {
+        String url = updateUrl;
+        if (url == null || url.isEmpty()) return;
+        Installer in = installer;
+        if (in == null) {
+            openUpdateUrl();
+            return;
+        }
+        final String u = url;
+        post(() -> updateProgress.set(0));
+        onMain(() -> in.downloadAndInstall(u));
     }
 
     /** Host injects the running app version (e.g. "0.5.2") for the update compare. */
