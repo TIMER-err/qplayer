@@ -111,6 +111,7 @@ public final class QPlayerActivity extends Activity {
         settings.setDarkListener(dark -> runOnUiThread(() -> applySystemBars(dark)));
         settings.setMonetListener(on -> controller.setMonetEnabled(on));
         settings.setUnblockListener(on -> controller.setUnblockEnabled(on));
+        settings.setCacheSizeListener(mb -> controller.setCacheMaxSizeMB(mb));
         settings.load(this);
 
         String qml;
