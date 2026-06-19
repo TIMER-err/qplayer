@@ -200,7 +200,9 @@ public final class NeteaseClient {
      * Returns a list of keyword strings ordered by popularity.
      */
     public List<String> searchHot() throws IOException {
-        JsonObject obj = weapiJson("search/hot/detail", new HashMap<String, Object>());
+        // NeteaseCloudMusicApi uses /hotsearchlist/get for the hot-search list; the
+        // older search/hot/detail returns nothing now. Both shape data[].searchWord.
+        JsonObject obj = weapiJson("hotsearchlist/get", new HashMap<String, Object>());
         List<String> out = new ArrayList<>();
         if (obj.has("data") && obj.get("data").isJsonArray()) {
             for (JsonElement el : obj.getAsJsonArray("data")) {
@@ -210,6 +212,9 @@ public final class NeteaseClient {
                     out.add(item.get("searchWord").getAsString());
                 }
             }
+        }
+        if (out.isEmpty()) {
+            Logger.warn("hot search returned empty: {}", truncate(obj.toString(), 200));
         }
         return out;
     }
