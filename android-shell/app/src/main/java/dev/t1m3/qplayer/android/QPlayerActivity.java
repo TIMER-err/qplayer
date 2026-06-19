@@ -65,6 +65,10 @@ public final class QPlayerActivity extends Activity {
     private MetadataReader reader;
     private android.os.Handler mainHandler;
 
+    /** Singleton controller — survives Activity recreations (PiP, config changes)
+     *  so playback state and the foreground service stay connected across them. */
+    private static volatile PlayerController sharedController;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -74,7 +78,16 @@ public final class QPlayerActivity extends Activity {
 
         AudioBackend backend = new AndroidAudioBackend(this);
         reader = new AndroidMetadataReader();
-        controller = new PlayerController(backend, reader);
+
+        // Reuse the existing controller across Activity recreations (PiP, config
+        // changes). Without this, each recreation builds a fresh controller with
+        // empty state — disconnected from the PlaybackService's static reference
+        // to the old one, causing UI/notification desync.
+        controller = sharedController;
+        if (controller == null) {
+            controller = new PlayerController(backend, reader);
+            sharedController = controller;
+        }
         controller.setColorExtractor(new AndroidColorExtractor());
 
         // Playback control runs on the main thread (alive in the background, unlike
@@ -401,6 +414,11 @@ public final class QPlayerActivity extends Activity {
     protected void onResume() {
         super.onResume();
         if (glView != null) glView.onResume();
+        // Returning from PiP / background: force-sync the notification bar with
+        // the current controller state so they never drift apart.
+        if (controller != null && controller.isPlaying()) {
+            onPlaybackChanged();
+        }
     }
 
     @Override
@@ -417,10 +435,15 @@ public final class QPlayerActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        // Keep the engine alive while audio is playing so background playback (driven
-        // by the foreground service) survives the activity being destroyed, e.g. a
-        // recents swipe. When idle, release as before.
-        if (controller != null && !controller.isPlaying()) controller.shutdown();
+        // Release the controller when idle (not playing). This covers both:
+        //   - owner Activities on normal exit
+        //   - non-owner Activities (PiP recreations) that outlive the owner
+        // Playing controllers must survive for background/foreground-service use;
+        // stopWithTask="true" handles the force-stop case via PlaybackService.onDestroy().
+        if (controller != null && !controller.isPlaying()) {
+            controller.shutdown();
+            sharedController = null;
+        }
         if (glView != null) {
             glView = null;
         }

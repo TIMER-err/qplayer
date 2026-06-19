@@ -190,6 +190,25 @@ public final class NeteaseClient {
     // ---- Discovery / search / playlist (N5) ----
 
     /**
+     * Hot search keywords for the search page (shown when input is empty).
+     * Returns a list of keyword strings ordered by popularity.
+     */
+    public List<String> searchHot() throws IOException {
+        JsonObject obj = weapiJson("search/hot/detail", new HashMap<String, Object>());
+        List<String> out = new ArrayList<>();
+        if (obj.has("data") && obj.get("data").isJsonArray()) {
+            for (JsonElement el : obj.getAsJsonArray("data")) {
+                if (!el.isJsonObject()) continue;
+                JsonObject item = el.getAsJsonObject();
+                if (item.has("searchWord") && !item.get("searchWord").isJsonNull()) {
+                    out.add(item.get("searchWord").getAsString());
+                }
+            }
+        }
+        return out;
+    }
+
+    /**
      * Hot / personalised playlist grid for the home page. The
      * {@code /personalized/playlist} endpoint returns public picks even
      * without a logged-in cookie.

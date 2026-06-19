@@ -11,6 +11,7 @@ Item {
     property string name: ""
     property int count: 0
     property string coverUrl: ""
+    property string coverThumbPath: ""
     property real tile: 160
     signal clicked()
 
@@ -30,7 +31,7 @@ Item {
             radius: 14
             icon: "queue_music"
             iconSize: 44
-            source: card.coverUrl
+            source: card.coverThumbPath || card.coverUrl
         }
         Text {
             width: parent.width

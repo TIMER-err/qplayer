@@ -21,12 +21,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Random;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
@@ -117,7 +117,18 @@ public final class PlayerController {
     // --- Search cache ------------------------------------------------------
     /** TTL for cached search results: 5 minutes. */
     private static final long SEARCH_CACHE_TTL_MS = 5 * 60 * 1000L;
-    private final Map<String, CacheEntry> searchCache = new ConcurrentHashMap<>();
+    /** Max number of search results to keep in memory (LRU eviction). */
+    private static final int SEARCH_CACHE_MAX_SIZE = 20;
+    /** Bounded LRU cache: evicts oldest entry when capacity is reached. */
+    @SuppressWarnings("serial")
+    private final Map<String, CacheEntry> searchCache =
+            Collections.synchronizedMap(new LinkedHashMap<String, CacheEntry>(
+                    SEARCH_CACHE_MAX_SIZE + 1, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, CacheEntry> eldest) {
+                    return size() > SEARCH_CACHE_MAX_SIZE;
+                }
+            });
 
     /** Holds a cached search result with its creation timestamp. */
     private static final class CacheEntry {
@@ -182,6 +193,8 @@ public final class PlayerController {
     // --- Netease content (Repeater model: player.xxx; delegate reads modelData) ---
     public final Property<List<NeteaseSong>> searchResults = new Property<>(Collections.<NeteaseSong>emptyList());
     public final Property<Integer> resultCount = new Property<>(0);
+    /** Hot search keywords shown when search input is empty. */
+    public final Property<List<String>> hotSearches = new Property<>(Collections.<String>emptyList());
     public final Property<List<NeteaseSong>> recommendations = new Property<>(Collections.<NeteaseSong>emptyList());
     public final Property<List<NeteasePlaylist>> recommendPlaylists = new Property<>(Collections.<NeteasePlaylist>emptyList());
     public final Property<List<NeteasePlaylist>> myPlaylists = new Property<>(Collections.<NeteasePlaylist>emptyList());
@@ -495,7 +508,7 @@ public final class PlayerController {
             title.set(orEmpty(t.title));
             artist.set(orEmpty(t.artist));
             album.set(orEmpty(t.album));
-            coverUrl.set(orEmpty(t.coverUrl));
+            coverUrl.set(orEmpty(thumbUrl(t.coverUrl, "512")));
             durationMs.set(t.durationMs);
             positionMs.set(0L);
             currentLiked.set(t.neteaseId != 0 && likedSet.contains(t.neteaseId));
@@ -503,16 +516,17 @@ public final class PlayerController {
         updateCover(t, i);
 
         if (t.source == Track.Source.LOCAL) {
-            if (t.filePath == null || t.filePath.isEmpty()) return;
+            String src = t.playable();
+            if (src == null || src.isEmpty()) return;
             loadLocalLyrics(t);
             Logger.info("play local: {}", t.title);
-            backend.play(t.filePath, 0L);
+            backend.play(src, 0L);
             playingIntent = true;
             post(() -> playing.set(true));
             notifyPlayback();
         } else if (t.streamUrl != null) {
             Logger.info("play netease (cached url): {}", t.title);
-            backend.play(t.streamUrl, 0L);
+            backend.play(t.playable(), 0L);
             playingIntent = true;
             post(() -> playing.set(true));
             notifyPlayback();
@@ -787,7 +801,7 @@ public final class PlayerController {
                         title.set(orEmpty(t.title));
                         artist.set(orEmpty(t.artist));
                         album.set(orEmpty(t.album));
-                        coverUrl.set(orEmpty(t.coverUrl));
+                        coverUrl.set(orEmpty(thumbUrl(t.coverUrl, "512")));
                         durationMs.set(t.durationMs);
                         lyrics.set(ly);
                     });
@@ -836,6 +850,18 @@ public final class PlayerController {
 
     // --- Netease discovery ------------------------------------------------
 
+    /** Load hot search keywords from Netease API. Called once on search page open. */
+    public void loadHotSearches() {
+        worker.submit(() -> {
+            try {
+                List<String> hot = netease.searchHot();
+                post(() -> hotSearches.set(hot));
+            } catch (Throwable e) {
+                Logger.warn("loadHotSearches failed: {}", e.getMessage());
+            }
+        });
+    }
+
     /** Search and publish to {@link #searchResults}. Results are cached for
      *  {@value #SEARCH_CACHE_TTL_MS} ms; a cache hit returns immediately without
      *  a network round-trip. */
@@ -867,9 +893,7 @@ public final class PlayerController {
                 // refresh the thumbnail URL for the rows whose cover we just filled
                 // (parseSong already set it for songs that had a cover).
                 fillMissingCovers(r);
-                for (NeteaseSong s : r) {
-                    if (s.coverThumbPath == null) s.coverThumbPath = NeteaseClient.thumbUrl(s.coverUrl);
-                }
+                buildSongThumbs(r, "128");
                 searchCache.put(key, new CacheEntry(r));
                 post(() -> {
                     searchResults.set(r);
@@ -907,6 +931,24 @@ public final class PlayerController {
         }
     }
 
+    /** Build a Netease CDN thumbnail URL (e.g. coverUrl + ?param=128y128).
+     *  Returns the original url unchanged if it is null/empty or already has params. */
+    private static String thumbUrl(String url, String size) {
+        if (url == null || url.isEmpty()) return "";
+        return url.contains("?") ? url + "&param=" + size + "y" + size
+                                 : url + "?param=" + size + "y" + size;
+    }
+
+    /** Batch-build {@link NeteaseSong#coverThumbPath} for a list of songs. */
+    private static void buildSongThumbs(List<NeteaseSong> songs, String size) {
+        if (songs == null) return;
+        for (NeteaseSong s : songs) {
+            if (s.coverUrl != null && !s.coverUrl.isEmpty()) {
+                s.coverThumbPath = thumbUrl(s.coverUrl, size);
+            }
+        }
+    }
+
     /** Handle a playback error from the audio backend. For netease tracks whose
      *  cached streamUrl went stale (expired VIP link, region lock, etc.), clear
      *  the cache and re-resolve. Everything else falls through to autoAdvance. */
@@ -932,6 +974,9 @@ public final class PlayerController {
         worker.submit(() -> {
             try {
                 List<NeteasePlaylist> picks = netease.personalizedPlaylists(12);
+                for (NeteasePlaylist p : picks) {
+                    p.coverThumbPath = thumbUrl(p.coverUrl, "512");
+                }
                 post(() -> recommendPlaylists.set(picks));
             } catch (Throwable e) {
                 Logger.warn("personalized playlists failed: {}", e.getMessage());
@@ -939,6 +984,8 @@ public final class PlayerController {
             if (netease.isLoggedIn()) {
                 try {
                     List<NeteaseSong> daily = netease.recommendSongs();
+                    fillMissingCovers(daily);
+                    buildSongThumbs(daily, "128");
                     post(() -> recommendations.set(daily));
                 } catch (Throwable e) {
                     Logger.warn("daily recommend failed: {}", e.getMessage());
@@ -957,7 +1004,9 @@ public final class PlayerController {
         worker.submit(() -> {
             try {
                 NeteasePlaylist detail = netease.playlistDetail(playlistId);
-                List<NeteaseSong> songs = netease.playlistTracks(playlistId, 500);
+                List<NeteaseSong> songs = netease.playlistTracks(playlistId, 200);
+                fillMissingCovers(songs);
+                buildSongThumbs(songs, "128");
                 String name = detail != null ? detail.name : "";
                 post(() -> {
                     playlistTitle.set(name == null ? "" : name);
@@ -977,10 +1026,10 @@ public final class PlayerController {
         worker.submit(() -> {
             try {
                 List<NeteasePlaylist> pls = netease.userPlaylists(uid, 100);
-                post(() -> {
-                    myPlaylists.set(pls);
-                    playlistCount.set(pls != null ? pls.size() : 0);
-                });
+                for (NeteasePlaylist p : pls) {
+                    p.coverThumbPath = thumbUrl(p.coverUrl, "512");
+                }
+                post(() -> myPlaylists.set(pls));
             } catch (Throwable e) {
                 Logger.warn("user playlists failed: {}", e.getMessage());
             }

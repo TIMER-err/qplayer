@@ -4,9 +4,13 @@ import md3.Core
 // One song/track row. Plain anchors — NOT nested RowLayout/ColumnLayout: the
 // Layout measure passes run for every visible row on every dirty frame (playback
 // ticks the scene ~5x/s), which was a real source of stutter. `highlighted`
-// marks the playing entry. When coverThumbPath is set, a rounded Image (the
-// engine fetches + caches the CDN thumbnail off-thread) replaces the glyph;
-// otherwise the glyph placeholder shows.
+// marks the playing entry. A pre-cached local-file Image replaces the glyph
+// when a thumbnail is available — zero network overhead while scrolling.
+//
+// Lazy image loading: when `lazyLoad` is true, the cover Image only sets its
+// source when the row is within the Flickable viewport (+/- 3 rows preload).
+// This prevents hundreds of off-screen images from being decoded into memory
+// simultaneously in long playlists.
 Rectangle {
     id: row
 
@@ -15,6 +19,12 @@ Rectangle {
     property string coverThumbPath: ""
     property bool highlighted: false
     property bool removable: false
+    /** Enable lazy image loading based on viewport position. */
+    property bool lazyLoad: false
+    /** Parent Flickable's contentY (scroll offset). */
+    property real flickContentY: 0
+    /** Parent Flickable's visible height. */
+    property real flickHeight: 0
     signal activated()
     signal removeRequested()
 
@@ -62,11 +72,17 @@ Rectangle {
             }
         }
 
-        // Cover image with native clipRRect rounding (qml4j Image.radius)
+        // Cover image with native clipRRect rounding (qml4j Image.radius).
+        // When lazyLoad is on, source is set once when the row enters the viewport
+        // preload zone and never cleared — this avoids re-fetching/re-decoding on
+        // scroll-back while still preventing all-off-screen images from loading
+        // at list creation time.
         Image {
+            id: coverImg
             anchors.fill: parent
-            visible: row.coverThumbPath != ""
-            source: row.coverThumbPath
+            visible: row.coverThumbPath != "" && (!row.lazyLoad || row._loadTriggered)
+            source: (row.coverThumbPath != "" && (!row.lazyLoad || row._loadTriggered))
+                   ? row.coverThumbPath : ""
             radius: 8
             fillMode: Image.PreserveAspectCrop
         }
@@ -134,4 +150,15 @@ Rectangle {
             color: Theme.color.onSurfaceVariantColor
         }
     }
+
+    // Whether this row is within (or near) the Flickable viewport.
+    // Preload margin: 3 rows above/below the visible area.
+    readonly property bool _inViewport: !row.lazyLoad
+        || (row.y >= row.flickContentY - row.height * 3
+            && row.y <= row.flickContentY + row.flickHeight + row.height * 3)
+
+    // Latches to true the first time _inViewport becomes true, so that once
+    // an image starts loading it is never unloaded (avoids re-fetch flicker).
+    property bool _loadTriggered: row._inViewport
+    on_InViewportChanged: { if (row._inViewport) row._loadTriggered = true; }
 }
