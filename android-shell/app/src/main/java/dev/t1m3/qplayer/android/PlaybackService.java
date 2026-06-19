@@ -167,7 +167,11 @@ public final class PlaybackService extends Service {
                         pos, playing ? 1f : 0f)
                 .build());
 
-        Notification n = buildNotification(t, playing, art);
+        // Extract Monet seed from cover for notification accent (progress bar tint).
+        String seedHex = c.coverSeed.peek();
+        int accentColor = parseHexColor(seedHex);
+
+        Notification n = buildNotification(t, playing, art, accentColor);
         // Stay foreground for the whole session — including while paused — so we never
         // need to re-promote from the background (Android 12+ forbids starting a FGS
         // from the background, which previously left controls stuck after a pause).
@@ -175,7 +179,7 @@ public final class PlaybackService extends Service {
         startForeground(NOTIF_ID, n);
     }
 
-    private Notification buildNotification(Track t, boolean playing, Bitmap art) {
+    private Notification buildNotification(Track t, boolean playing, Bitmap art, int accentColor) {
         Intent open = new Intent(this, QPlayerActivity.class)
                 .setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
         int pf = Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0;
@@ -188,7 +192,8 @@ public final class PlaybackService extends Service {
                 .setContentIntent(contentPi)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setOnlyAlertOnce(true)
-                .setShowWhen(false);
+                .setShowWhen(false)
+                .setColor(accentColor);
         if (art != null) b.setLargeIcon(art);
 
         b.addAction(new NotificationCompat.Action(android.R.drawable.ic_media_previous, "prev",
@@ -233,5 +238,15 @@ public final class PlaybackService extends Service {
 
     private static String nz(String s) {
         return s == null ? "" : s;
+    }
+
+    /** Parse a #RRGGBB hex string to an int color (A=FF). Returns 0 on failure. */
+    private static int parseHexColor(String hex) {
+        if (hex == null || hex.length() != 7 || hex.charAt(0) != '#') return 0;
+        try {
+            return 0xFF000000 | Integer.parseInt(hex.substring(1), 16);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 }
