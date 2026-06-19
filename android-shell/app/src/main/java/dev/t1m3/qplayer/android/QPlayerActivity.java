@@ -243,18 +243,33 @@ public final class QPlayerActivity extends Activity {
         }, "qplayer-update-dl").start();
     }
 
-    /** Launch the system package installer for the downloaded APK via FileProvider. */
+    /** A downloaded APK awaiting the "install unknown apps" grant; onResume retries it
+     *  (without re-downloading) once the user returns from the settings screen. */
+    private java.io.File pendingInstallApk;
+
+    /** Launch the system package installer for the downloaded APK, requesting the
+     *  unknown-sources grant first when needed (Android O+). */
     private void installApk(java.io.File apk) {
-        try {
-            // Android O+ gates sideload installs behind a per-app "unknown sources"
-            // grant; send the user to grant it, then they re-trigger the update.
-            if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
-                controller.setUpdateProgress(-1);
+        if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+            // Park the APK and send the user to grant the permission; onResume resumes
+            // the install when they come back, so they needn't re-download.
+            pendingInstallApk = apk;
+            controller.setUpdateProgress(-1);
+            try {
                 startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                         android.net.Uri.parse("package:" + getPackageName()))
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-                return;
+            } catch (Throwable e) {
+                dev.t1m3.qplayer.util.Logger.error("open install-sources settings failed: {}", e.toString());
+                controller.setUpdateProgress(-2);
             }
+            return;
+        }
+        doInstallApk(apk);
+    }
+
+    private void doInstallApk(java.io.File apk) {
+        try {
             android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(
                     this, getPackageName() + ".fileprovider", apk);
             startActivity(new Intent(Intent.ACTION_VIEW)
@@ -503,6 +518,14 @@ public final class QPlayerActivity extends Activity {
     protected void onResume() {
         super.onResume();
         if (glView != null) glView.onResume();
+        // Returning from the unknown-sources grant: resume the parked install (no
+        // re-download) now that the permission is in place.
+        if (pendingInstallApk != null
+                && (Build.VERSION.SDK_INT < 26 || getPackageManager().canRequestPackageInstalls())) {
+            java.io.File apk = pendingInstallApk;
+            pendingInstallApk = null;
+            if (apk.isFile()) doInstallApk(apk);
+        }
         // Returning from PiP / background: force-sync the notification bar with
         // the current controller state so they never drift apart.
         if (controller != null && controller.isPlaying()) {
