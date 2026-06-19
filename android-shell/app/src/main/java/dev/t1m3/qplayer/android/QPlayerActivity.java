@@ -129,6 +129,7 @@ public final class QPlayerActivity extends Activity {
         settings.setMonetListener(on -> controller.setMonetEnabled(on));
         settings.setUnblockListener(on -> controller.setUnblockEnabled(on));
         settings.setMirrorListener(on -> controller.setUpdateMirror(on));
+        settings.setCacheSizeListener(mb -> controller.setCacheMaxSizeMB(mb));
         settings.load(this);
 
         String qml;

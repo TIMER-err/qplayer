@@ -456,6 +456,86 @@ Rectangle {
                 Text {
                     Layout.leftMargin: 20
                     Layout.topMargin: 6
+                    text: "存储"
+                    color: Theme.color.primary
+                    font.family: Theme.typography.titleSmall.family
+                    font.pixelSize: Theme.typography.titleSmall.size
+                }
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 12
+                    Layout.rightMargin: 12
+                    radius: 18
+                    color: Theme.color.surfaceContainerHighest
+                    implicitHeight: cacheCol.implicitHeight + 32
+
+                    ColumnLayout {
+                        id: cacheCol
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: 16
+                        spacing: 14
+
+                        // Max cache size stepper.
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 12
+                            Text {
+                                Layout.fillWidth: true
+                                text: "最大缓存"
+                                color: Theme.color.onSurfaceColor
+                                font.family: Theme.typography.bodyLarge.family
+                                font.pixelSize: Theme.typography.bodyLarge.size
+                            }
+                            Button {
+                                type: "outlined"; text: "−"
+                                onClicked: settings.maxCacheSizeMB = Math.max(50, settings.maxCacheSizeMB - 50)
+                            }
+                            Text {
+                                text: settings.maxCacheSizeMB + " MB"
+                                color: Theme.color.onSurfaceColor
+                                font.family: Theme.typography.bodyLarge.family
+                                font.pixelSize: Theme.typography.bodyLarge.size
+                            }
+                            Button {
+                                type: "outlined"; text: "+"
+                                onClicked: settings.maxCacheSizeMB = Math.min(1024, settings.maxCacheSizeMB + 50)
+                            }
+                        }
+
+                        // Current usage + clear button.
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 12
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+                                Text {
+                                    text: "当前占用"
+                                    color: Theme.color.onSurfaceColor
+                                    font.family: Theme.typography.bodyLarge.family
+                                    font.pixelSize: Theme.typography.bodyLarge.size
+                                }
+                                Text {
+                                    id: cacheUsageText
+                                    text: player.cacheSizeMB + " MB"
+                                    color: Theme.color.onSurfaceVariantColor
+                                    font.family: Theme.typography.bodySmall.family
+                                    font.pixelSize: Theme.typography.bodySmall.size
+                                }
+                            }
+                            Button {
+                                type: "outlined"; text: "清除缓存"
+                                onClicked: { player.clearDiskCache(); cacheUsageText.text = player.cacheSizeMB + " MB" }
+                            }
+                        }
+                    }
+                }
+
+                Text {
+                    Layout.leftMargin: 20
+                    Layout.topMargin: 6
                     text: "关于"
                     color: Theme.color.primary
                     font.family: Theme.typography.titleSmall.family

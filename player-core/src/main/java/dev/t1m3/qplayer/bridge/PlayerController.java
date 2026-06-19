@@ -2,6 +2,7 @@ package dev.t1m3.qplayer.bridge;
 
 import dev.t1m3.qplayer.audio.AudioBackend;
 import dev.t1m3.qplayer.audio.MetadataReader;
+import dev.t1m3.qplayer.cache.DiskCache;
 import dev.t1m3.qplayer.library.LibraryScanner;
 import dev.t1m3.qplayer.lyric.LyricLine;
 import dev.t1m3.qplayer.lyric.LyricParser;
@@ -70,6 +71,9 @@ public final class PlayerController {
         t.setDaemon(true);
         return t;
     });
+
+    /** Unified disk cache (audio / lyrics / images) with LRU eviction. */
+    public final DiskCache diskCache = new DiskCache(200); // default 200 MB
 
     private final List<Track> library = new CopyOnWriteArrayList<>();
     private final List<Track> queue = new CopyOnWriteArrayList<>();
@@ -189,6 +193,8 @@ public final class PlayerController {
      *  every frame from the live position so the wavy bar advances smoothly (the 5 Hz
      *  positionMs would step it). */
     public final Property<Double> lyricProgress = new Property<>(0.0);
+    /** Current disk cache usage in MB (updated after each cache write). */
+    public final Property<Long> cacheSizeMB = new Property<>(0L);
 
     // --- Local library ----------------------------------------------------
     public final Property<List<Track>> tracks = new Property<>(Collections.<Track>emptyList());
@@ -703,14 +709,31 @@ public final class PlayerController {
             playingIntent = true;
             post(() -> playing.set(true));
             notifyPlayback();
-        } else if (t.streamUrl != null) {
-            Logger.info("play netease (cached url): {}", t.title);
-            backend.play(t.playable(), 0L);
-            playingIntent = true;
-            post(() -> playing.set(true));
-            notifyPlayback();
-        } else {
-            resolveAndPlayNetease(t, i);
+        } else if (t.source == Track.Source.NETEASE) {
+            // Single-loop mode: prefer cached local file to avoid re-streaming.
+            boolean repeatOne = playMode.peek() == 2;
+            String cached = repeatOne ? diskCache.getAudio(t.neteaseId) : null;
+            if (cached != null) {
+                Logger.info("play netease (audio cache): {}", t.title);
+                backend.play(cached, 0L);
+                playingIntent = true;
+                post(() -> playing.set(true));
+                notifyPlayback();
+            } else if (t.streamUrl != null) {
+                Logger.info("play netease (cached url): {}", t.title);
+                backend.play(t.playable(), 0L);
+                playingIntent = true;
+                post(() -> playing.set(true));
+                notifyPlayback();
+                // Cache audio in background for single-loop and general use.
+                if (repeatOne && t.streamUrl != null) {
+                    final String url = t.streamUrl;
+                    final long nid = t.neteaseId;
+                    worker.submit(() -> diskCache.cacheAudio(url, nid));
+                }
+            } else {
+                resolveAndPlayNetease(t, i);
+            }
         }
     }
 
@@ -727,10 +750,26 @@ public final class PlayerController {
         post(() -> applyCover(null));
         final String url = t.coverUrl;
         if (url == null || url.isEmpty()) return;
+
+        // Check disk cache first.
+        String cachedImg = diskCache.getImage(url);
+        if (cachedImg != null) {
+            byte[] data = readBytesFromFile(cachedImg);
+            if (data != null && data.length > 0) {
+                t.coverBytes = data;
+                post(() -> { if (playIndex == expectedIndex) applyCover(data); });
+                notifyPlayback();
+                return;
+            }
+        }
+
         worker.submit(() -> {
             byte[] data = downloadBytes(url);
             if (data == null) return;
             t.coverBytes = data;
+            // Cache cover image to disk (write already-downloaded bytes, no re-fetch).
+            String imgPath = diskCache.imagePath(url);
+            if (imgPath != null) writeBytesToFile(data, imgPath);
             post(() -> {
                 if (playIndex == expectedIndex) applyCover(data);
             });
@@ -778,9 +817,22 @@ public final class PlayerController {
     /** Community AMLL TTML mirror: syllable-level lyrics with background-vocal
      *  and duet annotations. Empty list on 404 / network failure / parse error,
      *  which signals the caller to fall back to Netease's own lyric. */
-    private static List<LyricLine> tryAmllTtml(long songId) {
+    private List<LyricLine> tryAmllTtml(long songId) {
+        // Check disk cache first.
+        String cached = diskCache.getLyric(songId);
+        if (cached != null) {
+            try {
+                byte[] data = readBytesFromFile(cached);
+                if (data != null && data.length > 0) {
+                    String ttml = new String(data, java.nio.charset.StandardCharsets.UTF_8);
+                    if (!ttml.trim().isEmpty()) return TtmlParser.parse(ttml);
+                }
+            } catch (Throwable ignored) { }
+        }
         byte[] data = downloadBytes("https://amlldb.bikonoo.com/ncm-lyrics/" + songId + ".ttml");
         if (data == null || data.length == 0) return Collections.emptyList();
+        // Cache for next time.
+        diskCache.cacheLyric(data, songId);
         String ttml = new String(data, java.nio.charset.StandardCharsets.UTF_8);
         if (ttml.trim().isEmpty()) return Collections.emptyList();
         try {
@@ -811,6 +863,30 @@ public final class PlayerController {
         } finally {
             if (c != null) c.disconnect();
         }
+    }
+
+    // ---- disk I/O helpers ------------------------------------------------
+
+    private static byte[] readBytesFromFile(String path) {
+        if (path == null) return null;
+        try (java.io.FileInputStream in = new java.io.FileInputStream(path)) {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            return out.toByteArray();
+        } catch (Throwable e) {
+            return null;
+        }
+    }
+
+    private static void writeBytesToFile(byte[] data, String path) {
+        if (data == null || path == null) return;
+        java.io.File parent = new java.io.File(path).getParentFile();
+        if (parent != null && !parent.exists()) parent.mkdirs();
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(path)) {
+            out.write(data);
+        } catch (Throwable ignored) { }
     }
 
     public void toggle() {
@@ -990,6 +1066,11 @@ public final class PlayerController {
                     playingIntent = true;
                     post(() -> playing.set(true));
                     notifyPlayback();
+                    // Single-loop: cache audio so next loop iteration plays from disk.
+                    if (playMode.peek() == 2 && playUrl != null) {
+                        final long nid = t.neteaseId;
+                        worker.submit(() -> diskCache.cacheAudio(playUrl, nid));
+                    }
                 });
             } catch (Throwable e) {
                 Logger.warn("netease resolve failed for {}: {}", songId, e.getMessage());
@@ -1402,5 +1483,26 @@ public final class PlayerController {
     public void shutdown() {
         backend.release();
         worker.shutdownNow();
+    }
+
+    // --- Disk cache management (called from QML settings page) -------------
+
+    /** Update the {@link #cacheSizeMB} property from the actual disk usage. */
+    public void refreshCacheSize() {
+        long bytes = diskCache.totalSize();
+        cacheSizeMB.set(bytes / (1024 * 1024));
+    }
+
+    /** Change the max cache size and trigger eviction if needed. */
+    public void setCacheMaxSizeMB(long mb) {
+        diskCache.setMaxSizeMB(mb);
+        refreshCacheSize();
+    }
+
+    /** Clear all disk cache (audio + lyrics + images). */
+    public void clearDiskCache() {
+        diskCache.clearAll();
+        refreshCacheSize();
+        toast.set("缓存已清除");
     }
 }

@@ -53,6 +53,10 @@ public final class AppSettings extends QObject {
     /** Static fluid background (render once + cache) vs. animated. */
     public final Property<Boolean> lyricBgStatic = new Property<>(Boolean.FALSE);
 
+    // Cache settings (Object-typed: QML numeric writes arrive as Long).
+    /** Maximum disk cache size in MB (audio + lyrics + images). 0 = unlimited. */
+    public final Property<Object> maxCacheSizeMB = new Property<>(200);
+
     // System-bar insets in QML logical units (px / density), for edge-to-edge layout:
     // the top bar drops below the status bar, the bottom nav clears the gesture bar.
     public final Property<Double> topInset = new Property<>(0.0);
@@ -75,7 +79,7 @@ public final class AppSettings extends QObject {
         void onMonet(boolean enabled);
     }
 
-    /** Notified when the source-switching toggle changes. */
+    /** Notified when source-switching toggle changes. */
     public interface UnblockListener {
         void onUnblock(boolean enabled);
     }
@@ -85,12 +89,18 @@ public final class AppSettings extends QObject {
         void onMirror(boolean enabled);
     }
 
+    /** Notified when max cache size changes. */
+    public interface CacheSizeListener {
+        void onCacheMaxSizeMB(long mb);
+    }
+
     private SharedPreferences prefs;
     private boolean systemDark;
     private DarkListener darkListener;
     private MonetListener monetListener;
     private UnblockListener unblockListener;
     private MirrorListener mirrorListener;
+    private CacheSizeListener cacheSizeListener;
 
     public void setDarkListener(DarkListener l) {
         this.darkListener = l;
@@ -106,6 +116,10 @@ public final class AppSettings extends QObject {
 
     public void setMirrorListener(MirrorListener l) {
         this.mirrorListener = l;
+    }
+
+    public void setCacheSizeListener(CacheSizeListener l) {
+        this.cacheSizeListener = l;
     }
 
     public boolean resolvedDarkValue() {
@@ -191,6 +205,16 @@ public final class AppSettings extends QObject {
         lyricBgStatic.setInterceptor((p, v) -> {
             p.setBypassInterceptor(v);
             prefs.edit().putBoolean("lyricBgStatic", Boolean.TRUE.equals(p.peek())).apply();
+        });
+
+        // Cache settings.
+        maxCacheSizeMB.set(prefs.getInt("maxCacheSizeMB", 200));
+        if (cacheSizeListener != null) cacheSizeListener.onCacheMaxSizeMB(asInt(maxCacheSizeMB.peek()));
+        maxCacheSizeMB.setInterceptor((p, v) -> {
+            p.setBypassInterceptor(asInt(v));
+            int mb = asInt(p.peek());
+            prefs.edit().putInt("maxCacheSizeMB", mb).apply();
+            if (cacheSizeListener != null) cacheSizeListener.onCacheMaxSizeMB(mb);
         });
     }
 
