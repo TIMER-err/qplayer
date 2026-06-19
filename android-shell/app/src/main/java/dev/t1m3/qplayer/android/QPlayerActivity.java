@@ -198,49 +198,64 @@ public final class QPlayerActivity extends Activity {
         // crashes on first launch. Once the scene has rendered, it's safe.
     }
 
-    /** Download the update APK (through the mirror url) to app storage with progress,
-     *  then hand it to the system package installer. Off the main thread. */
-    private void downloadAndInstallUpdate(String url) {
+    /** Download the update APK to app storage with progress, trying each candidate url
+     *  (fastest mirror first, then the direct github url) until one succeeds, then hand
+     *  it to the system package installer. Off the main thread. */
+    private void downloadAndInstallUpdate(String[] urls) {
         new Thread(() -> {
             java.io.File out = new java.io.File(getExternalFilesDir(null), "updates/qplayer-update.apk");
-            try {
-                java.io.File dir = out.getParentFile();
-                if (dir != null) dir.mkdirs();
-                java.net.HttpURLConnection conn =
-                        (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
-                conn.setInstanceFollowRedirects(true);
-                conn.setConnectTimeout(15_000);
-                conn.setReadTimeout(30_000);
-                conn.setRequestProperty("User-Agent", "qplayer-updater");
-                int code = conn.getResponseCode();
-                if (code >= 400) throw new IOException("HTTP " + code);
-                int total = conn.getContentLength();
-                try (InputStream in = conn.getInputStream();
-                     java.io.FileOutputStream fos = new java.io.FileOutputStream(out)) {
-                    byte[] buf = new byte[16384];
-                    long read = 0;
-                    int n;
-                    int lastPct = -1;
-                    while ((n = in.read(buf)) > 0) {
-                        fos.write(buf, 0, n);
-                        read += n;
-                        if (total > 0) {
-                            int pct = (int) (read * 100 / total);
-                            if (pct != lastPct) {
-                                lastPct = pct;
-                                controller.setUpdateProgress(pct);
-                            }
+            java.io.File dir = out.getParentFile();
+            if (dir != null) dir.mkdirs();
+            for (String url : urls) {
+                if (downloadOne(url, out)) {
+                    controller.setUpdateProgress(100);
+                    runOnUiThread(() -> installApk(out));
+                    return;
+                }
+                dev.t1m3.qplayer.util.Logger.warn("update source failed, trying next: {}", url);
+            }
+            controller.setUpdateProgress(-2);
+        }, "qplayer-update-dl").start();
+    }
+
+    /** Download a single url into {@code out}, reporting progress; false on any failure
+     *  (so the caller can try the next mirror). */
+    private boolean downloadOne(String url, java.io.File out) {
+        java.net.HttpURLConnection conn = null;
+        try {
+            conn = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            conn.setInstanceFollowRedirects(true);
+            conn.setConnectTimeout(15_000);
+            conn.setReadTimeout(30_000);
+            conn.setRequestProperty("User-Agent", "qplayer-updater");
+            int code = conn.getResponseCode();
+            if (code >= 400) return false;
+            int total = conn.getContentLength();
+            try (InputStream in = conn.getInputStream();
+                 java.io.FileOutputStream fos = new java.io.FileOutputStream(out)) {
+                byte[] buf = new byte[16384];
+                long read = 0;
+                int n;
+                int lastPct = -1;
+                while ((n = in.read(buf)) > 0) {
+                    fos.write(buf, 0, n);
+                    read += n;
+                    if (total > 0) {
+                        int pct = (int) (read * 100 / total);
+                        if (pct != lastPct) {
+                            lastPct = pct;
+                            controller.setUpdateProgress(pct);
                         }
                     }
                 }
-                conn.disconnect();
-                controller.setUpdateProgress(100);
-                runOnUiThread(() -> installApk(out));
-            } catch (Throwable e) {
-                dev.t1m3.qplayer.util.Logger.error("update download failed: {}", e.toString());
-                controller.setUpdateProgress(-2);
             }
-        }, "qplayer-update-dl").start();
+            return out.length() > 0;
+        } catch (Throwable e) {
+            dev.t1m3.qplayer.util.Logger.warn("update download failed {}: {}", url, e.toString());
+            return false;
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
     }
 
     /** A downloaded APK awaiting the "install unknown apps" grant; onResume retries it

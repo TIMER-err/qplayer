@@ -394,8 +394,15 @@ public final class PlayerController {
      *  works on mainland networks where api.github.com is unreliable. */
     private static final String RELEASE_API =
             "https://api.github.com/repos/TIMER-err/qplayer/releases/latest";
-    /** gh-proxy (hunshcn/gh-proxy) prefix for github.com release downloads. */
+    /** gh-proxy.com prefix — the API check uses it (it's the one mirror that proxies
+     *  api.github.com). */
     private static final String MIRROR_PREFIX = "https://gh-proxy.com/";
+    /** Download mirrors for the APK, fastest-first; the host tries them in order and
+     *  falls through to the next (then the direct url) when one is down or refuses.
+     *  Public instances come and go, so resilience matters more than any single one. */
+    private static final String[] DOWNLOAD_MIRRORS = {
+            "https://gh.ddlc.top/", "https://ghfast.top/", "https://gh-proxy.com/"
+    };
 
     /** When true, the APK download url is routed through {@link #MIRROR_PREFIX}. */
     private volatile boolean updateMirror = false;
@@ -413,8 +420,12 @@ public final class PlayerController {
     /** The newer release's notes (GitHub release body / changelog). */
     public final Property<String> updateNotes = new Property<>("");
 
-    /** APK asset (or release page) url of the newer release; opened by the host. */
+    /** APK asset (or release page) url of the newer release; opened by the browser
+     *  fallback. */
     private volatile String updateUrl = "";
+    /** Raw (un-mirrored) github.com APK download url of the newer release, or "" when
+     *  the release has no APK asset. The in-app downloader prefixes mirrors onto it. */
+    private volatile String updateApkRaw = "";
     /** Running app version, injected by the host (PackageInfo.versionName). */
     private volatile String currentVersion = "";
 
@@ -429,10 +440,10 @@ public final class PlayerController {
         this.urlOpener = o;
     }
 
-    /** Host hook to download an APK in-app (through the mirror) and launch the
-     *  system package installer. */
+    /** Host hook to download an APK in-app and launch the system package installer.
+     *  Receives candidate urls (mirror-prefixed, then direct) to try in order. */
     public interface Installer {
-        void downloadAndInstall(String url);
+        void downloadAndInstall(String[] urls);
     }
 
     private volatile Installer installer;
@@ -451,18 +462,31 @@ public final class PlayerController {
     }
 
     /** Start the in-app download + install of the pending update (QML "更新" button).
-     *  Falls back to opening the url in a browser when no installer is wired. */
+     *  Falls back to opening the url in a browser when there's no APK or no installer. */
     public void startUpdateDownload() {
-        String url = updateUrl;
-        if (url == null || url.isEmpty()) return;
         Installer in = installer;
-        if (in == null) {
+        String apk = updateApkRaw;
+        if (in == null || apk == null || apk.isEmpty()) {
             openUpdateUrl();
             return;
         }
-        final String u = url;
+        final String[] candidates = downloadCandidates(apk);
         post(() -> updateProgress.set(0));
-        onMain(() -> in.downloadAndInstall(u));
+        onMain(() -> in.downloadAndInstall(candidates));
+    }
+
+    /** Build the ordered download urls: mirrors first (when enabled) then the direct
+     *  github url, or direct-first when the mirror is off. Duplicates collapsed. */
+    private String[] downloadCandidates(String apk) {
+        List<String> urls = new ArrayList<>();
+        if (updateMirror) {
+            for (String m : DOWNLOAD_MIRRORS) urls.add(m + apk);
+            urls.add(apk);
+        } else {
+            urls.add(apk);
+            for (String m : DOWNLOAD_MIRRORS) urls.add(m + apk);
+        }
+        return urls.toArray(new String[0]);
     }
 
     /** Host injects the running app version (e.g. "0.5.2") for the update compare. */
@@ -498,19 +522,14 @@ public final class PlayerController {
                         }
                     }
                 }
-                // Mirror only the APK download (a github.com release asset gh-proxy can
-                // proxy); fall back to the release page (opened directly) when no APK.
-                String dl;
-                if (!apk.isEmpty()) {
-                    dl = updateMirror ? MIRROR_PREFIX + apk : apk;
-                } else {
-                    dl = optString(obj, "html_url");
-                }
-
-                final String fUrl = dl;
+                // Keep the raw APK url for the (mirror-cycling) in-app downloader; the
+                // browser fallback opens the APK directly, or the release page if none.
+                final String fApk = apk;
+                final String fUrl = apk.isEmpty() ? optString(obj, "html_url") : apk;
                 final String fVer = latest;
                 final String fNotes = notes;
                 post(() -> {
+                    updateApkRaw = fApk;
                     updateUrl = fUrl;
                     updateVersion.set(fVer);
                     updateNotes.set(fNotes);
