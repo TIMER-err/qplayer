@@ -428,6 +428,8 @@ public final class PlayerController {
     private volatile String updateApkRaw = "";
     /** Running app version, injected by the host (PackageInfo.versionName). */
     private volatile String currentVersion = "";
+    /** Same value, exposed to QML (e.g. the About card). */
+    public final Property<String> appVersion = new Property<>("");
 
     /** Host hook to open a url externally (browser fallback for the update). */
     public interface UrlOpener {
@@ -492,6 +494,7 @@ public final class PlayerController {
     /** Host injects the running app version (e.g. "0.5.2") for the update compare. */
     public void setCurrentVersion(String version) {
         this.currentVersion = version == null ? "" : version;
+        post(() -> appVersion.set(this.currentVersion));
     }
 
     /** Fetch the latest release off the worker thread; on a newer version, publish

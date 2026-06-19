@@ -560,21 +560,35 @@ Rectangle {
 
                         ColumnLayout {
                             Layout.fillWidth: true
-                            spacing: 2
-                            Text {
-                                text: "QPlayer"
-                                color: Theme.color.onSurfaceColor
-                                font.family: Theme.typography.bodyLarge.family
-                                font.pixelSize: Theme.typography.bodyLarge.size
+                            spacing: 3
+                            RowLayout {
+                                spacing: 8
+                                Text {
+                                    id: nameText
+                                    text: "QPlayer"
+                                    color: Theme.color.onSurfaceColor
+                                    font.family: Theme.typography.bodyLarge.family
+                                    font.pixelSize: Theme.typography.bodyLarge.size
+                                }
+                                Text {
+                                    text: player.appVersion.length > 0 ? "v" + player.appVersion : ""
+                                    color: Theme.color.primary
+                                    font.family: Theme.typography.labelMedium.family
+                                    font.pixelSize: Theme.typography.labelMedium.size
+                                    Layout.alignment: Qt.AlignVCenter
+                                }
                             }
+                            // Manual line breaks — qml4j's auto-wrap mis-measures the
+                            // width here, so the breaks are hard-coded instead.
                             Text {
-                                text: "基于 qml4j 纯 Java QML 引擎"
+                                text: "网易云音乐第三方客户端\nMaterial You 风格 · Apple Music 风逐字歌词\n由自研 qml4j 引擎强力驱动 · Skia 渲染后端"
                                 color: Theme.color.onSurfaceVariantColor
                                 font.family: Theme.typography.bodySmall.family
                                 font.pixelSize: Theme.typography.bodySmall.size
                             }
                         }
                         IconButton {
+                            Layout.alignment: Qt.AlignVCenter
                             type: "standard"
                             icon: "link"
                             onClicked: player.openExternalUrl("https://github.com/TIMER-err/qplayer")
