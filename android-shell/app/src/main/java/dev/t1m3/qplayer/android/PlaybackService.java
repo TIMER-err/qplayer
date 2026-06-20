@@ -191,9 +191,16 @@ public final class PlaybackService extends Service {
                 .setContentText(t != null ? nz(t.artist) : "")
                 .setContentIntent(contentPi)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                // CATEGORY_TRANSPORT + an ongoing notification while playing is how OEM
+                // "live media" surfaces (ColorOS 流体云 media capsule, MIUI/HyperOS, etc.)
+                // recognise this as an active session to elevate. Paused -> not ongoing so
+                // the notification stays swipe-dismissible (and STOP fully exits).
+                .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
+                .setOngoing(playing)
                 .setOnlyAlertOnce(true)
                 .setShowWhen(false)
-                .setColor(accentColor);
+                .setColor(accentColor)
+                .setColorized(true);
         if (art != null) b.setLargeIcon(art);
 
         b.addAction(new NotificationCompat.Action(android.R.drawable.ic_media_previous, "prev",
