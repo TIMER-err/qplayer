@@ -3,7 +3,9 @@ package dev.t1m3.qplayer.android.lyric;
 import io.github.humbleui.skija.Data;
 import io.github.humbleui.skija.Font;
 import io.github.humbleui.skija.FontEdging;
+import io.github.humbleui.skija.FontHinting;
 import io.github.humbleui.skija.FontMgr;
+import io.github.humbleui.skija.FontStyle;
 import io.github.humbleui.skija.Typeface;
 
 import java.util.HashMap;
@@ -11,8 +13,9 @@ import java.util.Map;
 
 // Font cache for the lyric renderer. drawString uses a single typeface with no
 // automatic fallback, so the lyric face must itself cover the glyphs we draw —
-// the bundled PingFang SC covers Latin + CJK across four weights. Fonts are CPU
-// objects, safe to cache by (weight, size) across frames.
+// the bundled PingFang SC covers Latin + CJK across four weights. Scripts PingFang
+// lacks (notably Hangul) are served by a system fallback face resolved on demand
+// via {@link #korean(float)}. Fonts are CPU objects, safe to cache across frames.
 public final class Fonts {
 
     private Fonts() {
@@ -24,6 +27,17 @@ public final class Fonts {
     private static Typeface icon;
     private static final Map<Long, Font> cache = new HashMap<>();
     private static final Map<Long, Font> iconCache = new HashMap<>();
+
+    // Hangul fallback (PingFang has no Korean glyphs). Resolved once from the system
+    // font manager and cached by size; null when the platform ships no Korean face.
+    private static Typeface korean;
+    private static boolean koreanResolved;
+    private static final Map<Long, Font> koreanCache = new HashMap<>();
+
+    private static final String[] KOREAN_CANDIDATES = {
+        "Noto Sans CJK KR", "Noto Sans KR", "NotoSansCJK",
+        "Source Han Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", "Droid Sans Fallback"
+    };
 
     /** Load the four bundled PingFang weights (any may be null → falls back to Regular). */
     public static void init(byte[] thin, byte[] light, byte[] regular, byte[] medium) {
@@ -76,5 +90,57 @@ public final class Fonts {
             cache.put(key, f);
         }
         return f;
+    }
+
+    /**
+     * A Hangul-capable system Font at {@code size}, animation-configured to match the
+     * lyric faces, or null when the platform has no Korean font. One weight only — the
+     * fallback is about legibility, not matching PingFang's weight curve. The Korean
+     * candidates are pan-CJK (Noto Sans CJK / Droid Sans Fallback), so a Korean line
+     * mixed with Han/Latin stays in one coherent face.
+     */
+    public static Font korean(float size) {
+        Typeface tf = koreanFace();
+        if (tf == null) return null;
+        long key = Float.floatToIntBits(size);
+        Font f = koreanCache.get(key);
+        if (f == null) {
+            f = new Font(tf, size);
+            f.setBaselineSnapped(false);
+            f.setSubpixel(true);
+            f.setHinting(FontHinting.NONE);
+            f.setEdging(FontEdging.SUBPIXEL_ANTI_ALIAS);
+            koreanCache.put(key, f);
+        }
+        return f;
+    }
+
+    private static Typeface koreanFace() {
+        if (koreanResolved) return korean;
+        koreanResolved = true;
+        FontMgr mgr = FontMgr.getDefault();
+        if (mgr == null) return null;
+        for (String name : KOREAN_CANDIDATES) {
+            // matchFamilyStyle returns the closest face even for an unknown family,
+            // so confirm the result actually carries a Hangul glyph before taking it.
+            Typeface t = mgr.matchFamilyStyle(name, FontStyle.NORMAL);
+            if (t != null && covers(t, '가')) { korean = t; return korean; }
+        }
+        try {
+            korean = mgr.matchFamilyStyleCharacter(
+                null, FontStyle.NORMAL, new String[]{"ko", "ko-KR"}, 0xAC00);
+        } catch (Throwable ignored) {
+            korean = null;
+        }
+        return korean;
+    }
+
+    private static boolean covers(Typeface t, char c) {
+        try {
+            short[] g = t.getStringGlyphs(String.valueOf(c));
+            return g.length > 0 && g[0] != 0;
+        } catch (Throwable e) {
+            return false;
+        }
     }
 }

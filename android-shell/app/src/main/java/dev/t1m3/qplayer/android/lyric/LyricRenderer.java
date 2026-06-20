@@ -622,7 +622,8 @@ public class LyricRenderer {
                 int sylCount = line.syllables.size();
                 float[] widths = new float[sylCount];
                 for (int s = 0; s < sylCount; s++) {
-                    widths[s] = perCharWidth(line.syllables.get(s).text, font);
+                    String st = line.syllables.get(s).text;
+                    widths[s] = perCharWidth(st, fontForText(st, font));
                 }
                 sylWidths[i] = widths;
                 rowStarts[i] = wrapStarts(line.syllables, widths, wrapW);
@@ -1381,6 +1382,29 @@ public class LyricRenderer {
         return w;
     }
 
+    // Hangul: Syllables + Jamo Extended-B (AC00-D7FF), Jamo (1100-11FF), Compatibility
+    // Jamo (3130-318F), Jamo Extended-A (A960-A97F). The bundled PingFang face has none.
+    private static boolean needsKorean(String s) {
+        if (s == null) return false;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if ((c >= 0xAC00 && c <= 0xD7FF) || (c >= 0x1100 && c <= 0x11FF)
+                    || (c >= 0x3130 && c <= 0x318F) || (c >= 0xA960 && c <= 0xA97F)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // The Korean fallback face at `base`'s size when `text` contains Hangul (and the
+    // platform ships one), else `base`. Measure and draw call this with the same
+    // (text, base), so cached syllable widths and drawn advances stay aligned.
+    private static Font fontForText(String text, Font base) {
+        if (!needsKorean(text)) return base;
+        Font ko = Fonts.korean(base.getSize());
+        return ko != null ? ko : base;
+    }
+
     /** Sum cached per-syllable widths over {@code [from, to)} — no measuring, no alloc. */
     private static float sumWidths(float[] sylWidths, int from, int to) {
         float w = 0f;
@@ -1396,6 +1420,7 @@ public class LyricRenderer {
      */
     private static String[] wrapText(String text, Font font, float maxWidth) {
         if (text == null || text.isEmpty()) return new String[]{""};
+        font = fontForText(text, font);
         if (font.measureTextWidth(text) <= maxWidth) return new String[]{text};
         java.util.List<String> rows = new java.util.ArrayList<>();
         int n = text.length();
@@ -1426,6 +1451,7 @@ public class LyricRenderer {
 
     private static void drawSubLine(String text, float leftX, float rightAnchorX, float y,
                                     Font font, float alpha, boolean alignRight) {
+        font = fontForText(text, font);
         float x = alignRight ? rightAnchorX - font.measureTextWidth(text) : leftX;
         Paint paint = LyricSkia.scratchPaint();
         paint.setColor(0xFFE6E6E6);
@@ -1490,7 +1516,8 @@ public class LyricRenderer {
             paint.setAlphaf(baseAlpha);
             paint.setAntiAlias(true);
             for (int i = from; i < to; i++) {
-                canvas.drawString(syllables.get(i).text, x, baselineY, font, paint);
+                String st = syllables.get(i).text;
+                canvas.drawString(st, x, baselineY, fontForText(st, font), paint);
                 x += sylWidths[i];
             }
             return;
@@ -1550,17 +1577,18 @@ public class LyricRenderer {
                     k = 1f - (1f - t) * (1f - t) * (1f - t);
                 }
                 float lift = enableLift ? -LIFT_PEAK_PX * k * activeK : 0f;
+                Font sylFont = fontForText(syl.text, font);
 
                 if (enableLift && glowOn) {
                     float ga = activeK * k * GLOW_ALPHA;
                     if (ga > 0.01f) {
                         glowPaint.setColor(0xFFFFFFFF);
                         glowPaint.setAlphaf(ga);
-                        canvas.drawString(syl.text, sylLeft[s], baselineY + lift, font, glowPaint);
+                        canvas.drawString(syl.text, sylLeft[s], baselineY + lift, sylFont, glowPaint);
                     }
                 }
 
-                canvas.drawString(syl.text, sylLeft[s], baselineY + lift, font, textPaint);
+                canvas.drawString(syl.text, sylLeft[s], baselineY + lift, sylFont, textPaint);
             }
 
             // Smooth horizontal sweep (DST_IN): bright on the sung side, dark on the
