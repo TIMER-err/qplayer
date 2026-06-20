@@ -253,6 +253,10 @@ public final class PlayerController {
         this.backend = backend;
         this.metadataReader = metadataReader;
         this.netease = netease;
+        // Surface any netease failure reason (private playlist, risk control, ...) as a
+        // toast, same Snackbar the auto-source notice uses. Fires on a worker thread, so
+        // hop to the render thread to touch the Property.
+        netease.setErrorListener(msg -> post(() -> toast.set(msg)));
         backend.setVolume(volume.peek());
         backend.setOnComplete(() -> onMain(this::autoAdvance));
         // Re-baseline the media session's position once audio actually starts (the

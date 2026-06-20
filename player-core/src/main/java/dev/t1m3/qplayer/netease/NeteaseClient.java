@@ -61,6 +61,44 @@ public final class NeteaseClient {
     private final Map<String, String> cookies = new ConcurrentHashMap<>();
     private final Path cookieFile;
 
+    /** Sink for netease's own failure reasons (privacy, risk control, ...) so the UI can
+     *  surface them as a toast. Set by the controller. */
+    public interface ErrorListener {
+        void onError(String message);
+    }
+
+    private volatile ErrorListener errorListener;
+    private volatile String lastErrorMsg;
+    private volatile long lastErrorAt;
+
+    public void setErrorListener(ErrorListener l) {
+        this.errorListener = l;
+    }
+
+    // Forward a server failure reason, collapsing duplicates fired within a short window
+    // (one user action often hits playlist/detail twice, so a private playlist would
+    // otherwise toast the same line twice).
+    private void reportError(String message) {
+        if (message == null || message.isEmpty()) return;
+        ErrorListener l = errorListener;
+        if (l == null) return;
+        long now = System.currentTimeMillis();
+        if (message.equals(lastErrorMsg) && now - lastErrorAt < 2500) return;
+        lastErrorMsg = message;
+        lastErrorAt = now;
+        l.onError(message);
+    }
+
+    private static String neteaseMessage(JsonObject obj) {
+        for (String key : new String[]{"message", "msg"}) {
+            if (obj.has(key) && !obj.get(key).isJsonNull()) {
+                String s = obj.get(key).getAsString();
+                if (s != null && !s.isEmpty()) return s;
+            }
+        }
+        return null;
+    }
+
     private NeteaseClient() {
         cookieFile = Paths.get(AppDirs.base(), "netease-cookies.json");
         loadCookies();
@@ -139,11 +177,15 @@ public final class NeteaseClient {
         JsonElement el = new JsonParser().parse(resp);
         if (!el.isJsonObject()) throw new IOException("not a JSON object: " + truncate(resp, 200));
         JsonObject obj = el.getAsJsonObject();
-        if (obj.has("code") && !obj.get("code").isJsonNull()
-                && obj.get("code").getAsInt() == 301
-                && isLoggedIn() && !"login/qrcode/client/login".equals(path)) {
+        int code = obj.has("code") && !obj.get("code").isJsonNull() ? obj.get("code").getAsInt() : 200;
+        if (code == 301 && isLoggedIn() && !"login/qrcode/client/login".equals(path)) {
             Logger.warn("Netease: session expired (code 301) on /weapi/{} — clearing cookies", path);
             clearCookies();
+        } else if (code != 200 && !path.startsWith("login/")) {
+            // Any failure that carries a server reason (a private playlist, risk control,
+            // ...) surfaces as a toast. Skip the login/qrcode flow: its 800-803 codes are
+            // poll states ("waiting"/"scanned"), not errors.
+            reportError(neteaseMessage(obj));
         }
         return obj;
     }
@@ -294,14 +336,23 @@ public final class NeteaseClient {
     public List<NeteaseSong> playlistTracks(long playlistId, int limit) throws IOException {
         Map<String, Object> detailBody = new HashMap<>();
         detailBody.put("id", playlistId);
-        detailBody.put("n", limit);
-        detailBody.put("s", 0);
+        // Match NeteaseCloudMusicApi's playlist/track/all: n=100000 forces the full
+        // trackIds[] (a smaller n left another user's red-heart playlist's trackIds
+        // empty), s=8 is the collector count the endpoint expects.
+        detailBody.put("n", 100000);
+        detailBody.put("s", 8);
         JsonObject detail = weapiJson("v6/playlist/detail", detailBody);
         List<NeteaseSong> out = new ArrayList<>();
+        // No playlist object => netease refused it (e.g. creator set it private); weapiJson
+        // has already surfaced the reason as a toast, so just return empty here.
         if (!detail.has("playlist") || !detail.get("playlist").isJsonObject()) return out;
         JsonObject pl = detail.getAsJsonObject("playlist");
-        // Newer responses populate tracks[] directly when n is small enough.
-        if (pl.has("tracks") && pl.get("tracks").isJsonArray()) {
+        // Newer responses populate tracks[] directly when n is small enough. Require it
+        // to be NON-EMPTY: another user's "喜欢的音乐" (red-heart) playlist comes back with
+        // tracks:[] but a full trackIds[], and taking the empty fast path returned an
+        // empty list (the playlist opened blank) instead of resolving the ids below.
+        if (pl.has("tracks") && pl.get("tracks").isJsonArray()
+                && pl.getAsJsonArray("tracks").size() > 0) {
             JsonArray arr = pl.getAsJsonArray("tracks");
             for (JsonElement el : arr) {
                 if (!el.isJsonObject()) continue;
