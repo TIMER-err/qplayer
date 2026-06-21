@@ -37,18 +37,12 @@ The UI uses no native Views. Every control, including the lyrics, is described i
 ## Features
 
 - End-to-end playback over the NetEase Cloud Music API: recommendations, search, user playlists, recent, and local files.
-- QR login; like and unlike; play queue; three play modes (list-loop, shuffle, repeat-one).
-- Source switching: greyed-out, VIP, and trial-only tracks are matched by title and artist against GD音乐台 / 波点 / 酷我 and replaced before playback (toggleable).
-- Playlist collecting: collect another user's playlist; on open, the button reflects the real collected state from the playlist/detail response. It is not shown on your own playlists.
-- Lyric page: drawn directly through Skija by the host. Per-syllable scrolling (AMLL TTML first, NetEase as a fallback), a cover-tinted SkSL fluid backdrop, wrapping romaji and translation, interlude dots, fading backing vocals, and a Material wavy progress bar. It can be dragged to scroll, flung with inertia, and tapped on a line to seek to that time.
+- QR login, like and unlike, a play queue, three play modes (list-loop, shuffle, repeat-one).
+- Source switching: greyed-out, VIP, and trial-only tracks are matched by title and artist against an alternate source and replaced before playback (toggleable).
+- Lyric page: drawn directly through Skija by the host. Per-syllable scrolling (AMLL TTML first, NetEase as a fallback), a cover-tinted fluid backdrop, romaji and translation, and a Material wavy progress bar; it can be dragged to scroll, flung with inertia, and tapped on a line to seek there.
 - Material 3 UI: the whole interface is QML (`md3.Core`) running on the qml4j engine.
 - Dynamic color (Monet): the theme is reseeded from the current cover (toggleable); dark, light, and follow-system modes.
 - System media controls and background playback: a foreground `MediaSession` service drives the lockscreen, notification, and bluetooth transport, with auto-advance, position sync, pause-on-call, and ducking on transient focus loss.
-- Bundled PingFang font covers the entire UI and lyric page (Latin and CJK); the lyric font size, weight, and line spacing are adjustable in settings, and glyphs PingFang lacks (such as Hangul) fall back to a system face.
-- In-app back navigation: back and gesture close the topmost layer (lyrics, queue, settings, playlist, tab) instead of exiting the app.
-- Edge-to-edge fullscreen with themed system bars, and a splash while the QML tree compiles; dex output is cached across launches and invalidated on reinstall.
-- List virtualization: the song list only instantiates the rows near the viewport, so several thousand local tracks use about one screenful of memory.
-- In-app updates: detect, download, and install a new build, with mirror acceleration for mainland China networks.
 
 ## Layout
 
