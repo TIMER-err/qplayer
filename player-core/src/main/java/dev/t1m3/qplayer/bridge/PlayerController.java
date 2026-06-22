@@ -14,6 +14,7 @@ import dev.t1m3.qplayer.unblock.SongUnblocker;
 import dev.t1m3.qplayer.netease.dto.NeteasePlaylist;
 import dev.t1m3.qplayer.netease.dto.NeteaseSong;
 import dev.t1m3.qplayer.netease.dto.NeteaseUser;
+import dev.t1m3.qplayer.store.AppDirs;
 import dev.t1m3.qplayer.util.Logger;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
@@ -23,6 +24,11 @@ import com.google.gson.JsonParser;
 import io.github.timer_err.qml4j.engine.binding.Property;
 import io.github.timer_err.qml4j.runtime.color.StyleManager;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -81,6 +87,8 @@ public final class PlayerController {
     private final Queue<Runnable> uiQueue = new ConcurrentLinkedQueue<>();
     private final Set<Long> likedSet = new HashSet<>();
     private final Random rng = new Random();
+    private final List<String> historyList = new ArrayList<>();
+    private static final int HISTORY_MAX = 20;
 
     // Playback control runs on the host's main thread (always alive — unlike the GL
     // render thread, which pauses in the background and would stall auto-advance);
@@ -213,6 +221,8 @@ public final class PlayerController {
     public final Property<Integer> resultCount = new Property<>(0);
     /** Hot search keywords shown when search input is empty. */
     public final Property<List<String>> hotSearches = new Property<>(Collections.<String>emptyList());
+    /** Search history — most recent first, persisted to search_history.txt. */
+    public final Property<List<String>> searchHistory = new Property<>(Collections.<String>emptyList());
     public final Property<List<NeteaseSong>> recommendations = new Property<>(Collections.<NeteaseSong>emptyList());
     public final Property<List<NeteasePlaylist>> recommendPlaylists = new Property<>(Collections.<NeteasePlaylist>emptyList());
     public final Property<List<NeteasePlaylist>> myPlaylists = new Property<>(Collections.<NeteasePlaylist>emptyList());
@@ -289,6 +299,7 @@ public final class PlayerController {
         // (expired VIP link, region lock, etc.). Non-netease or already-retried
         // tracks fall through to autoAdvance.
         backend.setOnError(() -> onMain(this::onPlaybackError));
+        loadSearchHistory();
         if (netease.isLoggedIn()) {
             loggedIn.set(true);
             refreshLogin();
@@ -1716,5 +1727,60 @@ public final class PlayerController {
         diskCache.clearAll();
         refreshCacheSize();
         toast.set("缓存已清除");
+    }
+
+    // --- Search history ---------------------------------------------------
+
+    private void loadSearchHistory() {
+        Path p = Paths.get(AppDirs.base(), "search_history.txt");
+        try {
+            if (!Files.exists(p)) return;
+            String text = new String(Files.readAllBytes(p), StandardCharsets.UTF_8);
+            for (String line : text.split("\n")) {
+                String kw = line.trim();
+                if (!kw.isEmpty()) historyList.add(kw);
+            }
+            searchHistory.set(new ArrayList<>(historyList));
+        } catch (IOException e) {
+            Logger.warn("search history load failed: {}", e.getMessage());
+        }
+    }
+
+    private void saveSearchHistory() {
+        try {
+            Files.createDirectories(Paths.get(AppDirs.base()));
+            StringBuilder sb = new StringBuilder();
+            for (String kw : historyList) sb.append(kw).append('\n');
+            Files.write(Paths.get(AppDirs.base(), "search_history.txt"),
+                    sb.toString().getBytes(StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            Logger.warn("search history save failed: {}", e.getMessage());
+        }
+    }
+
+    /** Add a keyword to search history (moves to front if already present). */
+    public void addSearchHistory(String keyword) {
+        if (keyword == null || keyword.trim().isEmpty()) return;
+        String kw = keyword.trim();
+        historyList.remove(kw);
+        historyList.add(0, kw);
+        if (historyList.size() > HISTORY_MAX)
+            historyList.subList(HISTORY_MAX, historyList.size()).clear();
+        searchHistory.set(new ArrayList<>(historyList));
+        worker.submit(this::saveSearchHistory);
+    }
+
+    /** Clear all search history. */
+    public void clearSearchHistory() {
+        historyList.clear();
+        searchHistory.set(Collections.<String>emptyList());
+        worker.submit(() -> {
+            try {
+                Path p = Paths.get(AppDirs.base(), "search_history.txt");
+                if (Files.exists(p)) Files.delete(p);
+            } catch (IOException e) {
+                Logger.warn("search history clear failed: {}", e.getMessage());
+            }
+        });
     }
 }

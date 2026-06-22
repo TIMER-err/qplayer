@@ -3,7 +3,7 @@ import QtQuick.Layouts
 import md3.Core
 import "."
 
-// 搜索页：空输入显示热门搜索，输入时实时搜索，结果可点击播放。
+// 搜索页：空输入显示搜索历史 + 热门搜索，输入时实时搜索，结果可点击播放。
 Item {
     id: page
 
@@ -25,96 +25,172 @@ Item {
                 type: "filled"
                 leadingIcon: "search"
                 label: "搜索网易云歌曲"
-                // Real-time search on every keystroke
+                // Real-time search on every keystroke (no history here — history only on explicit confirm)
                 onTextChanged: {
                     if (text.length > 0) player.search(text)
                 }
-                onAccepted: player.search(query.text)
+                onAccepted: {
+                    player.search(query.text)
+                    player.addSearchHistory(query.text)
+                }
             }
             IconButton {
                 Layout.alignment: Qt.AlignVCenter
                 type: "filled"; icon: "search"
-                onClicked: player.search(query.text)
+                onClicked: {
+                    player.search(query.text)
+                    player.addSearchHistory(query.text)
+                }
             }
         }
 
-        // --- Hot searches (shown when input is empty) ---
-        // Explicit index-positioned rows in a plain Item, NOT a Column positioner:
-        // qml4j lays Repeater delegates out by their own x/y, it does not flow
-        // dynamically-created children through a positioner (same idiom as HomePage /
-        // VirtualSongList). A Column here left the rows unpositioned/zero-width — the
-        // "hot search shows nothing" bug.
+        // --- Hot searches + history (shown when input is empty) ---
         Item {
             id: hotArea
             Layout.fillWidth: true
             Layout.fillHeight: true
             visible: query.text.length === 0
 
-            property int rowH: 44
-            property int hotCount: player.hotSearches ? player.hotSearches.length : 0
-
             Flickable {
                 anchors.fill: parent
                 clip: true
-                contentWidth: width
-                contentHeight: 56 + hotArea.hotCount * hotArea.rowH + 16
+                contentHeight: hotColumn.height + 32
 
-                Text {
+                Column {
+                    id: hotColumn
                     x: 16; y: 16
-                    text: "热门搜索"
-                    font.pixelSize: 18
-                    font.weight: Font.DemiBold
-                    color: Theme.color.onSurfaceColor
-                }
+                    width: parent.width - 32
+                    spacing: 12
 
-                Item {
-                    x: 0; y: 56
-                    width: hotArea.width
-                    height: hotArea.hotCount * hotArea.rowH
+                    // --- Search history section (hidden when empty) ---
+                    Column {
+                        width: parent.width
+                        spacing: 4
+                        visible: player.searchHistory.length > 0
+
+                        Item {
+                            width: parent.width
+                            height: 44
+
+                            Text {
+                                anchors.left: parent.left
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "搜索历史"
+                                font.pixelSize: 18
+                                font.weight: Font.DemiBold
+                                color: Theme.color.onSurfaceColor
+                            }
+                            IconButton {
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                type: "standard"
+                                icon: "delete_sweep"
+                                onClicked: player.clearSearchHistory()
+                            }
+                        }
+
+                        Repeater {
+                            model: player.searchHistory
+
+                            Item {
+                                width: parent.width
+                                height: 44
+
+                                Rectangle {
+                                    anchors.fill: parent
+                                    radius: 8
+                                    color: hha.pressed ? Theme.color.surfaceContainerHigh : "transparent"
+
+                                    Row {
+                                        anchors.left: parent.left; anchors.leftMargin: 12
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        spacing: 8
+
+                                        Text {
+                                            text: "history"
+                                            font.family: Theme.iconFont.name
+                                            font.pixelSize: 20
+                                            color: Theme.color.onSurfaceVariantColor
+                                            anchors.verticalCenter: parent.verticalCenter
+                                        }
+                                        Text {
+                                            text: modelData || ""
+                                            font.pixelSize: 15
+                                            color: Theme.color.onSurfaceColor
+                                            anchors.verticalCenter: parent.verticalCenter
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        id: hha
+                                        anchors.fill: parent
+                                        onClicked: {
+                                            query.text = modelData
+                                            player.search(modelData)
+                                            player.addSearchHistory(modelData)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Divider between history and hot searches
+                        Rectangle {
+                            width: parent.width
+                            height: 1
+                            color: Theme.color.outlineVariant
+                            visible: player.hotSearches.length > 0
+                        }
+                    }
+
+                    // --- Hot searches section ---
+                    Text {
+                        text: "热门搜索"
+                        font.pixelSize: 18
+                        font.weight: Font.DemiBold
+                        color: Theme.color.onSurfaceColor
+                    }
 
                     Repeater {
                         model: player.hotSearches
 
                         Item {
-                            width: hotArea.width
-                            height: hotArea.rowH
-                            y: index * hotArea.rowH
+                            width: parent.width
+                            height: 44
 
                             Rectangle {
                                 anchors.fill: parent
-                                anchors.leftMargin: 12
-                                anchors.rightMargin: 12
                                 radius: 8
                                 color: hma.pressed ? Theme.color.surfaceContainerHigh : "transparent"
-                            }
 
-                            Row {
-                                anchors.left: parent.left
-                                anchors.leftMargin: 24
-                                anchors.verticalCenter: parent.verticalCenter
-                                spacing: 8
-
-                                Text {
-                                    text: "search"
-                                    font.family: Theme.iconFont.name
-                                    font.pixelSize: 20
-                                    color: Theme.color.onSurfaceVariantColor
+                                Row {
+                                    anchors.left: parent.left; anchors.leftMargin: 12
                                     anchors.verticalCenter: parent.verticalCenter
-                                }
-                                Text {
-                                    text: modelData || ""
-                                    font.pixelSize: 15
-                                    color: Theme.color.onSurfaceColor
-                                    anchors.verticalCenter: parent.verticalCenter
-                                }
-                            }
+                                    spacing: 8
 
-                            MouseArea {
-                                id: hma
-                                anchors.fill: parent
-                                onClicked: {
-                                    query.text = modelData
-                                    player.search(modelData)
+                                    Text {
+                                        text: "search"
+                                        font.family: Theme.iconFont.name
+                                        font.pixelSize: 20
+                                        color: Theme.color.onSurfaceVariantColor
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
+                                    Text {
+                                        text: modelData || ""
+                                        font.pixelSize: 15
+                                        color: Theme.color.onSurfaceColor
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
+                                }
+
+                                MouseArea {
+                                    id: hma
+                                    anchors.fill: parent
+                                    onClicked: {
+                                        query.text = modelData
+                                        player.search(modelData)
+                                        player.addSearchHistory(modelData)
+                                    }
                                 }
                             }
                         }
