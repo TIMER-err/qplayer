@@ -78,6 +78,7 @@ cd ../android-shell && ./gradlew :app:assembleDebug
 - [Skija](https://github.com/HumbleUI/Skija) —— JVM 上的 Skia 绑定;渲染器与宿主绘制的歌词页都通过它输出。
 - [material-components-qml](https://github.com/sudoevolve/material-components-qml) —— UI 所用的 Material 3 QML 组件库(`md3.Core`,vendored 后适配引擎)。
 - [AMLL TTML DB](https://github.com/Steve-xmh/amll-ttml-db) —— 逐字歌词。
+- [NeteaseCloudMusicApiEnhanced](https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced) —— 网易云请求加密方案(weapi/eapi/xeapi)的算法参照。
 - 歌词渲染改编自 Haedus renderer;图标使用 Material Symbols Rounded。
 
 > 个人与学习项目。网易云音乐是其各自所有者的商标;本应用为非官方客户端,与网易云无关联。

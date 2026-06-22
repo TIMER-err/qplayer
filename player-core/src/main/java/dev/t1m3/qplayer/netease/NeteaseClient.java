@@ -53,6 +53,15 @@ public final class NeteaseClient {
     private static final String BASE = "https://music.163.com";
     /** Mobile API host the official apps hit for eapi-encrypted endpoints. */
     private static final String EAPI_BASE = "https://interface.music.163.com";
+    /** Newest mobile host: risk-controlled writes (playlist subscribe, ...) the
+     *  official Android app encrypts with "xeapi". */
+    private static final String XEAPI_BASE = "https://interface3.music.163.com";
+    /** Android client UA for the xeapi path — matches the api-enhanced reference
+     *  config that's verified to clear risk control (code 200) on these endpoints. */
+    private static final String ANDROID_UA =
+            "NeteaseMusic/9.1.65.240927161425(9001065);Dalvik/2.1.0"
+          + " (Linux; U; Android 14; 23013RK75C Build/UKQ1.230804.001)";
+    private static final String XEAPI_APPVER = "9.1.65";
     private static final String UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
           + " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -70,6 +79,12 @@ public final class NeteaseClient {
     private final Gson gson = new Gson();
     private final Map<String, String> cookies = new ConcurrentHashMap<>();
     private final Path cookieFile;
+
+    /** Registered xeapi session (anti-crawler key exchange). Lazily fetched,
+     *  cached for the process: publicKey (base64 X25519), version, sk. */
+    private volatile String xeapiPubKey;
+    private volatile String xeapiVersion;
+    private volatile String xeapiSk;
 
     /** Sink for netease's own failure reasons (privacy, risk control, ...) so the UI can
      *  surface them as a toast. Set by the controller. */
@@ -301,6 +316,218 @@ public final class NeteaseClient {
             reportError(neteaseMessage(obj));
         }
         return obj;
+    }
+
+    /**
+     * POST to the newest mobile {@code /xeapi/<path>} host. {@code apiPath} is the
+     * {@code /api/...} path the body is built against (request goes to
+     * {@code /xeapi/...} with the leading {@code /api} stripped). {@code formBody} is
+     * the URL-encoded request payload (e.g. {@code "id=123456"}). A one-off
+     * anti-crawler session key is registered on first use ({@link #ensureXeapiSession})
+     * and the request is encrypted into the {@code B}/{@code S}/{@code R} form fields;
+     * the response is AES-decrypted back to JSON. This is the path the official Android
+     * app uses for risk-controlled writes that eapi can no longer clear (playlist
+     * subscribe trips code 405 "操作过于频繁" on eapi). Returns the JSON response text.
+     */
+    public synchronized String xeapiCall(String apiPath, String formBody) throws IOException {
+        ensureDeviceCookies();
+        ensureXeapiSession();
+        String deviceId = cookies.getOrDefault("deviceId", "");
+        String musicU = cookies.getOrDefault("MUSIC_U", "");
+
+        Map<String, String> bsr;
+        try {
+            bsr = NeteaseCrypto.xeapi(formBody, xeapiPubKey, xeapiVersion, xeapiSk, "android");
+        } catch (Exception e) {
+            throw new IOException("xeapi crypto failed: " + e.getMessage(), e);
+        }
+
+        String tail = apiPath.startsWith("/api/") ? apiPath.substring(5) : apiPath;
+        String urlStr = XEAPI_BASE + "/xeapi/" + tail;
+        String form = formEncode(bsr);
+
+        HttpURLConnection conn = (HttpURLConnection) new URL(urlStr).openConnection();
+        try {
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setConnectTimeout(10_000);
+            conn.setReadTimeout(15_000);
+            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded;charset=utf-8");
+            conn.setRequestProperty("User-Agent", ANDROID_UA);
+            conn.setRequestProperty("X-Client-Enc-State", "ENCRYPTED");
+            conn.setRequestProperty("x-aeapi", "true");
+            conn.setRequestProperty("x-deviceid", deviceId);
+            conn.setRequestProperty("x-os", "android");
+            conn.setRequestProperty("x-osver", "16");
+            conn.setRequestProperty("x-appver", XEAPI_APPVER);
+            conn.setRequestProperty("x-sdeviceid", deviceId);
+            conn.setRequestProperty("x-buildver", Long.toString(System.currentTimeMillis() / 1000L));
+            if (!musicU.isEmpty()) conn.setRequestProperty("x-music-u", musicU);
+            conn.setRequestProperty("X-Real-IP", REAL_IP);
+            conn.setRequestProperty("X-Forwarded-For", REAL_IP);
+            conn.setRequestProperty("Cookie", xeapiCookieHeader());
+
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(form.getBytes(StandardCharsets.UTF_8));
+            }
+
+            int code = conn.getResponseCode();
+            InputStream is = (code >= 400) ? conn.getErrorStream() : conn.getInputStream();
+            byte[] raw;
+            try {
+                raw = readAllBytes(is);
+            } finally {
+                if (is != null) { try { is.close(); } catch (IOException ignored) {} }
+            }
+            captureSetCookies(conn.getHeaderFields().get("Set-Cookie"));
+
+            if (code >= 400) {
+                Logger.warn("Netease HTTP {} on /xeapi/{}: {} bytes", code, tail, raw.length);
+                throw new IOException("HTTP " + code);
+            }
+            try {
+                return NeteaseCrypto.xeapiResDecrypt(raw);
+            } catch (Exception e) {
+                throw new IOException("xeapi response decrypt failed: " + e.getMessage(), e);
+            }
+        } finally {
+            conn.disconnect();
+        }
+    }
+
+    /** {@link #xeapiCall} + parse + the same toast/expiry handling as {@link #eapiJson}. */
+    public JsonObject xeapiJson(String apiPath, String formBody) throws IOException {
+        String resp = xeapiCall(apiPath, formBody);
+        JsonElement el = new JsonParser().parse(resp);
+        if (!el.isJsonObject()) throw new IOException("not a JSON object: " + truncate(resp, 200));
+        JsonObject obj = el.getAsJsonObject();
+        int code = obj.has("code") && !obj.get("code").isJsonNull() ? obj.get("code").getAsInt() : 200;
+        if (code == 301 && isLoggedIn()) {
+            Logger.warn("Netease: session expired (code 301) on /xeapi/{} — clearing cookies", apiPath);
+            clearCookies();
+        } else if (code != 200) {
+            reportError(neteaseMessage(obj));
+        }
+        return obj;
+    }
+
+    /**
+     * Register a fresh xeapi anti-crawler session key (X25519 public key + sk +
+     * version) via {@code /api/gorilla/anti/crawler/security/key/get}. Anonymous —
+     * needs only a stable deviceId, no login. Cached for the process; a failure
+     * leaves the cache empty so the next call retries.
+     */
+    private synchronized void ensureXeapiSession() throws IOException {
+        if (xeapiPubKey != null && xeapiSk != null) return;
+        String deviceId = cookies.getOrDefault("deviceId", "");
+        String nonce = randomDigits(16);
+        String ts = Long.toString(System.currentTimeMillis());
+        String sig;
+        try {
+            sig = NeteaseCrypto.xeapiSign(ts, nonce);
+        } catch (Exception e) {
+            throw new IOException("xeapiSign failed: " + e.getMessage(), e);
+        }
+
+        Map<String, String> form = new LinkedHashMap<>();
+        form.put("appVersion", XEAPI_APPVER);
+        form.put("currentKeyVersion", "");
+        form.put("deviceId", deviceId);
+        form.put("nonce", nonce);
+        form.put("os", "android");
+        form.put("requestType", "active");
+        form.put("signature", sig);
+        form.put("t1", "");
+        form.put("t2", "");
+        form.put("timestamp", ts);
+        form.put("uid", "");
+
+        String urlStr = EAPI_BASE + "/api/gorilla/anti/crawler/security/key/get";
+        String body = formEncode(form);
+        HttpURLConnection conn = (HttpURLConnection) new URL(urlStr).openConnection();
+        String resp;
+        try {
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setConnectTimeout(10_000);
+            conn.setReadTimeout(15_000);
+            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+            conn.setRequestProperty("User-Agent", ANDROID_UA);
+            conn.setRequestProperty("Cookie", "deviceId=" + urlEnc(deviceId));
+
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(body.getBytes(StandardCharsets.UTF_8));
+            }
+            int code = conn.getResponseCode();
+            InputStream is = (code >= 400) ? conn.getErrorStream() : conn.getInputStream();
+            try {
+                resp = readAll(is);
+            } finally {
+                if (is != null) { try { is.close(); } catch (IOException ignored) {} }
+            }
+            if (code >= 400) throw new IOException("HTTP " + code + ": " + truncate(resp, 200));
+        } finally {
+            conn.disconnect();
+        }
+
+        JsonObject obj = new JsonParser().parse(resp).getAsJsonObject();
+        int code = obj.has("code") && !obj.get("code").isJsonNull() ? obj.get("code").getAsInt() : 0;
+        if (code != 200 || !obj.has("data") || !obj.get("data").isJsonObject()) {
+            throw new IOException("xeapi key registration failed: " + truncate(resp, 200));
+        }
+        JsonObject data = obj.getAsJsonObject("data");
+        if (!data.has("encryptedData") || data.get("encryptedData").isJsonNull()) {
+            throw new IOException("xeapi key registration missing encryptedData");
+        }
+        String pkJson;
+        try {
+            pkJson = NeteaseCrypto.xeapiDecryptPublicKey(data.get("encryptedData").getAsString());
+        } catch (Exception e) {
+            throw new IOException("xeapi publicKey decrypt failed: " + e.getMessage(), e);
+        }
+        JsonObject pk = new JsonParser().parse(pkJson).getAsJsonObject();
+        if (!pk.has("publicKey") || !pk.has("sk") || pk.get("publicKey").isJsonNull()
+                || pk.get("sk").isJsonNull()) {
+            throw new IOException("xeapi publicKey response missing publicKey/sk: " + truncate(pkJson, 200));
+        }
+        xeapiPubKey = pk.get("publicKey").getAsString();
+        xeapiSk = pk.get("sk").getAsString();
+        xeapiVersion = pk.has("version") && !pk.get("version").isJsonNull()
+                ? pk.get("version").getAsString() : "";
+        Logger.info("Netease: registered xeapi session key (version {})", xeapiVersion);
+    }
+
+    /** Cookie header for the xeapi path — mirrors {@link #cookieHeader()} but with
+     *  the Android device identity that matches the {@code x-os}/{@code x-appver}
+     *  headers (a mismatch itself trips risk control). */
+    private String xeapiCookieHeader() {
+        ensureDeviceCookies();
+        Map<String, String> all = new LinkedHashMap<>(cookies);
+        all.put("__remember_me", "true");
+        all.put("ntes_kaola_ad", "1");
+        all.put("_ntes_nnid", all.getOrDefault("_ntes_nuid", "") + "," + System.currentTimeMillis());
+        all.put("WNMCID", wnmcid());
+        all.put("WEVNSM", "1.0.0");
+        all.put("NMTID", randomHex(16));
+        all.put("os", "android");
+        all.put("osver", "16");
+        all.put("appver", XEAPI_APPVER);
+        all.put("channel", "xiaomi");
+        all.put("deviceId", cookies.getOrDefault("deviceId", ""));
+        all.put("sDeviceId", cookies.getOrDefault("deviceId", ""));
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, String> e : all.entrySet()) {
+            if (sb.length() > 0) sb.append("; ");
+            sb.append(e.getKey()).append('=').append(e.getValue());
+        }
+        return sb.toString();
+    }
+
+    private static String randomDigits(int n) {
+        java.util.concurrent.ThreadLocalRandom r = java.util.concurrent.ThreadLocalRandom.current();
+        StringBuilder s = new StringBuilder(n);
+        for (int i = 0; i < n; i++) s.append((char) ('0' + r.nextInt(10)));
+        return s.toString();
     }
 
     /** Cookie header built from the eapi {@code header} object. Values are written
@@ -579,22 +806,28 @@ public final class NeteaseClient {
 
     /**
      * Collect (subscribe) or un-collect (unsubscribe) a playlist for the signed-in user.
-     * Maps to {@code /eapi/playlist/subscribe|unsubscribe}; true when code == 200.
+     * True when code == 200.
      *
-     * <p>This deliberately uses the mobile eapi path rather than weapi: the web
-     * subscribe endpoint trips risk control ("操作频繁,请稍后再试" / 524).
-     *
-     * <p>Note: NeteaseCloudMusicApi attaches a hard-coded anti-cheat {@code checkToken}
-     * to the subscribe call, but that constant is now stale server-side — sending it
-     * (in the body and/or the X-antiCheatToken header) makes the server reject with
-     * code 405 "操作过于频繁" / 501. Plain eapi with no token succeeds (verified against
-     * the live endpoint), so we send neither.
+     * <p>The two directions ride different transports because Netease's risk control
+     * diverges by direction:
+     * <ul>
+     *   <li><b>subscribe</b> → {@code /xeapi/playlist/subscribe}. The official Android
+     *       app moved collecting onto the newest "xeapi" scheme; the old eapi endpoint
+     *       now trips code 405 "操作过于频繁" regardless of the anti-cheat token (the
+     *       hard-coded {@code checkToken} is stale server-side). xeapi clears it.</li>
+     *   <li><b>unsubscribe</b> → {@code /eapi/playlist/unsubscribe}. Un-collecting is
+     *       laxly controlled and keeps working over plain eapi with no token, so we
+     *       leave it on the simpler path.</li>
+     * </ul>
      */
     public boolean playlistSubscribe(long playlistId, boolean subscribe) throws IOException {
+        if (subscribe) {
+            JsonObject obj = xeapiJson("/api/playlist/subscribe", "id=" + playlistId);
+            return obj.has("code") && !obj.get("code").isJsonNull() && obj.get("code").getAsInt() == 200;
+        }
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("id", playlistId);
-        String apiPath = "/api/playlist/" + (subscribe ? "subscribe" : "unsubscribe");
-        JsonObject obj = eapiJson(apiPath, body, false);
+        JsonObject obj = eapiJson("/api/playlist/unsubscribe", body, false);
         return obj.has("code") && !obj.get("code").isJsonNull() && obj.get("code").getAsInt() == 200;
     }
 
@@ -1105,12 +1338,16 @@ public final class NeteaseClient {
     }
 
     private static String readAll(InputStream is) throws IOException {
-        if (is == null) return "";
+        return new String(readAllBytes(is), StandardCharsets.UTF_8);
+    }
+
+    private static byte[] readAllBytes(InputStream is) throws IOException {
+        if (is == null) return new byte[0];
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
         byte[] chunk = new byte[4096];
         int n;
         while ((n = is.read(chunk)) > 0) buf.write(chunk, 0, n);
-        return new String(buf.toByteArray(), StandardCharsets.UTF_8);
+        return buf.toByteArray();
     }
 
     private static String truncate(String s, int max) {

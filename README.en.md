@@ -78,6 +78,7 @@ Most of this project (QPlayer and the [qml4j](https://github.com/TIMER-err/qml4j
 - [Skija](https://github.com/HumbleUI/Skija) — Skia bindings for the JVM; the renderer and the host-drawn lyric page draw through it.
 - [material-components-qml](https://github.com/sudoevolve/material-components-qml) — the Material 3 QML component library (`md3.Core`) the UI is built from (vendored, engine-adapted).
 - [AMLL TTML DB](https://github.com/Steve-xmh/amll-ttml-db) — syllable-level lyrics.
+- [NeteaseCloudMusicApiEnhanced](https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced) — reference for the NetEase request-encryption schemes (weapi/eapi/xeapi).
 - Lyric rendering adapted from the Haedus renderer; icons are Material Symbols Rounded.
 
 > Personal/educational project. NetEase Cloud Music is a trademark of its respective owner; this app is an unofficial client and is not affiliated with NetEase.
