@@ -68,7 +68,9 @@ Rectangle {
                 // QueuePage): an invisible detail otherwise keeps the whole
                 // playlist's SongRows alive after you return home.
                 list: page.visible ? player.playlistTracks : null
+                addable: true
                 onActivated: player.playPlaylistTrack(tracks.activatedIndex)
+                onAddRequested: player.addPlaylistTrackToQueue(tracks.addIndex)
             }
 
             LoadingIndicator {

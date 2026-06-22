@@ -19,7 +19,9 @@ Item {
         // sitting on 首页. Null while hidden builds nothing.
         list: page.visible ? player.tracks : null
         isLocal: true
+        addable: true
         onActivated: player.play(local.activatedIndex)
+        onAddRequested: player.addLocalTrackToQueue(local.addIndex)
     }
 
     Text {

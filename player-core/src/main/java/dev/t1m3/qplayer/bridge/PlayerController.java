@@ -29,6 +29,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -88,7 +92,9 @@ public final class PlayerController {
     private final Set<Long> likedSet = new HashSet<>();
     private final Random rng = new Random();
     private final List<String> historyList = new ArrayList<>();
-    private static final int HISTORY_MAX = 20;
+    private static final int HISTORY_MAX = 50;
+    private static final int RECENT_LOCAL_MAX = 100;
+    private final List<NeteaseSong> localRecentList = new ArrayList<>();
 
     // Playback control runs on the host's main thread (always alive — unlike the GL
     // render thread, which pauses in the background and would stall auto-advance);
@@ -300,6 +306,8 @@ public final class PlayerController {
         // tracks fall through to autoAdvance.
         backend.setOnError(() -> onMain(this::onPlaybackError));
         loadSearchHistory();
+        loadLocalRecent();
+        loadQueue();
         if (netease.isLoggedIn()) {
             loggedIn.set(true);
             refreshLogin();
@@ -678,6 +686,7 @@ public final class PlayerController {
         int cur = playIndex;
         queue.remove(i);
         queueTracks.set(new ArrayList<>(queue));
+        saveQueue();
         if (queue.isEmpty()) {
             playIndex = -1;
             index.set(-1);
@@ -791,6 +800,7 @@ public final class PlayerController {
         queue.addAll(q);
         queueTracks.set(new ArrayList<>(queue));
         onMain(() -> playAt(start));
+        saveQueue();
     }
 
     // Runs on the main thread (via onMain). Updates the plain playIndex synchronously,
@@ -801,6 +811,7 @@ public final class PlayerController {
         playIndex = i;
         final int idx = i;
         final Track t = queue.get(i);
+        worker.submit(() -> recordToLocalRecent(t));
         post(() -> {
             index.set(idx);
             title.set(orEmpty(t.title));
@@ -1512,7 +1523,13 @@ public final class PlayerController {
 
     /** Recently played (netease listen history). */
     public void loadRecent() {
-        if (uid == 0) return;
+        if (uid == 0) {
+            worker.submit(() -> {
+                List<NeteaseSong> local = new ArrayList<>(localRecentList);
+                post(() -> recentSongs.set(local));
+            });
+            return;
+        }
         worker.submit(() -> {
             try {
                 List<NeteaseSong> rec = netease.userRecord(uid, 0);
@@ -1727,6 +1744,186 @@ public final class PlayerController {
         diskCache.clearAll();
         refreshCacheSize();
         toast.set("缓存已清除");
+    }
+
+    // --- Queue persistence ------------------------------------------------
+
+    private void saveQueue() {
+        List<Track> snapshot = new ArrayList<>(queue);
+        int idx = playIndex;
+        worker.submit(() -> {
+            try {
+                Files.createDirectories(Paths.get(AppDirs.base()));
+                JsonObject root = new JsonObject();
+                root.addProperty("playIndex", idx);
+                JsonArray arr = new JsonArray();
+                for (Track t : snapshot) {
+                    JsonObject o = new JsonObject();
+                    o.addProperty("source", t.source != null ? t.source.name() : "NETEASE");
+                    o.addProperty("neteaseId", t.neteaseId);
+                    o.addProperty("title", t.title != null ? t.title : "");
+                    o.addProperty("artist", t.artist != null ? t.artist : "");
+                    o.addProperty("album", t.album != null ? t.album : "");
+                    o.addProperty("coverUrl", t.coverUrl != null ? t.coverUrl : "");
+                    o.addProperty("coverThumbPath", t.coverThumbPath != null ? t.coverThumbPath : "");
+                    o.addProperty("durationMs", t.durationMs);
+                    if (t.filePath != null) o.addProperty("filePath", t.filePath);
+                    if (t.contentUri != null) o.addProperty("contentUri", t.contentUri);
+                    arr.add(o);
+                }
+                root.add("tracks", arr);
+                Files.write(Paths.get(AppDirs.base(), "queue.json"),
+                        root.toString().getBytes(StandardCharsets.UTF_8));
+            } catch (IOException e) {
+                Logger.warn("queue save failed: {}", e.getMessage());
+            }
+        });
+    }
+
+    private void loadQueue() {
+        Path p = Paths.get(AppDirs.base(), "queue.json");
+        try {
+            if (!Files.exists(p)) return;
+            String text = new String(Files.readAllBytes(p), StandardCharsets.UTF_8);
+            JsonObject root = new JsonParser().parse(text).getAsJsonObject();
+            int savedIdx = root.has("playIndex") ? root.get("playIndex").getAsInt() : 0;
+            JsonArray arr = root.has("tracks") ? root.getAsJsonArray("tracks") : new JsonArray();
+            List<Track> loaded = new ArrayList<>();
+            for (JsonElement el : arr) {
+                if (!el.isJsonObject()) continue;
+                JsonObject o = el.getAsJsonObject();
+                Track t = new Track();
+                String sourceStr = o.has("source") ? o.get("source").getAsString() : "NETEASE";
+                t.source = "LOCAL".equals(sourceStr) ? Track.Source.LOCAL : Track.Source.NETEASE;
+                t.neteaseId = o.has("neteaseId") ? o.get("neteaseId").getAsLong() : 0;
+                t.title = o.has("title") ? o.get("title").getAsString() : "";
+                t.artist = o.has("artist") ? o.get("artist").getAsString() : "";
+                t.album = o.has("album") ? o.get("album").getAsString() : "";
+                t.coverUrl = o.has("coverUrl") ? o.get("coverUrl").getAsString() : "";
+                String thumb = o.has("coverThumbPath") ? o.get("coverThumbPath").getAsString() : "";
+                t.coverThumbPath = thumb.isEmpty() ? null : thumb;
+                t.durationMs = o.has("durationMs") ? o.get("durationMs").getAsLong() : 0;
+                if (t.source == Track.Source.LOCAL) {
+                    t.filePath = o.has("filePath") ? o.get("filePath").getAsString() : null;
+                    t.contentUri = o.has("contentUri") ? o.get("contentUri").getAsString() : null;
+                }
+                loaded.add(t);
+            }
+            if (!loaded.isEmpty()) {
+                queue.addAll(loaded);
+                queueTracks.set(new ArrayList<>(queue));
+                int idx = Math.max(0, Math.min(savedIdx, loaded.size() - 1));
+                playIndex = idx;
+                index.set(idx);
+                Track cur = loaded.get(idx);
+                title.set(cur.title != null ? cur.title : "");
+                artist.set(cur.artist != null ? cur.artist : "");
+                album.set(cur.album != null ? cur.album : "");
+                coverUrl.set(thumbUrl(cur.coverUrl != null ? cur.coverUrl : "", "512"));
+                durationMs.set(cur.durationMs);
+            }
+        } catch (Exception e) {
+            Logger.warn("queue load failed: {}", e.getMessage());
+        }
+    }
+
+    // --- Add single track to queue ----------------------------------------
+
+    private void addToQueue(Track t) {
+        queue.add(t);
+        queueTracks.set(new ArrayList<>(queue));
+        saveQueue();
+        toast.set("已加入播放列表");
+    }
+
+    public void addSearchResultToQueue(int i) {
+        List<NeteaseSong> songs = searchResults.peek();
+        if (i >= 0 && i < songs.size()) addToQueue(toTrack(songs.get(i)));
+    }
+
+    public void addPlaylistTrackToQueue(int i) {
+        List<NeteaseSong> songs = playlistTracks.peek();
+        if (i >= 0 && i < songs.size()) addToQueue(toTrack(songs.get(i)));
+    }
+
+    public void addLocalTrackToQueue(int i) {
+        if (i >= 0 && i < library.size()) addToQueue(library.get(i));
+    }
+
+    public void addRecentSongToQueue(int i) {
+        List<NeteaseSong> songs = recentSongs.peek();
+        if (i >= 0 && i < songs.size()) addToQueue(toTrack(songs.get(i)));
+    }
+
+    // --- Local play history -----------------------------------------------
+
+    private void loadLocalRecent() {
+        Path p = Paths.get(AppDirs.base(), "recent_songs.json");
+        try {
+            if (!Files.exists(p)) return;
+            String text = new String(Files.readAllBytes(p), StandardCharsets.UTF_8);
+            JsonElement el = new JsonParser().parse(text);
+            if (!el.isJsonArray()) return;
+            for (JsonElement item : el.getAsJsonArray()) {
+                if (!item.isJsonObject()) continue;
+                JsonObject o = item.getAsJsonObject();
+                NeteaseSong s = new NeteaseSong();
+                s.id = o.has("id") ? o.get("id").getAsLong() : 0;
+                s.name = o.has("name") ? o.get("name").getAsString() : "";
+                s.artist = o.has("artist") ? o.get("artist").getAsString() : "";
+                s.album = o.has("album") ? o.get("album").getAsString() : "";
+                s.coverUrl = o.has("coverUrl") ? o.get("coverUrl").getAsString() : "";
+                String thumb = o.has("coverThumbPath") ? o.get("coverThumbPath").getAsString() : "";
+                s.coverThumbPath = thumb.isEmpty() ? null : thumb;
+                s.durationMs = o.has("durationMs") ? o.get("durationMs").getAsLong() : 0;
+                localRecentList.add(s);
+            }
+        } catch (Exception e) {
+            Logger.warn("local recent load failed: {}", e.getMessage());
+        }
+    }
+
+    private void saveLocalRecent() {
+        try {
+            Files.createDirectories(Paths.get(AppDirs.base()));
+            JsonArray arr = new JsonArray();
+            for (NeteaseSong s : localRecentList) {
+                JsonObject o = new JsonObject();
+                o.addProperty("id", s.id);
+                o.addProperty("name", s.name != null ? s.name : "");
+                o.addProperty("artist", s.artist != null ? s.artist : "");
+                o.addProperty("album", s.album != null ? s.album : "");
+                o.addProperty("coverUrl", s.coverUrl != null ? s.coverUrl : "");
+                o.addProperty("coverThumbPath", s.coverThumbPath != null ? s.coverThumbPath : "");
+                o.addProperty("durationMs", s.durationMs);
+                arr.add(o);
+            }
+            Files.write(Paths.get(AppDirs.base(), "recent_songs.json"),
+                    arr.toString().getBytes(StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            Logger.warn("local recent save failed: {}", e.getMessage());
+        }
+    }
+
+    // Called on the worker thread whenever a track starts playing.
+    private void recordToLocalRecent(Track t) {
+        NeteaseSong s = new NeteaseSong();
+        s.id = t.neteaseId;
+        s.name = t.title != null ? t.title : "";
+        s.artist = t.artist != null ? t.artist : "";
+        s.album = t.album != null ? t.album : "";
+        s.coverUrl = t.coverUrl != null ? t.coverUrl : "";
+        s.coverThumbPath = t.coverThumbPath;
+        s.durationMs = t.durationMs;
+        final String name = s.name, artist = s.artist;
+        localRecentList.removeIf(e ->
+            (s.id > 0 && e.id == s.id)
+            || (s.id == 0 && name.equals(e.name != null ? e.name : "")
+                          && artist.equals(e.artist != null ? e.artist : "")));
+        localRecentList.add(0, s);
+        if (localRecentList.size() > RECENT_LOCAL_MAX)
+            localRecentList.subList(RECENT_LOCAL_MAX, localRecentList.size()).clear();
+        saveLocalRecent();
     }
 
     // --- Search history ---------------------------------------------------

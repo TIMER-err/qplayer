@@ -6,6 +6,7 @@ import "."
 // 搜索页：空输入显示搜索历史 + 热门搜索，输入时实时搜索，结果可点击播放。
 Item {
     id: page
+    property bool historyExpanded: false
 
     Component.onCompleted: player.loadHotSearches()
 
@@ -28,6 +29,7 @@ Item {
                 // Real-time search on every keystroke (no history here — history only on explicit confirm)
                 onTextChanged: {
                     if (text.length > 0) player.search(text)
+                    if (text.length === 0) page.historyExpanded = false
                 }
                 onAccepted: {
                     player.search(query.text)
@@ -90,7 +92,8 @@ Item {
                         }
 
                         Repeater {
-                            model: player.searchHistory
+                            model: player.searchHistory.length <= 10 || page.historyExpanded
+                                   ? player.searchHistory.length : 10
 
                             Item {
                                 width: parent.width
@@ -114,7 +117,7 @@ Item {
                                             anchors.verticalCenter: parent.verticalCenter
                                         }
                                         Text {
-                                            text: modelData || ""
+                                            text: player.searchHistory[index] || ""
                                             font.pixelSize: 15
                                             color: Theme.color.onSurfaceColor
                                             anchors.verticalCenter: parent.verticalCenter
@@ -125,11 +128,38 @@ Item {
                                         id: hha
                                         anchors.fill: parent
                                         onClicked: {
-                                            query.text = modelData
-                                            player.search(modelData)
-                                            player.addSearchHistory(modelData)
+                                            var kw = player.searchHistory[index]
+                                            query.text = kw
+                                            player.search(kw)
+                                            player.addSearchHistory(kw)
                                         }
                                     }
+                                }
+                            }
+                        }
+
+                        // Expand button — visible when there are more than 10 history entries
+                        Item {
+                            width: parent.width
+                            height: 40
+                            visible: player.searchHistory.length > 10 && !page.historyExpanded
+
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: 8
+                                color: expandMA.pressed ? Theme.color.surfaceContainerHigh : "transparent"
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "展开更多"
+                                    font.pixelSize: 14
+                                    color: Theme.color.primary
+                                }
+
+                                MouseArea {
+                                    id: expandMA
+                                    anchors.fill: parent
+                                    onClicked: page.historyExpanded = true
                                 }
                             }
                         }
@@ -206,7 +236,9 @@ Item {
             Layout.fillHeight: true
             visible: query.text.length > 0
             list: player.searchResults
+            addable: true
             onActivated: player.playSearchResult(results.activatedIndex)
+            onAddRequested: player.addSearchResultToQueue(results.addIndex)
         }
     }
 }

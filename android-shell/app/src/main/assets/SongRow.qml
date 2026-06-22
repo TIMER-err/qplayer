@@ -19,6 +19,7 @@ Rectangle {
     property string coverThumbPath: ""
     property bool highlighted: false
     property bool removable: false
+    property bool addable: false
     /** Enable lazy image loading based on viewport position. */
     property bool lazyLoad: false
     /** Parent Flickable's contentY (scroll offset). */
@@ -27,6 +28,7 @@ Rectangle {
     property real flickHeight: 0
     signal activated()
     signal removeRequested()
+    signal addRequested()
 
     implicitHeight: 64
     color: "transparent"
@@ -92,7 +94,7 @@ Rectangle {
         anchors.left: leading.right
         anchors.leftMargin: 14
         anchors.right: parent.right
-        anchors.rightMargin: row.removable ? 52 : 16
+        anchors.rightMargin: (row.removable || row.addable) ? 52 : 16
         anchors.bottom: parent.verticalCenter
         anchors.bottomMargin: 1
         text: row.rowTitle
@@ -105,7 +107,7 @@ Rectangle {
         anchors.left: leading.right
         anchors.leftMargin: 14
         anchors.right: parent.right
-        anchors.rightMargin: row.removable ? 52 : 16
+        anchors.rightMargin: (row.removable || row.addable) ? 52 : 16
         anchors.top: parent.verticalCenter
         anchors.topMargin: 2
         text: row.rowArtist
@@ -148,6 +150,23 @@ Rectangle {
         Text {
             anchors.centerIn: parent
             text: "close"
+            font.family: Theme.iconFont.name
+            font.pixelSize: 20
+            color: Theme.color.onSurfaceVariantColor
+        }
+    }
+
+    MouseArea {
+        visible: row.addable && !row.removable
+        width: 48
+        height: parent.height
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        onClicked: row.addRequested()
+
+        Text {
+            anchors.centerIn: parent
+            text: "playlist_add"
             font.family: Theme.iconFont.name
             font.pixelSize: 20
             color: Theme.color.onSurfaceVariantColor
