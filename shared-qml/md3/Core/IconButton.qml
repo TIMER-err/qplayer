@@ -33,7 +33,12 @@ Item {
 
     // Colors Logic
     property color containerColor: {
-        if (!enabled) return disabledColor(0.12) // Disabled container
+        if (!enabled) {
+            // Only the filled variants have a container, so only they get the 12%
+            // disabled-container tint. Standard/outlined have no container — a tint
+            // here would draw a stray translucent circle behind the disabled icon.
+            return (type === "filled" || type === "filledTonal") ? disabledColor(0.12) : "transparent"
+        }
         switch (type) {
             case "filled": return _colors.primary
             case "filledTonal": return _colors.secondaryContainer
