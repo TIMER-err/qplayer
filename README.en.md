@@ -9,12 +9,13 @@
 </p>
 
 <p align="center">
-  <b>A NetEase Cloud Music player for Android, rendered entirely in QML.</b><br>
+  <b>A NetEase Cloud Music player rendered entirely in QML, for Android and desktop.</b><br>
   Runs on <a href="https://github.com/TIMER-err/qml4j">qml4j</a> — a QML runtime implemented in pure Java, without Qt or C++.
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/platform-Android%2026%2B-A4C639" alt="Android 26+">
+  <img src="https://img.shields.io/badge/platform-Android%2026%2B%20%C2%B7%20Desktop-A4C639" alt="Android 26+ · Desktop">
+  <img src="https://img.shields.io/badge/graphics-OpenGL%20%2F%20Vulkan-CC3333" alt="OpenGL / Vulkan">
   <img src="https://img.shields.io/badge/UI-QML%20%2F%20Material%203-7C6CF0" alt="QML / Material 3">
   <img src="https://img.shields.io/badge/engine-qml4j-465BA6" alt="qml4j">
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0"></a>
@@ -43,30 +44,52 @@ The UI uses no native Views. Every control, including the lyrics, is described i
 - Material 3 UI: the whole interface is QML (`md3.Core`) running on the qml4j engine.
 - Dynamic color (Monet): the theme is reseeded from the current cover (toggleable); dark, light, and follow-system modes.
 - System media controls and background playback: a foreground `MediaSession` service drives the lockscreen, notification, and bluetooth transport, with auto-advance, position sync, pause-on-call, and ducking on transient focus loss.
+- Responsive layout: the UI adapts to the window/screen width (MD3 breakpoints 600 / 840) — a bottom bar when narrow, a left `NavigationRail` when wide, and a playlist grid whose column count grows with width. It's width-driven, so Android landscape and tablets get it too.
+- Desktop (LWJGL3): the same QML and `player-core` logic run on the desktop, windowed with GLFW and rendered with Skija. The **OpenGL / Vulkan graphics backend is switchable** at startup; a taskbar icon plus a system tray whose menu mirrors the transport; **minimizing to the tray destroys the render thread and GPU resources and rebuilds them on restore** (playback and UI state are preserved).
 
 ## Layout
 
 | Module | Description |
 |---|---|
 | `player-core/` | Platform-neutral core (Maven, `dev.t1m3.qplayer`): the QML-facing `PlayerController`, NetEase API, lyric parsers (LRC / YRC / TTML), audio and metadata abstractions. |
-| `android-shell/` | Android app (Gradle, `applicationId dev.t1m3.qplayer`, minSdk 26). QML UI in `app/src/main/assets/*.qml`; host integration and the Skija lyric page in `…/android/`. |
-| `shared-qml/` | Vendored `md3.Core` component library and bundled fonts (PingFang / Material Symbols), at the repo root so the Android shell and a future desktop host can share it. |
+| `shared-lyric/` | Platform-neutral host-drawn lyric page (fluid SkSL backdrop + per-syllable renderer) and the `LyricCompositor` (the 3-layer scene compositor). Pure Skija, shared by the Android shell and the desktop host so both draw identical lyrics. |
+| `shared-qml/` | Shared QML: `Main.qml` + the pages + components, the vendored `md3.Core` library, and bundled fonts (PingFang / Material Symbols). At the repo root; Android and desktop load the same copy (so the responsive layout applies to both). |
+| `android-shell/` | Android app (Gradle, `applicationId dev.t1m3.qplayer`, minSdk 26). Host integration in `…/android/`; the UI and lyrics come from the two shared modules above. |
+| `desktop-host/` | Desktop host (Maven): an LWJGL3 + GLFW window rendered with Skija, a switchable `GraphicsBackend` (`GLBackend` / `VulkanBackend`), a disposable render thread, a system tray, and desktop audio (javax.sound + SPI decoders). |
 | [qml4j](https://github.com/TIMER-err/qml4j) | The QML engine. A published dependency, **not** part of this repo. |
 
-`qml4j-core` is resolved from Maven Central; only the in-repo `player-core` module is built locally.
+`qml4j-core` is resolved from Maven Central; the in-repo `player-core` / `shared-lyric` / `desktop-host` modules are built locally.
 
 ## Build
 
-Requires JDK 21 and the Android SDK.
+Requires JDK 21; building for Android also needs the Android SDK.
+
+**Android**
 
 ```sh
-# install player core to Maven Local
-cd player-core && mvn -q -DskipTests install
+# install the shared modules to Maven Local (the Android shell consumes them via mavenLocal)
+mvn -q -pl player-core,shared-lyric -am install
 
 # build the APK (qml4j-core resolves from Maven Central)
-cd ../android-shell && ./gradlew :app:assembleDebug
+cd android-shell && ./gradlew :app:assembleDebug
 # → app/build/outputs/apk/debug/app-debug.apk
 ```
+
+**Desktop**
+
+```sh
+# build once (player-core / shared-lyric / desktop-host)
+mvn -q -pl player-core,shared-lyric,desktop-host -am install
+
+# run (OpenGL by default)
+mvn -pl desktop-host exec:exec
+
+# switch to the Vulkan backend / set the initial window size (try the breakpoints)
+mvn -pl desktop-host exec:exec -Dgfx=vulkan
+mvn -pl desktop-host exec:exec -Dwin.w=480 -Dwin.h=800   # narrow (bottom bar)
+```
+
+> The close button minimizes to the tray (the render thread is destroyed, audio keeps playing); only "Quit" from the tray exits. On macOS launch with `-XstartOnFirstThread`.
 
 ## On AI
 
