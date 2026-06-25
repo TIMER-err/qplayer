@@ -26,19 +26,25 @@ final class InputBridge {
 
     private final DesktopWindow win;
 
-    // Pixels of scroll per wheel notch (the eased target distance), and the
-    // per-frame easing fraction toward the remaining target.
-    private static final float SCROLL_STEP = 64f;
-    private static final float SCROLL_EASE = 0.22f;
+    // Match qml4j Flickable's own glide so wheel scrolling on desktop feels exactly
+    // like the mobile fling: ease the shown position toward the target at the same
+    // frame-rate-independent rate a = 1 - exp(-EASE*dt). (Flickable.EASE = 18.)
+    private static final float EASE = 18f;
+    // Notches accumulated per wheel detent (1.0 = one Flickable WHEEL_STEP ≈ 48px of
+    // content); the engine applies WHEEL_STEP internally via dispatchWheel. >1 covers
+    // more distance per detent (faster) while keeping the same glide curve.
+    private static final float WHEEL_GAIN = 1.8f;
 
     private volatile double cursorX;
     private volatile double cursorY;
 
-    // Smooth-scroll accumulators (render-thread only: written via posted render
-    // tasks, animated in tickScroll). The raw GLFW wheel is discrete, so easing the
-    // remaining distance toward 0 each frame turns it into a smooth glide.
+    // Smooth-scroll accumulators in wheel-notch units (render-thread only: written
+    // via posted render tasks, eased toward 0 in tickScroll). The raw GLFW wheel is
+    // discrete, so easing the remaining notches each frame reproduces the same glide
+    // the Flickable applies to a fling.
     private double pendingScrollX;
     private double pendingScrollY;
+    private long lastScrollNanos;
 
     // Lyric-body gesture state (render-thread only).
     private boolean lyGrab;
@@ -63,8 +69,8 @@ final class InputBridge {
             else if (action == GLFW.GLFW_RELEASE) win.postRenderTask(() -> onRelease(fx, fy));
         });
         GLFW.glfwSetScrollCallback(window, (w, dx, dy) -> {
-            final double adx = dx * SCROLL_STEP, ady = dy * SCROLL_STEP;
-            // Accumulate the target on the render thread; tickScroll() eases it out.
+            final double adx = dx * WHEEL_GAIN, ady = dy * WHEEL_GAIN;
+            // Accumulate notches on the render thread; tickScroll() eases them out.
             win.postRenderTask(() -> {
                 pendingScrollX += adx;
                 pendingScrollY += ady;
@@ -90,21 +96,31 @@ final class InputBridge {
         });
     }
 
-    /** Called once per frame on the render thread: glide the wheel scroll toward the
-     *  accumulated target with exponential easing, so each notch animates instead of
-     *  snapping. */
+    /** Called once per frame on the render thread: ease the accumulated wheel notches
+     *  toward 0 with the Flickable's own a = 1 - exp(-EASE*dt) glide and feed the
+     *  per-frame delta to dispatchWheel, so a desktop wheel scroll animates with the
+     *  same curve as a mobile fling. */
     void tickScroll() {
-        if (Math.abs(pendingScrollX) < 0.5 && Math.abs(pendingScrollY) < 0.5) {
+        if (Math.abs(pendingScrollX) < 0.001 && Math.abs(pendingScrollY) < 0.001) {
             pendingScrollX = pendingScrollY = 0;
+            lastScrollNanos = 0L;
             return;
         }
+        long now = System.nanoTime();
+        if (lastScrollNanos == 0L) { lastScrollNanos = now; return; }
+        float dt = (now - lastScrollNanos) / 1_000_000_000f;
+        lastScrollNanos = now;
+        if (dt <= 0f) return;
+        if (dt > 0.05f) dt = 0.05f;
+
         QmlView v = win.view();
         if (v == null) return;
-        double stepX = pendingScrollX * SCROLL_EASE;
-        double stepY = pendingScrollY * SCROLL_EASE;
-        // Ensure the tail finishes promptly rather than asymptotically crawling.
-        if (Math.abs(pendingScrollX - stepX) < 0.5) stepX = pendingScrollX;
-        if (Math.abs(pendingScrollY - stepY) < 0.5) stepY = pendingScrollY;
+        double a = 1.0 - Math.exp(-EASE * dt);
+        double stepX = pendingScrollX * a;
+        double stepY = pendingScrollY * a;
+        // Snap the tail so it settles instead of crawling asymptotically.
+        if (Math.abs(pendingScrollX - stepX) < 0.002) stepX = pendingScrollX;
+        if (Math.abs(pendingScrollY - stepY) < 0.002) stepY = pendingScrollY;
         pendingScrollX -= stepX;
         pendingScrollY -= stepY;
         v.dispatchWheel((float) cursorX, (float) cursorY, (float) stepX, (float) stepY);

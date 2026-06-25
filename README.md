@@ -9,12 +9,13 @@
 </p>
 
 <p align="center">
-  <b>一个全程用 QML 渲染的安卓网易云音乐播放器。</b><br>
+  <b>一个全程用 QML 渲染的网易云音乐播放器,同时支持安卓与桌面。</b><br>
   运行在 <a href="https://github.com/TIMER-err/qml4j">qml4j</a> 上——一个用纯 Java 实现的 QML 引擎,不依赖 Qt 和 C++。
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/platform-Android%2026%2B-A4C639" alt="Android 26+">
+  <img src="https://img.shields.io/badge/platform-Android%2026%2B%20%C2%B7%20Desktop-A4C639" alt="Android 26+ · Desktop">
+  <img src="https://img.shields.io/badge/graphics-OpenGL%20%2F%20Vulkan-CC3333" alt="OpenGL / Vulkan">
   <img src="https://img.shields.io/badge/UI-QML%20%2F%20Material%203-7C6CF0" alt="QML / Material 3">
   <img src="https://img.shields.io/badge/engine-qml4j-465BA6" alt="qml4j">
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0"></a>
@@ -43,30 +44,52 @@
 - Material 3 界面:整套 UI 为 QML(`md3.Core`),运行在 qml4j 引擎上。
 - 莫奈动态取色:主题色从当前封面提取(可关闭);支持深色、浅色与跟随系统。
 - 系统媒体控件与后台播放:前台 `MediaSession` 服务接管锁屏、通知栏与蓝牙控制,处理自动续播、进度同步、来电暂停与失焦降音。
+- 响应式布局:界面随窗口/屏幕宽度自适应(MD3 断点 600 / 840)——窄屏底部导航,宽屏切换为左侧 `NavigationRail`,歌单栅格列数随宽度增减。这套布局是宽度驱动的,安卓横屏与平板同样生效。
+- 桌面端(LWJGL3):同一套 QML 与 `player-core` 逻辑跑在桌面,GLFW 开窗、Skija 渲染。**OpenGL / Vulkan 图形后端可在启动时切换**;任务栏图标 + 系统托盘,托盘菜单镜像播放控制;**最小化到托盘时销毁渲染线程与 GPU 资源,恢复时重建**(播放与界面状态保留)。
 
 ## 仓库结构
 
 | 模块 | 说明 |
 |---|---|
 | `player-core/` | 跨平台核心(Maven,`dev.t1m3.qplayer`):面向 QML 的 `PlayerController`、网易云 API、歌词解析(LRC / YRC / TTML)、音频与元数据抽象。 |
-| `android-shell/` | 安卓应用(Gradle,`applicationId dev.t1m3.qplayer`,minSdk 26)。QML 界面位于 `app/src/main/assets/*.qml`;宿主集成与 Skija 歌词页位于 `…/android/`。 |
-| `shared-qml/` | vendored 的 `md3.Core` 组件库与内置字体(PingFang / Material Symbols),位于仓库根目录,供安卓壳与未来的桌面端共用。 |
+| `shared-lyric/` | 平台无关的宿主绘制歌词页(流体 SkSL 背景 + 逐字渲染器)与 `LyricCompositor`(三层场景合成)。纯 Skija,安卓壳与桌面宿主共用,两端歌词渲染完全一致。 |
+| `shared-qml/` | 共享 QML:`Main.qml` + 各页面 + 组件,vendored 的 `md3.Core` 组件库,以及内置字体(PingFang / Material Symbols)。位于仓库根目录,安卓与桌面加载同一份(响应式布局因此两端通用)。 |
+| `android-shell/` | 安卓应用(Gradle,`applicationId dev.t1m3.qplayer`,minSdk 26)。宿主集成位于 `…/android/`;UI 与歌词均来自上面两个共享模块。 |
+| `desktop-host/` | 桌面宿主(Maven):LWJGL3 + GLFW 开窗、Skija 渲染,可切换的 `GraphicsBackend`(`GLBackend` / `VulkanBackend`)、可销毁/重建的渲染线程、系统托盘,以及桌面音频(javax.sound + SPI 解码)。 |
 | [qml4j](https://github.com/TIMER-err/qml4j) | QML 引擎。一个已发布的依赖,**不在**本仓库内。 |
 
-`qml4j-core` 从 Maven Central 解析;本地只构建仓库内的 `player-core` 模块。
+`qml4j-core` 从 Maven Central 解析;本地构建仓库内的 `player-core` / `shared-lyric` / `desktop-host` 模块。
 
 ## 构建
 
-需要 JDK 21 与 Android SDK。
+需要 JDK 21;构建安卓还需 Android SDK。
+
+**安卓**
 
 ```sh
-# 将 player core 安装到 Maven Local
-cd player-core && mvn -q -DskipTests install
+# 将共享模块安装到 Maven Local(安卓壳通过 mavenLocal 消费)
+mvn -q -pl player-core,shared-lyric -am install
 
 # 构建 APK(qml4j-core 从 Maven Central 解析)
-cd ../android-shell && ./gradlew :app:assembleDebug
+cd android-shell && ./gradlew :app:assembleDebug
 # → app/build/outputs/apk/debug/app-debug.apk
 ```
+
+**桌面**
+
+```sh
+# 构建一次(player-core / shared-lyric / desktop-host)
+mvn -q -pl player-core,shared-lyric,desktop-host -am install
+
+# 运行(默认 OpenGL)
+mvn -pl desktop-host exec:exec
+
+# 切 Vulkan 后端 / 指定初始窗口大小(试响应式断点)
+mvn -pl desktop-host exec:exec -Dgfx=vulkan
+mvn -pl desktop-host exec:exec -Dwin.w=480 -Dwin.h=800   # 窄屏(底部导航)
+```
+
+> 关闭按钮最小化到托盘(渲染线程销毁、音频续播),从托盘"退出"才真正退出。macOS 启动需加 `-XstartOnFirstThread`。
 
 ## AI 说明
 
