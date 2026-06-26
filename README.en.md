@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <b>A NetEase Cloud Music player rendered entirely in QML, for Android and desktop.</b><br>
+  <b>A NetEase Cloud Music player with a QML-rendered UI and hand-drawn lyrics, for Android and desktop.</b><br>
   Runs on <a href="https://github.com/TIMER-err/qml4j">qml4j</a> — a QML runtime implemented in pure Java, without Qt or C++.
 </p>
 
@@ -33,7 +33,7 @@
   <sub>Home · light (Monet) &nbsp;|&nbsp; Home · dark &nbsp;|&nbsp; Lyrics · per-syllable + romaji/translation &nbsp;|&nbsp; Lyrics · fluid backdrop + wavy progress</sub>
 </p>
 
-The UI uses no native Views. Every control, including the lyrics, is described in QML and rendered by qml4j, which is itself a QML runtime written in pure Java.
+The UI uses no native Views. Every control is described in QML and rendered by qml4j — **except** the lyric-page body (per-syllable scrolling + fluid backdrop), which the host draws by hand directly through Skija, not in QML. qml4j is itself a QML runtime written in pure Java.
 
 ## Features
 
@@ -89,6 +89,25 @@ mvn -pl desktop-host exec:exec -Dwin.w=480 -Dwin.h=800   # narrow (bottom bar)
 ```
 
 > The close button minimizes to the tray (the render thread is destroyed, audio keeps playing); only "Quit" from the tray exits. On macOS launch with `-XstartOnFirstThread`.
+
+**Standalone desktop executable (GraalVM native-image)**
+
+Needs a **GraalVM 21** JDK. The QML is AOT-compiled at build time (no runtime bytecode generation). `native-image` can't cross-compile across OS/arch, so **each platform is built on its own machine**.
+
+```sh
+# 1) install the shared module
+mvn -DskipTests -pl player-core -am install
+
+# 2) AOT-compile the QML + build the native binary → desktop-host/target/qplayer[.exe]
+mvn -DskipTests -pl desktop-host -Pnative package
+
+# 3) package into a lightweight per-platform bundle (Skija/LWJGL natives included)
+bash       desktop-host/dist/package-linux.sh      # Linux   → target/QPlayer-x86_64.AppImage (single file)
+pwsh -File desktop-host/dist/package-windows.ps1   # Windows → target/QPlayer-windows-x64.zip
+bash       desktop-host/dist/package-macos.sh      # macOS   → target/QPlayer.dmg (host arch)
+```
+
+> The macOS `.dmg` is unsigned; distributing it needs codesign + notarization or Gatekeeper blocks it. On a `v*` tag, `.github/workflows/release.yml` runs all of the above on the three-platform CI and attaches the artifacts to the GitHub Release.
 
 ## On AI
 

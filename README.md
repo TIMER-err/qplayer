@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <b>一个全程用 QML 渲染的网易云音乐播放器,同时支持安卓与桌面。</b><br>
+  <b>一个界面由 QML 渲染、歌词由宿主手工绘制的网易云音乐播放器,同时支持安卓与桌面。</b><br>
   运行在 <a href="https://github.com/TIMER-err/qml4j">qml4j</a> 上——一个用纯 Java 实现的 QML 引擎,不依赖 Qt 和 C++。
 </p>
 
@@ -33,7 +33,7 @@
   <sub>首页 · 浅色莫奈 &nbsp;|&nbsp; 首页 · 深色 &nbsp;|&nbsp; 歌词 · 逐字 + 罗马音/翻译 &nbsp;|&nbsp; 歌词 · 流体背景 + 波浪进度</sub>
 </p>
 
-界面不使用任何原生 View。所有控件,包括歌词,都由 QML 描述并由 qml4j 渲染;qml4j 本身是用纯 Java 实现的 QML 运行时。
+界面不使用任何原生 View。除歌词页正文外,所有控件都由 QML 描述并经 qml4j 渲染;歌词正文(逐字滚动 + 流体背景)由宿主通过 Skija 直接手工绘制,不走 QML。qml4j 本身是用纯 Java 实现的 QML 运行时。
 
 ## 特性
 
@@ -89,6 +89,25 @@ mvn -pl desktop-host exec:exec -Dwin.w=480 -Dwin.h=800   # 窄屏(底部导航)
 ```
 
 > 关闭按钮最小化到托盘(渲染线程销毁、音频续播),从托盘"退出"才真正退出。macOS 启动需加 `-XstartOnFirstThread`。
+
+**桌面单文件可执行(GraalVM native-image)**
+
+需要 **GraalVM 21** JDK。QML 在构建期 AOT 编译,无运行时字节码生成。`native-image` 不能跨系统/架构编译,**每个平台需在对应机器上构建**。
+
+```sh
+# 1) 安装共享模块
+mvn -DskipTests -pl player-core -am install
+
+# 2) AOT 编译 QML + 构建原生二进制 → desktop-host/target/qplayer[.exe]
+mvn -DskipTests -pl desktop-host -Pnative package
+
+# 3) 打成各平台轻量分发包(Skija/LWJGL 原生库一并打入)
+bash       desktop-host/dist/package-linux.sh      # Linux   → target/QPlayer-x86_64.AppImage(单文件)
+pwsh -File desktop-host/dist/package-windows.ps1   # Windows → target/QPlayer-windows-x64.zip
+bash       desktop-host/dist/package-macos.sh      # macOS   → target/QPlayer.dmg(随当前架构)
+```
+
+> macOS 的 `.dmg` 未签名,对外分发需自行 codesign + 公证,否则 Gatekeeper 会拦截。打 `v*` tag 时,`.github/workflows/release.yml` 会在三平台 CI 上自动完成上述构建并附到 GitHub Release。
 
 ## AI 说明
 
