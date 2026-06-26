@@ -43,6 +43,12 @@ final class TrayController implements PlayerController.PlaybackListener {
     /** Build the tray. Returns false (and logs) if no tray is available, in which
      *  case the app still runs windowed. */
     boolean install() {
+        // Hand the icon to GTK as-is. dorkbox's AUTO_SIZE resize path loads the
+        // PNG through java.awt (MediaTracker → Component.initIDs), which under
+        // native-image dies with NoSuchFieldError: java.awt.Component.x (AWT JNI
+        // field IDs aren't registered). With AUTO_SIZE off, the file goes straight
+        // to the GTK tray, which scales it to the panel itself — no AWT involved.
+        SystemTray.AUTO_SIZE = false;
         try {
             tray = SystemTray.get("QPlayer");
         } catch (Throwable t) {

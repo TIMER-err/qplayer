@@ -98,7 +98,14 @@ public final class Main {
         // (-Dqplayer.tray=false disables it, e.g. for headless rendering checks.)
         if (!"false".equals(System.getProperty("qplayer.tray", "true"))) {
             Thread trayThread = new Thread(() -> {
-                boolean ok = tray.install();
+                boolean ok = false;
+                try {
+                    ok = tray.install();
+                } catch (Throwable t) {
+                    // Never let a tray failure (e.g. an AWT/JNI Error) kill the
+                    // thread silently and leave trayAvailable unset.
+                    Logger.warn("tray install threw: {}", t);
+                }
                 window.setTrayAvailable(ok);
                 if (ok) controller.setPlaybackListener(tray);
             }, "qplayer-tray-init");
