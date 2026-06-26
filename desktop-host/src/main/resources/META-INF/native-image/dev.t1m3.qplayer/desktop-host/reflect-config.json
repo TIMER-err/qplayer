@@ -3146,5 +3146,770 @@
 {
   "name":"void",
   "fields":[{"name":"OPTIONS"}, {"name":"STRING_ENCODING"}, {"name":"STRUCTURE_ALIGNMENT"}, {"name":"TYPE_MAPPER"}]
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.AbstractDataType",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.AbstractDataTypeList",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.AbstractIntStringValuePair",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.AbstractString",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.AbstractStringStringValuePair",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.AbstractValuePair",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.BooleanByte",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.BooleanString",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.ByteArraySizeTerminated",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.DataTypes",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.EventTimingCode",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.EventTimingCodeList",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.HashMapInterface",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.ID3v2LyricLine",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.Lyrics3Image",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.Lyrics3Line",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.Lyrics3TimeStamp",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.MultipleTextEncodedStringNullTerminated",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.NumberFixedLength",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.NumberHashMap",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.NumberVariableLength",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.Pair",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.PairedTextEncodedStringNullTerminated",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.PartOfSet",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.StringDate",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.StringDateTime",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.StringFixedLength",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.StringHashMap",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.StringNullTerminated",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.StringSizeTerminated",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.SynchronisedTempoCode",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.SynchronisedTempoCodeList",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.TCONString",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.TempoCode",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.TextEncodedStringNullTerminated",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.datatype.TextEncodedStringSizeTerminated",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.AbstractFrameBodyNumberTotal",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.AbstractFrameBodyPairs",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.AbstractFrameBodyTextInfo",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.AbstractFrameBodyUrlLink",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.AbstractID3v2FrameBody",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyAENC",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyAPIC",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyASPI",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyCHAP",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyCOMM",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyCOMR",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyCRM",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyCTOC",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyDeprecated",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyENCR",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyEQU2",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyEQUA",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyETCO",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyEncrypted",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyGEOB",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyGRID",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyGRP1",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyIPLS",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyLINK",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyMCDI",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyMLLT",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyMVIN",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyMVNM",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyOWNE",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyPCNT",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyPIC",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyPOPM",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyPOSS",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyPRIV",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyRBUF",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyRVA2",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyRVAD",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyRVRB",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodySEEK",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodySIGN",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodySYLT",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodySYTC",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTALB",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTBPM",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTCMP",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTCOM",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTCON",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTCOP",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTDAT",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTDEN",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTDLY",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTDOR",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTDRC",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTDRL",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTDTG",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTENC",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTEXT",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTFLT",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTIME",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTIPL",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTIT1",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTIT2",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTIT3",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTKEY",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTLAN",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTLEN",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTMCL",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTMED",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTMOO",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTOAL",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTOFN",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTOLY",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTOPE",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTORY",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTOWN",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTPE1",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTPE2",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTPE3",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTPE4",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTPOS",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTPRO",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTPUB",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTRCK",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTRDA",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTRSN",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTRSO",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTSIZ",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTSO2",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTSOA",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTSOC",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTSOP",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTSOT",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTSRC",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTSSE",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTSST",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTXXX",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyTYER",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyUFID",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyUSER",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyUSLT",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyUnsupported",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyWCOM",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyWCOP",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyWOAF",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyWOAR",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyWOAS",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyWORS",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyWPAY",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyWPUB",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyWXXX",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyXSOA",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyXSOP",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.FrameBodyXSOT",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.ID3v22FrameBody",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.ID3v23FrameBody",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.ID3v24FrameBody",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
+},
+{
+  "name":"org.jaudiotagger.tag.id3.framebody.ID3v2ChapterFrameBody",
+  "allDeclaredConstructors":true,
+  "allDeclaredMethods":true
 }
 ]
