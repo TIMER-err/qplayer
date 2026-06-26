@@ -1,18 +1,31 @@
 name: Release
 
-# One unified release pipeline. A `v*` tag push builds, in parallel:
+# One unified release pipeline. It builds, in parallel:
 #   • android  — the signed release APK
 #   • desktop  — the GraalVM native-image app on Linux / Windows / macOS
 #                (intel + apple-silicon); native-image can't cross-compile, so
 #                each platform builds on its own runner.
 # Every job attaches its artifact(s) to the GitHub Release for the tag
 # (action-gh-release creates the release on first upload and appends after).
+#
+# Triggers on BOTH ways of cutting a release, so either works:
+#   • `git push` of a `v*` tag           → push event
+#   • "Publish release" in the GitHub UI → release:published event
+# (a UI-created release does not reliably emit a tag push event, so we need both).
 # A manual `workflow_dispatch` run skips the release and uploads artifacts only.
 
 on:
   push:
     tags: ['v*']
+  release:
+    types: [published]
   workflow_dispatch: {}
+
+# Push-a-tag and publish-a-release can both fire for the same version; collapse
+# them into one run per ref instead of building everything twice.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -123,6 +136,16 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           native-image-job-reports: 'true'
           cache: 'maven'
+
+      # The AOT step (and the native binary) loads libskija.so, which links
+      # libEGL/libGL/fontconfig. A clean ubuntu runner ships none of them, so
+      # FontMgr.<clinit> dies with UnsatisfiedLinkError: libEGL.so.1. Windows /
+      # macOS Skija use other backends and need nothing here.
+      - name: Install native GL/EGL libs (Linux runner)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libgles2 libglu1-mesa libfontconfig1
 
       - name: Install player-core to local Maven repo
         run: mvn -B -DskipTests -pl player-core -am install
