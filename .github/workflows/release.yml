@@ -65,6 +65,11 @@ jobs:
           QV=$(grep -oP 'qml4j-core:\K[0-9]+\.[0-9]+\.[0-9]+' android-shell/app/build.gradle.kts)
           echo "qml4j-core version: $QV"
           git clone --depth 1 --branch "v$QV" https://github.com/TIMER-err/qml4j.git "$RUNNER_TEMP/qml4j"
+          # qml4j sets its release version from the tag only at publish time and never
+          # commits it, so the tagged pom still carries the previous version. Pin it to
+          # $QV before install, else this builds the wrong version and player-core can't
+          # resolve $QV (this is what qml4j's own release workflow does).
+          mvn -q -B versions:set -DnewVersion="$QV" -DgenerateBackupPoms=false -f "$RUNNER_TEMP/qml4j/pom.xml"
           mvn -q -B -N -Dpmd.skip=true -Dcheckstyle.skip=true install -f "$RUNNER_TEMP/qml4j/pom.xml"
           mvn -q -B -DskipTests -Dpmd.skip=true -Dcpd.skip=true -Dcheckstyle.skip=true install -f "$RUNNER_TEMP/qml4j/qml4j-core/pom.xml"
 
@@ -174,6 +179,9 @@ jobs:
           QV=$(mvn -q -N help:evaluate -Dexpression=qml4j.version -DforceStdout)
           echo "qml4j-core version: $QV"
           git clone --depth 1 --branch "v$QV" https://github.com/TIMER-err/qml4j.git "$RUNNER_TEMP/qml4j"
+          # Pin the cloned engine's pom version to the tag (the tagged pom keeps the
+          # previous version; qml4j only sets the release version at publish time).
+          mvn -q -B versions:set -DnewVersion="$QV" -DgenerateBackupPoms=false -f "$RUNNER_TEMP/qml4j/pom.xml"
           mvn -q -B -N -Dpmd.skip=true -Dcheckstyle.skip=true install -f "$RUNNER_TEMP/qml4j/pom.xml"
           mvn -q -B -DskipTests -Dpmd.skip=true -Dcpd.skip=true -Dcheckstyle.skip=true install -f "$RUNNER_TEMP/qml4j/qml4j-core/pom.xml"
 
