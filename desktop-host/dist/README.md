@@ -38,9 +38,10 @@ points `skija.library.path` / `org.lwjgl.librarypath` at them.
 
 ## CI release
 
-`.github/workflows/release.yml` runs the above on an `ubuntu` / `windows` /
-`macos-13` (intel) / `macos-14` (arm64) matrix and attaches the artifacts to the
-GitHub Release on a `v*` tag push.
+`.github/workflows/release.yml` is the unified release pipeline: a `v*` tag push
+builds the Android APK and the desktop native image on an `ubuntu` / `windows` /
+`macos-13` (intel) / `macos-14` (arm64) matrix in parallel, and attaches every
+artifact to the same GitHub Release.
 
 ## Status
 

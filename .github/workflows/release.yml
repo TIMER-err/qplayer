@@ -1,8 +1,13 @@
-name: Release (native desktop)
+name: Release
 
-# Builds the GraalVM native-image desktop app for Linux / Windows / macOS (intel +
-# apple-silicon) and attaches the packaged artifacts to a GitHub Release.
-# native-image can't cross-compile, so each platform builds on its own runner.
+# One unified release pipeline. A `v*` tag push builds, in parallel:
+#   • android  — the signed release APK
+#   • desktop  — the GraalVM native-image app on Linux / Windows / macOS
+#                (intel + apple-silicon); native-image can't cross-compile, so
+#                each platform builds on its own runner.
+# Every job attaches its artifact(s) to the GitHub Release for the tag
+# (action-gh-release creates the release on first upload and appends after).
+# A manual `workflow_dispatch` run skips the release and uploads artifacts only.
 
 on:
   push:
@@ -13,7 +18,79 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  android:
+    runs-on: ubuntu-latest
+    env:
+      QPLAYER_STORE_PASSWORD: ${{ secrets.QPLAYER_STORE_PASSWORD }}
+      QPLAYER_KEY_ALIAS: ${{ secrets.QPLAYER_KEY_ALIAS }}
+      QPLAYER_KEY_PASSWORD: ${{ secrets.QPLAYER_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # qml4j-core is normally pulled from Maven Central, but a freshly-tagged
+      # engine may not be published yet (Central monthly publish quota). Build the
+      # matching tag from source into the local Maven repo; gradle's mavenLocal()
+      # resolves it ahead of Central, so the release never blocks on a publish.
+      - name: Build qml4j-core from source
+        run: |
+          QV=$(grep -oP 'qml4j-core:\K[0-9]+\.[0-9]+\.[0-9]+' android-shell/app/build.gradle.kts)
+          echo "qml4j-core version: $QV"
+          git clone --depth 1 --branch "v$QV" https://github.com/TIMER-err/qml4j.git "$RUNNER_TEMP/qml4j"
+          mvn -q -B -N -Dpmd.skip=true -Dcheckstyle.skip=true install -f "$RUNNER_TEMP/qml4j/pom.xml"
+          mvn -q -B -DskipTests -Dpmd.skip=true -Dcpd.skip=true -Dcheckstyle.skip=true install -f "$RUNNER_TEMP/qml4j/qml4j-core/pom.xml"
+
+      # player-core now carries the host-drawn lyric classes (shared-lyric was
+      # merged in), so installing it is enough for the gradle build to resolve.
+      - name: Install player-core
+        run: |
+          mvn -q -B -N install
+          mvn -q -B -DskipTests install -f player-core/pom.xml
+
+      - name: Decode keystore
+        env:
+          QPLAYER_KEYSTORE_BASE64: ${{ secrets.QPLAYER_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$QPLAYER_KEYSTORE_BASE64" ]; then
+            echo "$QPLAYER_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/qplayer.jks"
+            echo "QPLAYER_KEYSTORE=$RUNNER_TEMP/qplayer.jks" >> "$GITHUB_ENV"
+            echo "Keystore decoded; release will be signed."
+          else
+            echo "::warning::QPLAYER_KEYSTORE_BASE64 not set — release will be UNSIGNED."
+          fi
+
+      - name: Build release APK
+        run: |
+          chmod +x android-shell/gradlew
+          cd android-shell && ./gradlew --no-daemon :app:assembleRelease
+
+      - name: Stage APK
+        run: |
+          mkdir -p out
+          dir=android-shell/app/build/outputs/apk/release
+          apk="$dir/app-release.apk"
+          [ -f "$apk" ] || apk="$dir/app-release-unsigned.apk"
+          cp "$apk" "out/QPlayer-android.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: QPlayer-android
+          path: out/*
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+
+  desktop:
     strategy:
       fail-fast: false
       matrix:
@@ -45,6 +122,7 @@ jobs:
           distribution: 'graalvm-community'
           github-token: ${{ secrets.GITHUB_TOKEN }}
           native-image-job-reports: 'true'
+          cache: 'maven'
 
       - name: Install player-core to local Maven repo
         run: mvn -B -DskipTests -pl player-core -am install
