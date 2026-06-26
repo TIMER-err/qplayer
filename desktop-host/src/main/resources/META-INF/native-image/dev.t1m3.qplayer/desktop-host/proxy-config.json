@@ -1,2 +1,3 @@
 [
+  { "interfaces": ["dorkbox.jna.linux.Glib$GLogFunc"] }
 ]

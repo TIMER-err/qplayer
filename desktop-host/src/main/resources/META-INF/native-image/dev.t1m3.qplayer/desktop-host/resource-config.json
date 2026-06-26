@@ -69,6 +69,8 @@
   }, {
     "pattern":"\\QMETA-INF/services/org.mozilla.javascript.xml.XMLLoader\\E"
   }, {
+    "pattern":"\\QMETA-INF/services/org.slf4j.spi.SLF4JServiceProvider\\E"
+  }, {
     "pattern":"\\QMain.qml\\E"
   }, {
     "pattern":"\\QMath.qml\\E"
@@ -263,6 +265,8 @@
   }, {
     "pattern":"\\Qapp-icon.png\\E"
   }, {
+    "pattern":"\\Qcom/sun/jna/linux-x86-64/libjnidispatch.so\\E"
+  }, {
     "pattern":"\\Qfonts/MaterialSymbolsRounded.ttf\\E"
   }, {
     "pattern":"\\Qfonts/PingFangSC-Light.otf\\E"
@@ -372,6 +376,8 @@
     "pattern":"\\Qmd3/Core/VirtualSongList.qml\\E"
   }, {
     "pattern":"\\Qmd3/Core/qmldir\\E"
+  }, {
+    "pattern":"\\Qorg/slf4j/impl/StaticLoggerBinder.class\\E"
   }, {
     "pattern":"\\Qqmldir\\E"
   }, {

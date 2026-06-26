@@ -55,6 +55,7 @@ final class TrayController implements PlayerController.PlaybackListener {
             Logger.warn("no system tray available; tray menu disabled");
             return false;
         }
+        Logger.info("system tray initialized: {}", tray.getClass().getName());
         tray.setTooltip("QPlayer");
         tray.setImage(iconFile());
 
