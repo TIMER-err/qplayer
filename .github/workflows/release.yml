@@ -162,6 +162,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libegl1 libgl1 libgles2 libglu1-mesa libfontconfig1
 
+      # Build the matching qml4j-core from source (like the android job) instead of
+      # resolving it from Maven Central, so a freshly-tagged engine works the moment
+      # qplayer bumps qml4j.version — no waiting on Central publish/propagation. The
+      # version is read from the root pom property; shell:bash runs the same script on
+      # the windows/macos runners (git-bash on Windows). qml4j's own deps still come
+      # from Central, but those are long-published.
+      - name: Build qml4j-core from source
+        shell: bash
+        run: |
+          QV=$(mvn -q -N help:evaluate -Dexpression=qml4j.version -DforceStdout)
+          echo "qml4j-core version: $QV"
+          git clone --depth 1 --branch "v$QV" https://github.com/TIMER-err/qml4j.git "$RUNNER_TEMP/qml4j"
+          mvn -q -B -N -Dpmd.skip=true -Dcheckstyle.skip=true install -f "$RUNNER_TEMP/qml4j/pom.xml"
+          mvn -q -B -DskipTests -Dpmd.skip=true -Dcpd.skip=true -Dcheckstyle.skip=true install -f "$RUNNER_TEMP/qml4j/qml4j-core/pom.xml"
+
       - name: Install player-core to local Maven repo
         run: mvn -B -DskipTests -pl player-core -am install
 
