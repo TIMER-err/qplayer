@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <b>A NetEase Cloud Music player with a QML-rendered UI and hand-drawn lyrics, for Android and desktop.</b><br>
-  Runs on <a href="https://github.com/TIMER-err/qml4j">qml4j</a> — a QML runtime implemented in pure Java, without Qt or C++.
+  <b>A cross-platform NetEase Cloud Music player with a QML-rendered UI</b><br>
+  Powered by <a href="https://github.com/TIMER-err/qml4j">qml4j</a>
 </p>
 
 <p align="center">
