@@ -80,7 +80,7 @@ public final class Main {
         // Playback control runs on the main event loop (alive even while the render
         // thread is dead); back/exit folds the window to the tray.
         controller.setMainExecutor(window::postMainTask);
-        controller.setExitListener(window::minimizeToTray);
+        controller.setExitListener(window::onExitRequested);
 
         TrayController tray = new TrayController(controller, window, resources.load("app-icon.png"));
 
@@ -98,7 +98,9 @@ public final class Main {
         // (-Dqplayer.tray=false disables it, e.g. for headless rendering checks.)
         if (!"false".equals(System.getProperty("qplayer.tray", "true"))) {
             Thread trayThread = new Thread(() -> {
-                if (tray.install()) controller.setPlaybackListener(tray);
+                boolean ok = tray.install();
+                window.setTrayAvailable(ok);
+                if (ok) controller.setPlaybackListener(tray);
             }, "qplayer-tray-init");
             trayThread.setDaemon(true);
             trayThread.start();

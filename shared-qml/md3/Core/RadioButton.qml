@@ -42,13 +42,12 @@ Item {
                 enabled: control.enabled
                 rippleColor: control.checked ? _colors.primary : _colors.onSurfaceColor
                 
-                onClicked: {
-                    control.clicked()
-                    // Note: RadioButton usually doesn't toggle off when clicked if already checked
-                    if (!control.checked) {
-                        control.checked = true
-                    }
-                }
+                // Emit only — `checked` is driven by the caller's binding
+                // (checked: <expr>). Imperatively assigning control.checked here calls
+                // Property.set(), which clears that binding (standard QML semantics,
+                // verified on the engine), so the button would stop tracking the state
+                // and never un-check when a sibling is selected.
+                onClicked: control.clicked()
             }
             
             // Radio Button Visual
@@ -103,12 +102,7 @@ Item {
             MouseArea {
                 anchors.fill: parent
                 enabled: control.enabled
-                onClicked: {
-                    control.clicked()
-                    if (!control.checked) {
-                        control.checked = true
-                    }
-                }
+                onClicked: control.clicked()
             }
         }
     }

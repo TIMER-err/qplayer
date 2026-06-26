@@ -66,6 +66,10 @@ final class DesktopWindow {
     private volatile RenderThread renderThread;
     private volatile boolean quitRequested;
     private volatile boolean hiddenToTray;
+    // Whether a system tray actually installed. Without one, hiding the window would
+    // make the app vanish with no way back, so the close button quits instead and
+    // recovery is left to the window manager's minimise (the taskbar icon is set).
+    private volatile boolean trayAvailable;
     private Runnable firstFrameListener;
 
     DesktopWindow(QmlEngine engine, String qmlSource, ResourceLoader resources,
@@ -242,12 +246,18 @@ final class DesktopWindow {
         GLFW.glfwSetWindowContentScaleCallback(window, (win, sx, sy) -> {
             if (sx > 0) uiScale = sx;
         });
-        // Close button hides to tray instead of quitting; real quit comes from the
-        // tray "Quit" item (requestQuit()).
+        // With a tray: close hides to it (real quit = tray "Quit"). Without a tray:
+        // close just quits, so the app can't vanish to nowhere.
         GLFW.glfwSetWindowCloseCallback(window, win -> {
+            // Veto the actual close; onExitRequested decides hide-to-tray vs quit.
             GLFW.glfwSetWindowShouldClose(win, false);
-            minimizeToTray();
+            onExitRequested();
         });
+    }
+
+    /** Told by the host once the tray install has finished (on its own thread). */
+    void setTrayAvailable(boolean available) {
+        this.trayAvailable = available;
     }
 
     private void setWindowIcon() {
@@ -297,6 +307,13 @@ final class DesktopWindow {
             Thread.currentThread().interrupt();
         }
         renderThread = null;
+    }
+
+    /** Close-button / back policy: hide to the tray if there is one, else quit (so
+     *  the app never vanishes with no way back). */
+    void onExitRequested() {
+        if (trayAvailable) minimizeToTray();
+        else requestQuit();
     }
 
     /** Tear down the render thread + GPU stack and hide the window (main thread). */

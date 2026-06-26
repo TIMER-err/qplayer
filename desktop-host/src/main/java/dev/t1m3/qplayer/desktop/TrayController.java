@@ -46,7 +46,9 @@ final class TrayController implements PlayerController.PlaybackListener {
         try {
             tray = SystemTray.get("QPlayer");
         } catch (Throwable t) {
-            Logger.warn("system tray init failed: {}", t);
+            java.io.StringWriter sw = new java.io.StringWriter();
+            t.printStackTrace(new java.io.PrintWriter(sw));
+            Logger.warn("system tray init failed:\n{}", sw);
             tray = null;
         }
         if (tray == null) {
