@@ -44,7 +44,15 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-          cache: maven
+
+      # Explicit Maven cache (the qml4j source build + player-core install + their
+      # deps land in ~/.m2). setup-gradle below handles the Gradle caches itself.
+      - name: Cache Maven repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2-
 
       - uses: gradle/actions/setup-gradle@v4
 
@@ -134,7 +142,15 @@ jobs:
           distribution: 'graalvm-community'
           github-token: ${{ secrets.GITHUB_TOKEN }}
           native-image-job-reports: 'true'
-          cache: 'maven'
+
+      # Explicit Maven cache (per-OS — GitHub caches don't cross OS): the LWJGL +
+      # Skija + dorkbox jars are large, and restore/save show up plainly in the log.
+      - name: Cache Maven repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2-
 
       # The AOT step (and the native binary) loads libskija.so, which links
       # libEGL/libGL/fontconfig. A clean ubuntu runner ships none of them, so
