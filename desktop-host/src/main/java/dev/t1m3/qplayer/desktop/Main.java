@@ -37,6 +37,20 @@ public final class Main {
             System.setProperty("java.home", System.getProperty("user.dir", "/tmp"));
         }
 
+        // In the native image, make the bare binary self-sufficient: point Skija +
+        // LWJGL at the native libs that ship beside the executable, so `qplayer[.exe]`
+        // works without a wrapper script (and the path is read straight from the OS,
+        // dodging the mojibake you get passing a non-ASCII dir through a .cmd file).
+        // On Windows this dir also holds icudtl.dat (Skija's ICU data; Linux/macOS
+        // bake it into the lib). A launcher that already set these (e.g. the AppImage
+        // AppRun, pointing at its native-libs subdir) wins via the null check.
+        // Skipped on a normal JVM (dev `exec:exec`), where Skija extracts its own
+        // natives and the executable is `java`, not us.
+        if (System.getProperty("java.vm.name", "").contains("Substrate")) {
+            defaultNativePath("skija.library.path");
+            defaultNativePath("org.lwjgl.librarypath");
+        }
+
         ResourceLoader resources = new ClasspathResourceLoader();
 
         // Platform backends (the desktop impls already exist).
@@ -187,6 +201,27 @@ public final class Main {
         }, "qplayer-scan");
         t.setDaemon(true);
         t.start();
+    }
+
+    // Set a native-library path property to the running executable's directory,
+    // unless a launcher already set it. Used to make the bare native binary find
+    // the Skija/LWJGL libs (and icudtl.dat) that ship beside it.
+    private static void defaultNativePath(String prop) {
+        if (System.getProperty(prop) != null) return;
+        try {
+            String cmd = ProcessHandle.current().info().command().orElse(null);
+            if (cmd != null) {
+                File parent = new File(cmd).getAbsoluteFile().getParentFile();
+                if (parent != null) {
+                    System.setProperty(prop, parent.getAbsolutePath());
+                    return;
+                }
+            }
+        } catch (Throwable ignored) {
+            // ProcessHandle may be restricted; fall through to the CWD.
+        }
+        String cwd = System.getProperty("user.dir");
+        if (cwd != null) System.setProperty(prop, cwd);
     }
 
     // The desktop GL drivers (notably NVIDIA's) can SIGSEGV a worker thread the

@@ -15,6 +15,10 @@
     <description>LWJGL/GLFW host + desktop audio backend (javax.sound + SPI decoders + jaudiotagger). Dev/run target.</description>
 
     <properties>
+        <!-- Desktop-only module, always built/run on JDK 21 (GraalVM). Override the
+             parent's release 8 (kept for the Android-shared player-core) so we can
+             use modern APIs like ProcessHandle for self-locating the native libs. -->
+        <maven.compiler.release>17</maven.compiler.release>
         <lwjgl.version>3.3.3</lwjgl.version>
         <!-- The native classifiers for THIS build host. Defaults target Linux x64;
              the os-activated profiles below flip them for Windows / macOS (intel &

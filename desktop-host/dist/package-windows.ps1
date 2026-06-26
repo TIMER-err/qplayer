@@ -28,7 +28,9 @@ foreach ($j in $jars) {
   if ($j.Name -match 'sources|javadoc') { continue }
   $zip = [System.IO.Compression.ZipFile]::OpenRead($j.FullName)
   foreach ($e in $zip.Entries) {
-    if ($e.Name -like '*.dll') {
+    # icudtl.dat is Skija's ICU data — on Windows it must sit beside skija.dll
+    # (Linux/macOS bake it into the lib), or FontMgr init dies at load time.
+    if ($e.Name -like '*.dll' -or $e.Name -eq 'icudtl.dat') {
       [System.IO.Compression.ZipFileExtensions]::ExtractToFile($e, "$dir\$($e.Name)", $true)
     }
   }
@@ -36,13 +38,14 @@ foreach ($j in $jars) {
 }
 if (-not (Get-ChildItem "$dir\*.dll" -ErrorAction SilentlyContinue)) { throw "no Skija/LWJGL DLLs found under $m2" }
 
-# launcher: point Skija + LWJGL at the bundled DLLs (Windows finds the JDK DLLs in
-# the exe directory automatically).
+# Optional convenience launcher. The exe self-configures its native-lib path from
+# its own location (Main.defaultNativePath), so it also runs fine double-clicked or
+# from any working directory — we deliberately DON'T pass -Dskija.library.path here,
+# since a non-ASCII install path gets mangled through a .cmd and would then override
+# the clean path the exe derives itself.
 @"
 @echo off
-setlocal
-set HERE=%~dp0
-"%HERE%qplayer.exe" -Dskija.library.path="%HERE%." -Dorg.lwjgl.librarypath="%HERE%." %*
+"%~dp0qplayer.exe" %*
 "@ | Set-Content -Encoding ascii "$dir\QPlayer.cmd"
 
 Compress-Archive -Path "$dir\*" -DestinationPath "$T\QPlayer-windows-x64.zip" -Force
