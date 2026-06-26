@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <b>一个界面由 QML 渲染、歌词由宿主手工绘制的网易云音乐播放器,同时支持安卓与桌面。</b><br>
+  <b>一个界面由 QML 渲染的跨平台网易云音乐播放器。</b><br>
   运行在 <a href="https://github.com/TIMER-err/qml4j">qml4j</a> 上——一个用纯 Java 实现的 QML 引擎,不依赖 Qt 和 C++。
 </p>
 
