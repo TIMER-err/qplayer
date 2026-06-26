@@ -94,35 +94,6 @@ final class GLBackend implements GraphicsBackend {
         return height;
     }
 
-    @Override
-    public byte[] snapshotPng() {
-        // Read the default framebuffer with plain glReadPixels (Skija's GPU
-        // makeImageSnapshot crashes the NVIDIA EGL driver), then encode CPU-side.
-        int w = width, h = height;
-        java.nio.ByteBuffer buf = org.lwjgl.system.MemoryUtil.memAlloc(w * h * 4);
-        try {
-            org.lwjgl.opengl.GL11.glReadPixels(0, 0, w, h,
-                    org.lwjgl.opengl.GL11.GL_RGBA, org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE, buf);
-            java.awt.image.BufferedImage img =
-                    new java.awt.image.BufferedImage(w, h, java.awt.image.BufferedImage.TYPE_INT_ARGB);
-            for (int y = 0; y < h; y++) {
-                int srcRow = (h - 1 - y) * w * 4; // GL origin is bottom-left
-                for (int x = 0; x < w; x++) {
-                    int i = srcRow + x * 4;
-                    int r = buf.get(i) & 0xFF, g = buf.get(i + 1) & 0xFF;
-                    int b = buf.get(i + 2) & 0xFF, a = buf.get(i + 3) & 0xFF;
-                    img.setRGB(x, y, (a << 24) | (r << 16) | (g << 8) | b);
-                }
-            }
-            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-            javax.imageio.ImageIO.write(img, "png", out);
-            return out.toByteArray();
-        } catch (Throwable t) {
-            return null;
-        } finally {
-            org.lwjgl.system.MemoryUtil.memFree(buf);
-        }
-    }
 
     @Override
     public void dispose() {

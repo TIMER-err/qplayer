@@ -49,8 +49,6 @@ final class RenderThread extends Thread {
     @Override
     public void run() {
         boolean firstFrameDone = false;
-        String shotPath = System.getProperty("qplayer.screenshot");
-        long frame = 0;
         QmlView view = null;
         try {
             dev.t1m3.qplayer.util.Logger.info("render thread starting (backend {})", backend.kind());
@@ -92,23 +90,6 @@ final class RenderThread extends Thread {
                     renderer.setGpuContext(backend.recordingContext());
                     compositor.composite(canvas, renderer, view, controller, win.settings(),
                             backend.recordingContext(), uiScale, backend.width(), backend.height());
-
-                    // Headless verification: dump one settled frame to PNG.
-                    if (shotPath != null && frame == 20) {
-                        try {
-                            byte[] png = backend.snapshotPng();
-                            if (png != null) {
-                                java.nio.file.Files.write(java.nio.file.Paths.get(shotPath), png);
-                                dev.t1m3.qplayer.util.Logger.info("screenshot written: {} ({} bytes)",
-                                        shotPath, png.length);
-                            } else {
-                                dev.t1m3.qplayer.util.Logger.warn("snapshotPng returned null");
-                            }
-                        } catch (Throwable t) {
-                            dev.t1m3.qplayer.util.Logger.warn("screenshot failed: {}", t);
-                        }
-                    }
-                    frame++;
 
                     backend.present();
 

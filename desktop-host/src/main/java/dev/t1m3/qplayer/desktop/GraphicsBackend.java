@@ -30,10 +30,4 @@ public interface GraphicsBackend extends SurfaceBackend {
 
     /** Which backend this is (for logging / the window-creation client-API hint). */
     Kind kind();
-
-    /** Encode the current window surface to a PNG (for headless verification via
-     *  {@code -Dqplayer.screenshot=path}); null if unsupported. */
-    default byte[] snapshotPng() {
-        return null;
-    }
 }

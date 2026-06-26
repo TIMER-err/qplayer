@@ -127,55 +127,6 @@ public final class Main {
             trayThread.start();
         }
 
-        // Synthetic interaction exercise (-Dqplayer.exercise=true): drives playback,
-        // the lyric page (wavy-progress Canvas) and loading states so a native-image
-        // tracing-agent run captures the audio-provider + Context2D reflection that a
-        // passive headless run never touches.
-        if ("true".equals(System.getProperty("qplayer.exercise"))) {
-            Thread ex = new Thread(() -> {
-                try {
-                    Thread.sleep(3000);
-                    window.postRenderTask(controller::loadMyPlaylists); // loading indicator
-                    Thread.sleep(1500);
-                    window.postRenderTask(controller::loadRecent);
-                    Thread.sleep(1500);
-                    window.postRenderTask(() -> controller.playRecommendation(0)); // audio path
-                    Thread.sleep(3500);
-                    window.postRenderTask(() -> controller.setLyricsOpen(true)); // wavy Canvas
-                    Thread.sleep(2500);
-                    window.postRenderTask(controller::toggle);
-                    Thread.sleep(1500);
-                    window.postRenderTask(controller::next);
-                    Thread.sleep(2000);
-                    window.postRenderTask(() -> controller.setLyricsOpen(false));
-                    Thread.sleep(1000);
-                } catch (InterruptedException ignored) {
-                }
-            }, "qplayer-exercise");
-            ex.setDaemon(true);
-            ex.start();
-        }
-
-        // Self-test for the minimize→restore GPU teardown/respawn path
-        // (-Dqplayer.cycleTest=true): exercises it without clicking the tray.
-        if ("true".equals(System.getProperty("qplayer.cycleTest"))) {
-            Thread t = new Thread(() -> {
-                try {
-                    Thread.sleep(4000);
-                    Logger.info("cycleTest: minimizing to tray");
-                    window.postMainTask(window::minimizeToTray);
-                    Thread.sleep(2000);
-                    Logger.info("cycleTest: restoring from tray");
-                    window.postMainTask(window::restoreFromTray);
-                    Thread.sleep(4000);
-                    Logger.info("cycleTest: survived minimize+restore");
-                } catch (InterruptedException ignored) {
-                }
-            }, "qplayer-cycletest");
-            t.setDaemon(true);
-            t.start();
-        }
-
         window.runEventLoop(); // blocks on the main thread until quit
 
         tray.shutdown();
