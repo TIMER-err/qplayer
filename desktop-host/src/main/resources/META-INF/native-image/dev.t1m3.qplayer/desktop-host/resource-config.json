@@ -1,6 +1,8 @@
 {
   "resources":{
   "includes":[{
+    "pattern":"\\Qfontconfig.bfc\\E"
+  }, {
     "pattern":".*\\.otf$"
   }, {
     "pattern":".*\\.qml$"

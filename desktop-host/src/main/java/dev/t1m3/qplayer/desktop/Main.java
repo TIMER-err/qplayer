@@ -13,6 +13,9 @@ import dev.t1m3.qplayer.util.Logger;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
@@ -47,6 +50,26 @@ public final class Main {
         // a real dir so the (absent) file is simply skipped.
         if (System.getProperty("java.home") == null) {
             System.setProperty("java.home", System.getProperty("user.dir", "/tmp"));
+        }
+
+        // AWT's logical-font init reads <java.home>/lib/fontconfig.bfc; the native
+        // binary has no JDK lib dir, so it throws "Fontconfig head is null" and any
+        // downstream font-metrics call (incl. the tray's Swing JPopupMenu sizing) dies.
+        // The native build bundles the host JDK's fontconfig.bfc as a classpath
+        // resource (maven-antrun-plugin in the native profile); extract it to a temp
+        // file and point AWT at it BEFORE any tray/Swing code runs.
+        if (System.getProperty("java.vm.name", "").contains("Substrate")
+                && System.getProperty("java.awt.fontconfig") == null) {
+            try (InputStream is = Main.class.getResourceAsStream("/fontconfig.bfc")) {
+                if (is != null) {
+                    File f = File.createTempFile("qplayer-fontconfig", ".bfc");
+                    f.deleteOnExit();
+                    try (OutputStream os = new FileOutputStream(f)) { is.transferTo(os); }
+                    System.setProperty("java.awt.fontconfig", f.getAbsolutePath());
+                }
+            } catch (Throwable t) {
+                Logger.warn("fontconfig extract failed: {}", t);
+            }
         }
 
         // In the native image, make the bare binary self-sufficient: point Skija +

@@ -228,6 +228,32 @@
             <id>native</id>
             <build>
                 <plugins>
+                    <!-- 0) Bundle the build JDK's fontconfig.bfc onto the classpath so
+                            the native binary can extract it at startup and point
+                            `java.awt.fontconfig` at the copy. Without it AWT's logical-
+                            font init throws "Fontconfig head is null" (the native image
+                            has no JDK lib dir), and any font-metrics lookup downstream
+                            — the tray's Swing JPopupMenu sizing, for one — fails. -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-antrun-plugin</artifactId>
+                        <version>3.1.0</version>
+                        <executions>
+                            <execution>
+                                <id>bundle-fontconfig</id>
+                                <phase>process-classes</phase>
+                                <goals><goal>run</goal></goals>
+                                <configuration>
+                                    <target>
+                                        <copy file="${java.home}/lib/fontconfig.bfc"
+                                              tofile="${project.build.outputDirectory}/fontconfig.bfc"
+                                              failonerror="false"/>
+                                    </target>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+
                     <!-- 1) AOT-compile the QML graph into target/classes (forked JVM;
                             AotCompile halts itself, so Maven keeps going). -->
                     <plugin>
