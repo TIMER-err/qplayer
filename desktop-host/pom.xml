@@ -30,7 +30,7 @@
              CI overrides per-runner (Linux/Windows ubuntu/windows-latest have 16GB,
              macos-14 has 7GB) via -Dnative.xmx=… on the mvn command line. -->
         <native.xmx>7g</native.xmx>
-        <log4j.version>2.25.2</log4j.version>
+        <log4j.version>2.25.4</log4j.version>
         <jna.version>5.14.0</jna.version>
         <!-- exec:exec run knobs (override on the command line, e.g. -Dgfx=vulkan). -->
         <gfx>gl</gfx>
