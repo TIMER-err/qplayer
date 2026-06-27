@@ -167,6 +167,10 @@ public final class Main {
         // thread is dead); back/exit folds the window to the tray.
         controller.setMainExecutor(window::postMainTask);
         controller.setExitListener(window::onExitRequested);
+        // Open external links (the About page) in the system browser. The Android
+        // host uses an ACTION_VIEW intent; on the desktop hand the URL to the OS
+        // (no java.awt.Desktop, which is unreliable in the native image).
+        controller.setUrlOpener(Main::openUrl);
 
         TrayController tray = new TrayController(controller, window, resources.load("app-icon.png"));
 
@@ -200,6 +204,25 @@ public final class Main {
         window.shutdown();
         Logger.info("QPlayer desktop exited");
         killSelf();
+    }
+
+    /** Open a URL in the system default browser via the OS handler (no AWT). */
+    private static void openUrl(String url) {
+        if (url == null || url.isBlank()) return;
+        String os = System.getProperty("os.name", "").toLowerCase();
+        String[] cmd;
+        if (os.contains("win")) {
+            cmd = new String[]{"rundll32", "url.dll,FileProtocolHandler", url};
+        } else if (os.contains("mac")) {
+            cmd = new String[]{"open", url};
+        } else {
+            cmd = new String[]{"xdg-open", url};
+        }
+        try {
+            new ProcessBuilder(cmd).start();
+        } catch (Exception e) {
+            Logger.warn("open url failed ({}): {}", url, e.toString());
+        }
     }
 
     @NotNull
