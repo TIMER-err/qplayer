@@ -166,7 +166,7 @@ public final class DesktopWindow {
         }
         lastSpawnWasRespawn = false;
         QmlView v = QmlView.withStockTypes(engine).resources(resources);
-        v.setClipboard(new AwtClipboard());
+        v.setClipboard(new GlfwClipboard(window));
         if (controller != null) v.context("player", controller);
         if (settings != null) v.context("settings", settings);
         loadFonts(v, resources);

@@ -76,6 +76,23 @@ final class InputBridge {
             });
         });
         GLFW.glfwSetKeyCallback(window, (w, key, scancode, action, mods) -> {
+            // Clipboard shortcuts: Ctrl (Win/Linux) or Cmd (macOS) + C/X/V. The engine
+            // exposes copy/cut/paste as explicit calls (not part of dispatchKey), so the
+            // host must route the accelerators — and mapKey returns 0 for C/X/V, so the
+            // normal path below would drop them anyway.
+            if (action == GLFW.GLFW_PRESS
+                    && (mods & (GLFW.GLFW_MOD_CONTROL | GLFW.GLFW_MOD_SUPER)) != 0
+                    && (key == GLFW.GLFW_KEY_C || key == GLFW.GLFW_KEY_X || key == GLFW.GLFW_KEY_V)) {
+                final int clipKey = key;
+                win.postRenderTask(() -> {
+                    QmlView v = win.view();
+                    if (v == null) return;
+                    if (clipKey == GLFW.GLFW_KEY_C) v.copy();
+                    else if (clipKey == GLFW.GLFW_KEY_X) v.cut();
+                    else v.paste();
+                });
+                return;
+            }
             if (action == GLFW.GLFW_REPEAT) return;
             final boolean down = action == GLFW.GLFW_PRESS;
             final int code = mapKey(key, mods);
