@@ -110,7 +110,11 @@ final class TrayController implements PlayerController.PlaybackListener {
                     menuFont != null ? menuFont.getFamily() : "default");
             return true;
         } catch (Throwable t) {
-            Logger.warn("system tray init failed: {}", t);
+            // Print the full stack: under native-image a bare NPE carries no message
+            // (helpful-NPE info is stripped), so the toString alone is useless.
+            java.io.StringWriter sw = new java.io.StringWriter();
+            t.printStackTrace(new java.io.PrintWriter(sw));
+            Logger.warn("system tray init failed:\n{}", sw);
             trayIcon = null;
             return false;
         }
