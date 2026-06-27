@@ -30,8 +30,8 @@ OutputDir=.
 OutputBaseFilename=QPlayer-windows-x64-setup
 Compression=lzma2/max
 SolidCompression=yes
-ArchitecturesAllowed=x64
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 SetupIconFile={#IconFile}
 WizardStyle=modern
 
