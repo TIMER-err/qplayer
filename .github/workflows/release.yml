@@ -111,10 +111,14 @@ jobs:
           path: out/*
 
       - name: Attach to release
-        if: startsWith(github.ref, 'refs/tags/')
+        # github.ref is unreliable for release:published when the tag is auto-created
+        # from the UI (lands as refs/heads/master instead of refs/tags/<tag>), so check
+        # the event name and pass the release tag explicitly.
+        if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: out/*
+          tag_name: ${{ github.event.release.tag_name || github.ref_name }}
 
   desktop:
     strategy:
@@ -211,7 +215,11 @@ jobs:
           path: out/*
 
       - name: Attach to release
-        if: startsWith(github.ref, 'refs/tags/')
+        # github.ref is unreliable for release:published when the tag is auto-created
+        # from the UI (lands as refs/heads/master instead of refs/tags/<tag>), so check
+        # the event name and pass the release tag explicitly.
+        if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: out/*
+          tag_name: ${{ github.event.release.tag_name || github.ref_name }}
