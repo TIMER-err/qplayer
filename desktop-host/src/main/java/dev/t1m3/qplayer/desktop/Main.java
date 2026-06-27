@@ -34,13 +34,12 @@ import java.util.List;
 public final class Main {
 
     public static void main(String[] args) {
-        // Windows native binary: drop the console window when double-clicked (we own
-        // a fresh console alone), keep it when launched from a terminal so logs show.
-        // Before anything writes to stdout (log4j console appender) so the decision
-        // is made first.
+        // Windows native binary (GUI subsystem): no console on double-click, but
+        // attach to the launching terminal's console so logs still stream there.
+        // Before anything writes to stdout (log4j console appender resolves it).
         if (System.getProperty("java.vm.name", "").contains("Substrate")
                 && System.getProperty("os.name", "").toLowerCase().contains("win")) {
-            WinConsole.detachIfStandalone();
+            WinConsole.attachParentConsole();
         }
 
         // Single instance: if QPlayer is already running, raise its window and exit.

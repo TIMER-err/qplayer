@@ -20,6 +20,23 @@ New-Item -ItemType Directory -Force -Path $dir | Out-Null
 Copy-Item $bin "$dir\qplayer.exe"
 Copy-Item "$T\*.dll" $dir -ErrorAction SilentlyContinue
 
+# Flip the PE subsystem from console (3) to GUI (2) so double-clicking shows no
+# console window at all — not even a flash. The entry point is unchanged; the flag
+# only tells Windows whether to allocate a console. (WinConsole then re-attaches to
+# a parent terminal's console when launched from a shell, so logs still stream.)
+# Subsystem is a little-endian uint16 at OptionalHeader+68 = PEHeader+4+20+68.
+$exe = "$dir\qplayer.exe"
+$bytes = [System.IO.File]::ReadAllBytes($exe)
+$peOff = [BitConverter]::ToInt32($bytes, 0x3C)
+$subsysOff = $peOff + 92
+if ([BitConverter]::ToUInt16($bytes, $subsysOff) -eq 3) {
+  $bytes[$subsysOff] = 2
+  [System.IO.File]::WriteAllBytes($exe, $bytes)
+  Write-Host "patched PE subsystem: console -> GUI"
+} else {
+  Write-Host "PE subsystem not console (already $([BitConverter]::ToUInt16($bytes, $subsysOff))); left as-is"
+}
+
 # Skija + LWJGL native DLLs straight from the local Maven repo (Windows resolves
 # DLLs from the exe directory, so everything goes next to qplayer.exe).
 Add-Type -AssemblyName System.IO.Compression.FileSystem
