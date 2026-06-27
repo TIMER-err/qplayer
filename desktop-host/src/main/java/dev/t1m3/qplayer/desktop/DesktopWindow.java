@@ -386,16 +386,19 @@ public final class DesktopWindow {
      * Show the window again and respawn the render thread (main thread).
      */
     void restoreFromTray() {
-        if (!hiddenToTray) {
-            GLFW.glfwShowWindow(window);
-            GLFW.glfwFocusWindow(window);
-            return;
-        }
+        boolean wasHidden = hiddenToTray;
         hiddenToTray = false;
+        // Un-iconify only when actually minimized — glfwRestoreWindow would also
+        // un-maximize a maximized window, which we don't want.
+        if (GLFW.glfwGetWindowAttrib(window, GLFW.GLFW_ICONIFIED) == GLFW.GLFW_TRUE) {
+            GLFW.glfwRestoreWindow(window);
+        }
         GLFW.glfwShowWindow(window);
         GLFW.glfwFocusWindow(window);
-        spawnRenderThread();
-        Logger.info("restored from tray (render thread respawned)");
+        if (wasHidden) {
+            spawnRenderThread();
+            Logger.info("restored from tray (render thread respawned)");
+        }
     }
 
     boolean isHiddenToTray() {

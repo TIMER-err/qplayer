@@ -43,6 +43,16 @@ public final class Main {
             WinConsole.detachIfStandalone();
         }
 
+        // Single instance: if QPlayer is already running, raise its window and exit.
+        // Checked before log4j inits so this short-lived second process never opens
+        // the shared rolling log file. The activation target is wired once the window
+        // exists (below).
+        java.util.concurrent.atomic.AtomicReference<Runnable> onActivate =
+                new java.util.concurrent.atomic.AtomicReference<>(() -> {});
+        if (!SingleInstance.acquire(() -> onActivate.get().run())) {
+            return;
+        }
+
         // Put the rolling log under the writable app data dir (~/.qplayer/logs) —
         // when installed to Program Files the working dir isn't writable, so a
         // CWD-relative logs/ would silently fail. Set before log4j2 first inits
@@ -166,6 +176,9 @@ public final class Main {
         // best-effort and may block on GTK init in some environments, so it must
         // never gate the window coming up.
         window.spawnRenderThread();
+
+        // A second launch now surfaces this window instead of starting a new process.
+        onActivate.set(() -> window.postMainTask(window::restoreFromTray));
 
         // Initial content + a background scan of the local music folder.
         controller.loadHome();
