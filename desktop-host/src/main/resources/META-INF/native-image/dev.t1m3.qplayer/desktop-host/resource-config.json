@@ -37,6 +37,10 @@
   }, {
     "pattern":"\\QMETA-INF/linux/x64/org/lwjgl/opengl/liblwjgl_opengl.so.sha1\\E"
   }, {
+    "pattern":"\\QMETA-INF/linux/x64/org/lwjgl/openal/libopenal.so.sha1\\E"
+  }, {
+    "pattern":"\\QMETA-INF/linux/x64/org/lwjgl/stb/liblwjgl_stb.so.sha1\\E"
+  }, {
     "pattern":"\\QMETA-INF/log4j-provider.properties\\E"
   }, {
     "pattern":"\\QMETA-INF/maven/extension.xml\\E"
@@ -106,6 +110,10 @@
     "pattern":"\\QMETA-INF/windows/x64/org/lwjgl/lwjgl.dll.sha1\\E"
   }, {
     "pattern":"\\QMETA-INF/windows/x64/org/lwjgl/opengl/lwjgl_opengl.dll.sha1\\E"
+  }, {
+    "pattern":"\\QMETA-INF/windows/x64/org/lwjgl/openal/OpenAL.dll.sha1\\E"
+  }, {
+    "pattern":"\\QMETA-INF/windows/x64/org/lwjgl/stb/lwjgl_stb.dll.sha1\\E"
   }, {
     "pattern":"\\QMain.qml\\E"
   }, {
@@ -352,6 +360,10 @@
     "pattern":"\\Qlinux/x64/org/lwjgl/liblwjgl.so\\E"
   }, {
     "pattern":"\\Qlinux/x64/org/lwjgl/opengl/liblwjgl_opengl.so\\E"
+  }, {
+    "pattern":"\\Qlinux/x64/org/lwjgl/openal/libopenal.so\\E"
+  }, {
+    "pattern":"\\Qlinux/x64/org/lwjgl/stb/liblwjgl_stb.so\\E"
   }, {
     "pattern":"\\Qlog4j2-test.jsn\\E"
   }, {
@@ -786,6 +798,10 @@
     "pattern":"\\Qwindows/x64/org/lwjgl/lwjgl.dll\\E"
   }, {
     "pattern":"\\Qwindows/x64/org/lwjgl/opengl/lwjgl_opengl.dll\\E"
+  }, {
+    "pattern":"\\Qwindows/x64/org/lwjgl/openal/OpenAL.dll\\E"
+  }, {
+    "pattern":"\\Qwindows/x64/org/lwjgl/stb/lwjgl_stb.dll\\E"
   }, {
     "pattern":"app-icon\\.png$"
   }, {
