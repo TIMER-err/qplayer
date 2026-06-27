@@ -977,7 +977,9 @@ public final class PlayerController {
                 return out.toByteArray();
             }
         } catch (Throwable e) {
-            Logger.warn("cover fetch failed: {}", e.getMessage());
+            // Shared by cover + ttml-lyric fetches; log the URL so the failing
+            // resource is clear instead of always blaming the cover.
+            Logger.warn("download failed for {}: {}", url, e.getMessage());
             return null;
         } finally {
             if (c != null) c.disconnect();
