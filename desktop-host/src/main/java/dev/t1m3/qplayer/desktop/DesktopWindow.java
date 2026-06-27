@@ -395,6 +395,11 @@ public final class DesktopWindow {
         }
         GLFW.glfwShowWindow(window);
         GLFW.glfwFocusWindow(window);
+        // On X11/Wayland the WM often refuses a forced raise (glfwFocusWindow is a
+        // no-op under Wayland), so also flag the taskbar entry for attention. GLFW
+        // skips this when the window is already focused, so it's a no-op on Windows
+        // where AllowSetForegroundWindow already raised us.
+        GLFW.glfwRequestWindowAttention(window);
         if (wasHidden) {
             spawnRenderThread();
             Logger.info("restored from tray (render thread respawned)");
