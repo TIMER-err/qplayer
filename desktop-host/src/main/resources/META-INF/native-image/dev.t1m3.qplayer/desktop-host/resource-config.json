@@ -1,10 +1,6 @@
 {
   "resources":{
   "includes":[{
-    "pattern":"\\Qfontconfig.bfc\\E"
-  }, {
-    "pattern":"\\Qlog4j2.xml\\E"
-  }, {
     "pattern":".*\\.otf$"
   }, {
     "pattern":".*\\.qml$"
@@ -41,11 +37,15 @@
   }, {
     "pattern":"\\QMETA-INF/linux/x64/org/lwjgl/opengl/liblwjgl_opengl.so.sha1\\E"
   }, {
+    "pattern":"\\QMETA-INF/log4j-provider.properties\\E"
+  }, {
     "pattern":"\\QMETA-INF/maven/extension.xml\\E"
   }, {
     "pattern":"\\QMETA-INF/maven/org.apache.maven/maven-core/pom.properties\\E"
   }, {
     "pattern":"\\QMETA-INF/maven/slf4j-configuration.properties\\E"
+  }, {
+    "pattern":"\\QMETA-INF/org/apache/logging/log4j/core/config/plugins/Log4j2Plugins.dat\\E"
   }, {
     "pattern":"\\QMETA-INF/plexus/components.xml\\E"
   }, {
@@ -82,6 +82,14 @@
     "pattern":"\\QMETA-INF/services/javax.xml.parsers.DocumentBuilderFactory\\E"
   }, {
     "pattern":"\\QMETA-INF/services/jdk.dynalink.linker.GuardingDynamicLinkerExporter\\E"
+  }, {
+    "pattern":"\\QMETA-INF/services/org.apache.logging.log4j.core.util.ContextDataProvider\\E"
+  }, {
+    "pattern":"\\QMETA-INF/services/org.apache.logging.log4j.core.util.WatchEventService\\E"
+  }, {
+    "pattern":"\\QMETA-INF/services/org.apache.logging.log4j.spi.Provider\\E"
+  }, {
+    "pattern":"\\QMETA-INF/services/org.apache.logging.log4j.util.PropertySource\\E"
   }, {
     "pattern":"\\QMETA-INF/services/org.mozilla.javascript.RegExpLoader\\E"
   }, {
@@ -307,6 +315,10 @@
   }, {
     "pattern":"\\Qcom/formdev/flatlaf/natives/flatlaf-windows-x86_64.dll\\E"
   }, {
+    "pattern":"\\Qcom/sun/jna/win32-x86-64/jnidispatch.dll\\E"
+  }, {
+    "pattern":"\\Qfontconfig.bfc\\E"
+  }, {
     "pattern":"\\Qfonts/MaterialSymbolsRounded.ttf\\E"
   }, {
     "pattern":"\\Qfonts/PingFangSC-Light.otf\\E"
@@ -340,6 +352,60 @@
     "pattern":"\\Qlinux/x64/org/lwjgl/liblwjgl.so\\E"
   }, {
     "pattern":"\\Qlinux/x64/org/lwjgl/opengl/liblwjgl_opengl.so\\E"
+  }, {
+    "pattern":"\\Qlog4j2-test.jsn\\E"
+  }, {
+    "pattern":"\\Qlog4j2-test.json\\E"
+  }, {
+    "pattern":"\\Qlog4j2-test.properties\\E"
+  }, {
+    "pattern":"\\Qlog4j2-test.xml\\E"
+  }, {
+    "pattern":"\\Qlog4j2-test.yaml\\E"
+  }, {
+    "pattern":"\\Qlog4j2-test.yml\\E"
+  }, {
+    "pattern":"\\Qlog4j2-test36baf30c.jsn\\E"
+  }, {
+    "pattern":"\\Qlog4j2-test36baf30c.json\\E"
+  }, {
+    "pattern":"\\Qlog4j2-test36baf30c.properties\\E"
+  }, {
+    "pattern":"\\Qlog4j2-test36baf30c.xml\\E"
+  }, {
+    "pattern":"\\Qlog4j2-test36baf30c.yaml\\E"
+  }, {
+    "pattern":"\\Qlog4j2-test36baf30c.yml\\E"
+  }, {
+    "pattern":"\\Qlog4j2.StatusLogger.properties\\E"
+  }, {
+    "pattern":"\\Qlog4j2.component.properties\\E"
+  }, {
+    "pattern":"\\Qlog4j2.jsn\\E"
+  }, {
+    "pattern":"\\Qlog4j2.json\\E"
+  }, {
+    "pattern":"\\Qlog4j2.properties\\E"
+  }, {
+    "pattern":"\\Qlog4j2.system.properties\\E"
+  }, {
+    "pattern":"\\Qlog4j2.xml\\E"
+  }, {
+    "pattern":"\\Qlog4j2.yaml\\E"
+  }, {
+    "pattern":"\\Qlog4j2.yml\\E"
+  }, {
+    "pattern":"\\Qlog4j236baf30c.jsn\\E"
+  }, {
+    "pattern":"\\Qlog4j236baf30c.json\\E"
+  }, {
+    "pattern":"\\Qlog4j236baf30c.properties\\E"
+  }, {
+    "pattern":"\\Qlog4j236baf30c.xml\\E"
+  }, {
+    "pattern":"\\Qlog4j236baf30c.yaml\\E"
+  }, {
+    "pattern":"\\Qlog4j236baf30c.yml\\E"
   }, {
     "pattern":"\\Qmd3/Core/AccountPage.qml\\E"
   }, {
