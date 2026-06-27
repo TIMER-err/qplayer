@@ -63,7 +63,7 @@ public final class DesktopColorExtractor implements ColorExtractor {
         for (int i = 0; i < HUE_BINS; i++) {
             if (best < 0 || binWeight[i] > binWeight[best]) best = i;
         }
-        if (best >= 0 && binWeight[best] > 0) {
+        if (binWeight[best] > 0) {
             double w = binWeight[best];
             return hex((int) (binR[best] / w), (int) (binG[best] / w), (int) (binB[best] / w));
         }
@@ -76,6 +76,6 @@ public final class DesktopColorExtractor implements ColorExtractor {
     }
 
     private static int clamp(int v) {
-        return v < 0 ? 0 : (v > 255 ? 255 : v);
+        return v < 0 ? 0 : (Math.min(v, 255));
     }
 }

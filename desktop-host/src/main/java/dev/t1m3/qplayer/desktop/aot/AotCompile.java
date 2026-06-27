@@ -1,5 +1,6 @@
 package dev.t1m3.qplayer.desktop.aot;
 
+import dev.t1m3.qplayer.desktop.*;
 import io.github.timer_err.qml4j.engine.QmlEngine;
 import io.github.timer_err.qml4j.render.QmlView;
 import io.github.timer_err.qml4j.render.ResourceLoader;
@@ -7,11 +8,6 @@ import io.github.timer_err.qml4j.render.ResourceLoader;
 import dev.t1m3.qplayer.audio.AudioBackend;
 import dev.t1m3.qplayer.audio.MetadataReader;
 import dev.t1m3.qplayer.bridge.PlayerController;
-import dev.t1m3.qplayer.desktop.ClasspathResourceLoader;
-import dev.t1m3.qplayer.desktop.DesktopAudioBackend;
-import dev.t1m3.qplayer.desktop.DesktopColorExtractor;
-import dev.t1m3.qplayer.desktop.DesktopMetadataReader;
-import dev.t1m3.qplayer.desktop.DesktopSettings;
 import dev.t1m3.qplayer.lyric.skia.Fonts;
 import dev.t1m3.qplayer.util.Logger;
 
@@ -42,7 +38,8 @@ public final class AotCompile {
                 resources.load("fonts/PingFangSC-Thin.otf"),
                 resources.load("fonts/PingFangSC-Light.otf"),
                 resources.load("fonts/PingFangSC-Regular.otf"),
-                resources.load("fonts/PingFangSC-Medium.otf"));
+                resources.load("fonts/PingFangSC-Medium.otf")
+        );
         Fonts.initIcon(resources.load("fonts/MaterialSymbolsRounded.ttf"));
 
         AudioBackend audio = new DesktopAudioBackend();
@@ -61,11 +58,7 @@ public final class AotCompile {
         QmlView view = QmlView.withStockTypes(engine).resources(resources);
         view.context("player", controller);
         view.context("settings", settings);
-        byte[] reg = resources.load("fonts/PingFangSC-Regular.otf");
-        byte[] med = resources.load("fonts/PingFangSC-Medium.otf");
-        if (reg != null || med != null) view.uiTypefaces(reg, med);
-        byte[] iconFont = resources.load("fonts/MaterialSymbolsRounded.ttf");
-        if (iconFont != null) view.iconTypeface(iconFont);
+        DesktopWindow.loadFonts(view, resources);
 
         try {
             view.load(qml);

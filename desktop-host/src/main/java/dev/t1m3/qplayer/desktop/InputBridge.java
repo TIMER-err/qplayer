@@ -1,7 +1,6 @@
 package dev.t1m3.qplayer.desktop;
 
 import io.github.timer_err.qml4j.render.QmlView;
-import io.github.timer_err.qml4j.render.items.input.TextEditable;
 
 import dev.t1m3.qplayer.bridge.PlayerController;
 import dev.t1m3.qplayer.lyric.skia.LyricCompositor;

@@ -2,6 +2,7 @@ package dev.t1m3.qplayer.desktop;
 
 import dev.t1m3.qplayer.audio.AudioBackend;
 import dev.t1m3.qplayer.util.Logger;
+import org.jetbrains.annotations.NotNull;
 
 import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioInputStream;
@@ -263,7 +264,7 @@ public final class DesktopAudioBackend implements AudioBackend {
             }
 
             @Override
-            public int read(byte[] dst, int off, int len) throws IOException {
+            public int read(@NotNull byte[] dst, int off, int len) throws IOException {
                 int produced = 0;
                 while (produced + dstFrame <= len) {
                     if (!readFully(frame)) break;

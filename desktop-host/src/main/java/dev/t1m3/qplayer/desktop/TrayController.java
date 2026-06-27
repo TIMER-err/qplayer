@@ -13,6 +13,7 @@ import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.File;
+import java.util.Objects;
 
 /**
  * System-tray integration (the desktop analogue of the Android PlaybackService):
@@ -63,7 +64,7 @@ final class TrayController implements PlayerController.PlaybackListener {
         }
         Logger.info("system tray initialized: {}", tray.getClass().getName());
         tray.setTooltip("QPlayer");
-        tray.setImage(iconFile());
+        tray.setImage(Objects.requireNonNull(iconFile()));
 
         tray.getMenu().add(new MenuItem("上一首", e -> win.postMainTask(controller::prev)));
         playPause = new MenuItem("播放 / 暂停", e -> win.postMainTask(controller::toggle));

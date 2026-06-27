@@ -5,7 +5,7 @@ import dev.t1m3.qplayer.util.Logger;
 
 /**
  * Runtime {@link ClassLoaderBackend} that loads the AOT-dumped QML classes from the
- * classpath by name (via {@link Class#forName}) instead of defining fresh bytecode
+ * classpath by name (via {@link Class#forName(String, boolean, ClassLoader)}) instead of defining fresh bytecode
  * at runtime — the property GraalVM native-image requires (no runtime
  * {@code defineClass} of new classes). The compiler still produces the bytecode
  * (pure byte[] generation, which native-image allows); this backend simply ignores

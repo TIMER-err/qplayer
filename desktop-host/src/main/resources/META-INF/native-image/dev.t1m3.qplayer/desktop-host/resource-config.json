@@ -277,10 +277,6 @@
   }, {
     "pattern":"\\Qfonts/PingFangSC-Thin.otf\\E"
   }, {
-    "pattern":"\\Qhome/timer/.musicplayer/cache/image/2012249649.img\\E"
-  }, {
-    "pattern":"\\Qhome/timer/.musicplayer/cache/image/867552187.img\\E"
-  }, {
     "pattern":"\\Qio/github/humbleui/skija/impl/Library.class\\E"
   }, {
     "pattern":"\\Qio/github/humbleui/skija/linux/x64/libskija.so\\E"

@@ -80,7 +80,7 @@ public final class EmbeddedLyrics {
             if (id.charAt(0) == 0) break;
             int size = ((b[pos + 3] & 0xff) << 16) | ((b[pos + 4] & 0xff) << 8) | (b[pos + 5] & 0xff);
             int dataStart = pos + 6;
-            if (size <= 0 || dataStart + size > b.length) break;
+            if (size == 0 || dataStart + size > b.length) break;
             if (id.equals("ULT")) {
                 return decodeUslt(b, dataStart, size);
             }

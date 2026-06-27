@@ -519,7 +519,7 @@ public final class PlayerController {
         worker.submit(() -> {
             try {
                 String json = fetchReleaseJson();
-                JsonElement root = new JsonParser().parse(json);
+                JsonElement root = JsonParser.parseString(json);
                 if (!root.isJsonObject()) return;
                 JsonObject obj = root.getAsJsonObject();
 
@@ -883,7 +883,7 @@ public final class PlayerController {
             if (data == null) return;
             t.coverBytes = data;
             // Cache cover image to disk (write already-downloaded bytes, no re-fetch).
-            String imgPath = diskCache.imagePath(url);
+            String imgPath = DiskCache.imagePath(url);
             if (imgPath != null) writeBytesToFile(data, imgPath);
             final String path = imgPath;
             post(() -> {
@@ -1036,7 +1036,7 @@ public final class PlayerController {
     // back-to-back unless the queue has a single entry).
     private int randomIndex() {
         int n = queue.size();
-        if (n <= 0) return 0;
+        if (n == 0) return 0;
         if (n == 1) return 0;
         int r;
         do {
@@ -1147,7 +1147,7 @@ public final class PlayerController {
         }
         try {
             NeteaseLyric nl = netease.lyric(songId);
-            if (nl == null || nl.isEmpty()) return Collections.emptyList();
+            if (nl.isEmpty()) return Collections.emptyList();
             byte[] data = LYRIC_GSON.toJson(nl).getBytes(java.nio.charset.StandardCharsets.UTF_8);
             diskCache.cacheNeteaseLyric(data, songId);
             return LyricParser.fromNeteaseStrings(nl.yrc, nl.lrc, nl.tlyric, nl.romalrc);
@@ -1202,8 +1202,7 @@ public final class PlayerController {
                     url = info.url; // nothing better available — play the preview clip
                 }
                 final boolean isUnblocked = unblocked;
-                final boolean isTrialOnly = !unblocked && info != null && info.trial
-                        && url != null && url.equals(info.url);
+                final boolean isTrialOnly = !unblocked && info != null && info.trial && url != null;
                 Logger.info("netease: url={} (unblocked={}, trial={})", url, unblocked, isTrialOnly);
                 final String playUrl = url;
                 // Hop to the main thread for the backend control (works backgrounded);

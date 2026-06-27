@@ -1,7 +1,5 @@
 package dev.t1m3.qplayer.desktop;
 
-import io.github.humbleui.skija.DirectContext;
-
 import io.github.timer_err.qml4j.engine.QmlEngine;
 import io.github.timer_err.qml4j.render.QmlView;
 import io.github.timer_err.qml4j.render.ResourceLoader;
@@ -32,7 +30,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * the audio keeps playing and the UI keeps its state, and restore respawns the
  * render thread against a fresh context.
  */
-final class DesktopWindow {
+public final class DesktopWindow {
 
     private static final int INITIAL_W = Integer.getInteger("qplayer.width", 1100);
     private static final int INITIAL_H = Integer.getInteger("qplayer.height", 720);
@@ -83,29 +81,70 @@ final class DesktopWindow {
 
     // --- accessors used by the render thread (all read cached/persistent state) ---
 
-    long window() { return window; }
-    QmlView view() { return view; }
-    GraphicsBackend.Kind kind() { return kind; }
-    float uiScale() { return uiScale; }
-    int[] framebufferSize() { return new int[]{fbW, fbH}; }
-    PlayerController controller() { return controller; }
-    DesktopSettings settings() { return settings; }
-    LyricCompositor compositor() { return compositor; }
-    void setFirstFrameListener(Runnable r) { this.firstFrameListener = r; }
+    long window() {
+        return window;
+    }
 
-    /** Post a task to run on the render thread (input events). */
-    void postRenderTask(Runnable r) { renderTasks.add(r); }
-    /** Post a task to run on the main event loop (playback control, tray). */
-    void postMainTask(Runnable r) { mainTasks.add(r); }
+    QmlView view() {
+        return view;
+    }
+
+    GraphicsBackend.Kind kind() {
+        return kind;
+    }
+
+    float uiScale() {
+        return uiScale;
+    }
+
+    int[] framebufferSize() {
+        return new int[]{fbW, fbH};
+    }
+
+    PlayerController controller() {
+        return controller;
+    }
+
+    DesktopSettings settings() {
+        return settings;
+    }
+
+    LyricCompositor compositor() {
+        return compositor;
+    }
+
+    void setFirstFrameListener(Runnable r) {
+        this.firstFrameListener = r;
+    }
+
+    /**
+     * Post a task to run on the render thread (input events).
+     */
+    void postRenderTask(Runnable r) {
+        renderTasks.add(r);
+    }
+
+    /**
+     * Post a task to run on the main event loop (playback control, tray).
+     */
+    void postMainTask(Runnable r) {
+        mainTasks.add(r);
+    }
 
     void drainRenderTasks() {
         Runnable r;
         while ((r = renderTasks.poll()) != null) {
-            try { r.run(); } catch (Throwable t) { Logger.warn("render task failed: {}", t); }
+            try {
+                r.run();
+            } catch (Throwable t) {
+                Logger.warn("render task failed: {}", t);
+            }
         }
     }
 
-    /** Per-frame input animation (smooth wheel scrolling); render thread. */
+    /**
+     * Per-frame input animation (smooth wheel scrolling); render thread.
+     */
     void tickInput() {
         if (input != null) input.tickScroll();
     }
@@ -116,9 +155,11 @@ final class DesktopWindow {
         return r;
     }
 
-    /** Build the persistent QML view on first call (render thread), else return it.
-     *  Records whether this was a respawn so the caller can invalidate GPU caches. */
-    QmlView ensureView(DirectContext ctx) {
+    /**
+     * Build the persistent QML view on first call (render thread), else return it.
+     * Records whether this was a respawn so the caller can invalidate GPU caches.
+     */
+    QmlView ensureView() {
         if (view != null) {
             lastSpawnWasRespawn = true;
             return view;
@@ -128,17 +169,23 @@ final class DesktopWindow {
         v.setClipboard(new AwtClipboard());
         if (controller != null) v.context("player", controller);
         if (settings != null) v.context("settings", settings);
-        byte[] reg = resources.load("fonts/PingFangSC-Regular.otf");
-        byte[] med = resources.load("fonts/PingFangSC-Medium.otf");
-        if (reg != null || med != null) v.uiTypefaces(reg, med);
-        byte[] iconFont = resources.load("fonts/MaterialSymbolsRounded.ttf");
-        if (iconFont != null) v.iconTypeface(iconFont);
+        loadFonts(v, resources);
         v.load(qmlSource);
         view = v;
         return v;
     }
 
-    boolean markViewLive() { return lastSpawnWasRespawn; }
+    public static void loadFonts(QmlView v, ResourceLoader resources) {
+        byte[] reg = resources.load("fonts/PingFangSC-Regular.otf");
+        byte[] med = resources.load("fonts/PingFangSC-Medium.otf");
+        if (reg != null || med != null) v.uiTypefaces(reg, med);
+        byte[] iconFont = resources.load("fonts/MaterialSymbolsRounded.ttf");
+        if (iconFont != null) v.iconTypeface(iconFont);
+    }
+
+    boolean markViewLive() {
+        return lastSpawnWasRespawn;
+    }
 
     void onFirstFramePainted() {
         // The window is created hidden so the first visible frame is real content,
@@ -151,7 +198,10 @@ final class DesktopWindow {
             }
         });
         Runnable r = firstFrameListener;
-        if (r != null) { firstFrameListener = null; postMainTask(r); }
+        if (r != null) {
+            firstFrameListener = null;
+            postMainTask(r);
+        }
     }
 
     void onRenderError(Throwable t) {
@@ -236,6 +286,7 @@ final class DesktopWindow {
         }
     }
 
+    @SuppressWarnings("resource")
     private void installCallbacks() {
         GLFW.glfwSetFramebufferSizeCallback(window, (win, w, h) -> {
             if (w <= 0 || h <= 0) return;
@@ -255,7 +306,9 @@ final class DesktopWindow {
         });
     }
 
-    /** Told by the host once the tray install has finished (on its own thread). */
+    /**
+     * Told by the host once the tray install has finished (on its own thread).
+     */
     void setTrayAvailable(boolean available) {
         this.trayAvailable = available;
     }
@@ -309,14 +362,18 @@ final class DesktopWindow {
         renderThread = null;
     }
 
-    /** Close-button / back policy: hide to the tray if there is one, else quit (so
-     *  the app never vanishes with no way back). */
+    /**
+     * Close-button / back policy: hide to the tray if there is one, else quit (so
+     * the app never vanishes with no way back).
+     */
     void onExitRequested() {
         if (trayAvailable) minimizeToTray();
         else requestQuit();
     }
 
-    /** Tear down the render thread + GPU stack and hide the window (main thread). */
+    /**
+     * Tear down the render thread + GPU stack and hide the window (main thread).
+     */
     void minimizeToTray() {
         if (hiddenToTray) return;
         hiddenToTray = true;
@@ -325,7 +382,9 @@ final class DesktopWindow {
         Logger.info("minimized to tray (render thread + GPU destroyed)");
     }
 
-    /** Show the window again and respawn the render thread (main thread). */
+    /**
+     * Show the window again and respawn the render thread (main thread).
+     */
     void restoreFromTray() {
         if (!hiddenToTray) {
             GLFW.glfwShowWindow(window);
@@ -339,12 +398,19 @@ final class DesktopWindow {
         Logger.info("restored from tray (render thread respawned)");
     }
 
-    boolean isHiddenToTray() { return hiddenToTray; }
+    boolean isHiddenToTray() {
+        return hiddenToTray;
+    }
 
-    void requestQuit() { quitRequested = true; GLFW.glfwPostEmptyEvent(); }
+    void requestQuit() {
+        quitRequested = true;
+        GLFW.glfwPostEmptyEvent();
+    }
 
-    /** Main loop: pump GLFW events + the main-task queue until quit. Keeps running
-     *  (and draining playback/tray tasks) even while the render thread is dead. */
+    /**
+     * Main loop: pump GLFW events + the main-task queue until quit. Keeps running
+     * (and draining playback/tray tasks) even while the render thread is dead.
+     */
     void runEventLoop() {
         while (!quitRequested) {
             // Block briefly so a hidden-to-tray window doesn't spin the CPU, but stay
@@ -352,18 +418,27 @@ final class DesktopWindow {
             GLFW.glfwWaitEventsTimeout(0.05);
             Runnable r;
             while ((r = mainTasks.poll()) != null) {
-                try { r.run(); } catch (Throwable t) { Logger.warn("main task failed: {}", t); }
+                try {
+                    r.run();
+                } catch (Throwable t) {
+                    Logger.warn("main task failed: {}", t);
+                }
             }
         }
     }
 
     void shutdown() {
         stopRenderThread();
-        if (view != null) { try { view.dispose(); } catch (Throwable ignored) {} }
+        if (view != null) {
+            try {
+                view.dispose();
+            } catch (Throwable ignored) {
+            }
+        }
         org.lwjgl.glfw.Callbacks.glfwFreeCallbacks(window);
         GLFW.glfwDestroyWindow(window);
         GLFW.glfwTerminate();
-        GLFWErrorCallback cb = GLFW.glfwSetErrorCallback(null);
+        @SuppressWarnings("resource") GLFWErrorCallback cb = GLFW.glfwSetErrorCallback(null);
         if (cb != null) cb.free();
     }
 }

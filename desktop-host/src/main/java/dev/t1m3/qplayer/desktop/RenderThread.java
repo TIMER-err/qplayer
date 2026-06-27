@@ -61,7 +61,7 @@ final class RenderThread extends Thread {
             // respawns. On a respawn its Canvas offscreens were already closed+nulled
             // during the previous teardown (below, while THAT context was still
             // current), so here they just lazily rebuild against this fresh context.
-            view = win.ensureView(backend.recordingContext());
+            view = win.ensureView();
             boolean respawn = win.markViewLive();
             dev.t1m3.qplayer.util.Logger.info("QML view ready (respawn={}, root={})",
                     respawn, view.root() != null);

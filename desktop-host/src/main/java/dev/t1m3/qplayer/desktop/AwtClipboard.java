@@ -16,7 +16,7 @@ final class AwtClipboard implements Clipboard {
             Transferable t = Toolkit.getDefaultToolkit().getSystemClipboard().getContents(null);
             if (t == null || !t.isDataFlavorSupported(DataFlavor.stringFlavor)) return null;
             Object data = t.getTransferData(DataFlavor.stringFlavor);
-            return data == null ? null : data.toString();
+            return data.toString();
         } catch (Exception ex) {
             return null;
         }

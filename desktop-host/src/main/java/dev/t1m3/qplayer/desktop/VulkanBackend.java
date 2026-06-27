@@ -2,7 +2,6 @@ package dev.t1m3.qplayer.desktop;
 
 import io.github.humbleui.skija.BackendRenderTarget;
 import io.github.humbleui.skija.Canvas;
-import io.github.humbleui.skija.ColorSpace;
 import io.github.humbleui.skija.ColorType;
 import io.github.humbleui.skija.DirectContext;
 import io.github.humbleui.skija.Surface;
@@ -13,7 +12,6 @@ import dev.t1m3.qplayer.util.Logger;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.glfw.GLFWVulkan;
 import org.lwjgl.system.MemoryStack;
-import org.lwjgl.system.MemoryUtil;
 import org.lwjgl.vulkan.*;
 
 import java.nio.IntBuffer;
@@ -186,7 +184,6 @@ final class VulkanBackend implements GraphicsBackend {
                 instance.address(), physicalDevice.address(), device.address(),
                 queue.address(), queueFamily, instanceProcAddr, deviceProcAddr,
                 VK11.VK_API_VERSION_1_1);
-        if (context == null) throw new IllegalStateException("DirectContext.makeVulkan returned null");
     }
 
     private void createCommandPool() {
@@ -255,10 +252,11 @@ final class VulkanBackend implements GraphicsBackend {
                 // layout matches when it first renders into it.
                 transitionImageLayout(images[i], VK_IMAGE_LAYOUT_UNDEFINED,
                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+                //noinspection resource
                 targets[i] = BackendRenderTarget.makeVulkan(width, height, images[i],
                         VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                         vkFormat, IMAGE_USAGE, 1, 1);
-                surfaces[i] = Surface.makeFromBackendRenderTarget(context, targets[i],
+                surfaces[i] = Surface.wrapBackendRenderTarget(context, targets[i],
                         SurfaceOrigin.TOP_LEFT, skiaColorType, null,
                         new io.github.humbleui.skija.SurfaceProps(io.github.humbleui.skija.PixelGeometry.RGB_H));
             }

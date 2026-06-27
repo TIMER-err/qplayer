@@ -147,7 +147,6 @@ public final class LyricCompositor {
     // Host-drawn lyric page: a fluid (SkSL, cover-keyed) backdrop with the
     // LyricRenderer on top, sliding up over the QML scene. Runs every frame so the
     // slide + scroll springs animate.
-    @SuppressWarnings("unchecked")
     private void drawLyricOverlay(Canvas canvas, PlayerController controller,
                                   SettingsBridge settings, DirectContext ctx,
                                   float uiScale, int fbW, int fbH) {
@@ -184,9 +183,9 @@ public final class LyricCompositor {
         controller.lyricProgress.set(durMs > 0 ? Math.min(1.0, predMs / (double) durMs) : 0.0);
 
         // Re-feed the renderer when the track's lyric list changes (identity).
-        Object lyObj = controller.lyrics.peek();
+        List<LyricLine> lyObj = controller.lyrics.peek();
         if (lyObj != lastLyrics) {
-            lastLyrics = (List<LyricLine>) lyObj;
+            lastLyrics = lyObj;
             lyricRenderer.setLyrics(lastLyrics);
         }
 

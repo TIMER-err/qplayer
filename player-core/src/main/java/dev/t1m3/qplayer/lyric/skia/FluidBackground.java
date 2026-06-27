@@ -241,8 +241,7 @@ public final class FluidBackground {
             // Decode + downscale to TEX_SIZE with Skija (no platform image lib):
             // raster the encoded cover into a 32x32 RGBA bitmap, then read back the
             // pixels as ARGB ints for the AMLL CPU adjust.
-            Image src = Image.makeFromEncoded(coverBytes);
-            if (src == null) return null;
+            Image src = Image.makeDeferredFromEncodedBytes(coverBytes);
             ImageInfo thumbInfo = new ImageInfo(TEX_SIZE, TEX_SIZE,
                     ColorType.RGBA_8888, ColorAlphaType.UNPREMUL);
             Bitmap thumb = new Bitmap();
@@ -278,7 +277,7 @@ public final class FluidBackground {
             }
             ImageInfo info = new ImageInfo(TEX_SIZE, TEX_SIZE,
                     ColorType.RGBA_8888, ColorAlphaType.OPAQUE);
-            return Image.makeRaster(info, px, TEX_SIZE * 4L);
+            return Image.makeRasterFromBytes(info, px, TEX_SIZE * 4L);
         } catch (Throwable e) {
             return null;
         }

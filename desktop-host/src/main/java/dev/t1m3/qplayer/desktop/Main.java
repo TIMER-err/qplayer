@@ -10,6 +10,7 @@ import dev.t1m3.qplayer.library.LibraryScanner;
 import dev.t1m3.qplayer.lyric.skia.Fonts;
 import dev.t1m3.qplayer.model.Track;
 import dev.t1m3.qplayer.util.Logger;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -111,29 +112,38 @@ public final class Main {
         // Tray init on a daemon thread so a GTK/AppIndicator hang can't freeze the app.
         // (-Dqplayer.tray=false disables it, e.g. for headless rendering checks.)
         if (!"false".equals(System.getProperty("qplayer.tray", "true"))) {
-            Thread trayThread = new Thread(() -> {
-                boolean ok = false;
-                try {
-                    ok = tray.install();
-                } catch (Throwable t) {
-                    // Never let a tray failure (e.g. an AWT/JNI Error) kill the
-                    // thread silently and leave trayAvailable unset.
-                    Logger.warn("tray install threw: {}", t);
-                }
-                window.setTrayAvailable(ok);
-                if (ok) controller.setPlaybackListener(tray);
-            }, "qplayer-tray-init");
-            trayThread.setDaemon(true);
+            Thread trayThread = getTrayThread(tray, window, controller);
             trayThread.start();
         }
 
         window.runEventLoop(); // blocks on the main thread until quit
 
         tray.shutdown();
-        try { controller.shutdown(); } catch (Throwable ignored) {}
+        try {
+            controller.shutdown();
+        } catch (Throwable ignored) {
+        }
         window.shutdown();
         Logger.info("QPlayer desktop exited");
         killSelf();
+    }
+
+    @NotNull
+    private static Thread getTrayThread(TrayController tray, DesktopWindow window, PlayerController controller) {
+        Thread trayThread = new Thread(() -> {
+            boolean ok = false;
+            try {
+                ok = tray.install();
+            } catch (Throwable t) {
+                // Never let a tray failure (e.g. an AWT/JNI Error) kill the
+                // thread silently and leave trayAvailable unset.
+                Logger.warn("tray install threw: {}", t);
+            }
+            window.setTrayAvailable(ok);
+            if (ok) controller.setPlaybackListener(tray);
+        }, "qplayer-tray-init");
+        trayThread.setDaemon(true);
+        return trayThread;
     }
 
     private static void startLibraryScan(PlayerController controller, MetadataReader reader,

@@ -128,8 +128,7 @@ public final class LrcParser {
     }
 
     private static int findNextTagStart(String s, int from) {
-        int lt = s.indexOf('<', from);
-        return lt;
+        return s.indexOf('<', from);
     }
 
     private static long parseTime(String minStr, String secStr, String fracStr) {

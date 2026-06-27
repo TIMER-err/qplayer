@@ -1,7 +1,7 @@
 package dev.t1m3.qplayer.lyric.skia;
 
 /**
- * Damped harmonic-oscillator animation. Unlike {@link Animation}, which
+ * Damped harmonic-oscillator animation. Unlike Common Animation, which
  * eases over a fixed duration from a restart, a spring carries velocity
  * across target changes — re-targets mid-flight blend smoothly into the
  * new motion instead of snapping back to rest first. That carry-over is

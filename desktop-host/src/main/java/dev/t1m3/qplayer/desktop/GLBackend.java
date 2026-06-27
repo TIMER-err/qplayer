@@ -20,7 +20,7 @@ import org.lwjgl.opengl.GL;
  * backend so the render thread only has to call {@link #init}.
  *
  * <p>All methods run on the render thread; the GL context is current on that
- * thread between {@link #init} and {@link #destroy}.
+ * thread between {@link #init} and {@link #dispose}.
  */
 final class GLBackend implements GraphicsBackend {
 
@@ -110,10 +110,11 @@ final class GLBackend implements GraphicsBackend {
         if (target != null) target.close();
         target = BackendRenderTarget.makeGL(width, height, 0, 8, 0,
                 FramebufferFormat.GR_GL_RGBA8);
-        surface = Surface.makeFromBackendRenderTarget(
+        surface = Surface.wrapBackendRenderTarget(
                 context, target,
                 SurfaceOrigin.BOTTOM_LEFT,
                 ColorType.RGBA_8888,
-                ColorSpace.getSRGB());
+                ColorSpace.getSRGB()
+        );
     }
 }
