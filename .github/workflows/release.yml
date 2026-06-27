@@ -143,8 +143,12 @@ jobs:
       - name: Set up GraalVM 21
         uses: graalvm/setup-graalvm@v1
         with:
+          # Oracle GraalVM (free under GFTC for prod). The Community distribution
+          # resolves '21' to 21.0.2 here, which precedes the Windows AWT heap-walk
+          # fixes (21.0.5+) that headful TrayIcon depends on. Oracle '21' tracks
+          # the latest LTS patch (21.0.7+), matching the local agent run.
           java-version: '21'
-          distribution: 'graalvm-community'
+          distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
           native-image-job-reports: 'true'
 
