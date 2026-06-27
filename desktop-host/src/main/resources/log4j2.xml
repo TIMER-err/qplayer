@@ -8,16 +8,19 @@
         <RollingRandomAccessFile name="File" fileName="logs/latest.log" filePattern="logs/%d{yyyy-MM-dd}-%i.log.gz">
             <PatternLayout pattern="[%d{HH:mm:ss}] [%t/%level] %msg%n"/>
             <Policies>
+                <!-- OnStartupTriggeringPolicy is omitted on purpose: in the native
+                     image it reflectively loads java.lang.management.ManagementFactory
+                     (absent from the image) and logs a startup ERROR. Time-based daily
+                     rollover is enough. -->
                 <TimeBasedTriggeringPolicy/>
-                <OnStartupTriggeringPolicy/>
             </Policies>
         </RollingRandomAccessFile>
     </Appenders>
     <Loggers>
+        <!-- No MarkerFilter here: its @PluginFactory isn't reachable in the native
+             image (logs "No factory method found"), and nothing emits the
+             NETWORK_PACKETS marker anyway. -->
         <Root level="info">
-            <filters>
-                <MarkerFilter marker="NETWORK_PACKETS" onMatch="DENY" onMismatch="NEUTRAL"/>
-            </filters>
             <AppenderRef ref="SysOut"/>
             <AppenderRef ref="File"/>
         </Root>
