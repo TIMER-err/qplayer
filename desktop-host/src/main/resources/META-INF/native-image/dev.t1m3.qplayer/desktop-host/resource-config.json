@@ -117,6 +117,8 @@
   }, {
     "pattern":"\\QMain.qml\\E"
   }, {
+    "pattern":"\\Qversion.properties\\E"
+  }, {
     "pattern":"\\QMath.qml\\E"
   }, {
     "pattern":"\\QMiniPlayer.qml\\E"

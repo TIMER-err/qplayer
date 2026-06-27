@@ -207,7 +207,15 @@ jobs:
         # -Dnative.xmx=12g arg into "-Dnative" + ".xmx=12g", which mvn reads as a
         # bogus lifecycle phase. setup-graalvm's JAVA_HOME/PATH apply to bash too.
         shell: bash
-        run: mvn -B -DskipTests -Dnative.xmx=${{ matrix.xmx }} -pl desktop-host -Pnative package
+        env:
+          QPLAYER_VERSION: ${{ github.event.release.tag_name || github.ref_name }}
+        # Bake the release tag (sans leading v) into version.properties so the
+        # in-app update check reports the real version, matching the tag.
+        run: |
+          VER="${QPLAYER_VERSION#v}"
+          mvn -B -DskipTests -Dnative.xmx=${{ matrix.xmx }} \
+            -Dqplayer.app.version="${VER:-0.0.0}" \
+            -pl desktop-host -Pnative package
 
       - name: Package
         # macOS bakes this into Info.plist (CFBundleShortVersionString); the

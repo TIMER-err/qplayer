@@ -32,6 +32,11 @@
         <native.xmx>7g</native.xmx>
         <log4j.version>2.25.4</log4j.version>
         <jna.version>5.14.0</jna.version>
+        <!-- App version baked into version.properties (read by Main → the update
+             check). Local dev default; the release workflow overrides it with the
+             git tag (-Dqplayer.app.version=…) so release binaries match the tag
+             without a committed bump, like the macOS/Windows packagers. -->
+        <qplayer.app.version>0.8.1</qplayer.app.version>
         <!-- exec:exec run knobs (override on the command line, e.g. -Dgfx=vulkan). -->
         <gfx>gl</gfx>
         <win.w>1100</win.w>
@@ -44,6 +49,13 @@
                  — declaring <resources> otherwise replaces it. -->
             <resource>
                 <directory>${project.basedir}/src/main/resources</directory>
+            </resource>
+            <!-- Maven-filtered: substitutes ${qplayer.app.version} into
+                 version.properties. Kept in its own dir so filtering never touches
+                 the QML / native-image config / fonts above. -->
+            <resource>
+                <directory>${project.basedir}/src/main/resources-filtered</directory>
+                <filtering>true</filtering>
             </resource>
             <!-- Mount the shared QML tree (Main.qml + app pages + md3/Core + fonts)
                  onto the classpath so ClasspathResourceLoader serves it exactly like

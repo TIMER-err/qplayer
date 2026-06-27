@@ -135,6 +135,7 @@ public final class Main {
 
         PlayerController controller = new PlayerController(audio, reader);
         controller.setColorExtractor(new DesktopColorExtractor());
+        controller.setCurrentVersion(appVersion());
 
         DesktopSettings settings = new DesktopSettings();
         settings.setMonetListener(controller::setMonetEnabled);
@@ -226,6 +227,20 @@ public final class Main {
             new ProcessBuilder(cmd).start();
         } catch (Exception e) {
             Logger.warn("open url failed ({}): {}", url, e.toString());
+        }
+    }
+
+    /** Running app version from the Maven-filtered version.properties (baked into
+     *  the classpath / native image), for the update check. Empty if unavailable. */
+    private static String appVersion() {
+        try (InputStream is = Main.class.getResourceAsStream("/version.properties")) {
+            if (is == null) return "";
+            java.util.Properties p = new java.util.Properties();
+            p.load(is);
+            return p.getProperty("version", "").trim();
+        } catch (Exception e) {
+            Logger.warn("version.properties read failed: {}", e.toString());
+            return "";
         }
     }
 
