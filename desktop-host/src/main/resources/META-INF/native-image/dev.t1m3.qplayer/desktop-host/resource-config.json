@@ -37,6 +37,18 @@
   }, {
     "pattern":"\\QMETA-INF/linux/x64/org/lwjgl/opengl/liblwjgl_opengl.so.sha1\\E"
   }, {
+    "pattern":"\\QMETA-INF/maven/extension.xml\\E"
+  }, {
+    "pattern":"\\QMETA-INF/maven/org.apache.maven/maven-core/pom.properties\\E"
+  }, {
+    "pattern":"\\QMETA-INF/maven/slf4j-configuration.properties\\E"
+  }, {
+    "pattern":"\\QMETA-INF/plexus/components.xml\\E"
+  }, {
+    "pattern":"\\QMETA-INF/services/com.formdev.flatlaf.FlatDefaultsAddon\\E"
+  }, {
+    "pattern":"\\QMETA-INF/services/java.awt.im.spi.InputMethodDescriptor\\E"
+  }, {
     "pattern":"\\QMETA-INF/services/java.lang.System$LoggerFinder\\E"
   }, {
     "pattern":"\\QMETA-INF/services/java.net.spi.InetAddressResolverProvider\\E"
@@ -63,6 +75,10 @@
   }, {
     "pattern":"\\QMETA-INF/services/javax.sound.sampled.spi.MixerProvider\\E"
   }, {
+    "pattern":"\\QMETA-INF/services/javax.xml.parsers.DocumentBuilderFactory\\E"
+  }, {
+    "pattern":"\\QMETA-INF/services/jdk.dynalink.linker.GuardingDynamicLinkerExporter\\E"
+  }, {
     "pattern":"\\QMETA-INF/services/org.mozilla.javascript.RegExpLoader\\E"
   }, {
     "pattern":"\\QMETA-INF/services/org.mozilla.javascript.config.RhinoPropertiesLoader\\E"
@@ -70,6 +86,14 @@
     "pattern":"\\QMETA-INF/services/org.mozilla.javascript.xml.XMLLoader\\E"
   }, {
     "pattern":"\\QMETA-INF/services/org.slf4j.spi.SLF4JServiceProvider\\E"
+  }, {
+    "pattern":"\\QMETA-INF/sisu/javax.inject.Named\\E"
+  }, {
+    "pattern":"\\QMETA-INF/windows/x64/org/lwjgl/glfw/glfw.dll.sha1\\E"
+  }, {
+    "pattern":"\\QMETA-INF/windows/x64/org/lwjgl/lwjgl.dll.sha1\\E"
+  }, {
+    "pattern":"\\QMETA-INF/windows/x64/org/lwjgl/opengl/lwjgl_opengl.dll.sha1\\E"
   }, {
     "pattern":"\\QMain.qml\\E"
   }, {
@@ -265,6 +289,20 @@
   }, {
     "pattern":"\\Qapp-icon.png\\E"
   }, {
+    "pattern":"\\Qcom/formdev/flatlaf/FlatDarculaLaf.properties\\E"
+  }, {
+    "pattern":"\\Qcom/formdev/flatlaf/FlatDarkLaf.properties\\E"
+  }, {
+    "pattern":"\\Qcom/formdev/flatlaf/FlatLaf.properties\\E"
+  }, {
+    "pattern":"\\Qcom/formdev/flatlaf/IntelliJTheme$ThemeLaf.properties\\E"
+  }, {
+    "pattern":"\\Qcom/formdev/flatlaf/intellijthemes/FlatMaterialDesignDarkIJTheme.properties\\E"
+  }, {
+    "pattern":"\\Qcom/formdev/flatlaf/intellijthemes/themes/MaterialTheme.theme.json\\E"
+  }, {
+    "pattern":"\\Qcom/formdev/flatlaf/natives/flatlaf-windows-x86_64.dll\\E"
+  }, {
     "pattern":"\\Qfonts/MaterialSymbolsRounded.ttf\\E"
   }, {
     "pattern":"\\Qfonts/PingFangSC-Light.otf\\E"
@@ -280,6 +318,14 @@
     "pattern":"\\Qio/github/humbleui/skija/linux/x64/libskija.so\\E"
   }, {
     "pattern":"\\Qio/github/humbleui/skija/linux/x64/skija.version\\E"
+  }, {
+    "pattern":"\\Qio/github/humbleui/skija/windows/x64/icudtl.dat\\E"
+  }, {
+    "pattern":"\\Qio/github/humbleui/skija/windows/x64/skija.dll\\E"
+  }, {
+    "pattern":"\\Qio/github/humbleui/skija/windows/x64/skija.version\\E"
+  }, {
+    "pattern":"\\Qjavax/inject/Singleton.class\\E"
   }, {
     "pattern":"\\Qjavazoom/jl/decoder/sfd.ser\\E"
   }, {
@@ -371,13 +417,305 @@
   }, {
     "pattern":"\\Qmd3/Core/qmldir\\E"
   }, {
+    "pattern":"\\Qopengl32.dll\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/DefaultArtifactFilterManager.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/ReactorReader.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/classrealm/DefaultClassRealmManager.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/cli/configuration/SettingsXmlConfigurationProcessor.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/cli/internal/BootstrapCoreExtensionManager.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/execution/DefaultMavenExecutionRequestPopulator.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/execution/scope/internal/MojoExecutionScopeCoreModule.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/extension/internal/CoreExportsProvider.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/internal/aether/DefaultRepositorySystemSessionFactory.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/internal/aether/ResolverLifecycle.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/internal/secdispatcher/SecDispatcherProvider.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/lifecycle/internal/DefaultProjectArtifactFactory.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/lifecycle/internal/LifecycleDependencyResolver.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/messages/build.properties\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/building/DefaultModelBuilder.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/building/DefaultModelProcessor.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/composition/DefaultDependencyManagementImporter.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/inheritance/DefaultInheritanceAssembler.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/interpolation/DefaultModelVersionProcessor.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/interpolation/StringVisitorModelInterpolator.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/io/DefaultModelReader.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/io/DefaultModelWriter.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/locator/DefaultModelLocator.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/management/DefaultDependencyManagementInjector.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/management/DefaultPluginManagementInjector.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/normalization/DefaultModelNormalizer.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/path/DefaultModelPathTranslator.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/path/DefaultModelUrlNormalizer.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/path/DefaultPathTranslator.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/path/DefaultUrlNormalizer.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/path/ProfileActivationFilePathInterpolator.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/plugin/DefaultPluginConfigurationExpander.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/plugin/DefaultReportConfigurationExpander.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/plugin/DefaultReportingConverter.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/pom-4.0.0.xml\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/profile/DefaultProfileInjector.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/profile/DefaultProfileSelector.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/profile/activation/FileProfileActivator.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/profile/activation/JdkVersionProfileActivator.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/profile/activation/OperatingSystemProfileActivator.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/profile/activation/PropertyProfileActivator.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/superpom/DefaultSuperPomProvider.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/model/validation/DefaultModelValidator.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/plugin/DefaultMojosExecutionStrategy.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/plugin/internal/DefaultPluginValidationManager.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/plugin/internal/DeprecatedCoreExpressionValidator.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/plugin/internal/DeprecatedPluginValidator.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/plugin/internal/Maven2DependenciesValidator.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/plugin/internal/Maven3CompatDependenciesValidator.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/plugin/internal/MavenMixedDependenciesValidator.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/plugin/internal/MavenPluginJavaPrerequisiteChecker.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/plugin/internal/MavenPluginMavenPrerequisiteChecker.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/plugin/internal/MavenScopeDependenciesValidator.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/plugin/internal/PlexusContainerDefaultDependenciesValidator.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/plugin/internal/ReadOnlyPluginParametersValidator.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/repository/internal/DefaultArtifactDescriptorReader.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/repository/internal/DefaultModelCacheFactory.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/repository/internal/DefaultVersionRangeResolver.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/repository/internal/DefaultVersionResolver.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/repository/internal/PluginsMetadataGeneratorFactory.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/repository/internal/SnapshotMetadataGeneratorFactory.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/repository/internal/VersionsMetadataGeneratorFactory.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/session/scope/internal/SessionScopeModule.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/settings/building/DefaultSettingsBuilder.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/settings/crypto/DefaultSettingsDecrypter.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/settings/io/DefaultSettingsReader.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/settings/io/DefaultSettingsWriter.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/settings/validation/DefaultSettingsValidator.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/toolchain/building/DefaultToolchainsBuilder.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/toolchain/io/DefaultToolchainsReader.class\\E"
+  }, {
+    "pattern":"\\Qorg/apache/maven/toolchain/io/DefaultToolchainsWriter.class\\E"
+  }, {
+    "pattern":"\\Qorg/codehaus/plexus/component/configurator/BasicComponentConfigurator.class\\E"
+  }, {
+    "pattern":"\\Qorg/codehaus/plexus/component/configurator/MapOrientedComponentConfigurator.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/connector/basic/BasicRepositoryConnectorFactory.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/DefaultArtifactResolver.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/DefaultChecksumPolicyProvider.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/DefaultDeployer.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/DefaultFileProcessor.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/DefaultInstaller.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/DefaultLocalPathComposer.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/DefaultLocalPathPrefixComposerFactory.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/DefaultLocalRepositoryProvider.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/DefaultMetadataResolver.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/DefaultOfflineController.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/DefaultRemoteRepositoryManager.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/DefaultRepositoryConnectorProvider.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/DefaultRepositoryEventDispatcher.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/DefaultRepositoryLayoutProvider.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/DefaultRepositorySystem.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/DefaultRepositorySystemLifecycle.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/DefaultTrackingFileManager.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/DefaultTransporterProvider.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/DefaultUpdateCheckManager.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/DefaultUpdatePolicyAnalyzer.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/EnhancedLocalRepositoryManagerFactory.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/LoggerFactoryProvider.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/Maven2RepositoryLayoutFactory.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/SimpleLocalRepositoryManagerFactory.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/checksum/DefaultChecksumAlgorithmFactorySelector.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/checksum/Md5ChecksumAlgorithmFactory.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/checksum/Sha1ChecksumAlgorithmFactory.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/checksum/Sha256ChecksumAlgorithmFactory.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/checksum/Sha512ChecksumAlgorithmFactory.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/checksum/SparseDirectoryTrustedChecksumsSource.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/checksum/SummaryFileTrustedChecksumsSource.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/checksum/TrustedToProvidedChecksumsSourceAdapter.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/collect/DefaultDependencyCollector.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/collect/bf/BfDependencyCollector.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/collect/df/DfDependencyCollector.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/filter/DefaultRemoteRepositoryFilterManager.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/filter/GroupIdRemoteRepositoryFilterSource.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/filter/PrefixesRemoteRepositoryFilterSource.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/resolution/TrustedChecksumsArtifactResolverPostProcessor.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/slf4j/Slf4jLoggerFactory.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/synccontext/DefaultSyncContextFactory.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/synccontext/legacy/DefaultSyncContextFactory.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/synccontext/named/NamedLockFactoryAdapterFactoryImpl.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/synccontext/named/providers/DiscriminatingNameMapperProvider.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/synccontext/named/providers/FileGAECVNameMapperProvider.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/synccontext/named/providers/FileGAVNameMapperProvider.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/synccontext/named/providers/FileHashingGAECVNameMapperProvider.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/synccontext/named/providers/FileHashingGAVNameMapperProvider.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/synccontext/named/providers/FileStaticNameMapperProvider.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/synccontext/named/providers/GAECVNameMapperProvider.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/synccontext/named/providers/GAVNameMapperProvider.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/impl/synccontext/named/providers/StaticNameMapperProvider.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/transport/wagon/PlexusWagonConfigurator.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/internal/transport/wagon/PlexusWagonProvider.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/named/providers/FileLockNamedLockFactory.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/named/providers/LocalReadWriteLockNamedLockFactory.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/named/providers/LocalSemaphoreNamedLockFactory.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/named/providers/NoopNamedLockFactory.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/transport/file/FileTransporterFactory.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/transport/http/HttpTransporterFactory.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/transport/http/Nexus2ChecksumExtractor.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/transport/http/XChecksumChecksumExtractor.class\\E"
+  }, {
+    "pattern":"\\Qorg/eclipse/aether/transport/wagon/WagonTransporterFactory.class\\E"
+  }, {
+    "pattern":"\\Qorg/fusesource/jansi/jansi.properties\\E"
+  }, {
+    "pattern":"\\Qorg/mozilla/classfile/ClassFileWriter.class\\E"
+  }, {
     "pattern":"\\Qorg/slf4j/impl/StaticLoggerBinder.class\\E"
+  }, {
+    "pattern":"\\Qorg/sonatype/plexus/components/cipher/DefaultPlexusCipher.class\\E"
+  }, {
+    "pattern":"\\Qorg/sonatype/plexus/components/sec/dispatcher/DefaultSecDispatcher.class\\E"
   }, {
     "pattern":"\\Qqmldir\\E"
   }, {
     "pattern":"\\Qrhino-test.config\\E"
   }, {
     "pattern":"\\Qrhino.config\\E"
+  }, {
+    "pattern":"\\Qsimplelogger.properties\\E"
+  }, {
+    "pattern":"\\Qwindows/x64/org/lwjgl/glfw/glfw.dll\\E"
+  }, {
+    "pattern":"\\Qwindows/x64/org/lwjgl/lwjgl.dll\\E"
+  }, {
+    "pattern":"\\Qwindows/x64/org/lwjgl/opengl/lwjgl_opengl.dll\\E"
   }, {
     "pattern":"app-icon\\.png$"
   }, {
@@ -389,11 +727,21 @@
   }, {
     "pattern":"java.base:\\Qsun/net/idn/uidna.spp\\E"
   }, {
+    "pattern":"java.desktop:\\Qcom/formdev/flatlaf/resources/Bundle.properties\\E"
+  }, {
+    "pattern":"java.desktop:\\Qjavax/swing/text/html/default.css\\E"
+  }, {
     "pattern":"md3/.*"
   }]},
   "bundles":[{
+    "name":"com.formdev.flatlaf.resources.Bundle",
+    "locales":["und"]
+  }, {
+    "name":"com.sun.swing.internal.plaf.basic.resources.basic",
+    "classNames":["com.sun.swing.internal.plaf.basic.resources.basic", "com.sun.swing.internal.plaf.basic.resources.basic_zh_CN"]
+  }, {
     "name":"org.mozilla.javascript.resources.Messages",
-    "locales":["", "und", "zh-CN"]
+    "locales":["und", "zh-CN"]
   }, {
     "name":"sun.awt.resources.awt",
     "classNames":["sun.awt.resources.awt", "sun.awt.resources.awt_zh_CN"]
