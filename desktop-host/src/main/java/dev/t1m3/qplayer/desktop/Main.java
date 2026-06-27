@@ -43,9 +43,18 @@ public final class Main {
             WinConsole.detachIfStandalone();
         }
 
+        // Put the rolling log under the writable app data dir (~/.qplayer/logs) —
+        // when installed to Program Files the working dir isn't writable, so a
+        // CWD-relative logs/ would silently fail. Set before log4j2 first inits
+        // (in Log4j2Sink below); log4j2.xml reads ${sys:qplayer.logs}.
+        if (System.getProperty("qplayer.logs") == null) {
+            System.setProperty("qplayer.logs",
+                    new File(dev.t1m3.qplayer.store.AppDirs.base(), "logs").getAbsolutePath());
+        }
+
         // Route the shared player-core logger to log4j2 (colored console + rolling
-        // logs/ file, config in log4j2.xml). First thing in main so every later line
-        // — incl. the startup property fixups below — lands in the configured format.
+        // file, config in log4j2.xml). First thing in main so every later line — incl.
+        // the startup property fixups below — lands in the configured format.
         Logger.setSink(new Log4j2Sink());
 
         // Pin Rhino to the interpreter BEFORE any qml4j class loads. JsRuntime caches
