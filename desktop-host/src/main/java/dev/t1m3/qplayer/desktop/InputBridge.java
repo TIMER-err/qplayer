@@ -1,6 +1,8 @@
 package dev.t1m3.qplayer.desktop;
 
 import io.github.timer_err.qml4j.render.QmlView;
+import io.github.timer_err.qml4j.render.items.core.Item;
+import io.github.timer_err.qml4j.render.items.input.TextEditable;
 
 import dev.t1m3.qplayer.bridge.PlayerController;
 import dev.t1m3.qplayer.lyric.skia.LyricCompositor;
@@ -76,18 +78,21 @@ final class InputBridge {
             });
         });
         GLFW.glfwSetKeyCallback(window, (w, key, scancode, action, mods) -> {
-            // Clipboard shortcuts: Ctrl (Win/Linux) or Cmd (macOS) + C/X/V. The engine
-            // exposes copy/cut/paste as explicit calls (not part of dispatchKey), so the
-            // host must route the accelerators — and mapKey returns 0 for C/X/V, so the
-            // normal path below would drop them anyway.
+            // Text-editing shortcuts: Ctrl (Win/Linux) or Cmd (macOS) + A/C/X/V. The
+            // engine exposes copy/cut/paste as explicit calls (not part of dispatchKey)
+            // and has no select-all at all, so the host must route the accelerators —
+            // and mapKey returns 0 for letters, so the normal path below would drop
+            // them anyway.
             if (action == GLFW.GLFW_PRESS
                     && (mods & (GLFW.GLFW_MOD_CONTROL | GLFW.GLFW_MOD_SUPER)) != 0
-                    && (key == GLFW.GLFW_KEY_C || key == GLFW.GLFW_KEY_X || key == GLFW.GLFW_KEY_V)) {
+                    && (key == GLFW.GLFW_KEY_A || key == GLFW.GLFW_KEY_C
+                        || key == GLFW.GLFW_KEY_X || key == GLFW.GLFW_KEY_V)) {
                 final int clipKey = key;
                 win.postRenderTask(() -> {
                     QmlView v = win.view();
                     if (v == null) return;
-                    if (clipKey == GLFW.GLFW_KEY_C) v.copy();
+                    if (clipKey == GLFW.GLFW_KEY_A) selectAll(v);
+                    else if (clipKey == GLFW.GLFW_KEY_C) v.copy();
                     else if (clipKey == GLFW.GLFW_KEY_X) v.cut();
                     else v.paste();
                 });
@@ -140,6 +145,20 @@ final class InputBridge {
         pendingScrollX -= stepX;
         pendingScrollY -= stepY;
         v.dispatchWheel((float) cursorX, (float) cursorY, (float) stepX, (float) stepY);
+    }
+
+    // Select-all on the focused editable, mirroring the engine's own selection
+    // bookkeeping (anchor, then range, then caret — setting the caret does not
+    // clear the range).
+    private static void selectAll(QmlView v) {
+        Item f = v.focused();
+        if (!(f instanceof TextEditable t)) return;
+        String s = t.text();
+        int len = s == null ? 0 : s.length();
+        if (len == 0) return;
+        t.setSelectionAnchor(0);
+        t.setSelectionRange(0, len);
+        t.setCursorPosition(len);
     }
 
     // --- render-thread handlers ----------------------------------------------

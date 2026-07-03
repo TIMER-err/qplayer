@@ -61,6 +61,8 @@ public final class DesktopWindow {
     private boolean lastSpawnWasRespawn;
 
     private InputBridge input;
+    // Captured in init(); GLFW window/event/clipboard calls must run here.
+    private volatile Thread mainThread;
     private volatile RenderThread renderThread;
     private volatile boolean quitRequested;
     private volatile boolean hiddenToTray;
@@ -83,6 +85,10 @@ public final class DesktopWindow {
 
     long window() {
         return window;
+    }
+
+    Thread mainThread() {
+        return mainThread;
     }
 
     QmlView view() {
@@ -166,7 +172,7 @@ public final class DesktopWindow {
         }
         lastSpawnWasRespawn = false;
         QmlView v = QmlView.withStockTypes(engine).resources(resources);
-        v.setClipboard(new GlfwClipboard(window));
+        v.setClipboard(new GlfwClipboard(this));
         if (controller != null) v.context("player", controller);
         if (settings != null) v.context("settings", settings);
         loadFonts(v, resources);
@@ -214,6 +220,7 @@ public final class DesktopWindow {
     // --- main-thread lifecycle -------------------------------------------------
 
     void init() {
+        mainThread = Thread.currentThread();
         GLFWErrorCallback.createPrint(System.err).set();
         preferStablePlatform();
         if (!GLFW.glfwInit()) throw new IllegalStateException("glfwInit failed");
