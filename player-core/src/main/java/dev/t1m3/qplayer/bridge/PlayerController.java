@@ -123,6 +123,10 @@ public final class PlayerController {
         if (l != null) onMain(l::onPlaybackChanged);
     }
 
+    // --- Search history ---------------------------------------------------
+    private static final int HISTORY_MAX = 50;
+    private final List<String> historyList = new ArrayList<>();
+
     // --- Search cache ------------------------------------------------------
     /** TTL for cached search results: 5 minutes. */
     private static final long SEARCH_CACHE_TTL_MS = 5 * 60 * 1000L;
@@ -218,6 +222,8 @@ public final class PlayerController {
     public final Property<Integer> resultCount = new Property<>(0);
     /** Hot search keywords shown when search input is empty. */
     public final Property<List<String>> hotSearches = new Property<>(Collections.<String>emptyList());
+    /** User's search history (most recent first, max {@value #HISTORY_MAX} entries). */
+    public final Property<List<String>> searchHistory = new Property<>(Collections.<String>emptyList());
     public final Property<List<NeteaseSong>> recommendations = new Property<>(Collections.<NeteaseSong>emptyList());
     public final Property<List<NeteasePlaylist>> recommendPlaylists = new Property<>(Collections.<NeteasePlaylist>emptyList());
     public final Property<List<NeteasePlaylist>> myPlaylists = new Property<>(Collections.<NeteasePlaylist>emptyList());
@@ -294,6 +300,7 @@ public final class PlayerController {
         // (expired VIP link, region lock, etc.). Non-netease or already-retried
         // tracks fall through to autoAdvance.
         backend.setOnError(() -> onMain(this::onPlaybackError));
+        worker.submit(this::loadSearchHistory);
         if (netease.isLoggedIn()) {
             loggedIn.set(true);
             refreshLogin();
@@ -1300,6 +1307,77 @@ public final class PlayerController {
 
     private static String orEmpty(String s) {
         return s == null ? "" : s;
+    }
+
+    // --- Search history ---------------------------------------------------
+
+    public void addSearchHistory(String keyword) {
+        if (keyword == null || keyword.trim().isEmpty()) return;
+        String kw = keyword.trim();
+        synchronized (historyList) {
+            historyList.remove(kw);
+            historyList.add(0, kw);
+            if (historyList.size() > HISTORY_MAX) historyList.remove(historyList.size() - 1);
+            List<String> snap = new ArrayList<>(historyList);
+            post(() -> searchHistory.set(snap));
+        }
+        worker.submit(this::saveSearchHistory);
+    }
+
+    public void removeSearchHistory(int i) {
+        synchronized (historyList) {
+            if (i < 0 || i >= historyList.size()) return;
+            historyList.remove(i);
+            List<String> snap = new ArrayList<>(historyList);
+            post(() -> searchHistory.set(snap));
+        }
+        worker.submit(this::saveSearchHistory);
+    }
+
+    public void clearSearchHistory() {
+        synchronized (historyList) {
+            historyList.clear();
+            post(() -> searchHistory.set(Collections.<String>emptyList()));
+        }
+        worker.submit(this::saveSearchHistory);
+    }
+
+    private void saveSearchHistory() {
+        try {
+            java.io.File f = new java.io.File(dev.t1m3.qplayer.store.AppDirs.base(), "search_history.txt");
+            f.getParentFile().mkdirs();
+            StringBuilder sb = new StringBuilder();
+            synchronized (historyList) {
+                for (String s : historyList) sb.append(s).append('\n');
+            }
+            java.nio.file.Files.write(f.toPath(),
+                    sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (Throwable e) {
+            Logger.warn("saveSearchHistory failed: {}", e.getMessage());
+        }
+    }
+
+    private void loadSearchHistory() {
+        try {
+            java.io.File f = new java.io.File(dev.t1m3.qplayer.store.AppDirs.base(), "search_history.txt");
+            if (!f.exists()) return;
+            byte[] bytes = java.nio.file.Files.readAllBytes(f.toPath());
+            String content = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+            synchronized (historyList) {
+                historyList.clear();
+                for (String line : content.split("\n")) {
+                    String t = line.trim();
+                    if (!t.isEmpty()) {
+                        historyList.add(t);
+                        if (historyList.size() >= HISTORY_MAX) break;
+                    }
+                }
+                List<String> snap = new ArrayList<>(historyList);
+                post(() -> searchHistory.set(snap));
+            }
+        } catch (Throwable e) {
+            Logger.warn("loadSearchHistory failed: {}", e.getMessage());
+        }
     }
 
     // --- Netease discovery ------------------------------------------------
