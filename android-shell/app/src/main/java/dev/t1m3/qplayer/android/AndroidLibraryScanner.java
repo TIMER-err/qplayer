@@ -128,9 +128,10 @@ public final class AndroidLibraryScanner {
             Logger.warn("AndroidLibraryScanner: tag read failed for {}: {}", filePath, e.getMessage());
         }
 
-        // Embedded cover -> cache file (path on the Track, not bytes held in memory).
+        // Embedded cover -> downscaled cache files (paths on the Track, not bytes held
+        // in memory).
         if (t.coverBytes != null) {
-            t.coverThumbPath = cache.writeCover(filePath, t.coverBytes);
+            cache.writeCovers(t, filePath, t.coverBytes);
             t.coverBytes = null;
         }
 
@@ -140,7 +141,7 @@ public final class AndroidLibraryScanner {
         if (parent != null) {
             if (t.coverThumbPath == null) {
                 byte[] sidecar = readSidecarCover(parent, baseName);
-                if (sidecar != null) t.coverThumbPath = cache.writeCover(filePath, sidecar);
+                if (sidecar != null) cache.writeCovers(t, filePath, sidecar);
             }
             t.lyricFilePath = pickSidecar(parent, baseName,
                     ".ttml", ".lys", ".qrc", ".yrc", ".eslrc", ".lrc");

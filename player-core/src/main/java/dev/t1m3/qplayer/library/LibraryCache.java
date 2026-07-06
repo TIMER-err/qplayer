@@ -34,7 +34,12 @@ public final class LibraryCache {
 
     /** Bump when the extraction logic changes so stale caches (e.g. built before a
      *  cover/lyric fix) are discarded and every file is re-read once. */
-    private static final int CACHE_VERSION = 2;
+    private static final int CACHE_VERSION = 3;
+
+    /** List-row thumbnail edge; comfortably covers the 48px row box at high DPI. */
+    private static final int THUMB_EDGE = 256;
+    /** Now-playing / lyric-view cover edge; matches the netease player art size (512). */
+    private static final int PLAY_EDGE = 512;
 
     private final Path indexFile;
     private final Path coversDir;
@@ -63,6 +68,7 @@ public final class LibraryCache {
         String album;
         long durationMs;
         String coverThumbPath;
+        String coverLocalPath;
         String lyricFilePath;
         String translationFilePath;
         String romajiFilePath;
@@ -116,12 +122,23 @@ public final class LibraryCache {
         return cached != null && cached.fileSize == size && cached.fileMtime == mtime;
     }
 
-    /** Write embedded cover bytes to the cache and return the file path (or null). */
-    public String writeCover(String filePath, byte[] bytes) {
+    /** Downscale the raw cover once and cache a row thumbnail + a now-playing copy,
+     *  setting both paths on the track. Undecodable bytes fall back to storing the
+     *  original for both. */
+    public void writeCovers(Track t, String filePath, byte[] bytes) {
+        if (bytes == null || bytes.length == 0) return;
+        byte[][] sized = CoverThumbnailer.downscale(bytes, THUMB_EDGE, PLAY_EDGE);
+        byte[] thumb = sized != null ? sized[0] : bytes;
+        byte[] play = sized != null ? sized[1] : bytes;
+        t.coverThumbPath = writeCoverFile(filePath, thumb, ".thumb.img");
+        t.coverLocalPath = writeCoverFile(filePath, play, ".img");
+    }
+
+    private String writeCoverFile(String filePath, byte[] bytes, String suffix) {
         if (bytes == null || bytes.length == 0) return null;
         try {
             Files.createDirectories(coversDir);
-            Path p = coversDir.resolve(hash(filePath) + ".img");
+            Path p = coversDir.resolve(hash(filePath) + suffix);
             Files.write(p, bytes);
             return p.toString();
         } catch (Throwable t) {
@@ -156,6 +173,7 @@ public final class LibraryCache {
         t.album = e.album;
         t.durationMs = e.durationMs;
         t.coverThumbPath = e.coverThumbPath;
+        t.coverLocalPath = e.coverLocalPath;
         t.lyricFilePath = e.lyricFilePath;
         t.translationFilePath = e.translationFilePath;
         t.romajiFilePath = e.romajiFilePath;
@@ -173,6 +191,7 @@ public final class LibraryCache {
         e.album = t.album;
         e.durationMs = t.durationMs;
         e.coverThumbPath = t.coverThumbPath;
+        e.coverLocalPath = t.coverLocalPath;
         e.lyricFilePath = t.lyricFilePath;
         e.translationFilePath = t.translationFilePath;
         e.romajiFilePath = t.romajiFilePath;
@@ -187,6 +206,8 @@ public final class LibraryCache {
         for (Track t : tracks) {
             if (t.coverThumbPath != null && t.coverThumbPath.startsWith(coversDir.toString()))
                 live.add(t.coverThumbPath);
+            if (t.coverLocalPath != null && t.coverLocalPath.startsWith(coversDir.toString()))
+                live.add(t.coverLocalPath);
             if (t.lyricFilePath != null && t.lyricFilePath.startsWith(lyricsDir.toString()))
                 live.add(t.lyricFilePath);
         }

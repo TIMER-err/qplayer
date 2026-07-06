@@ -101,16 +101,17 @@ public final class LibraryScanner {
             Logger.warn("LibraryScanner: tag read failed for {}: {}", audio, e.getMessage());
         }
 
-        // Embedded cover -> cache file (path on the Track, not bytes held in memory).
+        // Embedded cover -> downscaled cache files (paths on the Track, not bytes held
+        // in memory).
         if (t.coverBytes != null) {
-            t.coverThumbPath = cache.writeCover(t.filePath, t.coverBytes);
+            cache.writeCovers(t, t.filePath, t.coverBytes);
             t.coverBytes = null;
         }
 
         Path parent = audio.getParent();
         if (t.coverThumbPath == null) {
             byte[] sidecar = readSidecarCover(parent, base);
-            if (sidecar != null) t.coverThumbPath = cache.writeCover(t.filePath, sidecar);
+            if (sidecar != null) cache.writeCovers(t, t.filePath, sidecar);
         }
 
         // Highest fidelity first: TTML/LYS/QRC/YRC are syllable-level,

@@ -34,8 +34,13 @@ public class Track {
     public byte[] coverBytes;
     /** Remote cover URL (NETEASE source); resolved lazily when coverBytes is null. */
     public String coverUrl;
-    /** CDN thumbnail URL for list-row art (coverUrl + size param); null if none. */
+    /** List-row art. NETEASE: a small CDN thumbnail URL. LOCAL: a downscaled thumbnail
+     *  cache file (~256px) so scrolling a list never decodes a multi-megapixel embedded
+     *  cover per row. Null if none. */
     public String coverThumbPath;
+    /** LOCAL full-ish cover cache file (~512px) for the now-playing / lyric view and the
+     *  fluid backdrop; null for NETEASE (which uses {@link #coverUrl}). */
+    public String coverLocalPath;
 
     /** Sidecar lyric paths discovered next to a LOCAL file; null if absent. */
     public String lyricFilePath;

@@ -876,12 +876,14 @@ public final class PlayerController {
             notifyPlayback();
             return;
         }
-        // Local track: cover lives in a cache file (coverThumbPath is an absolute
-        // path, not an http url). Read it for the fluid backdrop + Monet seed.
-        if (t.coverThumbPath != null && t.coverThumbPath.startsWith("/")) {
-            byte[] data = readBytesFromFile(t.coverThumbPath);
+        // Local track: cover lives in a cache file (an absolute path, not an http url).
+        // Prefer the larger now-playing copy over the row thumbnail for the fluid
+        // backdrop + Monet seed; fall back to the thumbnail if only it exists.
+        String localCover = t.coverLocalPath != null ? t.coverLocalPath : t.coverThumbPath;
+        if (localCover != null && localCover.startsWith("/")) {
+            byte[] data = readBytesFromFile(localCover);
             if (data != null && data.length > 0) {
-                final String path = t.coverThumbPath;
+                final String path = localCover;
                 post(() -> { applyCover(data); coverPath.set(path); });
                 notifyPlayback();
                 return;
