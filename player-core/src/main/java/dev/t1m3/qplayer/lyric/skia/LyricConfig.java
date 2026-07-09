@@ -33,4 +33,7 @@ public final class LyricConfig {
     public final Val<Boolean> scaleEmphasis = new Val<>(Boolean.TRUE);
     /** White glow behind sung syllables on the active line. */
     public final Val<Boolean> glow = new Val<>(Boolean.TRUE);
+    /** Apple-Music depth of field: blur lyric lines progressively toward the edges
+     *  (the focused line stays sharp). Off by default — it adds a per-line blur layer. */
+    public final Val<Boolean> edgeBlur = new Val<>(Boolean.FALSE);
 }

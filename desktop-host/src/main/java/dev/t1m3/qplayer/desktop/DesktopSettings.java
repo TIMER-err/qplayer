@@ -41,6 +41,7 @@ public final class DesktopSettings extends QObject implements LyricCompositor.Se
     public final Property<Boolean> lyricSpring = new Property<>(Boolean.TRUE);
     public final Property<Boolean> lyricScale = new Property<>(Boolean.TRUE);
     public final Property<Boolean> lyricGlow = new Property<>(Boolean.TRUE);
+    public final Property<Boolean> lyricEdgeBlur = new Property<>(Boolean.FALSE);
     public final Property<Boolean> lyricBgStatic = new Property<>(Boolean.FALSE);
 
     public final Property<Object> maxCacheSizeMB = new Property<>(200);
@@ -126,6 +127,7 @@ public final class DesktopSettings extends QObject implements LyricCompositor.Se
         lyricSpring.set(getBool("lyricSpring", true));
         lyricScale.set(getBool("lyricScale", true));
         lyricGlow.set(getBool("lyricGlow", true));
+        lyricEdgeBlur.set(getBool("lyricEdgeBlur", false));
         lyricBgStatic.set(getBool("lyricBgStatic", false));
         applyLyricConfig();
         lyricFontSize.setInterceptor((p, v) -> {
@@ -158,6 +160,11 @@ public final class DesktopSettings extends QObject implements LyricCompositor.Se
             put("lyricGlow", Boolean.TRUE.equals(p.peek()));
             applyLyricConfig();
         });
+        lyricEdgeBlur.setInterceptor((p, v) -> {
+            p.setBypassInterceptor(v);
+            put("lyricEdgeBlur", Boolean.TRUE.equals(p.peek()));
+            applyLyricConfig();
+        });
         lyricBgStatic.setInterceptor((p, v) -> {
             p.setBypassInterceptor(v);
             put("lyricBgStatic", Boolean.TRUE.equals(p.peek()));
@@ -182,6 +189,7 @@ public final class DesktopSettings extends QObject implements LyricCompositor.Se
         c.springPhysics.setValue(Boolean.TRUE.equals(lyricSpring.peek()));
         c.scaleEmphasis.setValue(Boolean.TRUE.equals(lyricScale.peek()));
         c.glow.setValue(Boolean.TRUE.equals(lyricGlow.peek()));
+        c.edgeBlur.setValue(Boolean.TRUE.equals(lyricEdgeBlur.peek()));
     }
 
     private void recompute() {

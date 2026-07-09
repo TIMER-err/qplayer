@@ -413,6 +413,32 @@ Rectangle {
                             }
                         }
 
+                        // Apple-Music edge blur: unfocused lines blur toward the edges.
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 12
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+                                Text {
+                                    text: "边缘模糊"
+                                    color: Theme.color.onSurfaceColor
+                                    font.family: Theme.typography.bodyLarge.family
+                                    font.pixelSize: Theme.typography.bodyLarge.size
+                                }
+                                Text {
+                                    text: "未聚焦歌词按远近渐进高斯模糊(较耗电)"
+                                    color: Theme.color.onSurfaceVariantColor
+                                    font.family: Theme.typography.bodySmall.family
+                                    font.pixelSize: Theme.typography.bodySmall.size
+                                }
+                            }
+                            Switch {
+                                checked: settings.lyricEdgeBlur
+                                onClicked: settings.lyricEdgeBlur = checked
+                            }
+                        }
+
                         // Fluid background mode: dynamic (animated) or static
                         // (rendered once + cached, lighter on the GPU). Label + desc
                         // stacked, radios on their own row so the desc has full width.

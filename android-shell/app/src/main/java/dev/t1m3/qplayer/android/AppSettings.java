@@ -51,6 +51,8 @@ public final class AppSettings extends QObject
     public final Property<Boolean> lyricScale = new Property<>(Boolean.TRUE);
     /** White glow behind sung syllables on the lyric page. */
     public final Property<Boolean> lyricGlow = new Property<>(Boolean.TRUE);
+    /** Apple-Music edge blur: unfocused lyric lines blur progressively toward the edges. */
+    public final Property<Boolean> lyricEdgeBlur = new Property<>(Boolean.FALSE);
     /** Static fluid background (render once + cache) vs. animated. */
     public final Property<Boolean> lyricBgStatic = new Property<>(Boolean.FALSE);
 
@@ -184,6 +186,7 @@ public final class AppSettings extends QObject
         lyricSpring.set(prefs.getBoolean("lyricSpring", true));
         lyricScale.set(prefs.getBoolean("lyricScale", true));
         lyricGlow.set(prefs.getBoolean("lyricGlow", true));
+        lyricEdgeBlur.set(prefs.getBoolean("lyricEdgeBlur", false));
         lyricBgStatic.set(prefs.getBoolean("lyricBgStatic", false));
         applyLyricConfig();
         lyricFontSize.setInterceptor((p, v) -> {
@@ -216,6 +219,11 @@ public final class AppSettings extends QObject
             prefs.edit().putBoolean("lyricGlow", Boolean.TRUE.equals(p.peek())).apply();
             applyLyricConfig();
         });
+        lyricEdgeBlur.setInterceptor((p, v) -> {
+            p.setBypassInterceptor(v);
+            prefs.edit().putBoolean("lyricEdgeBlur", Boolean.TRUE.equals(p.peek())).apply();
+            applyLyricConfig();
+        });
         lyricBgStatic.setInterceptor((p, v) -> {
             p.setBypassInterceptor(v);
             prefs.edit().putBoolean("lyricBgStatic", Boolean.TRUE.equals(p.peek())).apply();
@@ -242,6 +250,7 @@ public final class AppSettings extends QObject
         c.springPhysics.setValue(Boolean.TRUE.equals(lyricSpring.peek()));
         c.scaleEmphasis.setValue(Boolean.TRUE.equals(lyricScale.peek()));
         c.glow.setValue(Boolean.TRUE.equals(lyricGlow.peek()));
+        c.edgeBlur.setValue(Boolean.TRUE.equals(lyricEdgeBlur.peek()));
     }
 
     /** System night mode changed; call on the render thread. */
