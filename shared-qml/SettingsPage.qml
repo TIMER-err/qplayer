@@ -533,6 +533,66 @@ Rectangle {
                     }
                 }
 
+                // Desktop-only: hidden on Android where AppSettings has no musicFolder.
+                Text {
+                    visible: typeof settings.musicFolder !== "undefined"
+                    Layout.leftMargin: 20
+                    Layout.topMargin: 6
+                    text: "本地"
+                    color: Theme.color.primary
+                    font.family: Theme.typography.titleSmall.family
+                    font.pixelSize: Theme.typography.titleSmall.size
+                }
+                Rectangle {
+                    visible: typeof settings.musicFolder !== "undefined"
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 12
+                    Layout.rightMargin: 12
+                    radius: 18
+                    color: Theme.color.surfaceContainerHighest
+                    implicitHeight: localCol.implicitHeight + 32
+
+                    ColumnLayout {
+                        id: localCol
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: 16
+                        spacing: 12
+
+                        Text {
+                            text: "本地音乐目录"
+                            color: Theme.color.onSurfaceColor
+                            font.family: Theme.typography.bodyLarge.family
+                            font.pixelSize: Theme.typography.bodyLarge.size
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: "修改后将自动重新扫描该目录中的音乐文件"
+                            color: Theme.color.onSurfaceVariantColor
+                            font.family: Theme.typography.bodySmall.family
+                            font.pixelSize: Theme.typography.bodySmall.size
+                            wrapMode: Text.WordWrap
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            TextField {
+                                id: musicFolderField
+                                Layout.fillWidth: true
+                                type: "outlined"
+                                label: "目录路径"
+                                text: typeof settings.musicFolder !== "undefined" ? settings.musicFolder : ""
+                                onAccepted: settings.musicFolder = text
+                            }
+                            Button {
+                                type: "tonal"; text: "应用"
+                                onClicked: settings.musicFolder = musicFolderField.text
+                            }
+                        }
+                    }
+                }
+
                 Text {
                     Layout.leftMargin: 20
                     Layout.topMargin: 6

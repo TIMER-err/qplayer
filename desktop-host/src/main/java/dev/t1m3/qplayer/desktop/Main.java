@@ -188,9 +188,15 @@ public final class Main {
         // A second launch now surfaces this window instead of starting a new process.
         onActivate.set(() -> window.postMainTask(window::restoreFromTray));
 
+        // Wire the music-folder change listener so Settings page edits trigger a rescan.
+        // Must be wired after window.init() so postRenderTask() is available.
+        Object rawFolder = settings.musicFolder.peek();
+        String initialFolder = rawFolder instanceof String ? (String) rawFolder : "";
+        settings.setMusicFolderListener(folder -> startLibraryScan(controller, reader, window, folder));
+
         // Initial content + a background scan of the local music folder.
         controller.loadHome();
-        startLibraryScan(controller, reader, window);
+        startLibraryScan(controller, reader, window, initialFolder);
 
         // Tray init on a daemon thread so a GTK/AppIndicator hang can't freeze the app.
         // (-Dqplayer.tray=false disables it, e.g. for headless rendering checks.)
@@ -263,8 +269,9 @@ public final class Main {
     }
 
     private static void startLibraryScan(PlayerController controller, MetadataReader reader,
-                                         DesktopWindow window) {
-        File music = new File(System.getProperty("user.home", "."), "Music");
+                                         DesktopWindow window, String folder) {
+        if (folder == null || folder.isEmpty()) return;
+        File music = new File(folder);
         if (!music.isDirectory()) return;
         Thread t = new Thread(() -> {
             try {

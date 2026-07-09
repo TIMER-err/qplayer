@@ -156,6 +156,13 @@ public final class PlayerController {
         }
     }
 
+    // Guards against stale async search results: set to the trimmed key before
+    // each search(); async workers check equality before publishing results.
+    private volatile String currentSearchKey = "";
+
+    // True after loadQueue() restores a previous session's track — toggle() will
+    // call playAt() instead of resume() so the URL is freshly resolved.
+    private volatile boolean needsReplay = false;
     private volatile String playLevel = "exhigh";
     private volatile boolean unblockEnabled = true;
     private volatile long uid;
@@ -301,6 +308,7 @@ public final class PlayerController {
         // tracks fall through to autoAdvance.
         backend.setOnError(() -> onMain(this::onPlaybackError));
         worker.submit(this::loadSearchHistory);
+        loadQueue();
         if (netease.isLoggedIn()) {
             loggedIn.set(true);
             refreshLogin();
@@ -821,6 +829,7 @@ public final class PlayerController {
     private void playAt(int i) {
         if (i < 0 || i >= queue.size()) return;
         playIndex = i;
+        worker.submit(this::saveQueue);
         final int idx = i;
         final Track t = queue.get(i);
         post(() -> {
@@ -1056,6 +1065,11 @@ public final class PlayerController {
                 playingIntent = false;
                 post(() -> playing.set(false));
             } else {
+                if (needsReplay && playIndex >= 0) {
+                    needsReplay = false;
+                    playAt(playIndex);
+                    return;
+                }
                 backend.resume();
                 playingIntent = true;
                 post(() -> playing.set(true));
@@ -1380,6 +1394,94 @@ public final class PlayerController {
         }
     }
 
+    // --- Queue persistence ------------------------------------------------
+
+    private void saveQueue() {
+        try {
+            java.io.File f = new java.io.File(dev.t1m3.qplayer.store.AppDirs.base(), "queue.json");
+            f.getParentFile().mkdirs();
+            StringBuilder sb = new StringBuilder();
+            sb.append("{\"playIndex\":").append(playIndex).append(",\"tracks\":[");
+            List<Track> snap = new ArrayList<>(queue);
+            for (int i = 0; i < snap.size(); i++) {
+                Track t = snap.get(i);
+                if (i > 0) sb.append(',');
+                sb.append("{\"source\":\"").append(t.source).append('"');
+                if (t.neteaseId != 0) sb.append(",\"neteaseId\":").append(t.neteaseId);
+                sb.append(",\"title\":").append(jsonStr(t.title));
+                sb.append(",\"artist\":").append(jsonStr(t.artist));
+                sb.append(",\"album\":").append(jsonStr(t.album));
+                sb.append(",\"coverUrl\":").append(jsonStr(t.coverUrl));
+                sb.append(",\"durationMs\":").append(t.durationMs);
+                if (t.filePath != null) sb.append(",\"filePath\":").append(jsonStr(t.filePath));
+                if (t.contentUri != null) sb.append(",\"contentUri\":").append(jsonStr(t.contentUri));
+                sb.append('}');
+            }
+            sb.append("]}");
+            java.nio.file.Files.write(f.toPath(),
+                    sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (Throwable e) {
+            Logger.warn("saveQueue failed: {}", e.getMessage());
+        }
+    }
+
+    private static String jsonStr(String s) {
+        if (s == null) return "null";
+        return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"")
+                       .replace("\n", "\\n").replace("\r", "\\r") + "\"";
+    }
+
+    private void loadQueue() {
+        try {
+            java.io.File f = new java.io.File(dev.t1m3.qplayer.store.AppDirs.base(), "queue.json");
+            if (!f.exists()) return;
+            String text = new String(java.nio.file.Files.readAllBytes(f.toPath()),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            com.google.gson.JsonObject root = new com.google.gson.JsonParser().parse(text).getAsJsonObject();
+            int savedIdx = root.has("playIndex") ? root.get("playIndex").getAsInt() : 0;
+            com.google.gson.JsonArray arr = root.has("tracks") ? root.getAsJsonArray("tracks") : new com.google.gson.JsonArray();
+            List<Track> loaded = new ArrayList<>();
+            for (com.google.gson.JsonElement el : arr) {
+                if (!el.isJsonObject()) continue;
+                com.google.gson.JsonObject o = el.getAsJsonObject();
+                Track t = new Track();
+                String src = o.has("source") ? o.get("source").getAsString() : "NETEASE";
+                t.source = "LOCAL".equals(src) ? Track.Source.LOCAL : Track.Source.NETEASE;
+                t.neteaseId = o.has("neteaseId") ? o.get("neteaseId").getAsLong() : 0;
+                t.title     = o.has("title")     && !o.get("title").isJsonNull()     ? o.get("title").getAsString()     : "";
+                t.artist    = o.has("artist")    && !o.get("artist").isJsonNull()    ? o.get("artist").getAsString()    : "";
+                t.album     = o.has("album")     && !o.get("album").isJsonNull()     ? o.get("album").getAsString()     : "";
+                t.coverUrl  = o.has("coverUrl")  && !o.get("coverUrl").isJsonNull()  ? o.get("coverUrl").getAsString()  : "";
+                t.durationMs = o.has("durationMs") ? o.get("durationMs").getAsLong() : 0;
+                if (t.source == Track.Source.LOCAL) {
+                    t.filePath   = o.has("filePath")   && !o.get("filePath").isJsonNull()   ? o.get("filePath").getAsString()   : null;
+                    t.contentUri = o.has("contentUri") && !o.get("contentUri").isJsonNull() ? o.get("contentUri").getAsString() : null;
+                }
+                loaded.add(t);
+            }
+            if (!loaded.isEmpty()) {
+                queue.addAll(loaded);
+                final List<Track> snap = new ArrayList<>(loaded);
+                int idx = Math.max(0, Math.min(savedIdx, loaded.size() - 1));
+                playIndex = idx;
+                needsReplay = true;
+                final int finalIdx = idx;
+                final Track cur = loaded.get(idx);
+                post(() -> {
+                    queueTracks.set(snap);
+                    index.set(finalIdx);
+                    title.set(cur.title != null ? cur.title : "");
+                    artist.set(cur.artist != null ? cur.artist : "");
+                    album.set(cur.album != null ? cur.album : "");
+                    coverUrl.set(thumbUrl(cur.coverUrl != null ? cur.coverUrl : "", "512"));
+                    durationMs.set(cur.durationMs);
+                });
+            }
+        } catch (Throwable e) {
+            Logger.warn("loadQueue failed: {}", e.getMessage());
+        }
+    }
+
     // --- Netease discovery ------------------------------------------------
 
     /** Load hot search keywords from Netease API. Called once on search page open. */
@@ -1400,6 +1502,7 @@ public final class PlayerController {
     public void search(String keyword) {
         if (keyword == null || keyword.trim().isEmpty()) return;
         final String key = keyword.trim().toLowerCase();
+        currentSearchKey = key;
         // Fast path: check cache on the calling (render) thread.
         CacheEntry entry = searchCache.get(key);
         if (entry != null && !entry.isExpired()) {
@@ -1410,17 +1513,21 @@ public final class PlayerController {
         }
         worker.submit(() -> {
             try {
+                if (!key.equals(currentSearchKey)) return;
                 // Double-check: another search for the same keyword may have
                 // completed while we were waiting for the worker slot.
                 CacheEntry existing = searchCache.get(key);
                 if (existing != null && !existing.isExpired()) {
+                    if (!key.equals(currentSearchKey)) return;
                     post(() -> {
+                        if (!key.equals(currentSearchKey)) return;
                         searchResults.set(existing.songs);
                         resultCount.set(existing.songs.size());
                     });
                     return;
                 }
                 List<NeteaseSong> r = netease.searchSongs(keyword, 30, 0);
+                if (!key.equals(currentSearchKey)) return;
                 // Legacy /search/get omits album picUrl; batch-fetch details, then
                 // refresh the thumbnail URL for the rows whose cover we just filled
                 // (parseSong already set it for songs that had a cover).
@@ -1428,6 +1535,7 @@ public final class PlayerController {
                 buildSongThumbs(r, "128");
                 searchCache.put(key, new CacheEntry(r));
                 post(() -> {
+                    if (!key.equals(currentSearchKey)) return;
                     searchResults.set(r);
                     resultCount.set(r.size());
                 });

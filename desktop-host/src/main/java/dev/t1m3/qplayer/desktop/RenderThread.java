@@ -56,7 +56,6 @@ final class RenderThread extends Thread {
             backend.init(fb[0], fb[1]);
             dev.t1m3.qplayer.util.Logger.info("backend initialized {}x{}", fb[0], fb[1]);
 
-            float uiScale = win.uiScale();
             // The persistent QML view is built once and survives render-thread
             // respawns. On a respawn its Canvas offscreens were already closed+nulled
             // during the previous teardown (below, while THAT context was still
@@ -65,12 +64,16 @@ final class RenderThread extends Thread {
             boolean respawn = win.markViewLive();
             dev.t1m3.qplayer.util.Logger.info("QML view ready (respawn={}, root={})",
                     respawn, view.root() != null);
-            sizeRoot(view, fb[0], fb[1], uiScale);
+            sizeRoot(view, fb[0], fb[1], win.uiScale());
 
             PlayerController controller = win.controller();
             LyricCompositor compositor = win.compositor();
 
             while (running) {
+                // Re-read uiScale each frame so a DPI change (e.g. moving between
+                // monitors) or a late-fired content-scale callback is picked up before
+                // the next sizeRoot / composite call — avoids stale-scale mismatch.
+                float uiScale = win.uiScale();
                 DirtyQueue dq = view.dirtyQueue();
                 dq.install();
                 try {

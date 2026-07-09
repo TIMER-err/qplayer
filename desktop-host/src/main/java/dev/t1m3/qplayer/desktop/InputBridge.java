@@ -144,7 +144,8 @@ final class InputBridge {
         if (Math.abs(pendingScrollY - stepY) < 0.002) stepY = pendingScrollY;
         pendingScrollX -= stepX;
         pendingScrollY -= stepY;
-        v.dispatchWheel((float) cursorX, (float) cursorY, (float) stepX, (float) stepY);
+        float scale = win.uiScale();
+        v.dispatchWheel((float) cursorX / scale, (float) cursorY / scale, (float) stepX, (float) stepY);
     }
 
     // Select-all on the focused editable, mirroring the engine's own selection
@@ -166,42 +167,51 @@ final class InputBridge {
     private void onPress(float x, float y) {
         QmlView v = win.view();
         if (v == null) return;
+        // glfwGetCursorPos on Windows (Per-Monitor DPI V2) returns physical pixels;
+        // QML coordinate space is logical (physical / uiScale). Divide so all
+        // downstream consumers (QML + lyric compositor) receive logical coordinates.
+        float scale = win.uiScale();
+        float lx = x / scale, ly = y / scale;
         float topInset = win.settings() != null ? win.settings().topInset() : 0f;
-        float surfaceWLogical = win.framebufferSize()[0] / win.uiScale();
-        float surfaceHLogical = win.framebufferSize()[1] / win.uiScale();
+        float surfaceWLogical = win.framebufferSize()[0] / scale;
+        float surfaceHLogical = win.framebufferSize()[1] / scale;
         LyricCompositor c = win.compositor();
         // The lyric body (between the QML title and transport bands) is host-drawn
         // with no QML controls under it: a drag scrolls, a tap seeks. Wait for slop
         // before engaging the scroll so a tap stays a tap.
-        if (c.lyricsScrollable(x, y, surfaceWLogical, surfaceHLogical, topInset)) {
+        if (c.lyricsScrollable(lx, ly, surfaceWLogical, surfaceHLogical, topInset)) {
             lyGrab = true;
-            lyDownY = y;
+            lyDownY = ly;
             lyMoved = false;
             return;
         }
         lyGrab = false;
-        v.dispatchPointerDown(x, y);
+        v.dispatchPointerDown(lx, ly);
     }
 
     private void onMove(float x, float y) {
+        float scale = win.uiScale();
+        float lx = x / scale, ly = y / scale;
         if (lyGrab) {
             LyricCompositor c = win.compositor();
             if (!lyMoved) {
-                if (Math.abs(y - lyDownY) > LYRIC_TAP_SLOP) {
+                if (Math.abs(ly - lyDownY) > LYRIC_TAP_SLOP) {
                     lyMoved = true;
                     c.lyricRenderer().scrollDown(lyDownY);
-                    c.lyricRenderer().scrollMove(y);
+                    c.lyricRenderer().scrollMove(ly);
                 }
             } else {
-                c.lyricRenderer().scrollMove(y);
+                c.lyricRenderer().scrollMove(ly);
             }
             return;
         }
         QmlView v = win.view();
-        if (v != null) v.dispatchPointerMove(x, y);
+        if (v != null) v.dispatchPointerMove(lx, ly);
     }
 
     private void onRelease(float x, float y) {
+        float scale = win.uiScale();
+        float lx = x / scale, ly = y / scale;
         if (lyGrab) {
             lyGrab = false;
             LyricCompositor c = win.compositor();
@@ -215,7 +225,7 @@ final class InputBridge {
             return;
         }
         QmlView v = win.view();
-        if (v != null) v.dispatchPointerUp(x, y);
+        if (v != null) v.dispatchPointerUp(lx, ly);
     }
 
     // Printable characters arrive via the char callback; this maps only the control

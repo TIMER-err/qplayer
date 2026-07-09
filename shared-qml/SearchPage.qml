@@ -158,23 +158,21 @@ Item {
                                 font.pixelSize: 18
                                 color: Theme.color.onSurfaceVariantColor
                             }
-                            // left portion → navigate to search
                             MouseArea {
                                 id: rowMA
-                                x: 0; y: 0; width: parent.width - 44; height: parent.height
+                                anchors.fill: parent
                                 onClicked: {
-                                    var kw = player.searchHistory && player.searchHistory[index] ? player.searchHistory[index] : ""
-                                    if (kw.length > 0) {
-                                        query.text = kw
-                                        player.search(kw)
-                                        player.addSearchHistory(kw)
+                                    if (mouseX >= parent.width - 44) {
+                                        player.removeSearchHistory(index)
+                                    } else {
+                                        var kw = player.searchHistory && player.searchHistory[index] ? player.searchHistory[index] : ""
+                                        if (kw.length > 0) {
+                                            query.text = kw
+                                            player.search(kw)
+                                            player.addSearchHistory(kw)
+                                        }
                                     }
                                 }
-                            }
-                            // right 44px → remove
-                            MouseArea {
-                                x: parent.width - 44; y: 0; width: 44; height: parent.height
-                                onClicked: player.removeSearchHistory(index)
                             }
                         }
                     }
