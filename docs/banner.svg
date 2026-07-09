@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" font-family="DejaVu Sans, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1280" y2="640" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0E1622"/>
+      <stop offset="55%" stop-color="#152233"/>
+      <stop offset="100%" stop-color="#1B2A3D"/>
+    </linearGradient>
+    <radialGradient id="glowBlue" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#3E6FB0" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#3E6FB0" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowViolet" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#7C6CF0" stop-opacity="0.42"/>
+      <stop offset="100%" stop-color="#7C6CF0" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="wordSilver" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F4F8FC"/>
+      <stop offset="100%" stop-color="#B9CEE7"/>
+    </linearGradient>
+    <linearGradient id="disc" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#DFEAF6"/>
+      <stop offset="50%" stop-color="#C8DAEC"/>
+      <stop offset="100%" stop-color="#ABC4DE"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#4C6DAE"/>
+      <stop offset="100%" stop-color="#6E8FD0"/>
+    </linearGradient>
+    <linearGradient id="cover" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#5B78C4"/>
+      <stop offset="55%" stop-color="#7C6CF0"/>
+      <stop offset="100%" stop-color="#C86FA6"/>
+    </linearGradient>
+    <radialGradient id="shine" cx="38%" cy="32%" r="55%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soft1" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="1.4"/></filter>
+    <filter id="soft2" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="3.4"/></filter>
+    <filter id="soft3" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="6.0"/></filter>
+    <filter id="cardShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="18" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <ellipse cx="300" cy="180" rx="520" ry="360" fill="url(#glowViolet)"/>
+  <ellipse cx="1050" cy="470" rx="620" ry="440" fill="url(#glowBlue)"/>
+  <ellipse cx="960" cy="120" rx="360" ry="260" fill="url(#glowViolet)" opacity="0.7"/>
+
+  <!-- ================= Right: now-playing / lyric scene ================= -->
+  <g>
+    <!-- soft rounded stage -->
+    <rect x="726" y="70" width="486" height="500" rx="34" fill="#FFFFFF" opacity="0.04"/>
+    <rect x="726" y="70" width="486" height="500" rx="34" fill="none" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="1"/>
+
+    <!-- album cover -->
+    <g filter="url(#cardShadow)">
+      <rect x="905" y="104" width="128" height="128" rx="22" fill="url(#cover)"/>
+      <ellipse cx="946" cy="140" rx="42" ry="28" fill="url(#shine)"/>
+    </g>
+
+    <!-- lyric column: centred, sharp middle line, progressively blurred + faded toward
+         the edges (the app's signature Apple-Music depth-of-field) -->
+    <g fill="#FFFFFF">
+      <rect x="869" y="264" width="200" height="12" rx="6" opacity="0.16" filter="url(#soft3)"/>
+      <rect x="837" y="300" width="264" height="13" rx="6.5" opacity="0.34" filter="url(#soft2)"/>
+      <rect x="819" y="336" width="300" height="14" rx="7" opacity="0.58" filter="url(#soft1)"/>
+
+      <!-- active line + karaoke sweep -->
+      <rect x="809" y="372" width="320" height="20" rx="10" opacity="0.32"/>
+      <rect x="809" y="372" width="188" height="20" rx="10" fill="#FFFFFF"/>
+
+      <rect x="825" y="418" width="288" height="14" rx="7" opacity="0.58" filter="url(#soft1)"/>
+      <rect x="851" y="454" width="236" height="13" rx="6.5" opacity="0.34" filter="url(#soft2)"/>
+      <rect x="874" y="490" width="190" height="12" rx="6" opacity="0.16" filter="url(#soft3)"/>
+    </g>
+
+    <!-- wavy progress line, centred under the column: a dim full track with the played
+         portion brighter over it — the colour meeting point is the play head, no handle
+         (a solid marker clashed with the soft, blurred aesthetic) -->
+    <path d="M802 542 q 15 -11 30 0 t 30 0 t 30 0 t 30 0 t 30 0 t 30 0 t 30 0 t 30 0 t 30 0 t 30 0 t 30 0"
+          fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" opacity="0.2"/>
+    <path d="M802 542 q 15 -11 30 0 t 30 0 t 30 0 t 30 0 t 30 0 t 30 0 t 30 0"
+          fill="none" stroke="#9DBBEC" stroke-width="4" stroke-linecap="round" opacity="0.9"/>
+  </g>
+
+  <!-- ================= Left: brand ================= -->
+  <!-- vinyl mark + wordmark on one row, vertically centred -->
+  <g transform="translate(64 122) scale(2.3)">
+    <circle cx="26" cy="26" r="26" fill="url(#disc)"/>
+    <circle cx="26" cy="26" r="20" fill="none" stroke="#8BA8CC" stroke-opacity="0.28" stroke-width="0.8"/>
+    <circle cx="26" cy="26" r="13" fill="none" stroke="#8BA8CC" stroke-opacity="0.18" stroke-width="0.7"/>
+    <circle cx="26" cy="26" r="6" fill="url(#accent)"/>
+    <circle cx="26" cy="26" r="1.8" fill="#0E1622"/>
+    <ellipse cx="19" cy="16" rx="12" ry="8" fill="url(#shine)" transform="rotate(-18 19 16)"/>
+  </g>
+
+  <text x="204" y="220" font-size="104" font-weight="bold" letter-spacing="-2">
+    <tspan fill="url(#accent)">Q</tspan><tspan fill="url(#wordSilver)">Player</tspan>
+  </text>
+
+  <text x="76" y="312" font-size="30" fill="#B7C8DD" font-weight="bold">Music player with a QML-rendered UI</text>
+  <text x="76" y="348" font-size="21" fill="#8098B4">Cross-platform · Apple-Music lyrics · Monet theming</text>
+
+  <!-- chips -->
+  <g font-size="19" font-weight="bold">
+    <g transform="translate(74 388)">
+      <rect width="220" height="42" rx="21" fill="#FFFFFF" opacity="0.06"/>
+      <rect width="220" height="42" rx="21" fill="none" stroke="#FFFFFF" stroke-opacity="0.16"/>
+      <text x="22" y="27" fill="#CBD9EC">QML · Material 3</text>
+    </g>
+    <g transform="translate(306 388)">
+      <rect width="221" height="42" rx="21" fill="#FFFFFF" opacity="0.06"/>
+      <rect width="221" height="42" rx="21" fill="none" stroke="#FFFFFF" stroke-opacity="0.16"/>
+      <text x="22" y="27" fill="#CBD9EC">OpenGL / Vulkan</text>
+    </g>
+    <g transform="translate(74 440)">
+      <rect width="237" height="42" rx="21" fill="#FFFFFF" opacity="0.06"/>
+      <rect width="237" height="42" rx="21" fill="none" stroke="#FFFFFF" stroke-opacity="0.16"/>
+      <text x="22" y="27" fill="#CBD9EC">Android · Desktop</text>
+    </g>
+    <g transform="translate(323 440)">
+      <rect width="236" height="42" rx="21" fill="#4C6DAE" opacity="0.22"/>
+      <rect width="236" height="42" rx="21" fill="none" stroke="#6E8FD0" stroke-opacity="0.5"/>
+      <text x="22" y="27" fill="#DCE7F7">Powered by qml4j</text>
+    </g>
+  </g>
+</svg>
