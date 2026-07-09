@@ -359,16 +359,31 @@ public class LyricRenderer {
     private Shader sweepShader;
     private float sweepShaderDark = Float.NaN;
     private final Rect sweepBigRect = Rect.makeLTRB(-100000f, -100000f, 100000f, 100000f);
-    // White glow behind active syllables (Apple Specs.glowColor/glowRadius). A blur
-    // mask filter built once (radius → sigma); only the active row pays for it.
-    private final io.github.humbleui.skija.Paint glowPaint = newGlowPaint();
+    // White glow behind active syllables (Apple Specs.glowColor/glowRadius). Drawn as
+    // one blurred saveLayer for the whole row, NOT a mask-filter blur per glyph: a
+    // per-glyph blur rasterizes a separate blur for every syllable, so a word-by-word
+    // line with N syllables paid N blurs every frame (and ~2N during a line change,
+    // when two rows are active) — the lyric-page scroll stutter. glowGlyphPaint draws
+    // the plain glyphs into glowLayerPaint's blur layer, which blurs the lot once.
+    private final io.github.humbleui.skija.Paint glowGlyphPaint = newGlowGlyphPaint();
+    private final io.github.humbleui.skija.Paint glowLayerPaint = newGlowLayerPaint();
+    // Per-syllable lift offset + glow alpha for the active row, filled once per row and
+    // reused by the glow pass and the text pass (avoids recomputing the spring twice).
+    private float[] liftBuf = new float[0];
+    private float[] glowAlphaBuf = new float[0];
 
-    private static io.github.humbleui.skija.Paint newGlowPaint() {
+    private static io.github.humbleui.skija.Paint newGlowGlyphPaint() {
         io.github.humbleui.skija.Paint p = new io.github.humbleui.skija.Paint();
         p.setAntiAlias(true);
-        // Apple glowRadius = 5.0; Skia blur sigma ≈ radius * 0.5.
-        p.setMaskFilter(io.github.humbleui.skija.MaskFilter.makeBlur(
-                io.github.humbleui.skija.FilterBlurMode.NORMAL, 2.5f));
+        return p;
+    }
+
+    private static io.github.humbleui.skija.Paint newGlowLayerPaint() {
+        io.github.humbleui.skija.Paint p = new io.github.humbleui.skija.Paint();
+        // Apple glowRadius = 5.0; Skia blur sigma ≈ radius * 0.5. One layer blur over
+        // the row replaces the old per-glyph mask-filter blur.
+        p.setImageFilter(io.github.humbleui.skija.ImageFilter.makeBlur(
+                2.5f, 2.5f, io.github.humbleui.skija.FilterTileMode.CLAMP));
         return p;
     }
 
@@ -1808,14 +1823,14 @@ public class LyricRenderer {
                 baselineY + descent + 8f,
                 layerPaint);
         try {
-            Paint textPaint = LyricSkia.scratchPaint();
-            textPaint.setColor(0xFFFFFFFF);
-            textPaint.setAlphaf(1f);
-            textPaint.setAntiAlias(true);
+            // Per-syllable lift + glow alpha, computed once (the spring is non-trivial)
+            // and reused by the glow pass and the text pass.
+            if (liftBuf.length < n) liftBuf = new float[n];
+            if (glowAlphaBuf.length < n) glowAlphaBuf = new float[n];
+            boolean anyGlow = false;
             for (int s = 0; s < n; s++) {
                 Syllable syl = syllables.get(from + s);
                 long sStart = syl.startMs;
-                long ownEnd = sStart + Math.max(0L, syl.durationMs);
 
                 // Lift progress k: a soft spring step (Apple liftSpring) when spring
                 // physics is on, else the fixed cubic ease-out over max(1s, dur).
@@ -1823,6 +1838,7 @@ public class LyricRenderer {
                 if (spring) {
                     k = liftSpringK((pos - sStart) / 1000.0);
                 } else {
+                    long ownEnd = sStart + Math.max(0L, syl.durationMs);
                     long effDur = Math.max(LIFT_MIN_DURATION_MS, ownEnd - sStart);
                     float t;
                     if (pos <= sStart) t = 0f;
@@ -1830,19 +1846,38 @@ public class LyricRenderer {
                     else t = (pos - sStart) / (float) effDur;
                     k = 1f - (1f - t) * (1f - t) * (1f - t);
                 }
-                float lift = enableLift ? -LIFT_PEAK_PX * k * activeK : 0f;
-                Font sylFont = fontForText(syl.text, font);
+                liftBuf[s] = enableLift ? -LIFT_PEAK_PX * k * activeK : 0f;
+                float ga = (enableLift && glowOn) ? activeK * k * GLOW_ALPHA : 0f;
+                glowAlphaBuf[s] = ga;
+                if (ga > 0.01f) anyGlow = true;
+            }
 
-                if (enableLift && glowOn) {
-                    float ga = activeK * k * GLOW_ALPHA;
-                    if (ga > 0.01f) {
-                        glowPaint.setColor(0xFFFFFFFF);
-                        glowPaint.setAlphaf(ga);
-                        canvas.drawString(syl.text, sylLeft[s], baselineY + lift, sylFont, glowPaint);
-                    }
+            // Glow pass: draw the sung glyphs into a single blurred layer for the whole
+            // row, so N syllables cost one blur instead of N.
+            if (anyGlow) {
+                canvas.saveLayer(
+                        startX - 8f,
+                        baselineY + ascent - LIFT_PEAK_PX - 8f,
+                        rowRightX + 8f,
+                        baselineY + descent + 8f,
+                        glowLayerPaint);
+                glowGlyphPaint.setColor(0xFFFFFFFF);
+                for (int s = 0; s < n; s++) {
+                    if (glowAlphaBuf[s] <= 0.01f) continue;
+                    String st = syllables.get(from + s).text;
+                    glowGlyphPaint.setAlphaf(glowAlphaBuf[s]);
+                    canvas.drawString(st, sylLeft[s], baselineY + liftBuf[s], fontForText(st, font), glowGlyphPaint);
                 }
+                canvas.restore();
+            }
 
-                canvas.drawString(syl.text, sylLeft[s], baselineY + lift, sylFont, textPaint);
+            Paint textPaint = LyricSkia.scratchPaint();
+            textPaint.setColor(0xFFFFFFFF);
+            textPaint.setAlphaf(1f);
+            textPaint.setAntiAlias(true);
+            for (int s = 0; s < n; s++) {
+                String st = syllables.get(from + s).text;
+                canvas.drawString(st, sylLeft[s], baselineY + liftBuf[s], fontForText(st, font), textPaint);
             }
 
             // Smooth horizontal sweep (DST_IN): bright on the sung side, dark on the
