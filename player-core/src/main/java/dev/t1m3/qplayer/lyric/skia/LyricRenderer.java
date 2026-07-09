@@ -372,22 +372,6 @@ public class LyricRenderer {
     private float[] liftBuf = new float[0];
     private float[] glowAlphaBuf = new float[0];
 
-    // Edge blur (Apple-Music depth of field): lines away from the focus centre blur
-    // progressively, the focused line stays sharp. All amounts are RELATIVE so the look
-    // holds across font-size / line-spacing settings: peak sigma scales with the font
-    // size, and the sharp deadzone + ramp length scale with the line height (font size ×
-    // line spacing). Sigma is quantised to an int level so the ImageFilter is built once
-    // per level and cached, never rebuilt per line/frame; only lines past the deadzone
-    // allocate a blur layer, so the focused line and its near neighbours stay sharp on
-    // the cheap (no-layer) path.
-    private static final float EDGE_BLUR_SIGMA_RATIO = 0.09f;   // peak sigma = fontSize × this
-    private static final float EDGE_BLUR_DEADZONE_LINES = 0.7f; // sharp radius, in line heights
-    private static final float EDGE_BLUR_RANGE_LINES = 4.0f;    // ramp to peak, in line heights
-    private static final int EDGE_BLUR_SIGMA_CAP = 12;          // filter-cache bound
-    private final io.github.humbleui.skija.ImageFilter[] blurFilters =
-            new io.github.humbleui.skija.ImageFilter[EDGE_BLUR_SIGMA_CAP + 1];
-    private final io.github.humbleui.skija.Paint blurLayerPaint = new io.github.humbleui.skija.Paint();
-
     private static io.github.humbleui.skija.Paint newGlowGlyphPaint() {
         io.github.humbleui.skija.Paint p = new io.github.humbleui.skija.Paint();
         p.setAntiAlias(true);
@@ -624,7 +608,6 @@ public class LyricRenderer {
         boolean spring = Boolean.TRUE.equals(cfg.springPhysics.getValue());
         boolean scaleOn = Boolean.TRUE.equals(cfg.scaleEmphasis.getValue());
         boolean glowOn = Boolean.TRUE.equals(cfg.glow.getValue());
-        boolean edgeBlurOn = Boolean.TRUE.equals(cfg.edgeBlur.getValue());
         int springMode = spring ? 1 : 0;
         if (springMode != lastSpringMode) {
             // scrollAnim only drives the non-spring fallback; per-line springs
@@ -652,12 +635,6 @@ public class LyricRenderer {
 
         float rowHeightLyric = lyricFontSize * rowHeightRatio;
         float rowHeightLyricWrap = lyricFontSize * WRAPPED_ROW_HEIGHT_RATIO;
-
-        // Edge-blur amounts, derived from the current font size + line height so the
-        // effect looks the same at any typography setting.
-        float edgeMaxSigma = lyricFontSize * EDGE_BLUR_SIGMA_RATIO;
-        float edgeDeadzone = rowHeightLyric * EDGE_BLUR_DEADZONE_LINES;
-        float edgeRange = Math.max(1f, rowHeightLyric * EDGE_BLUR_RANGE_LINES);
         float rowHeightBg = bgFontSize * rowHeightRatio;
         float rowHeightBgWrap = bgFontSize * WRAPPED_ROW_HEIGHT_RATIO;
         float subLineHeight = subFontSize * SUB_ROW_HEIGHT_RATIO;
@@ -1149,10 +1126,6 @@ public class LyricRenderer {
                 scale = 1f;
                 anchorY = lineYTop;
             }
-            int blurSave = edgeBlurOn
-                    ? openEdgeBlurLayer(canvas, leftX, columnWidth, lineYTop, lineHeights[i], centerY,
-                            edgeMaxSigma, edgeDeadzone, edgeRange)
-                    : -1;
             canvas.save();
             canvas.translate(anchorX, anchorY);
             canvas.scale(scale, scale);
@@ -1197,7 +1170,6 @@ public class LyricRenderer {
             subY = drawSubline(leftX, subFont, subLineHeight, showTranslation, i, alignRight, baseAlpha, maxRowRightX, subY, cachedTranslationRows);
 
             canvas.restore();
-            if (blurSave >= 0) canvas.restoreToCount(blurSave);
         }
 
         if (spring) {
@@ -1248,29 +1220,6 @@ public class LyricRenderer {
                         positionMs - interludeStartMs, interludeDur);
             }
         }
-    }
-
-    /** Open a Gaussian-blur layer for a line whose centre is far from {@code centerY}
-     *  (the focus point). Blur sigma ramps with distance past a sharp deadzone, quantised
-     *  to a cached ImageFilter level. Returns the save count to restore, or -1 when the
-     *  line is close enough to draw sharp (no layer, cheap path). */
-    private int openEdgeBlurLayer(Canvas canvas, float leftX, float columnWidth,
-                                  float lineTop, float lineHeight, float centerY,
-                                  float maxSigma, float deadzone, float range) {
-        float dist = Math.abs(lineTop + lineHeight * 0.5f - centerY);
-        float t = Math.min(1f, Math.max(0f, (dist - deadzone) / range));
-        int si = Math.min(EDGE_BLUR_SIGMA_CAP, Math.round(t * maxSigma));
-        if (si <= 0) return -1;
-        io.github.humbleui.skija.ImageFilter f = blurFilters[si];
-        if (f == null) {
-            f = io.github.humbleui.skija.ImageFilter.makeBlur(si, si,
-                    io.github.humbleui.skija.FilterTileMode.CLAMP);
-            blurFilters[si] = f;
-        }
-        blurLayerPaint.setImageFilter(f);
-        float m = si * 3f + 4f;
-        return canvas.saveLayer(leftX - m, lineTop - m,
-                leftX + columnWidth + m, lineTop + lineHeight + m, blurLayerPaint);
     }
 
     private float drawSubline(float leftX, Font subFont, float subLineHeight, boolean showRomaji, int i, boolean alignRight, float baseAlpha, float maxRowRightX, float subY, String[][] cachedRomajiRows) {
