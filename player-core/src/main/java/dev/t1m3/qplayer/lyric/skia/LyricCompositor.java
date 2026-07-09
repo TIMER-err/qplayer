@@ -141,15 +141,14 @@ public final class LyricCompositor {
             renderedVersion = Property.changeVersion();
             canvas.restoreToCount(sc);
         } else if (Property.changeVersion() != renderedVersion) {
-            // Lyric page fully covers the main scene so we skip drawing it — but the
-            // chrome subtree (renderSubtree doesn't settle layout) relies on the main
-            // render's layout pass. When something changed, settle once so the chrome's
-            // anchors reflow; the draw is painted over by the fluid, so it stays hidden.
-            int sc = canvas.save();
-            canvas.scale(uiScale, uiScale);
-            renderer.render(canvas, view.root(), false);
+            // Lyric page fully covers the main scene: the fluid backdrop is opaque, so
+            // DRAWING the scene is pure waste. The chrome subtree (renderSubtree doesn't
+            // run layout) just needs its own anchors settled, so settle only that subtree
+            // — not the whole resident tree. The per-frame progress-bar tick bumps the
+            // change version, so this branch runs every frame; drawing the scene cost
+            // ~14 ms and settling the full tree ~5 ms, both wasted while covered.
+            renderer.layoutOnly(lyricChrome != null ? lyricChrome : view.root());
             renderedVersion = Property.changeVersion();
-            canvas.restoreToCount(sc);
         }
         drawLyricOverlay(canvas, controller, settings, ctx, uiScale, fbW, fbH);
         double slideNow = controller != null ? controller.lyricSlide.peek() : 0.0;
