@@ -102,7 +102,7 @@ dependencies {
     skijaNative("io.github.humbleui:skija-android-arm64:0.143.16")
 
     // The RECODE refactor merged parser/engine/compiler/render into one module.
-    implementation("io.github.timer-err:qml4j-core:0.2.13")
+    implementation("io.github.timer-err:qml4j-core:0.2.14")
 
     // Our platform-neutral player core (netease + lyrics + audio abstraction +
     // QML bridge). Pulls gson + zxing-core transitively; all Android-dexable.
