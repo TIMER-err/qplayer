@@ -94,6 +94,10 @@ public final class LyricCompositor {
     private Shader sharpBandShader; // the complement — opaque in the focus band
     private float bandShaderColH = -1f;
     private float bandShaderTopY = -1f;
+    private float bandFracTop = -1f, bandFracBottom = -1f; // cached lit-band fractions
+    // Crossfade width beyond the lit band, as a fraction of column height: the sharp
+    // plateau covers the lit lines, then ramps to full blur over this distance.
+    private static final float BAND_RAMP = 0.24f;
 
     // Cached lyric-column rect + cover-key string (both were rebuilt every frame).
     private Rect lyColRect;
@@ -317,13 +321,15 @@ public final class LyricCompositor {
                                            float colTopY, float colW, float colH, long pos) {
         float sigma = Math.max(1f, LyricConfig.instance.lyricFontSize.getValue() * EDGE_BLUR_SIGMA_RATIO);
         ensureBlurFilter(sigma);
-        ensureBandShaders(colTopY, colH);
 
         // Blurred copy, kept only at the edges.
         int mb = canvas.saveLayer(colRect, null);
         int b = canvas.saveLayer(colRect, blurBasePaint);
         lyricRenderer.render(canvas, leftX, colTopY, colW, colH, pos);
         canvas.restoreToCount(b);
+        // Build the band from THIS frame's lit lines (render just refreshed them), so
+        // the sharp plateau covers the whole active group rather than one anchor line.
+        ensureBandShaders(colTopY, colH, lyricRenderer.litBandBounds());
         lyMaskPaint.setShader(blurBandShader);
         lyMaskPaint.setBlendMode(BlendMode.DST_IN);
         canvas.drawRect(colRect, lyMaskPaint);
@@ -348,17 +354,51 @@ public final class LyricCompositor {
         blurBasePaint.setImageFilter(blurFilter);
     }
 
-    private void ensureBandShaders(float topY, float colH) {
-        if (topY == bandShaderTopY && colH == bandShaderColH && blurBandShader != null) return;
+    // Build the crossfade masks so the sharp plateau spans the currently-lit lines
+    // (lit = screen-space {top, bottom}, or null → the fixed ALIGN-centred plateau).
+    // The plateau then ramps to full blur over BAND_RAMP on each side. This is what
+    // keeps every line of a multi-line active group sharp, not just the anchor line.
+    private void ensureBandShaders(float topY, float colH, float[] lit) {
+        float fTop, fBot;
+        if (lit != null && colH > 0f) {
+            fTop = (lit[0] - topY) / colH;
+            fBot = (lit[1] - topY) / colH;
+            if (fBot < fTop) { float m = fTop; fTop = fBot; fBot = m; }
+        } else {
+            fTop = BAND_STOPS[1];   // 0.26 — the original fixed plateau
+            fBot = BAND_STOPS[2];   // 0.44
+        }
+        if (topY == bandShaderTopY && colH == bandShaderColH && blurBandShader != null
+                && Math.abs(fTop - bandFracTop) < 0.004f && Math.abs(fBot - bandFracBottom) < 0.004f) {
+            return;
+        }
         bandShaderTopY = topY;
         bandShaderColH = colH;
+        bandFracTop = fTop;
+        bandFracBottom = fBot;
         if (blurBandShader != null) blurBandShader.close();
         if (sharpBandShader != null) sharpBandShader.close();
+        float[] stops = monotonic(fTop - BAND_RAMP, fTop, fBot, fBot + BAND_RAMP);
         int o = 0xFFFFFFFF, t = 0x00FFFFFF;
         blurBandShader = Shader.makeLinearGradient(0f, topY, 0f, topY + colH,
-                new int[]{o, t, t, o, o}, BAND_STOPS);   // blur kept at edges
+                new int[]{o, t, t, o}, stops);   // blur kept outside the plateau
         sharpBandShader = Shader.makeLinearGradient(0f, topY, 0f, topY + colH,
-                new int[]{t, o, o, t, t}, BAND_STOPS);   // sharp kept in focus band
+                new int[]{t, o, o, t}, stops);   // sharp kept across the plateau
+    }
+
+    // Clamp four gradient stops into [0,1] and force them strictly increasing (Skija
+    // rejects equal/out-of-order positions).
+    private static float[] monotonic(float s0, float s1, float s2, float s3) {
+        float[] s = {s0, s1, s2, s3};
+        float eps = 1e-4f;
+        for (int i = 0; i < s.length; i++) {
+            if (s[i] < 0f) s[i] = 0f;
+            else if (s[i] > 1f) s[i] = 1f;
+        }
+        for (int i = 1; i < s.length; i++) {
+            if (s[i] <= s[i - 1]) s[i] = Math.min(1f, s[i - 1] + eps);
+        }
+        return s;
     }
 
     // Rebuild the cached lyric gradients only when the column top or height changes
