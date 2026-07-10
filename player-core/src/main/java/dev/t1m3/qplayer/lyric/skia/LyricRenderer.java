@@ -111,11 +111,14 @@ public class LyricRenderer {
      */
     private static final long LIFT_MIN_DURATION_MS = 1000L;
     /**
-     * Width of the gradient mask sweep band, in pixels. AMLL derives this
-     * from {@code wordHeight × wordFadeWidth}; for a 30px font that's
-     * ~30px. Wider = softer transition between lit and unlit text.
+     * Width of the gradient mask sweep band, in pixels — the lit→unlit feather that
+     * rides the sweep head across the active line. The head itself tracks the play
+     * head (no easing), so a wide feather is the ONLY thing that makes the per-字
+     * reveal read as slow: each glyph lingers half-lit while the whole band crosses
+     * it. AMLL/Apple use ~40 (feather 40.0); 16 keeps a soft edge (no aliasing) while
+     * lighting each character crisply as the head passes.
      */
-    private static final float SWEEP_FADE_PX = 40f; // Apple Specs.lineProgressionGradientFeather = 40.0
+    private static final float SWEEP_FADE_PX = 16f;
     /**
      * Mask alpha on the unlit side of the active line's sweep. Multiplies the
      * line's baseAlpha at composite, so the active line's not-yet-sung text is
