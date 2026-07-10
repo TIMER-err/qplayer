@@ -530,6 +530,45 @@ Rectangle {
                                 onClicked: { player.clearDiskCache(); cacheUsageText.text = player.cacheSizeMB + " MB" }
                             }
                         }
+
+                        // Desktop-only: hidden on Android where AppSettings has no cacheFolder.
+                        // Flattened directly into cacheCol (not wrapped in its own
+                        // ColumnLayout) — qml4j's Layout doesn't reliably propagate
+                        // fillWidth through a nested Layout, which silently breaks
+                        // Text.WordWrap below.
+                        Text {
+                            visible: typeof settings.cacheFolder !== "undefined"
+                            text: "缓存目录"
+                            color: Theme.color.onSurfaceColor
+                            font.family: Theme.typography.bodyLarge.family
+                            font.pixelSize: Theme.typography.bodyLarge.size
+                        }
+                        Text {
+                            visible: typeof settings.cacheFolder !== "undefined"
+                            Layout.fillWidth: true
+                            text: "本地音乐库封面/歌词缓存与网易云缓存都存在这里；修改后不会自动搬运旧文件，会重新扫描并在新目录下重建缓存"
+                            color: Theme.color.onSurfaceVariantColor
+                            font.family: Theme.typography.bodySmall.family
+                            font.pixelSize: Theme.typography.bodySmall.size
+                            wrapMode: Text.WordWrap
+                        }
+                        RowLayout {
+                            visible: typeof settings.cacheFolder !== "undefined"
+                            Layout.fillWidth: true
+                            spacing: 8
+                            TextField {
+                                id: cacheFolderField
+                                Layout.fillWidth: true
+                                type: "outlined"
+                                label: "目录路径"
+                                text: typeof settings.cacheFolder !== "undefined" ? settings.cacheFolder : ""
+                                onAccepted: settings.cacheFolder = text
+                            }
+                            Button {
+                                type: "tonal"; text: "应用"
+                                onClicked: settings.cacheFolder = cacheFolderField.text
+                            }
+                        }
                     }
                 }
 

@@ -9,6 +9,7 @@ import dev.t1m3.qplayer.bridge.PlayerController;
 import dev.t1m3.qplayer.library.LibraryScanner;
 import dev.t1m3.qplayer.lyric.skia.Fonts;
 import dev.t1m3.qplayer.model.Track;
+import dev.t1m3.qplayer.store.AppDirs;
 import dev.t1m3.qplayer.util.Logger;
 import org.jetbrains.annotations.NotNull;
 
@@ -193,6 +194,24 @@ public final class Main {
         Object rawFolder = settings.musicFolder.peek();
         String initialFolder = rawFolder instanceof String ? (String) rawFolder : "";
         settings.setMusicFolderListener(folder -> startLibraryScan(controller, reader, window, folder));
+
+        // Cache root (local-library covers/lyrics + netease audio/image/lyric cache).
+        // controller.diskCache was already constructed against the AppDirs default
+        // above, so a persisted custom folder must be re-applied here before anything
+        // reads/writes through it; a later edit re-points it and rescans so the
+        // change is visible without a restart.
+        Object rawCacheFolder = settings.cacheFolder.peek();
+        String initialCacheFolder = rawCacheFolder instanceof String ? (String) rawCacheFolder : "";
+        if (!initialCacheFolder.isEmpty()) {
+            AppDirs.setCacheBase(initialCacheFolder);
+            controller.diskCache.setBaseDir(initialCacheFolder);
+        }
+        settings.setCacheFolderListener(folder -> {
+            AppDirs.setCacheBase(folder);
+            controller.diskCache.setBaseDir(folder);
+            Object currentFolder = settings.musicFolder.peek();
+            startLibraryScan(controller, reader, window, currentFolder instanceof String ? (String) currentFolder : "");
+        });
 
         // Initial content + a background scan of the local music folder.
         controller.loadHome();

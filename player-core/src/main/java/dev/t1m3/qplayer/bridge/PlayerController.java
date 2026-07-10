@@ -784,9 +784,13 @@ public final class PlayerController {
         playQueue(library, i);
     }
 
-    /** Queue a netease song-list and start at {@code i}. */
+    /** Queue a netease song-list and start at {@code i}. Only this entry point
+     *  (an actual search-result click) feeds the search history — recommendations,
+     *  recently-played and playlist tracks aren't something the user searched for. */
     public void playSearchResult(int i) {
-        playSongList(searchResults.peek(), i);
+        List<NeteaseSong> songs = searchResults.peek();
+        if (songs != null && i >= 0 && i < songs.size()) addSearchHistory(songs.get(i).name);
+        playSongList(songs, i);
     }
 
     public void playRecommendation(int i) {
@@ -895,8 +899,11 @@ public final class PlayerController {
         // Local track: cover lives in a cache file (an absolute path, not an http url).
         // Prefer the larger now-playing copy over the row thumbnail for the fluid
         // backdrop + Monet seed; fall back to the thumbnail if only it exists.
+        // Note: this must not test for a leading "/" — that only holds for Unix-style
+        // paths (Android) and silently breaks Windows desktop, where local-cache cover
+        // paths look like "C:\Users\...\covers\<hash>.img" instead.
         String localCover = t.coverLocalPath != null ? t.coverLocalPath : t.coverThumbPath;
-        if (localCover != null && localCover.startsWith("/")) {
+        if (localCover != null && !localCover.startsWith("http://") && !localCover.startsWith("https://")) {
             byte[] data = readBytesFromFile(localCover);
             if (data != null && data.length > 0) {
                 final String path = localCover;
@@ -927,7 +934,7 @@ public final class PlayerController {
             if (data == null) return;
             t.coverBytes = data;
             // Cache cover image to disk (write already-downloaded bytes, no re-fetch).
-            String imgPath = DiskCache.imagePath(url);
+            String imgPath = diskCache.imagePath(url);
             if (imgPath != null) writeBytesToFile(data, imgPath);
             final String path = imgPath;
             post(() -> {

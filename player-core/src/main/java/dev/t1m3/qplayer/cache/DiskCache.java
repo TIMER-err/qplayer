@@ -25,7 +25,9 @@ import java.util.Arrays;
  */
 public final class DiskCache {
 
-    private static final String BASE_DIR = AppDirs.base() + "/cache";
+    /** Not final: {@link #setBaseDir} lets the desktop settings page repoint the
+     *  cache root at runtime, which a compile-time constant couldn't support. */
+    private volatile String baseDir = AppDirs.cacheBase() + "/cache";
 
     /** Sub-directory names. */
     public static final String AUDIO  = "audio";
@@ -47,30 +49,42 @@ public final class DiskCache {
         return maxSizeBytes / (1024L * 1024L);
     }
 
+    /** Repoint the cache root (e.g. the desktop "custom cache location" setting).
+     *  Does not move existing files — the caller decides whether to migrate or
+     *  just let the old location go stale. */
+    public void setBaseDir(String dir) {
+        if (dir == null || dir.trim().isEmpty()) return;
+        this.baseDir = dir + "/cache";
+    }
+
+    public String baseDir() {
+        return baseDir;
+    }
+
     // ---- path helpers ----------------------------------------------------
 
     /** Resolve cache file for an audio track keyed by netease song id. */
-    public static String audioPath(long neteaseId) {
+    public String audioPath(long neteaseId) {
         if (neteaseId <= 0) return null;
-        return BASE_DIR + "/" + AUDIO + "/" + neteaseId + ".cache";
+        return baseDir + "/" + AUDIO + "/" + neteaseId + ".cache";
     }
 
     /** Resolve cache file for AMLL TTML lyrics keyed by song id. */
-    public static String lyricPath(long songId) {
+    public String lyricPath(long songId) {
         if (songId <= 0) return null;
-        return BASE_DIR + "/" + LYRIC + "/" + songId + ".ttml";
+        return baseDir + "/" + LYRIC + "/" + songId + ".ttml";
     }
 
     /** Resolve cache file for Netease's own lyric payload (serialized YRC/LRC). */
-    public static String neteaseLyricPath(long songId) {
+    public String neteaseLyricPath(long songId) {
         if (songId <= 0) return null;
-        return BASE_DIR + "/" + LYRIC + "/" + songId + ".nlrc";
+        return baseDir + "/" + LYRIC + "/" + songId + ".nlrc";
     }
 
     /** Resolve cache file for a cover image keyed by url hash. */
-    public static String imagePath(String url) {
+    public String imagePath(String url) {
         if (url == null || url.isEmpty()) return null;
-        return BASE_DIR + "/" + IMAGE + "/" + Math.abs(url.hashCode()) + ".img";
+        return baseDir + "/" + IMAGE + "/" + Math.abs(url.hashCode()) + ".img";
     }
 
     // ---- existence check -------------------------------------------------
@@ -154,7 +168,7 @@ public final class DiskCache {
     public long totalSize() {
         long total = 0;
         for (String sub : new String[]{AUDIO, LYRIC, IMAGE}) {
-            total += dirSize(new File(BASE_DIR, sub));
+            total += dirSize(new File(baseDir, sub));
         }
         return total;
     }
@@ -162,13 +176,13 @@ public final class DiskCache {
     /** Delete all cached files. */
     public void clearAll() {
         for (String sub : new String[]{AUDIO, LYRIC, IMAGE}) {
-            deleteRecursive(new File(BASE_DIR, sub));
+            deleteRecursive(new File(baseDir, sub));
         }
     }
 
     /** Delete all cached files of one type. */
     public void clearType(String type) {
-        deleteRecursive(new File(BASE_DIR, type));
+        deleteRecursive(new File(baseDir, type));
     }
 
     // ---- internals --------------------------------------------------------
@@ -231,7 +245,7 @@ public final class DiskCache {
         if (total <= limit) return;
 
         // Collect all cache files across all sub-dirs.
-        File[] dirs = {new File(BASE_DIR, AUDIO), new File(BASE_DIR, LYRIC), new File(BASE_DIR, IMAGE)};
+        File[] dirs = {new File(baseDir, AUDIO), new File(baseDir, LYRIC), new File(baseDir, IMAGE)};
         java.util.List<File> files = new java.util.ArrayList<>();
         for (File dir : dirs) {
             if (dir.isDirectory()) {

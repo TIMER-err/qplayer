@@ -47,7 +47,7 @@ public final class LibraryCache {
     private final Gson gson = new Gson();
 
     public LibraryCache() {
-        Path baseDir = Paths.get(AppDirs.base(), "local-cache");
+        Path baseDir = Paths.get(AppDirs.cacheBase(), "local-cache");
         this.indexFile = baseDir.resolve("library.json");
         this.coversDir = baseDir.resolve("covers");
         this.lyricsDir = baseDir.resolve("lyrics");

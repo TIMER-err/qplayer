@@ -98,6 +98,16 @@ final class InputBridge {
                 });
                 return;
             }
+            // Forward-delete: qml4j 0.2.13 has no KEY_DELETE (only KEY_BACKSPACE),
+            // so dispatchKey can't express it — same "engine has no verb for it"
+            // situation as select-all above. Do it host-side against TextEditable.
+            if (action == GLFW.GLFW_PRESS && key == GLFW.GLFW_KEY_DELETE) {
+                win.postRenderTask(() -> {
+                    QmlView v = win.view();
+                    if (v != null) forwardDelete(v);
+                });
+                return;
+            }
             if (action == GLFW.GLFW_REPEAT) return;
             final boolean down = action == GLFW.GLFW_PRESS;
             final int code = mapKey(key, mods);
@@ -160,6 +170,35 @@ final class InputBridge {
         t.setSelectionAnchor(0);
         t.setSelectionRange(0, len);
         t.setCursorPosition(len);
+    }
+
+    // Delete the current selection, or the character right after the caret when
+    // there's no selection — the usual Delete-key semantics, hand-rolled since the
+    // engine only understands Backspace natively.
+    private static void forwardDelete(QmlView v) {
+        Item f = v.focused();
+        if (!(f instanceof TextEditable t) || t.readOnly()) return;
+        String s = t.text();
+        if (s == null) s = "";
+        int start = t.selectionStart();
+        int end = t.selectionEnd();
+        String newText;
+        int newCursor;
+        if (start != end) {
+            int lo = Math.min(start, end), hi = Math.max(start, end);
+            newText = s.substring(0, lo) + s.substring(hi);
+            newCursor = lo;
+        } else {
+            int pos = t.cursorPosition();
+            if (pos < 0 || pos >= s.length()) return;
+            newText = s.substring(0, pos) + s.substring(pos + 1);
+            newCursor = pos;
+        }
+        t.setText(newText);
+        t.setSelectionAnchor(newCursor);
+        t.setSelectionRange(newCursor, newCursor);
+        t.setCursorPosition(newCursor);
+        t.emitTextChanged();
     }
 
     // --- render-thread handlers ----------------------------------------------

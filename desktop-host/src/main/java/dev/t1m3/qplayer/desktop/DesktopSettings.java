@@ -54,12 +54,18 @@ public final class DesktopSettings extends QObject implements LyricCompositor.Se
     // `typeof settings.musicFolder !== "undefined"` to show desktop-only UI.
     public final Property<String> musicFolder = new Property<>("");
 
+    // Desktop-only: root directory for the local-library + netease disk cache
+    // (covers/lyrics/audio). Independent of musicFolder — same "typeof
+    // settings.cacheFolder !== 'undefined'" QML guard applies.
+    public final Property<String> cacheFolder = new Property<>("");
+
     public interface DarkListener { void onDark(boolean dark); }
     public interface MonetListener { void onMonet(boolean enabled); }
     public interface UnblockListener { void onUnblock(boolean enabled); }
     public interface MirrorListener { void onMirror(boolean enabled); }
     public interface CacheSizeListener { void onCacheMaxSizeMB(long mb); }
     public interface MusicFolderListener { void onMusicFolder(String path); }
+    public interface CacheFolderListener { void onCacheFolder(String path); }
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
@@ -72,6 +78,7 @@ public final class DesktopSettings extends QObject implements LyricCompositor.Se
     private MirrorListener mirrorListener;
     private CacheSizeListener cacheSizeListener;
     private MusicFolderListener musicFolderListener;
+    private CacheFolderListener cacheFolderListener;
 
     public void setDarkListener(DarkListener l) { this.darkListener = l; }
     public void setMonetListener(MonetListener l) { this.monetListener = l; }
@@ -79,6 +86,7 @@ public final class DesktopSettings extends QObject implements LyricCompositor.Se
     public void setMirrorListener(MirrorListener l) { this.mirrorListener = l; }
     public void setCacheSizeListener(CacheSizeListener l) { this.cacheSizeListener = l; }
     public void setMusicFolderListener(MusicFolderListener l) { this.musicFolderListener = l; }
+    public void setCacheFolderListener(CacheFolderListener l) { this.cacheFolderListener = l; }
 
     public boolean resolvedDarkValue() { return Boolean.TRUE.equals(resolvedDark.peek()); }
 
@@ -188,6 +196,15 @@ public final class DesktopSettings extends QObject implements LyricCompositor.Se
             String val = raw instanceof String ? (String) raw : "";
             put("musicFolder", val);
             if (musicFolderListener != null) musicFolderListener.onMusicFolder(val);
+        });
+
+        cacheFolder.set(getString("cacheFolder", AppDirs.cacheBase()));
+        cacheFolder.setInterceptor((p, v) -> {
+            p.setBypassInterceptor(v);
+            Object raw = p.peek();
+            String val = raw instanceof String ? (String) raw : "";
+            put("cacheFolder", val);
+            if (cacheFolderListener != null) cacheFolderListener.onCacheFolder(val);
         });
     }
 
