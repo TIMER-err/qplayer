@@ -99,6 +99,14 @@ public final class LyricCompositor {
     // plateau covers the lit lines, then ramps to full blur over this distance.
     private static final float BAND_RAMP = 0.24f;
 
+    // Lyrics-column zoom transition: eases 1 -> 0 when a track goes cover-only and back,
+    // so the host lyric column scales + fades in lockstep with the QML cover's zoom
+    // (SPlayer's whole-content zoom). TAU sets the settle time (~200 ms).
+    private static final float LYRIC_ZOOM_TAU = 0.13f;
+    private float lyricShow = 0f;
+    private long lyricShowNs = 0L;
+    private final Paint lyLayerPaint = new Paint();
+
     // Cached lyric-column rect + cover-key string (both were rebuilt every frame).
     private Rect lyColRect;
     private float lyColW = -1f, lyColH = -1f, lyColTopY = -1f, lyColLeft = -1f;
@@ -282,9 +290,24 @@ public final class LyricCompositor {
         // 2) the lyrics column. The title (top band) and transport (bottom band) are
         // drawn by the QML LyricOverlay on top of this; only the lyrics column is
         // host-drawn. Render into a layer, then multiply a vertical alpha gradient
-        // (DST_IN) so lines fade toward the top/bottom edges. Skipped for a cover-only
-        // landscape track — there's no side column, the QML cover centers instead.
-        if (!(landscape && coverOnly)) {
+        // (DST_IN) so lines fade toward the top/bottom edges. Skipped entirely for a
+        // cover-only track (no lyrics / instrumental) in EITHER orientation — the QML
+        // cover shows in its place (centered portrait, in the left chrome landscape).
+        // Ease the column's zoom state toward 1 (has lyrics) or 0 (cover-only), so the
+        // switch scales + fades the whole lyric layer instead of it just blinking out.
+        float zoomTarget = coverOnly ? 0f : 1f;
+        long zoomNow = System.nanoTime();
+        if (lyricShowNs != 0L) {
+            float dt = (zoomNow - lyricShowNs) / 1_000_000_000f;
+            if (dt > 0.05f) dt = 0.05f;
+            if (dt > 0f) lyricShow += (zoomTarget - lyricShow) * (1f - (float) Math.exp(-dt / LYRIC_ZOOM_TAU));
+        } else {
+            lyricShow = zoomTarget;
+        }
+        lyricShowNs = zoomNow;
+        if (Math.abs(lyricShow - zoomTarget) < 0.002f) lyricShow = zoomTarget;
+
+        if (lyricShow > 0.001f) {
             if (lyColRect == null || lyColLeft != colLeft || lyColTopY != colTopY
                     || lyColW != w || lyColH != colH) {
                 lyColRect = Rect.makeXYWH(colLeft, colTopY, w - colLeft, colH);
@@ -295,13 +318,25 @@ public final class LyricCompositor {
             }
             Rect colRect = lyColRect;
             long pos = controller.position();
-            int lc = canvas.saveLayer(colRect, null);
+            // Alpha-composite the whole column at lyricShow, and zoom it 0.95 -> 1 about
+            // its own centre — matching the QML cover's zoom on the opposite side.
+            int alpha = Math.round(Math.max(0f, Math.min(1f, lyricShow)) * 255f);
+            lyLayerPaint.setAlpha(alpha);
+            int lc = canvas.saveLayer(colRect, alpha < 255 ? lyLayerPaint : null);
+            float s = 0.95f + 0.05f * lyricShow;
+            float cx = colLeft + (w - colLeft) * 0.5f;
+            float cy = colTopY + colH * 0.5f;
+            int zc = canvas.save();
+            canvas.translate(cx, cy);
+            canvas.scale(s, s);
+            canvas.translate(-cx, -cy);
             LyricSkia.setCanvas(canvas);
             if (Boolean.TRUE.equals(LyricConfig.instance.edgeBlur.getValue())) {
                 drawProgressiveBlurColumn(canvas, colRect, colLeft + pad, colTopY, colW, colH, pos);
             } else {
                 lyricRenderer.render(canvas, colLeft + pad, colTopY, colW, colH, pos);
             }
+            canvas.restoreToCount(zc);
             lyMaskPaint.setShader(lyFadeShader);
             lyMaskPaint.setBlendMode(BlendMode.DST_IN);
             canvas.drawRect(colRect, lyMaskPaint);

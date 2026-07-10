@@ -295,6 +295,15 @@ public class LyricRenderer {
     // them and rebuild only when an input changes; per frame we recompute just the
     // play-head-dependent interlude slots and cumulative tops (plain arithmetic,
     // reused buffers). Mirrors the engine's "don't recompute invariants per frame".
+    // Per-char advance-width cache, keyed by font instance then char. Measuring a glyph
+    // re-shapes text (font.measureTextWidth) — the dominant cost of the layout rebuild on
+    // a song switch. CJK lyrics reuse characters heavily across songs, so a cache that
+    // persists for the session turns most of that measuring into map lookups (the layout
+    // rebuild drops from tens of ms to a few once warm). Fonts from Fonts.get are stable
+    // instances; the animation flags mutated per frame don't change advance widths.
+    private final java.util.IdentityHashMap<Font, java.util.HashMap<Integer, Float>> charWidthCache =
+            new java.util.IdentityHashMap<>();
+
     private int[][] cachedRowStarts;
     private float[] cachedLineHeights;
     // Wrapped sub-line rows per line (null when absent/hidden), cached with the layout
@@ -1549,10 +1558,18 @@ public class LyricRenderer {
      * on the whole string yields a slightly smaller total because of
      * kerning, which makes right-aligned positions jitter on the active line.
      */
-    private static float perCharWidth(String text, Font font) {
+    private float perCharWidth(String text, Font font) {
+        java.util.HashMap<Integer, Float> m = charWidthCache.get(font);
+        if (m == null) { m = new java.util.HashMap<>(); charWidthCache.put(font, m); }
         float w = 0f;
         for (int i = 0; i < text.length(); i++) {
-            w += font.measureTextWidth(String.valueOf(text.charAt(i)));
+            int c = text.charAt(i);
+            Float cached = m.get(c);
+            if (cached == null) {
+                cached = font.measureTextWidth(String.valueOf((char) c));
+                m.put(c, cached);
+            }
+            w += cached;
         }
         return w;
     }

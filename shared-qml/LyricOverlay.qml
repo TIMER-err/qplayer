@@ -16,6 +16,7 @@ Item {
     property bool landscape: overlay.width > overlay.height
     property bool coverOnly: player.lyricsCoverOnly
 
+
     function fmt(ms) {
         if (ms <= 0) return "0:00";
         var s = Math.floor(ms / 1000), m = Math.floor(s / 60), r = s % 60;
@@ -24,6 +25,32 @@ Item {
 
     // Swallow taps on the empty (lyrics) area so they don't leak through.
     MouseArea { anchors.fill: parent }
+
+    // --- portrait: big centred cover for no-lyric / instrumental tracks. It zooms +
+    // fades in/out on the lyrics↔cover switch (SPlayer's zoom transition) — no big/small
+    // morph, title/artist stay put. Landscape has its own cover in the left chrome.
+    CoverImage {
+        id: pCover
+        // Big centred art for no-lyric / instrumental tracks. On the lyrics↔cover switch
+        // it ZOOMS + FADES (SPlayer's zoom transition) — no big/small morph. Kept
+        // rendering while fading out so the zoom-out plays over the appearing lyrics.
+        visible: !overlay.landscape && (overlay.coverOnly || opacity > 0.01)
+        property real coverSize: Math.max(160, Math.min(overlay.width - 96, overlay.height - 360, 420))
+        width: coverSize
+        height: coverSize
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.verticalCenter: parent.verticalCenter
+        radius: Math.min(width, height) * 0.06
+        iconSize: 72
+        source: player.coverPath !== "" ? player.coverPath : player.coverUrl
+        // Zoom + fade in step with the host lyric column's own zoom (SPlayer's whole-
+        // content zoom): cover grows in as the lyrics shrink out, and vice versa.
+        property bool shown: overlay.coverOnly && player.lyricSlide > 0.25
+        opacity: shown ? 1 : 0
+        scale: shown ? 1 : 0.95
+        Behavior on opacity { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
+        Behavior on scale { NumberAnimation { duration: 300; easing.type: Easing.OutBack } }
+    }
 
     // --- top: dismiss + title + artist ---------------------------------
     IconButton {
@@ -56,6 +83,7 @@ Item {
         elide: Text.ElideRight
     }
     Text {
+        id: artistText
         visible: !overlay.landscape
         anchors.top: titleText.bottom
         anchors.topMargin: 4
@@ -171,12 +199,17 @@ Item {
         visible: overlay.landscape
         anchors.fill: parent
 
-        // Half the page, or the whole width when there's no side lyric column.
+        // Target region: half the page (cover left, lyrics right) or the whole width
+        // when there's no side lyric column. Like SPlayer's content-left, the cover
+        // column's centre-x AND size EASE between the two states (springy OutBack)
+        // rather than snapping when lyrics appear/disappear.
         readonly property real regionW: overlay.coverOnly ? overlay.width : overlay.width / 2
-        // Square cover bounded by the region width and the height left after the
-        // title/artist/progress/buttons stack; capped so it isn't huge on desktop.
-        readonly property real coverSize:
+        readonly property real targetCoverSize:
             Math.max(120, Math.min(regionW - 96, overlay.height - 248, 360))
+        property real coverSize: targetCoverSize
+        property real centerX: regionW / 2
+        Behavior on coverSize { NumberAnimation { duration: 500; easing.type: Easing.OutBack } }
+        Behavior on centerX { NumberAnimation { duration: 500; easing.type: Easing.OutBack } }
 
         Item {
             id: col
@@ -185,7 +218,7 @@ Item {
             height: landscapeChrome.coverSize + 196
             anchors.verticalCenter: parent.verticalCenter
             anchors.horizontalCenter: parent.left
-            anchors.horizontalCenterOffset: landscapeChrome.regionW / 2
+            anchors.horizontalCenterOffset: landscapeChrome.centerX
 
             CoverImage {
                 id: lCover
@@ -193,7 +226,7 @@ Item {
                 anchors.horizontalCenter: parent.horizontalCenter
                 width: landscapeChrome.coverSize
                 height: landscapeChrome.coverSize
-                radius: 16
+                radius: Math.min(width, height) * 0.06
                 iconSize: 64
                 source: player.coverPath !== "" ? player.coverPath : player.coverUrl
             }

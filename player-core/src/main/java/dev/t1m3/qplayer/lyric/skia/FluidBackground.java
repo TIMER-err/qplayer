@@ -88,6 +88,20 @@ public final class FluidBackground {
     // makeShader + close on the cover every frame was needless native churn.
     private Shader coverShader;
     private String coverKey;
+    // Off-thread cover decode. The heavy decode + 32x32 downscale + CPU blur must NOT
+    // run on the render thread: doing it on the frame a track switches stalls that
+    // frame, and the time-based cover-morph animation then jumps to catch up. A single
+    // background thread builds the raster texture; the render thread only swaps it in
+    // (a cheap makeShader) once ready, keeping the previous cover shading until then.
+    private final java.util.concurrent.ExecutorService decoder =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "fluid-cover-decode");
+                t.setDaemon(true);
+                return t;
+            });
+    private volatile Image decodedCover;  // built off-thread, awaiting the render thread
+    private volatile String decodedKey;   // the track key decodedCover belongs to
+    private volatile String decodingKey;  // the track key currently queued/decoding
     // Reused across frames -- the per-frame `new Paint()` was a native alloc/free
     // each frame the lyric page is visible.
     private final Paint fluidPaint = new Paint();
@@ -119,22 +133,32 @@ public final class FluidBackground {
                        byte[] coverBytes, String trackKey, long nowNs, boolean staticMode) {
         boolean keyChanged = !Objects.equals(trackKey, coverKey);
         boolean nullButReady = cover == null && coverBytes != null && coverBytes.length > 0;
-        if (keyChanged || nullButReady) {
+        // Kick an off-thread decode for a newly-selected cover, once per key.
+        if ((keyChanged || nullButReady) && coverBytes != null && coverBytes.length > 0
+                && !Objects.equals(trackKey, decodingKey)) {
+            decodingKey = trackKey;
+            final byte[] cb = coverBytes;
+            final String key = trackKey;
+            decoder.submit(() -> {
+                Image tex = buildTexture(cb);
+                if (tex != null) { decodedKey = key; decodedCover = tex; }
+            });
+        }
+        // Publish a ready off-thread texture (render thread): swap the shader, drop the
+        // old cover. Cheap — the expensive work already happened on the decoder thread.
+        if (decodedCover != null && Objects.equals(decodedKey, trackKey)
+                && !Objects.equals(coverKey, trackKey)) {
             if (coverShader != null) {
                 coverShader.close();
                 coverShader = null;
             }
-            if (cover != null) {
-                cover.close();
-                cover = null;
-            }
-            cover = buildTexture(coverBytes);
+            if (cover != null) cover.close();
+            cover = decodedCover;
+            decodedCover = null;
             coverKey = trackKey;
-            if (cover != null) {
-                coverShader = cover.makeShader(
-                        FilterTileMode.CLAMP, FilterTileMode.CLAMP,
-                        SamplingMode.LINEAR, Matrix33.IDENTITY);
-            }
+            coverShader = cover.makeShader(
+                    FilterTileMode.CLAMP, FilterTileMode.CLAMP,
+                    SamplingMode.LINEAR, Matrix33.IDENTITY);
             invalidateStatic();   // the source changed -> the cached frame is stale
         }
         if (coverShader == null) {
@@ -220,6 +244,11 @@ public final class FluidBackground {
     }
 
     public void dispose() {
+        decoder.shutdownNow();
+        if (decodedCover != null) {
+            decodedCover.close();
+            decodedCover = null;
+        }
         if (coverShader != null) {
             coverShader.close();
             coverShader = null;

@@ -79,6 +79,16 @@ public final class PlayerController {
 
     private final List<Track> library = new CopyOnWriteArrayList<>();
     private final List<Track> queue = new CopyOnWriteArrayList<>();
+    // In-memory LRU of parsed lyrics by netease songId. A preloaded (next/prev) or
+    // recently played track then shows lyrics the instant it becomes current — no
+    // network / disk read / parse on the switch. Bounded, access-order eviction.
+    private static final int LYRIC_MEM_MAX = 12;
+    private final Map<Long, List<LyricLine>> lyricMem = java.util.Collections.synchronizedMap(
+            new java.util.LinkedHashMap<Long, List<LyricLine>>(16, 0.75f, true) {
+                @Override protected boolean removeEldestEntry(Map.Entry<Long, List<LyricLine>> e) {
+                    return size() > LYRIC_MEM_MAX;
+                }
+            });
     private final Queue<Runnable> uiQueue = new ConcurrentLinkedQueue<>();
     private final Set<Long> likedSet = new HashSet<>();
     private final Random rng = new Random();
@@ -903,15 +913,18 @@ public final class PlayerController {
                 resolveAndPlayNetease(t, i);
             }
         }
+        // Current track's fetches are now queued; warm next/prev behind them.
+        preloadAdjacent();
     }
 
     /** Feed coverBytes for the fluid backdrop: local tracks carry embedded
      *  bytes; NETEASE tracks download lazily off-thread, keyed by queue index
      *  so a stale fetch for a skipped-past track is dropped. */
     private void updateCover(Track t, int expectedIndex) {
-        if (t.coverBytes != null) {
+        if (t.coverBytes != null) {   // present (embedded, or preloaded by preloadTrack)
             final byte[] cb = t.coverBytes;
-            post(() -> { applyCover(cb); coverPath.set(""); });
+            final String path = coverDiskPath(t);   // local file for the QML cover image
+            post(() -> { if (playIndex == expectedIndex) { applyCover(cb); coverPath.set(path); } });
             notifyPlayback();
             return;
         }
@@ -982,6 +995,73 @@ public final class PlayerController {
             }
             if (hex != null) post(() -> { coverSeed.set(hex); reapplySeed(); });
         });
+    }
+
+    /** Local file path for a track's cover (for the QML cover Image): the on-disk
+     *  full/thumb copy for a local track, or the disk-cached download for a netease
+     *  one; "" when only a remote URL is available. */
+    private String coverDiskPath(Track t) {
+        String local = t.coverLocalPath != null ? t.coverLocalPath : t.coverThumbPath;
+        if (local != null && local.startsWith("/")) return local;
+        if (t.coverUrl != null && !t.coverUrl.isEmpty()) {
+            String cached = diskCache.getImage(t.coverUrl);
+            if (cached != null) return cached;
+        }
+        return "";
+    }
+
+    /** Resolve a track's cover bytes (embedded -> local file -> disk cache -> download,
+     *  writing the download to the disk cache). Blocking; call on the worker thread. */
+    private byte[] loadCoverBytes(Track t) {
+        if (t.coverBytes != null) return t.coverBytes;
+        String local = t.coverLocalPath != null ? t.coverLocalPath : t.coverThumbPath;
+        if (local != null && local.startsWith("/")) {
+            byte[] d = readBytesFromFile(local);
+            if (d != null && d.length > 0) return d;
+        }
+        String url = t.coverUrl;
+        if (url == null || url.isEmpty()) return null;
+        String cachedImg = diskCache.getImage(url);
+        if (cachedImg != null) {
+            byte[] d = readBytesFromFile(cachedImg);
+            if (d != null && d.length > 0) return d;
+        }
+        byte[] data = downloadBytes(url);
+        if (data != null) {
+            String imgPath = DiskCache.imagePath(url);
+            if (imgPath != null) writeBytesToFile(data, imgPath);
+        }
+        return data;
+    }
+
+    /** After the current track settles, warm the next + previous tracks' lyrics and
+     *  cover bytes on the worker so switching to them is instant (no load-in stutter).
+     *  Runs on the main thread; submits per-track work that queues behind the current
+     *  track's own fetches (single worker), so the current song always loads first. */
+    private void preloadAdjacent() {
+        int n = queue.size();
+        if (n <= 1) return;
+        int cur = playIndex;
+        if (cur < 0 || cur >= n) return;
+        Track next = queue.get((cur + 1) % n);
+        Track prev = queue.get((cur - 1 + n) % n);
+        preloadTrack(next);
+        if (prev != next) preloadTrack(prev);
+    }
+
+    private void preloadTrack(Track t) {
+        if (t == null) return;
+        if (t.source == Track.Source.NETEASE && t.neteaseId != 0 && !lyricMem.containsKey(t.neteaseId)) {
+            final long id = t.neteaseId;
+            worker.submit(() -> fetchNeteaseLyrics(id));
+        }
+        if (t.coverBytes == null) {
+            final Track tr = t;
+            worker.submit(() -> {
+                byte[] data = loadCoverBytes(tr);
+                if (data != null) tr.coverBytes = data;
+            });
+        }
     }
 
     /** Toggle Monet dynamic color; re-applies the seed (render thread). */
@@ -1185,14 +1265,26 @@ public final class PlayerController {
     private void loadNeteaseLyrics(Track t, int expectedIndex) {
         final long songId = t.neteaseId;
         if (songId == 0) return;
+        List<LyricLine> mem = lyricMem.get(songId);
+        if (mem != null) {   // preloaded / recently played -> apply instantly
+            post(() -> { if (playIndex == expectedIndex) applyLyrics(mem); });
+            return;
+        }
         worker.submit(() -> {
-            List<LyricLine> lines = tryAmllTtml(songId);
-            if (lines.isEmpty()) {
-                lines = neteaseLyricCacheFirst(songId);
-            }
-            final List<LyricLine> ly = lines;
+            List<LyricLine> ly = fetchNeteaseLyrics(songId);
             post(() -> { if (playIndex == expectedIndex) applyLyrics(ly); });
         });
+    }
+
+    /** Resolve a song's lyrics (mem cache -> AMLL TTML -> netease), caching non-empty
+     *  results in memory. Blocking; call on the worker thread. */
+    private List<LyricLine> fetchNeteaseLyrics(long songId) {
+        List<LyricLine> mem = lyricMem.get(songId);
+        if (mem != null) return mem;
+        List<LyricLine> lines = tryAmllTtml(songId);
+        if (lines.isEmpty()) lines = neteaseLyricCacheFirst(songId);
+        if (!lines.isEmpty()) lyricMem.put(songId, lines);
+        return lines;
     }
 
     private static final Gson LYRIC_GSON = new Gson();
