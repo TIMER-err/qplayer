@@ -79,6 +79,10 @@ public final class PlayerController {
 
     private final List<Track> library = new CopyOnWriteArrayList<>();
     private final List<Track> queue = new CopyOnWriteArrayList<>();
+    /** User-curated "play later" list — unlike {@link #queue}, never auto-changes when
+     *  you tap a song elsewhere; only explicit add/remove (song long-press menu) and
+     *  the queue-page toggle touch it. Local-only, no netease sync. */
+    private final List<Track> customPlaylist = new CopyOnWriteArrayList<>();
     // In-memory LRU of parsed lyrics by netease songId. A preloaded (next/prev) or
     // recently played track then shows lyrics the instant it becomes current — no
     // network / disk read / parse on the switch. Bounded, access-order eviction.
@@ -278,6 +282,8 @@ public final class PlayerController {
     /** Snapshot of the live play queue for the queue page; current track is {@link #index}. */
     public final Property<List<Track>> queueTracks = new Property<>(Collections.<Track>emptyList());
     public final Property<Boolean> queueOpen = new Property<>(false);
+    /** Snapshot of {@link #customPlaylist} for the queue page's second tab. */
+    public final Property<List<Track>> customPlaylistTracks = new Property<>(Collections.<Track>emptyList());
 
     // --- Account ----------------------------------------------------------
     public final Property<Boolean> loggedIn = new Property<>(false);
@@ -335,6 +341,7 @@ public final class PlayerController {
         backend.setOnError(() -> onMain(this::onPlaybackError));
         worker.submit(this::loadSearchHistory);
         loadQueue();
+        loadCustomPlaylist();
         if (netease.isLoggedIn()) {
             loggedIn.set(true);
             refreshLogin();
@@ -763,6 +770,132 @@ public final class PlayerController {
             index.set(cur - 1);
         } else if (i == cur) {
             onMain(() -> playAt(Math.min(cur, queue.size() - 1)));
+        }
+    }
+
+    // --- Custom playlist (local "play later" list, independent of the live queue) --
+
+    /** True when a netease song is already in the custom playlist — drives the
+     *  song long-press menu's add/remove toggle. */
+    public boolean isInCustomPlaylist(long songId) {
+        if (songId == 0) return false;
+        for (Track t : customPlaylist) if (t.neteaseId == songId) return true;
+        return false;
+    }
+
+    /** Add a netease song (looked up from whichever live list the long-press menu was
+     *  opened from) to the custom playlist. */
+    public void addToCustomPlaylist(long songId) {
+        if (songId == 0 || isInCustomPlaylist(songId)) return;
+        NeteaseSong s = findLiveSong(songId);
+        if (s == null) {
+            toast.set("添加失败");
+            return;
+        }
+        customPlaylist.add(toTrack(s));
+        customPlaylistTracks.set(new ArrayList<>(customPlaylist));
+        toast.set("已加入播放列表");
+        worker.submit(this::saveCustomPlaylist);
+    }
+
+    /** Remove a netease song from the custom playlist by id (song long-press menu). */
+    public void removeFromCustomPlaylist(long songId) {
+        for (Track t : customPlaylist) {
+            if (t.neteaseId == songId) {
+                customPlaylist.remove(t);
+                customPlaylistTracks.set(new ArrayList<>(customPlaylist));
+                toast.set("已移出播放列表");
+                worker.submit(this::saveCustomPlaylist);
+                return;
+            }
+        }
+    }
+
+    /** Drop a slot from the custom playlist by position (queue-page tab). */
+    public void removeFromCustomPlaylistIndex(int i) {
+        if (i < 0 || i >= customPlaylist.size()) return;
+        customPlaylist.remove(i);
+        customPlaylistTracks.set(new ArrayList<>(customPlaylist));
+        worker.submit(this::saveCustomPlaylist);
+    }
+
+    /** Play the custom playlist starting at a slot (queue-page tab tap). Replaces the
+     *  live queue with a snapshot of the custom list, same as opening a real playlist. */
+    public void playCustomPlaylistIndex(int i) {
+        if (i < 0 || i >= customPlaylist.size()) return;
+        playQueue(new ArrayList<>(customPlaylist), i);
+    }
+
+    /** Find a netease song by id among the currently-loaded search results and
+     *  playlist tracks — the only two lists the song long-press menu opens from. */
+    private NeteaseSong findLiveSong(long songId) {
+        List<NeteaseSong> results = searchResults.peek();
+        if (results != null) {
+            for (NeteaseSong s : results) if (s.id == songId) return s;
+        }
+        List<NeteaseSong> plTracks = playlistTracks.peek();
+        if (plTracks != null) {
+            for (NeteaseSong s : plTracks) if (s.id == songId) return s;
+        }
+        return null;
+    }
+
+    private void saveCustomPlaylist() {
+        try {
+            java.io.File f = new java.io.File(dev.t1m3.qplayer.store.AppDirs.base(), "custom_playlist.json");
+            f.getParentFile().mkdirs();
+            StringBuilder sb = new StringBuilder();
+            sb.append("{\"tracks\":[");
+            List<Track> snap = new ArrayList<>(customPlaylist);
+            for (int i = 0; i < snap.size(); i++) {
+                Track t = snap.get(i);
+                if (i > 0) sb.append(',');
+                sb.append("{\"neteaseId\":").append(t.neteaseId);
+                sb.append(",\"title\":").append(jsonStr(t.title));
+                sb.append(",\"artist\":").append(jsonStr(t.artist));
+                sb.append(",\"album\":").append(jsonStr(t.album));
+                sb.append(",\"coverUrl\":").append(jsonStr(t.coverUrl));
+                sb.append(",\"durationMs\":").append(t.durationMs);
+                sb.append('}');
+            }
+            sb.append("]}");
+            java.nio.file.Files.write(f.toPath(),
+                    sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (Throwable e) {
+            Logger.warn("saveCustomPlaylist failed: {}", e.getMessage());
+        }
+    }
+
+    private void loadCustomPlaylist() {
+        try {
+            java.io.File f = new java.io.File(dev.t1m3.qplayer.store.AppDirs.base(), "custom_playlist.json");
+            if (!f.exists()) return;
+            String text = new String(java.nio.file.Files.readAllBytes(f.toPath()),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            com.google.gson.JsonObject root = new com.google.gson.JsonParser().parse(text).getAsJsonObject();
+            com.google.gson.JsonArray arr = root.has("tracks") ? root.getAsJsonArray("tracks") : new com.google.gson.JsonArray();
+            List<Track> loaded = new ArrayList<>();
+            for (com.google.gson.JsonElement el : arr) {
+                if (!el.isJsonObject()) continue;
+                com.google.gson.JsonObject o = el.getAsJsonObject();
+                Track t = new Track();
+                t.source = Track.Source.NETEASE;
+                t.neteaseId = o.has("neteaseId") ? o.get("neteaseId").getAsLong() : 0;
+                t.title    = o.has("title")    && !o.get("title").isJsonNull()    ? o.get("title").getAsString()    : "";
+                t.artist   = o.has("artist")   && !o.get("artist").isJsonNull()   ? o.get("artist").getAsString()   : "";
+                t.album    = o.has("album")    && !o.get("album").isJsonNull()    ? o.get("album").getAsString()    : "";
+                t.coverUrl = o.has("coverUrl") && !o.get("coverUrl").isJsonNull() ? o.get("coverUrl").getAsString() : "";
+                t.coverThumbPath = NeteaseClient.thumbUrl(t.coverUrl);
+                t.durationMs = o.has("durationMs") ? o.get("durationMs").getAsLong() : 0;
+                loaded.add(t);
+            }
+            if (!loaded.isEmpty()) {
+                customPlaylist.addAll(loaded);
+                final List<Track> snap = new ArrayList<>(loaded);
+                post(() -> customPlaylistTracks.set(snap));
+            }
+        } catch (Throwable e) {
+            Logger.warn("loadCustomPlaylist failed: {}", e.getMessage());
         }
     }
 

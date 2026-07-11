@@ -36,6 +36,12 @@ Menu {
                 items.push({ text: "从此歌单移除", icon: "playlist_remove", action: menu._removeAction(s.id) })
             }
         }
+        // Custom "play later" list: local-only, works signed-out.
+        if (player.isInCustomPlaylist(s.id)) {
+            items.push({ text: "移出播放列表", icon: "playlist_remove", action: menu._removeCustomAction(s.id) })
+        } else {
+            items.push({ text: "加入播放列表", icon: "playlist_add", action: menu._addCustomAction(s.id) })
+        }
         // Copy link works signed-out too — any netease song has a shareable URL.
         items.push({ text: "复制链接", icon: "link", action: menu._copyAction(s.id) })
         menu.model = items
@@ -52,6 +58,12 @@ Menu {
     }
     function _removeAction(songId) {
         return function() { player.removeFromCurrentPlaylist(songId) }
+    }
+    function _addCustomAction(songId) {
+        return function() { player.addToCustomPlaylist(songId) }
+    }
+    function _removeCustomAction(songId) {
+        return function() { player.removeFromCustomPlaylist(songId) }
     }
     function _copyAction(songId) {
         return function() { player.copySongLink(songId) }

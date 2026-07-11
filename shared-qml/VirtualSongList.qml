@@ -22,6 +22,10 @@ Flickable {
 
     property var list
     property bool isLocal: false
+    // Decoupled from isLocal: a list can use the local title/artist field mapping
+    // (isLocal) without actually being the live queue (e.g. the custom-playlist tab),
+    // so "now playing" highlighting needs its own opt-out for those.
+    property bool highlightCurrent: true
     property bool removable: false
     // Long-press menu opt-in for the rows (netease-backed lists set songMenu true).
     // ownedPlaylist unlocks "从此歌单移除" inside a playlist the user owns.
@@ -76,7 +80,7 @@ Flickable {
                 lazyLoad: true
                 flickContentY: view.contentY
                 flickHeight: view.height
-                highlighted: view.isLocal && index === player.index
+                highlighted: view.isLocal && view.highlightCurrent && index === player.index
                 removable: view.removable
                 song: view.songMenu ? modelData : null
                 menuEnabled: view.songMenu

@@ -125,8 +125,9 @@ Rectangle {
                 // playlist's SongRows alive after you return home.
                 list: page.visible ? player.playlistTracks : null
                 // Long-press a track → add to another playlist, and (in your own
-                // playlist) remove it from this one.
-                songMenu: player.loggedIn
+                // playlist) remove it from this one. Not login-gated: "加入播放列表"
+                // (local list) works signed-out too.
+                songMenu: true
                 ownedPlaylist: player.playlistOwned
                 onActivated: player.playPlaylistTrack(tracks.activatedIndex)
             }

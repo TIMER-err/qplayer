@@ -272,7 +272,10 @@ Item {
             Layout.fillHeight: true
             visible: query.text.length > 0
             list: player.searchResults
-            songMenu: player.loggedIn
+            // Not login-gated: the menu's "加入播放列表" (local list) and "复制链接" both
+            // work signed-out; only the "添加到歌单" submenu (inside the menu itself)
+            // needs an account.
+            songMenu: true
             onActivated: player.playSearchResult(results.activatedIndex)
         }
     }
