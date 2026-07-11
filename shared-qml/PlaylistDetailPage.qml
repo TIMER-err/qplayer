@@ -51,7 +51,18 @@ Rectangle {
                 MouseArea {
                     anchors.fill: parent
                     enabled: player.playlistOwned
-                    onClicked: { coverPathField.text = ""; coverDialog.open() }
+                    // Android has a real gallery picker (native intent, no QML dialog
+                    // needed); desktop has no such picker, so it types a local path
+                    // instead — same platform check used elsewhere (settings.musicFolder
+                    // only exists on desktop's AppSettings).
+                    onClicked: {
+                        if (typeof settings.musicFolder === "undefined") {
+                            player.pickPlaylistCover(player.openPlaylistId)
+                        } else {
+                            coverPathField.text = ""
+                            coverDialog.open()
+                        }
+                    }
                 }
                 Rectangle {
                     visible: player.playlistOwned
@@ -145,10 +156,12 @@ Rectangle {
         }
     }
 
-    // Custom cover: paste/type a local image path (same convention as the
-    // desktop "本地音乐目录"/"缓存目录" settings — no native file picker in this
-    // project yet) and preview it before applying. Netease re-encodes/resizes on
-    // its end, so no local validation beyond "does something decode".
+    // Custom cover, desktop path: paste/type a local image path (same convention
+    // as the "本地音乐目录"/"缓存目录" settings — no native file picker on desktop)
+    // and preview it before applying. Android instead uses a native gallery picker
+    // (see the cover thumbnail's MouseArea above) and skips this dialog entirely.
+    // Netease re-encodes/resizes on its end, so no local validation beyond "does
+    // something decode".
     Dialog {
         id: coverDialog
         icon: "image"

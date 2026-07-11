@@ -1906,27 +1906,59 @@ public final class PlayerController {
                 post(() -> toast.set("读取图片文件失败"));
                 return;
             }
-            if (data.length == 0) {
-                post(() -> toast.set("图片文件为空"));
-                return;
-            }
-            try {
-                long imgId = netease.uploadImage(data, new java.io.File(path).getName());
-                boolean ok = imgId != 0 && netease.updatePlaylistCover(playlistId, imgId);
-                post(() -> {
-                    if (ok) {
-                        toast.set("封面已更新");
-                        if (currentPlaylistId == playlistId) openPlaylist(playlistId);
-                        loadMyPlaylists();
-                    } else {
-                        toast.set("封面更新失败");
-                    }
-                });
-            } catch (Throwable e) {
-                Logger.warn("set playlist cover {} failed: {}", playlistId, e.getMessage());
-                post(() -> toast.set("封面更新失败"));
-            }
+            uploadPlaylistCover(playlistId, data, new java.io.File(path).getName());
         });
+    }
+
+    /** Set a playlist's cover from raw image bytes — Android's native gallery picker
+     *  hands over a {@code content://} URI with no filesystem path to read, so the
+     *  host reads it itself and passes the bytes straight through. */
+    public void setPlaylistCoverBytes(long playlistId, byte[] data, String filename) {
+        if (uid == 0 || playlistId == 0 || data == null) return;
+        worker.submit(() -> uploadPlaylistCover(playlistId, data, filename == null ? "cover.jpg" : filename));
+    }
+
+    private void uploadPlaylistCover(long playlistId, byte[] data, String filename) {
+        if (data.length == 0) {
+            post(() -> toast.set("图片文件为空"));
+            return;
+        }
+        try {
+            long imgId = netease.uploadImage(data, filename);
+            boolean ok = imgId != 0 && netease.updatePlaylistCover(playlistId, imgId);
+            post(() -> {
+                if (ok) {
+                    toast.set("封面已更新");
+                    if (currentPlaylistId == playlistId) openPlaylist(playlistId);
+                    loadMyPlaylists();
+                } else {
+                    toast.set("封面更新失败");
+                }
+            });
+        } catch (Throwable e) {
+            Logger.warn("set playlist cover {} failed: {}", playlistId, e.getMessage());
+            post(() -> toast.set("封面更新失败"));
+        }
+    }
+
+    /** Host hook to launch a native image picker for a playlist cover (Android only —
+     *  desktop instead types a local path into the QML dialog). */
+    public interface CoverPicker {
+        void pick(long playlistId);
+    }
+
+    private volatile CoverPicker coverPicker;
+
+    public void setCoverPicker(CoverPicker p) {
+        this.coverPicker = p;
+    }
+
+    /** QML calls this on Android to launch the native gallery picker; the host reads
+     *  the picked image's bytes and calls {@link #setPlaylistCoverBytes}. No-op when
+     *  no picker is registered (desktop). */
+    public void pickPlaylistCover(long playlistId) {
+        CoverPicker p = coverPicker;
+        if (p != null) onMain(() -> p.pick(playlistId));
     }
 
     /** Delete a playlist owned by the user, then refresh 我的. */

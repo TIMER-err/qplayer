@@ -60,6 +60,11 @@ public final class QPlayerActivity extends Activity {
 
     private static final int REQ_AUDIO = 1;
     private static final int REQ_NOTIF = 2;
+    private static final int REQ_COVER_PICK = 3;
+
+    /** Playlist id awaiting a picked cover image, set right before launching the
+     *  gallery picker and consumed in {@link #onActivityResult}. */
+    private long pendingCoverPlaylistId;
 
     private PlayerController controller;
     private AppSettings settings;
@@ -115,6 +120,7 @@ public final class QPlayerActivity extends Activity {
             }
         }));
         controller.setInstaller(this::downloadAndInstallUpdate);
+        controller.setCoverPicker(this::pickPlaylistCover);
 
         // Playback control runs on the main thread (alive in the background, unlike
         // the GL render thread); the service mirrors state to the media session and
@@ -407,6 +413,56 @@ public final class QPlayerActivity extends Activity {
                 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             scanMusic();
         }
+    }
+
+    /** Launch the system image picker for a new playlist cover ({@link PlayerController.CoverPicker}
+     *  host hook); the result is read and uploaded in {@link #onActivityResult}. */
+    private void pickPlaylistCover(long playlistId) {
+        pendingCoverPlaylistId = playlistId;
+        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        intent.setType("image/*");
+        try {
+            startActivityForResult(intent, REQ_COVER_PICK);
+        } catch (Throwable e) {
+            dev.t1m3.qplayer.util.Logger.error("no gallery app to pick a cover: {}", e.toString());
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQ_COVER_PICK || resultCode != Activity.RESULT_OK || data == null) return;
+        android.net.Uri uri = data.getData();
+        if (uri == null) return;
+        final long playlistId = pendingCoverPlaylistId;
+        new Thread(() -> {
+            try (InputStream in = getContentResolver().openInputStream(uri)) {
+                if (in == null) return;
+                ByteArrayOutputStream buf = new ByteArrayOutputStream();
+                byte[] chunk = new byte[16384];
+                int n;
+                while ((n = in.read(chunk)) > 0) buf.write(chunk, 0, n);
+                controller.setPlaylistCoverBytes(playlistId, buf.toByteArray(), queryDisplayName(uri));
+            } catch (Throwable e) {
+                dev.t1m3.qplayer.util.Logger.warn("read picked cover failed: {}", e.toString());
+            }
+        }, "qplayer-cover-pick").start();
+    }
+
+    /** Best-effort display name for a picked content:// image (used as the upload
+     *  filename); falls back to a generic name when the provider doesn't report one. */
+    private String queryDisplayName(android.net.Uri uri) {
+        try (android.database.Cursor c = getContentResolver().query(uri, null, null, null, null)) {
+            if (c != null && c.moveToFirst()) {
+                int idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                if (idx >= 0) {
+                    String name = c.getString(idx);
+                    if (name != null && !name.isEmpty()) return name;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return "cover.jpg";
     }
 
     /** Draw the app behind the system bars (edge-to-edge) with transparent bars. */
