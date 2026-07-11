@@ -38,7 +38,9 @@ public final class PlaybackService extends Service {
 
     static final String ACTION_REFRESH = "dev.t1m3.qplayer.action.REFRESH";
     private static final String CHANNEL_ID = "qplayer.playback";
-    private static final int NOTIF_ID = 1;
+    /** Package-visible so {@link QPlayerApplication}'s crash handler can cancel
+     *  this notification without needing a live Service instance. */
+    static final int NOTIF_ID = 1;
 
     /** Set by the activity before the service is started (same-process handoff). */
     static volatile PlayerController controller;
@@ -80,11 +82,7 @@ public final class PlaybackService extends Service {
             @Override public void onStop() {
                 PlayerController c = controller;
                 if (c != null && c.isPlaying()) c.toggle();
-                if (Build.VERSION.SDK_INT >= 24) {
-                    stopForeground(Service.STOP_FOREGROUND_REMOVE);
-                } else {
-                    stopForeground(true);
-                }
+                clearNotification();
                 stopSelf();
             }
         });
@@ -131,7 +129,42 @@ public final class PlaybackService extends Service {
         }
         session.setActive(false);
         session.release();
+        // Explicit stop + cancel rather than relying on "destroying a foreground
+        // service auto-clears its notification" — that contract isn't reliable
+        // across OEM ROMs (MIUI/HyperOS, ColorOS, EMUI task-cleanup) and doesn't
+        // hold at all if this method never runs (see onTaskRemoved / the crash
+        // handler in QPlayerApplication for the paths where it might not).
+        clearNotification();
         super.onDestroy();
+    }
+
+    /** Swiping the task away from Recents calls this instead of a normal destroy
+     *  on many OEM ROMs' aggressive task-cleanup, which doesn't reliably run
+     *  onDestroy() afterward — stop the service outright here so the notification
+     *  and foreground state never survive the task disappearing. */
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        PlayerController c = controller;
+        if (c != null && c.isPlaying()) c.toggle();
+        clearNotification();
+        stopSelf();
+        super.onTaskRemoved(rootIntent);
+    }
+
+    private void clearNotification() {
+        try {
+            if (Build.VERSION.SDK_INT >= 24) {
+                stopForeground(Service.STOP_FOREGROUND_REMOVE);
+            } else {
+                stopForeground(true);
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) nm.cancel(NOTIF_ID);
+        } catch (Throwable ignored) {
+        }
     }
 
     /** Rebuild metadata + playback state + notification from the controller. */
