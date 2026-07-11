@@ -21,3 +21,9 @@ local.properties
 
 # log4j2 rolling output (created at runtime next to the app / module dir)
 logs/
+
+# Generated classpath file (mvn dependency:build-classpath), regenerated locally
+desktop-host/cp.txt
+
+# One-off local scripts, kept on disk but never committed
+desktop-host/src/main/java/dev/t1m3/qplayer/desktop/tools/
