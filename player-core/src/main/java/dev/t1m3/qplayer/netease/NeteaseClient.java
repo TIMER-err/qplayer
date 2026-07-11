@@ -1129,6 +1129,77 @@ public final class NeteaseClient {
     }
 
     /**
+     * Upload an image to netease's NOS (object storage) and return its image id,
+     * for use with {@link #updatePlaylistCover}. Two steps, mirroring the official
+     * web client: {@code nos/token/alloc} (weapi-encrypted, like every other call
+     * here) hands back an upload token + object key, then the raw image bytes are
+     * POSTed straight to the NOS host with that token — unlike every other write in
+     * this client, that second request is neither weapi- nor eapi-encrypted, just
+     * an authenticated binary upload. Returns {@code 0} on any failure.
+     */
+    public long uploadImage(byte[] imageBytes, String filename) throws IOException {
+        if (imageBytes == null || imageBytes.length == 0) return 0L;
+        Map<String, Object> body = new HashMap<>();
+        body.put("bucket", "yyimgs");
+        body.put("ext", "jpg");
+        body.put("filename", filename == null || filename.isEmpty() ? "cover.jpg" : filename);
+        body.put("local", false);
+        body.put("nos_product", 0);
+        body.put("return_body", "{\"code\":200,\"size\":\"$(ObjectSize)\"}");
+        body.put("type", "other");
+        JsonObject obj = weapiJson("nos/token/alloc", body);
+        if (!obj.has("result") || !obj.get("result").isJsonObject()) {
+            Logger.warn("nos/token/alloc failed: {}", truncate(obj.toString(), 300));
+            return 0L;
+        }
+        JsonObject result = obj.getAsJsonObject("result");
+        if (!result.has("objectKey") || !result.has("token") || !result.has("docId")) {
+            Logger.warn("nos/token/alloc missing fields: {}", truncate(result.toString(), 300));
+            return 0L;
+        }
+        String objectKey = result.get("objectKey").getAsString();
+        String token = result.get("token").getAsString();
+        long docId = result.get("docId").getAsLong();
+
+        String uploadUrl = "https://nosup-hz1.127.net/yyimgs/" + objectKey
+                + "?offset=0&complete=true&version=1.0";
+        HttpURLConnection c = (HttpURLConnection) new URL(uploadUrl).openConnection();
+        try {
+            c.setRequestMethod("POST");
+            c.setDoOutput(true);
+            c.setConnectTimeout(15000);
+            c.setReadTimeout(30000);
+            c.setRequestProperty("x-nos-token", token);
+            c.setRequestProperty("Content-Type", "image/jpeg");
+            try (OutputStream os = c.getOutputStream()) {
+                os.write(imageBytes);
+            }
+            int status = c.getResponseCode();
+            if (status / 100 != 2) {
+                Logger.warn("NOS image upload failed: HTTP {}", status);
+                return 0L;
+            }
+        } finally {
+            c.disconnect();
+        }
+        return docId;
+    }
+
+    /** Bind a previously-uploaded image (see {@link #uploadImage}) as a playlist's cover. */
+    public boolean updatePlaylistCover(long playlistId, long coverImgId) throws IOException {
+        if (playlistId <= 0 || coverImgId <= 0) return false;
+        Map<String, Object> body = new HashMap<>();
+        body.put("id", playlistId);
+        body.put("coverImgId", coverImgId);
+        JsonObject obj = weapiJson("playlist/cover/update", body);
+        int code = obj.has("code") && !obj.get("code").isJsonNull() ? obj.get("code").getAsInt() : -1;
+        if (code != 200) {
+            Logger.warn("playlist/cover/update failed id={}: {}", playlistId, truncate(obj.toString(), 300));
+        }
+        return code == 200;
+    }
+
+    /**
      * Fetch the set of song IDs the user has marked as "liked". Used to
      * paint the heart icon on track rows + mini-player without one
      * request per row. Empty set when not logged in.

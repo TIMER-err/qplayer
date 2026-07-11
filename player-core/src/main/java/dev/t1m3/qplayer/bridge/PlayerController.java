@@ -238,6 +238,9 @@ public final class PlayerController {
     /** Currently opened playlist. */
     public final Property<List<NeteaseSong>> playlistTracks = new Property<>(Collections.<NeteaseSong>emptyList());
     public final Property<String> playlistTitle = new Property<>("");
+    /** Cover for the currently open playlist — netease CDN thumb, or empty while
+     *  loading/absent. {@code CoverImage.source} accepts this directly (http url). */
+    public final Property<String> playlistCoverPath = new Property<>("");
     /** True while an opened playlist's tracks are loading, so the detail page shows a
      *  spinner instead of the previous playlist's content. */
     public final Property<Boolean> playlistLoading = new Property<>(false);
@@ -1662,6 +1665,7 @@ public final class PlayerController {
         playlistLoading.set(true);
         playlistTracks.set(Collections.<NeteaseSong>emptyList());
         playlistTitle.set("");
+        playlistCoverPath.set("");
         // Reset the collect state; the real values land once playlist/detail resolves, so
         // the icon stays hidden (loading) until then rather than flashing a wrong state.
         playlistSubscribed.set(false);
@@ -1674,11 +1678,14 @@ public final class PlayerController {
                 fillMissingCovers(songs);
                 buildSongThumbs(songs, "128");
                 String name = detail != null ? detail.name : "";
+                String cover = detail != null
+                        ? (detail.coverThumbPath != null ? detail.coverThumbPath : detail.coverUrl) : null;
                 boolean subscribed = detail != null && detail.subscribed;
                 boolean owned = detail != null && uid != 0 && detail.creatorUid == uid;
                 post(() -> {
                     if (currentPlaylistId != playlistId) return;   // a newer open won
                     playlistTitle.set(name == null ? "" : name);
+                    playlistCoverPath.set(cover == null ? "" : cover);
                     playlistTracks.set(songs);
                     playlistSubscribed.set(subscribed);
                     playlistOwned.set(owned);
@@ -1766,6 +1773,46 @@ public final class PlayerController {
             } catch (Throwable e) {
                 Logger.warn("create playlist failed: {}", e.getMessage());
                 post(() -> toast.set("创建歌单失败"));
+            }
+        });
+    }
+
+    /** Set a playlist's cover to a local image file, then refresh the detail view
+     *  (and 我的, whose cards also show it). Owned-playlist enforcement lives in the
+     *  QML (same as the delete button — {@code playlistOwned}), not here, since the
+     *  server itself rejects a cover change on a playlist you don't own. */
+    public void setPlaylistCover(long playlistId, String localImagePath) {
+        if (uid == 0 || playlistId == 0 || localImagePath == null) return;
+        final String path = localImagePath.trim();
+        if (path.isEmpty()) return;
+        worker.submit(() -> {
+            byte[] data;
+            try {
+                data = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path));
+            } catch (Throwable e) {
+                Logger.warn("read cover file {} failed: {}", path, e.getMessage());
+                post(() -> toast.set("读取图片文件失败"));
+                return;
+            }
+            if (data.length == 0) {
+                post(() -> toast.set("图片文件为空"));
+                return;
+            }
+            try {
+                long imgId = netease.uploadImage(data, new java.io.File(path).getName());
+                boolean ok = imgId != 0 && netease.updatePlaylistCover(playlistId, imgId);
+                post(() -> {
+                    if (ok) {
+                        toast.set("封面已更新");
+                        if (currentPlaylistId == playlistId) openPlaylist(playlistId);
+                        loadMyPlaylists();
+                    } else {
+                        toast.set("封面更新失败");
+                    }
+                });
+            } catch (Throwable e) {
+                Logger.warn("set playlist cover {} failed: {}", playlistId, e.getMessage());
+                post(() -> toast.set("封面更新失败"));
             }
         });
     }

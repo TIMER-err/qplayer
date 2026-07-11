@@ -34,6 +34,42 @@ Rectangle {
                 type: "standard"; icon: "arrow_back"
                 onClicked: page.back()
             }
+            // Cover thumbnail. Owned playlists can tap it to change the cover; the
+            // pencil badge is the only hint (no separate header button, to keep the
+            // icon row from getting crowded) — matches SongRow's tap-target style.
+            Item {
+                Layout.alignment: Qt.AlignVCenter
+                Layout.preferredWidth: 40
+                Layout.preferredHeight: 40
+                visible: !player.playlistLoading
+
+                CoverImage {
+                    anchors.fill: parent
+                    radius: 8
+                    source: player.playlistCoverPath
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    enabled: player.playlistOwned
+                    onClicked: { coverPathField.text = ""; coverDialog.open() }
+                }
+                Rectangle {
+                    visible: player.playlistOwned
+                    width: 18; height: 18
+                    radius: 9
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.margins: -2
+                    color: Theme.color.primary
+                    Text {
+                        anchors.centerIn: parent
+                        text: "edit"
+                        font.family: Theme.iconFont.name
+                        font.pixelSize: 12
+                        color: Theme.color.onPrimaryColor
+                    }
+                }
+            }
             Text {
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignVCenter
@@ -106,6 +142,65 @@ Rectangle {
         onAccepted: {
             player.deletePlaylist(player.openPlaylistId)
             page.back()
+        }
+    }
+
+    // Custom cover: paste/type a local image path (same convention as the
+    // desktop "本地音乐目录"/"缓存目录" settings — no native file picker in this
+    // project yet) and preview it before applying. Netease re-encodes/resizes on
+    // its end, so no local validation beyond "does something decode".
+    Dialog {
+        id: coverDialog
+        icon: "image"
+        title: "更换歌单封面"
+        acceptText: "应用"
+        rejectText: "取消"
+        showAcceptButton: coverPathField.text.trim() !== ""
+        onAccepted: player.setPlaylistCover(player.openPlaylistId, coverPathField.text)
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 12
+
+            // Plain letterboxed Image, not CoverImage's PreserveAspectCrop: qml4j
+            // mis-scales/crops non-square local sources (confirmed — a wide photo
+            // stretched past the box on the right instead of being cropped square).
+            // PreserveAspectFit only needs a uniform scale-to-fit, no source-rect
+            // crop math, so it doesn't hit that bug; clip guards any overflow anyway.
+            Rectangle {
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: 160
+                Layout.preferredHeight: 160
+                radius: 12
+                color: Theme.color.surfaceContainerHighest
+                clip: true
+
+                Image {
+                    anchors.fill: parent
+                    source: coverPathField.text.trim()
+                    fillMode: "PreserveAspectFit"
+                }
+            }
+            TextField {
+                id: coverPathField
+                Layout.fillWidth: true
+                type: "outlined"
+                label: "图片文件路径"
+                onAccepted: { coverDialog.accepted(); coverDialog.close() }
+            }
+            // The TextField's own TextInput doesn't scroll to keep the caret visible
+            // past its width (qml4j gap, same family as the missing Delete-key
+            // support), so a long path silently hides whatever you just typed at the
+            // end. Mirror the live value here, wrapped, so it's always fully visible.
+            Text {
+                Layout.fillWidth: true
+                visible: coverPathField.text.length > 0
+                text: coverPathField.text
+                wrapMode: Text.WrapAnywhere
+                color: Theme.color.onSurfaceVariantColor
+                font.family: Theme.typography.bodySmall.family
+                font.pixelSize: Theme.typography.bodySmall.size
+            }
         }
     }
 }
