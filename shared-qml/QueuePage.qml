@@ -72,6 +72,10 @@ Rectangle {
             isLocal: true
             highlightCurrent: !page.showCustom
             removable: true
+            // Long-press → custom-playlist add/remove + copy link (netease-sourced rows
+            // only; a local file sitting in the live queue gets an empty menu — see
+            // SongContextMenu's songId guard).
+            songMenu: true
             onActivated: page.showCustom
                 ? player.playCustomPlaylistIndex(q.activatedIndex)
                 : player.playQueueIndex(q.activatedIndex)
