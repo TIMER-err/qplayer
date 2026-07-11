@@ -39,7 +39,7 @@
              check). Local dev default; the release workflow overrides it with the
              git tag (-Dqplayer.app.version=…) so release binaries match the tag
              without a committed bump, like the macOS/Windows packagers. -->
-        <qplayer.app.version>0.8.7</qplayer.app.version>
+        <qplayer.app.version>0.8.8</qplayer.app.version>
         <!-- exec:exec run knobs (override on the command line, e.g. -Dgfx=vulkan). -->
         <gfx>gl</gfx>
         <win.w>1100</win.w>
