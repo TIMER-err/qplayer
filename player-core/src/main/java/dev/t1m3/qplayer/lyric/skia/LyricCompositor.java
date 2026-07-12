@@ -58,6 +58,10 @@ public final class LyricCompositor {
     private List<LyricLine> lastLyrics;
     private float lyricSlide;
     private long renderedVersion = -1;
+    // Whether composite() skipped the main-tree relayout this frame (idle fast path).
+    // The host reads it for its frame profiler — the skip decision lives here now, so
+    // the shell can't compute it itself.
+    private boolean skippedLayout;
 
     // The QML lyric-chrome subtree (objectName "lyricChrome"), rendered on top of
     // the host fluid; looked up once after the scene loads.
@@ -120,6 +124,13 @@ public final class LyricCompositor {
         return lyricRenderer;
     }
 
+    /** Whether the last {@link #composite} skipped the main-tree relayout (idle fast
+     *  path engaged). The host's frame profiler reads this — the skip decision lives
+     *  here now, so the shell can no longer compute it inline. */
+    public boolean skippedLayout() {
+        return skippedLayout;
+    }
+
     /** Eased open fraction (0 closed, 1 fully covering the scene), for gesture gating. */
     public float lyricSlide() {
         return lyricSlide;
@@ -171,6 +182,7 @@ public final class LyricCompositor {
             int sc = canvas.save();
             canvas.scale(uiScale, uiScale);
             boolean skipLayout = Property.changeVersion() == renderedVersion;
+            skippedLayout = skipLayout;
             renderer.render(canvas, view.root(), skipLayout);
             renderedVersion = Property.changeVersion();
             canvas.restoreToCount(sc);
@@ -183,6 +195,10 @@ public final class LyricCompositor {
             // ~14 ms and settling the full tree ~5 ms, both wasted while covered.
             renderer.layoutOnly(lyricChrome != null ? lyricChrome : view.root());
             renderedVersion = Property.changeVersion();
+            skippedLayout = false;
+        } else {
+            // Fully covered and nothing changed: the whole main tree is skipped.
+            skippedLayout = true;
         }
         drawLyricOverlay(canvas, controller, settings, ctx, uiScale, fbW, fbH);
         double slideNow = controller != null ? controller.lyricSlide.peek() : 0.0;

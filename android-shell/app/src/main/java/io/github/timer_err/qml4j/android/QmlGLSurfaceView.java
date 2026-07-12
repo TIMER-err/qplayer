@@ -434,6 +434,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 // LyricCompositor — the same code path the desktop LWJGL host runs.
                 compositor.composite(canvas, renderer, view, controller, settings,
                         surface.recordingContext(), uiScale, surface.width(), surface.height());
+                if (compositor.skippedLayout()) profSkips++;
                 long t1b = System.nanoTime();
                 surface.present();
                 profileFrame(t0, t1, t1b, System.nanoTime());
@@ -456,7 +457,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     private long profLastFrameNanos;
     private int profFrames;
     private int profSkips;
-    private long profBumpTick, profBumpRender;
+    private long profBumpTick;
     private double profLayoutMs, profRenderMs, profPresentMs, profGapMs, profMaxGapMs;
 
     private void profileFrame(long t0, long t1, long t1b, long t2) {
@@ -471,14 +472,14 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         profLastFrameNanos = t2;
         if (++profFrames >= 120) {
             dev.t1m3.qplayer.util.Logger.info(
-                "frame: {}fps render {}ms skip {}/{} bumps tick {} render {} (per120)",
+                "frame: {}fps render {}ms skip {}/{} bumps tick {} (per120)",
                 Math.round(1000.0 / (profGapMs / profFrames)),
                 round1(profRenderMs / profFrames),
                 profSkips, profFrames,
-                profBumpTick, profBumpRender);
+                profBumpTick);
             profFrames = 0;
             profSkips = 0;
-            profBumpTick = profBumpRender = 0;
+            profBumpTick = 0;
             profLayoutMs = profRenderMs = profPresentMs = profGapMs = profMaxGapMs = 0;
         }
     }
