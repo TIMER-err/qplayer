@@ -90,17 +90,14 @@ Item {
                         font.pixelSize: 24
                         color: railItem.selected ? Theme.color.onSecondaryContainerColor : Theme.color.onSurfaceVariantColor
                         
-                        // Rail Mode: Center in indicator (56 width) -> 16dp margin
-                        // Extended Mode: Left aligned inside indicator (margin 16) -> 16dp margin
-                        // X is always relative to indicator + 16dp, so no animation needed for X relative to indicator
-                        
                         anchors.left: indicator.left
                         anchors.leftMargin: 16
-                        
-                        // Vertical centering in indicator
-                        // Start Y (Rail): (32 - 24)/2 = 4
-                        // End Y (Extended): (56 - 24)/2 = 16
-                        y: 4 + (16 - 4) * railItem.expansionProgress
+
+                        // Center in the indicator, not a computed y: the icon font's line
+                        // box / baseline is taller than the glyph, so positioning the text
+                        // box top dropped the glyph below the pill's centre. verticalCenter
+                        // also tracks the indicator's 32->56 height animation for free.
+                        anchors.verticalCenter: indicator.verticalCenter
                     }
                     
                     // Label
