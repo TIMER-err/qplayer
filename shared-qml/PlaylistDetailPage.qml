@@ -34,53 +34,6 @@ Rectangle {
                 type: "standard"; icon: "arrow_back"
                 onClicked: page.back()
             }
-            // Cover thumbnail. Owned playlists can tap it to change the cover; the
-            // pencil badge is the only hint (no separate header button, to keep the
-            // icon row from getting crowded) — matches SongRow's tap-target style.
-            Item {
-                Layout.alignment: Qt.AlignVCenter
-                Layout.preferredWidth: 40
-                Layout.preferredHeight: 40
-                visible: !player.playlistLoading
-
-                CoverImage {
-                    anchors.fill: parent
-                    radius: 8
-                    source: player.playlistCoverPath
-                }
-                MouseArea {
-                    anchors.fill: parent
-                    enabled: player.playlistOwned
-                    // Android has a real gallery picker (native intent, no QML dialog
-                    // needed); desktop has no such picker, so it types a local path
-                    // instead — same platform check used elsewhere (settings.musicFolder
-                    // only exists on desktop's AppSettings).
-                    onClicked: {
-                        if (typeof settings.musicFolder === "undefined") {
-                            player.pickPlaylistCover(player.openPlaylistId)
-                        } else {
-                            coverPathField.text = ""
-                            coverDialog.open()
-                        }
-                    }
-                }
-                Rectangle {
-                    visible: player.playlistOwned
-                    width: 18; height: 18
-                    radius: 9
-                    anchors.right: parent.right
-                    anchors.bottom: parent.bottom
-                    anchors.margins: -2
-                    color: Theme.color.primary
-                    Text {
-                        anchors.centerIn: parent
-                        text: "edit"
-                        font.family: Theme.iconFont.name
-                        font.pixelSize: 12
-                        color: Theme.color.onPrimaryColor
-                    }
-                }
-            }
             Text {
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignVCenter
@@ -100,6 +53,24 @@ Rectangle {
                 icon: player.playlistSubscribed ? "bookmark" : "bookmark_border"
                 contentColor: player.playlistSubscribed ? Theme.color.primary : Theme.color.onSurfaceColor
                 onClicked: player.togglePlaylistSubscribe()
+            }
+            // Change cover — own playlists only, its own top-right button (the header
+            // no longer shows a cover thumbnail). Android opens a native gallery
+            // picker; desktop has none, so it opens the path-entry dialog instead
+            // (same settings.musicFolder platform check used elsewhere).
+            IconButton {
+                Layout.alignment: Qt.AlignVCenter
+                type: "standard"
+                visible: player.loggedIn && !player.playlistLoading && player.playlistOwned
+                icon: "image"
+                onClicked: {
+                    if (typeof settings.musicFolder === "undefined") {
+                        player.pickPlaylistCover(player.openPlaylistId)
+                    } else {
+                        coverPathField.text = ""
+                        coverDialog.open()
+                    }
+                }
             }
             // Delete — only your own playlists, and never the "我喜欢的音乐" default
             // (the first playlist, which can't be removed). Confirms first.
