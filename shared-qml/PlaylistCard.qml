@@ -18,35 +18,43 @@ Item {
     implicitWidth: tile
     implicitHeight: tile + 52
 
-    Column {
-        anchors.top: parent.top
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.margins: 4
-        spacing: 6
-
-        CoverImage {
-            width: parent.width
-            height: parent.width
-            radius: 14
-            icon: "queue_music"
-            iconSize: 44
-            source: card.coverThumbPath || card.coverUrl
-        }
-        Text {
-            width: parent.width
-            text: card.name
-            color: Theme.color.onSurfaceColor
-            fontSize: 14
-            elide: Text.ElideRight
-        }
-        Text {
-            width: parent.width
-            visible: card.count > 0
-            text: card.count + " 首"
-            color: Theme.color.onSurfaceVariantColor
-            fontSize: 12
-        }
+    // Explicit sibling anchors instead of a Column: qml4j's positioner skips an
+    // invisible child and does not re-flow when a child's `visible` flips false→true,
+    // so the count label — hidden while the playlist is empty — landed at (0,0) over
+    // the cover the moment a first track pushed count past 0 (fixed only by a restart,
+    // which rebuilt the card already-visible). Anchored positions are resolved
+    // regardless of visibility, so the toggle no longer moves anything.
+    CoverImage {
+        id: cover
+        x: 4
+        y: 4
+        width: card.width - 8
+        height: card.width - 8
+        radius: 14
+        icon: "queue_music"
+        iconSize: 44
+        source: card.coverThumbPath || card.coverUrl
+    }
+    Text {
+        id: nameLabel
+        x: 4
+        anchors.top: cover.bottom
+        anchors.topMargin: 6
+        width: card.width - 8
+        text: card.name
+        color: Theme.color.onSurfaceColor
+        fontSize: 14
+        elide: Text.ElideRight
+    }
+    Text {
+        x: 4
+        anchors.top: nameLabel.bottom
+        anchors.topMargin: 2
+        width: card.width - 8
+        visible: card.count > 0
+        text: card.count + " 首"
+        color: Theme.color.onSurfaceVariantColor
+        fontSize: 12
     }
 
     MouseArea {
