@@ -102,11 +102,15 @@ MouseArea {
             color: root.rippleColor
             opacity: 0
 
-            // Expand + fade in to full opacity, then hold while pressed.
+            // Expand + fade in to full opacity, then hold while pressed. Linear: a
+            // constant-speed expand is the look this ripple shipped with for months —
+            // it was written as OutQuart but qml4j didn't implement Quart until 0.2.16,
+            // so it silently ran linear. Any ease-out (Quart, even Cubic) shoots the
+            // wave out too fast; keep it linear to match the familiar feel.
             NumberAnimation {
                 target: wave; property: "size"
                 from: 0; to: wave.targetSize
-                duration: 450; easing.type: Easing.OutQuart
+                duration: 450; easing.type: Easing.Linear
                 running: true
             }
             NumberAnimation {

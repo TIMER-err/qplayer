@@ -52,8 +52,9 @@ Rectangle {
                 }
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.top: parent.top
-                    anchors.topMargin: 5
+                    // Center in the pill, not a fixed top margin: the icon font's line
+                    // box / baseline dropped the glyph below the pill's centre.
+                    anchors.verticalCenter: pill.verticalCenter
                     text: modelData.icon
                     font.family: Theme.iconFont.name
                     font.pixelSize: 22
