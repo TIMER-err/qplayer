@@ -75,7 +75,14 @@ Rectangle {
             color: Theme.color.surfaceContainerHighest
             visible: row.coverThumbPath == ""
             Text {
-                anchors.centerIn: parent
+                // Size to the box via reactive width/height bindings — NOT anchors.fill /
+                // centerIn, which run in the layout pass that cachedLayout skips for a row
+                // first realized off-screen, leaving the node 0x0 and the glyph at the
+                // box's top-left until a page switch rebuilt it. With a real box size the
+                // glyph self-centres at paint time (AlignHCenter + the icon vertical baseline).
+                width: parent.width
+                height: parent.height
+                horizontalAlignment: Text.AlignHCenter
                 text: row.highlighted ? "equalizer" : "music_note"
                 font.family: Theme.iconFont.name
                 font.pixelSize: 22

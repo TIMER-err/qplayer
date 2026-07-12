@@ -22,7 +22,12 @@ Item {
         radius: cover.radius
         color: Theme.color.surfaceContainerHighest
         Text {
-            anchors.centerIn: parent
+            // Reactive width/height (not anchors.fill / centerIn, which the skipped layout
+            // pass leaves unresolved for an off-screen tile) give the node a real box size;
+            // the glyph then self-centres at paint time. See SongRow's placeholder.
+            width: parent.width
+            height: parent.height
+            horizontalAlignment: Text.AlignHCenter
             text: cover.icon
             font.family: Theme.iconFont.name
             font.pixelSize: cover.iconSize
