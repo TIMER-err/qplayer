@@ -33,6 +33,7 @@ Item {
         radius: 14
         icon: "queue_music"
         iconSize: 44
+        fadeIn: true
         source: card.coverThumbPath || card.coverUrl
     }
     Text {
