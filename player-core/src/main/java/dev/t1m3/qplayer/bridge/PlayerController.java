@@ -225,6 +225,10 @@ public final class PlayerController {
     public final Property<Integer> lyricIndex = new Property<>(-1);
     /** Whether the full-screen lyric page is open (host draws it via Skija). */
     public final Property<Boolean> lyricsOpen = new Property<>(false);
+    /** True from a track switch until the new source actually starts playing — the
+     *  progress bars show a moving "loading" sweep while the (possibly async) source
+     *  resolves. Cleared by the backend's onStarted, or on a failed/absent url. */
+    public final Property<Boolean> loading = new Property<>(false);
     /** Host-published lyric-overlay slide progress (0 closed .. 1 open); the QML
      *  LyricOverlay chrome fades with it in lockstep with the host lyric layer. */
     public final Property<Double> lyricSlide = new Property<>(0.0);
@@ -322,7 +326,7 @@ public final class PlayerController {
         backend.setOnComplete(() -> onMain(this::autoAdvance));
         // Re-baseline the media session's position once audio actually starts (the
         // backend prepares asynchronously, so the position at play() time is stale).
-        backend.setOnStarted(() -> { errorRetryId = -1; notifyPlayback(); });
+        backend.setOnStarted(() -> { errorRetryId = -1; post(() -> loading.set(false)); notifyPlayback(); });
         // Audio-focus driven pause/resume (phone call, another player): keep the
         // intended-play state, the UI, and the media session in sync.
         backend.setOnPaused(() -> {
@@ -1038,6 +1042,19 @@ public final class PlayerController {
     private void playAt(int i) {
         if (i < 0 || i >= queue.size()) return;
         playIndex = i;
+        // Make the switch feel instant even while the next source resolves (a netease
+        // URL fetch takes a beat): silence the current track now, blank the now-playing
+        // surface (lyrics + cover fall back to their placeholders), and start the
+        // progress bars' loading sweep. The loaders below re-apply the real lyrics/cover
+        // in the same render-queue drain (no flash for instant sources); the backend's
+        // onStarted ends the sweep once playback actually begins.
+        backend.pause();
+        post(() -> {
+            loading.set(true);
+            applyLyrics(Collections.<LyricLine>emptyList());
+            applyCover(null);
+            coverPath.set("");
+        });
         worker.submit(this::saveQueue);
         final int idx = i;
         final Track t = queue.get(i);
@@ -1459,6 +1476,8 @@ public final class PlayerController {
             post(() -> { if (playIndex == expectedIndex) applyLyrics(mem); });
             return;
         }
+        // (Lyrics were already blanked at the track switch in playAt; the async fetch
+        // eases them back in when it lands.)
         worker.submit(() -> {
             List<LyricLine> ly = fetchNeteaseLyrics(songId);
             post(() -> { if (playIndex == expectedIndex) applyLyrics(ly); });
@@ -1561,8 +1580,11 @@ public final class PlayerController {
                     if (playIndex != expectedIndex) return; // user moved on
                     if (playUrl == null) {
                         Logger.warn("netease song {} has no url (blocked/VIP/login required)", songId);
-                        post(() -> toast.set(netease.isLoggedIn()
-                                ? "无法播放：VIP/灰色歌曲" : "无法播放：请先登录"));
+                        post(() -> {
+                            loading.set(false);   // nothing will start — stop the sweep
+                            toast.set(netease.isLoggedIn()
+                                    ? "无法播放：VIP/灰色歌曲" : "无法播放：请先登录");
+                        });
                         return;
                     }
                     t.streamUrl = playUrl;
