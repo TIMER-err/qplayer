@@ -1221,8 +1221,13 @@ public class LyricRenderer {
                 int to = (r + 1 < starts.length) ? starts[r + 1] : line.syllables.size();
 
                 float rowWidth = sumWidths(lineSylW, from, to);
+                // A continuation row can start on the whitespace the source carried at
+                // the wrap point; drop it so the visible text lines up with the first
+                // row instead of sitting one space in.
+                float lead = (r > 0) ? leadingWsWidth(line.syllables, lineSylW, from, to, font) : 0f;
+                float visWidth = rowWidth - lead;
                 float rowX = alignRight
-                        ? Math.max(leftX, leftX + columnWidth - rowWidth)
+                        ? Math.max(leftX, leftX + columnWidth - visWidth)
                         : leftX;
 
                 float wrapRowH = (r == 0) ? rowHeight : (isBg ? rowHeightBgWrap : rowHeightLyricWrap);
@@ -1234,12 +1239,12 @@ public class LyricRenderer {
                 // setLyrics time so the lift amplitude is consistent
                 // across every line of the same song.
                 boolean enableLift = hasPerSyllableTiming;
-                drawSyllableRange(line.syllables, lineSylW, from, to, rowX, rowBaselineY, font,
+                drawSyllableRange(line.syllables, lineSylW, from, to, rowX - lead, rowBaselineY, font,
                         ascent, descent, positionMs, baseAlpha, activeK, enableLift, spring, glowOn);
 
-                if (rowWidth > maxRowWidth) {
-                    maxRowWidth = rowWidth;
-                    maxRowRightX = rowX + rowWidth;
+                if (visWidth > maxRowWidth) {
+                    maxRowWidth = visWidth;
+                    maxRowRightX = rowX + visWidth;
                 }
             }
 
@@ -1572,6 +1577,25 @@ public class LyricRenderer {
             w += cached;
         }
         return w;
+    }
+
+    // Width of the run of leading whitespace at the start of a wrapped row [from, to):
+    // whole whitespace-only syllables, plus the leading spaces of the first syllable
+    // that carries visible text. A continuation row can begin on the space the source
+    // kept at the wrap point (a leading-space syllable or a standalone space token),
+    // which would otherwise indent it out of line with the first row.
+    private float leadingWsWidth(List<Syllable> syls, float[] sylW, int from, int to, Font font) {
+        float ws = 0f;
+        for (int i = from; i < to; i++) {
+            String st = syls.get(i).text;
+            if (st == null || st.isEmpty()) continue;
+            int k = 0;
+            while (k < st.length() && Character.isWhitespace(st.charAt(k))) k++;
+            if (k == st.length()) { ws += sylW[i]; continue; } // whole syllable is blank
+            if (k > 0) ws += perCharWidth(st.substring(0, k), fontForText(st, font));
+            break;
+        }
+        return ws;
     }
 
     // Hangul: Syllables + Jamo Extended-B (AC00-D7FF), Jamo (1100-11FF), Compatibility
