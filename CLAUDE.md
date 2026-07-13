@@ -12,9 +12,9 @@
 ## 仓库与分支
 
 - `origin` = `Ink-Stained-Clouds/qplayer`（自己的 fork），`upstream` = `TIMER-err/qplayer`（协作者仓库，remote URL 里嵌了 PAT，绝不能回显到输出或写进文件）。
-- `ink-fresh` 是本地主力工作分支，对应 `origin/ink-fresh` 和 `upstream/ink`。
-- `master` 是发布分支，三边（`origin/master`、`upstream/master`、本地 `master`）应保持一致；`upstream/master` 通常是 `ink-fresh` 的祖先，可以直接 fast-forward push。
-- **"推所有仓库" / "三个仓库都推送"的默认含义**：`origin:ink-fresh` + `upstream:ink`。**不包含** master——master 是否推送、是否打 tag 需要单独明确要求。
+- **`upstream/master` 是唯一权威分支**（2026-07-13 起）。`origin` 这个 fork 和 `upstream` 的 `ink`/`ink_clouds` 分支都是临时/过时的，已被强推覆盖为 `upstream/master` 的内容，不再维护。
+- 本地仓库**只保留 `master` 一个分支**，不要新建 `ink-fresh` 等其他本地分支。所有开发直接在 `master` 上进行。
+- 正常情况下 `git push origin master` / `git push upstream master:master` 应该都是快进（fast-forward），不需要强推。
 - **禁止 `git push --force`**，包括任何分支/远端。哪怕之前批准过一次强推，下一次也要重新问，不能当作标准许可。
 
 ## 发版流程
