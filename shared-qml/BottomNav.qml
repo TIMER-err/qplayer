@@ -73,7 +73,7 @@ Rectangle {
                     Behavior on color { ColorAnimation { duration: 200 } }
                 }
                 Ripple {
-                    anchors.fill: pill
+                    anchors.fill: parent
                     clipRadius: 16
                     onClicked: { bar.pendingIndex = index; bar.navigate() }
                 }
