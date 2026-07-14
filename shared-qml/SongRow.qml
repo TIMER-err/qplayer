@@ -103,6 +103,12 @@ Rectangle {
                    ? row.coverThumbPath : ""
             radius: 8
             fillMode: Image.PreserveAspectCrop
+            // Fade the art in as it loads, like the lyric-page cover. Keyed on source
+            // presence (not load status, which would deadlock — opacity 0 skips the
+            // paint that advances the decode). A reused row whose source swaps path→path
+            // keeps opacity 1, so scrolling doesn't re-fade every cover.
+            opacity: coverImg.source !== "" ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
         }
     }
 

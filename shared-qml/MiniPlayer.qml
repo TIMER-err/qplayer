@@ -27,6 +27,13 @@ Rectangle {
     implicitHeight: 84
     color: Theme.color.surfaceContainerHigh
 
+    // Loading sweep state: enter as soon as player.loading rises; leave only when the
+    // current sweep pass ends (ScriptAction below), so a track that loads mid-sweep
+    // finishes the pass before the position fill returns instead of snapping.
+    property bool sweeping: false
+    property bool _loading: player.loading
+    on_LoadingChanged: if (_loading) mini.sweeping = true
+
     // progress line along the very top edge
     Rectangle {
         id: track
@@ -40,9 +47,31 @@ Rectangle {
             anchors.left: parent.left
             anchors.top: parent.top
             anchors.bottom: parent.bottom
+            visible: !mini.sweeping
             width: player.durationMs > 0
                    ? parent.width * Math.min(1, player.positionMs / player.durationMs) : 0
             color: Theme.color.primary
+        }
+        // Loading sweep: a segment sliding left-to-right while the next track resolves,
+        // in place of the frozen position fill. Only ticks while sweeping + visible.
+        Rectangle {
+            id: sweep
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            visible: mini.sweeping
+            width: track.width * 0.3
+            color: Theme.color.primary
+            SequentialAnimation {
+                running: mini.sweeping && mini.visible
+                loops: Animation.Infinite
+                NumberAnimation {
+                    target: sweep; property: "x"
+                    from: -sweep.width; to: track.width
+                    duration: 1000; easing.type: Easing.InOutSine
+                }
+                // End the sweep only at a pass boundary once loading is done.
+                ScriptAction { onTrigger: if (!player.loading) mini.sweeping = false }
+            }
         }
         MouseArea {
             anchors.fill: parent

@@ -42,7 +42,11 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         radius: Math.min(width, height) * 0.06
         iconSize: 72
-        source: player.coverPath !== "" ? player.coverPath : player.coverUrl
+        fadeIn: true
+        // Only the resolved local cover path, not the coverUrl fallback: on a track
+        // switch coverPath clears to "" until the new art is ready, so the placeholder
+        // shows through (fadeIn) instead of the previous song's cover lingering.
+        source: player.coverPath
         // Zoom + fade in step with the host lyric column's own zoom (SPlayer's whole-
         // content zoom): cover grows in as the lyrics shrink out, and vice versa.
         property bool shown: overlay.coverOnly && player.lyricSlide > 0.25
@@ -123,6 +127,8 @@ Item {
             anchors.topMargin: 18
             wavy: true
             visible: player.lyricSlide > 0.001
+            // While the next track loads, sweep instead of showing a frozen position.
+            indeterminate: player.loading
             value: player.lyricProgress
         }
         MouseArea {
@@ -228,7 +234,8 @@ Item {
                 height: landscapeChrome.coverSize
                 radius: Math.min(width, height) * 0.06
                 iconSize: 64
-                source: player.coverPath !== "" ? player.coverPath : player.coverUrl
+                fadeIn: true
+                source: player.coverPath
             }
             Text {
                 id: lTitle
@@ -263,6 +270,7 @@ Item {
                 anchors.right: parent.right
                 wavy: true
                 visible: player.lyricSlide > 0.001
+                indeterminate: player.loading
                 value: player.lyricProgress
             }
             MouseArea {

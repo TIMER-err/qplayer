@@ -6,6 +6,8 @@ Item {
     property real value: 0.0
     property bool indeterminate: false
     property bool wavy: false
+    // Enter indeterminate immediately; the wavy canvas defers the exit to a cycle boundary.
+    onIndeterminateChanged: if (indeterminate) wavyCanvas._indet = true
     
     implicitWidth: 200
     implicitHeight: wavy ? 16 : 4
@@ -113,6 +115,11 @@ Item {
         onProgressChanged: requestPaint()
 
         property real phase: 0.0
+        // Latched indeterminate state: follows control.indeterminate up immediately, but
+        // defers the switch back to determinate to the next wave-cycle boundary so a bar
+        // that stops loading mid-sweep finishes the sweep instead of snapping to value.
+        property bool _indet: control.indeterminate
+        property real _lastPhase: 0.0
 
         // Animation for phase shift (make it flow). Runs for determinate too so the
         // wave visibly flows and the Canvas keeps repainting (onPhaseChanged), instead
@@ -156,7 +163,7 @@ Item {
             // Indicator (active)
             ctx.beginPath();
             ctx.strokeStyle = activeColor;
-            if (control.indeterminate) {
+            if (wavyCanvas._indet) {
                 var indetProgress = (phase % (Math.PI * 2)) / (Math.PI * 2); // 0..1
                 var span = x1 - x0;
                 var barWidth = span * 0.5;
@@ -189,7 +196,13 @@ Item {
             }
         }
         
-        onPhaseChanged: requestPaint()
+        onPhaseChanged: {
+            requestPaint();
+            // phase wraps 2π→0 at each loop boundary: latch the deferred indeterminate
+            // switch there so the sweep completes before the bar returns to determinate.
+            if (phase < _lastPhase) _indet = control.indeterminate;
+            _lastPhase = phase;
+        }
         onWidthChanged: requestPaint()
         onHeightChanged: requestPaint()
     }

@@ -15,6 +15,10 @@ Item {
     property real radius: 8
     property string icon: "music_note"
     property int iconSize: 26
+    // Cross-fade the art in when the source changes (e.g. the lyric page on a track
+    // switch): the old art fades out to the placeholder, the new one fades in once
+    // decoded. Off by default so list rows / cards keep swapping instantly.
+    property bool fadeIn: false
 
     // Placeholder underneath; the cover image draws over it once decoded.
     Rectangle {
@@ -36,9 +40,20 @@ Item {
     }
 
     Image {
+        id: img
         anchors.fill: parent
         source: cover.source
         radius: cover.radius
         fillMode: "PreserveAspectCrop"
+        // Fade the art in on a source change (fadeIn only). Driven by source presence,
+        // NOT the Image's load status: a status-gated opacity would deadlock — opacity 0
+        // makes the renderer skip painting the node, and the decode that advances status
+        // only runs while painting. An empty source draws nothing (the placeholder shows
+        // through); once a source is set the art fades up as it decodes.
+        opacity: (!cover.fadeIn || cover.source !== "") ? 1 : 0
+        Behavior on opacity {
+            enabled: cover.fadeIn
+            NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
+        }
     }
 }

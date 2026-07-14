@@ -31,11 +31,11 @@ public final class FluidBackground {
 
     private static final int TEX_SIZE = 32;
 
-    // Embedded SkSL (was resources/shaders/fluid_mesh.sksl). Compiled once.
-    private static final String SKSL =
-            "uniform float2 resolution;\n" +
-            "uniform float  time;\n" +
-            "uniform shader cover;\n" +
+    // Embedded SkSL (was resources/shaders/fluid_mesh.sksl). Compiled once. Two variants
+    // share the warp/rotate body: the steady-state one samples the single current cover;
+    // the fade one also samples the previous cover and lerps by `fade` for a track-switch
+    // cross-fade. Split so the common case pays one texture eval per pixel, not two.
+    private static final String SKSL_HEAD =
             "const float TEX_SIZE  = 32.0;\n" +
             "const float WARP_A    = 0.10;\n" +
             "const float WARP_B    = 0.06;\n" +
@@ -58,16 +58,33 @@ public final class FluidBackground {
             "    float2 c = warpedUV - 0.5;\n" +
             "    float2 rotUV = float2(c.x * cs - c.y * sn,\n" +
             "                          c.x * sn + c.y * cs) + 0.5;\n" +
-            "    rotUV = clamp(rotUV, float2(0.005), float2(0.995));\n" +
-            "    half4 col = cover.eval(rotUV * TEX_SIZE);\n" +
+            "    rotUV = clamp(rotUV, float2(0.005), float2(0.995));\n";
+    private static final String SKSL_TAIL =
             "    float vignette = smoothstep(0.8, 0.3, distance(screenUV, float2(0.5)));\n" +
             "    half3 rgb = col.rgb * half(0.6 + vignette * 0.4);\n" +
             "    float dither = fract(sin(dot(fragCoord, float2(12.9898, 78.233))) * 43758.5453);\n" +
             "    rgb += half3(dither - 0.5) / 255.0;\n" +
             "    return half4(rgb, 1.0);\n" +
             "}\n";
+    private static final String SKSL =
+            "uniform float2 resolution;\n" +
+            "uniform float  time;\n" +
+            "uniform shader cover;\n" +
+            SKSL_HEAD +
+            "    half4 col = cover.eval(rotUV * TEX_SIZE);\n" +
+            SKSL_TAIL;
+    private static final String SKSL_FADE =
+            "uniform float2 resolution;\n" +
+            "uniform float  time;\n" +
+            "uniform shader cover;\n" +
+            "uniform shader coverPrev;\n" +
+            "uniform float  fade;\n" +
+            SKSL_HEAD +
+            "    half4 col = mix(coverPrev.eval(rotUV * TEX_SIZE), cover.eval(rotUV * TEX_SIZE), fade);\n" +
+            SKSL_TAIL;
 
     private static RuntimeEffect effect;
+    private static RuntimeEffect effectFade;
 
     private static RuntimeEffect effect() {
         if (effect == null) {
@@ -81,6 +98,18 @@ public final class FluidBackground {
         return effect;
     }
 
+    private static RuntimeEffect effectFade() {
+        if (effectFade == null) {
+            try {
+                effectFade = RuntimeEffect.makeForShader(SKSL_FADE);
+            } catch (Throwable t) {
+                dev.t1m3.qplayer.util.Logger.warn("fluid fade sksl compile failed: {}", t.getMessage());
+                throw t;
+            }
+        }
+        return effectFade;
+    }
+
     private final long startNs;
     private Image cover;
     // Cover sampled as a shader child every frame. The texture only changes on a
@@ -88,6 +117,12 @@ public final class FluidBackground {
     // makeShader + close on the cover every frame was needless native churn.
     private Shader coverShader;
     private String coverKey;
+    // Previous cover, kept alive to cross-fade into the new one on a track switch. Both
+    // shader + image are released once the fade completes (or the page is disposed).
+    private Shader coverPrevShader;
+    private Image coverPrev;
+    private long fadeStartNs;
+    private static final float FADE_DUR = 0.6f; // seconds
     // Off-thread cover decode. The heavy decode + 32x32 downscale + CPU blur must NOT
     // run on the render thread: doing it on the frame a track switches stalls that
     // frame, and the time-based cover-morph animation then jumps to catch up. A single
@@ -148,17 +183,18 @@ public final class FluidBackground {
         // old cover. Cheap — the expensive work already happened on the decoder thread.
         if (decodedCover != null && Objects.equals(decodedKey, trackKey)
                 && !Objects.equals(coverKey, trackKey)) {
-            if (coverShader != null) {
-                coverShader.close();
-                coverShader = null;
-            }
-            if (cover != null) cover.close();
+            // Retire the current cover to the "prev" slot and cross-fade to the new one
+            // rather than snapping. Both stay alive until the fade ends (releasePrev).
+            releasePrev();
+            coverPrevShader = coverShader;   // null on the very first cover
+            coverPrev = cover;
             cover = decodedCover;
             decodedCover = null;
             coverKey = trackKey;
             coverShader = cover.makeShader(
                     FilterTileMode.CLAMP, FilterTileMode.CLAMP,
                     SamplingMode.LINEAR, Matrix33.IDENTITY);
+            fadeStartNs = nowNs;
             invalidateStatic();   // the source changed -> the cached frame is stale
         }
         if (coverShader == null) {
@@ -178,8 +214,11 @@ public final class FluidBackground {
         }
 
         // Static: blit a once-rendered, device-resolution image. Rebuild it on a
-        // cover/size change (or when first entering static mode).
+        // cover/size change (or when first entering static mode). Battery-saver mode
+        // doesn't animate, so it can't play the cross-fade — drop the prev cover and
+        // snap to the new one.
         if (staticMode && ctx != null) {
+            releasePrev();
             int dw = Math.max(1, Math.round(w * uiScale));
             int dh = Math.max(1, Math.round(h * uiScale));
             if (staticImage == null || staticW != dw || staticH != dh) {
@@ -192,20 +231,38 @@ public final class FluidBackground {
             // build failed -> fall through to the live shader this frame
         }
 
-        drawFluid(canvas, fullRect, w, h, time);
+        drawFluid(canvas, fullRect, w, h, time, fadeProgress(nowNs));
+    }
+
+    // Fade progress 0..1 since the last cover swap; releases the previous cover once done.
+    private float fadeProgress(long nowNs) {
+        if (coverPrevShader == null) return 1f;
+        float t = (nowNs - fadeStartNs) / 1_000_000_000f / FADE_DUR;
+        if (t >= 1f) { releasePrev(); return 1f; }
+        return t < 0f ? 0f : t;
+    }
+
+    private void releasePrev() {
+        if (coverPrevShader != null) { coverPrevShader.close(); coverPrevShader = null; }
+        if (coverPrev != null) { coverPrev.close(); coverPrev = null; }
     }
 
     // Render the fluid shader into `dstRect` with the given resolution + time. The
     // runtime shader bakes its uniforms at makeShader time, so an animated `time`
     // rebuilds it each call -- but that just instantiates the already-compiled
     // effect; the cover child shader and the Paint are reused.
-    private void drawFluid(Canvas canvas, Rect dstRect, float resW, float resH, float time) {
+    private void drawFluid(Canvas canvas, Rect dstRect, float resW, float resH, float time, float fade) {
+        boolean fading = coverPrevShader != null && fade < 1f;
         Shader shaded = null;
         try {
-            try (RuntimeEffectBuilder b = new RuntimeEffectBuilder(effect())) {
+            try (RuntimeEffectBuilder b = new RuntimeEffectBuilder(fading ? effectFade() : effect())) {
                 b.setUniform("resolution", resW, resH);
                 b.setUniform("time", time);
                 b.setChild("cover", coverShader);
+                if (fading) {
+                    b.setChild("coverPrev", coverPrevShader);
+                    b.setUniform("fade", fade);
+                }
                 shaded = b.makeShader();
             }
             fluidPaint.setShader(shaded);
@@ -224,7 +281,7 @@ public final class FluidBackground {
     private void buildStatic(DirectContext ctx, int dw, int dh, float time) {
         invalidateStatic();
         try (Surface off = Surface.makeRenderTarget(ctx, false, ImageInfo.makeN32Premul(dw, dh))) {
-            drawFluid(off.getCanvas(), Rect.makeWH(dw, dh), dw, dh, time);
+            drawFluid(off.getCanvas(), Rect.makeWH(dw, dh), dw, dh, time, 1f);
             staticImage = off.makeImageSnapshot();
             staticW = dw;
             staticH = dh;
@@ -257,6 +314,7 @@ public final class FluidBackground {
             cover.close();
             cover = null;
         }
+        releasePrev();
         invalidateStatic();
         fluidPaint.close();
         coverKey = null;
