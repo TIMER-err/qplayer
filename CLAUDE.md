@@ -4,8 +4,7 @@
 
 ## 环境约束
 
-- 所有工具/文件必须在 **D 盘**，不装 C 盘。
-- `JAVA_HOME=D:\jdk-21.0.11.10-hotspot`；Maven 在 `D:\apache-maven-3.9.6\bin\mvn.cmd`，本地仓库 `D:\maven-repo\repository`。
+- 需要 **JDK 21** 与 **Maven**；安装位置随开发机而定，不要写死盘符或绝对路径，一切以各机实际的 `JAVA_HOME`、`mvn`（在 `PATH` 上）和本地仓库为准。
 - 用中文回复。
 - 编辑 `player-core` 后必须 `mvn -pl player-core install`（不能只 `package`），否则 `desktop-host` 会继续用本地仓库里的旧 jar。
 
