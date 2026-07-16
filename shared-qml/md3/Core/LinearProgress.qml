@@ -149,11 +149,18 @@ Item {
             var x0 = m, x1 = w - m;
             var amplitude = Math.min(h / 4, h / 2 - lw / 2);
             var frequency = 0.1; // Wave density
+            // The real fix for this wave's jagged look was an engine-side bug
+            // (qml4j Canvas 2D paints never turned on antialiasing, plus the
+            // offscreen-backing resolution was quantized too coarsely for common
+            // device scales — see TIMER-err/qml4j#2). Until qplayer picks up a
+            // qml4j release with that fix, a finer sampling step at least halves
+            // the facet size; cheap enough for a ~200px-wide bar.
+            var step = 1;
 
             // Track (inactive)
             ctx.beginPath();
             ctx.strokeStyle = trackColor;
-            for (var x = x0; x <= x1; x += 2) {
+            for (var x = x0; x <= x1; x += step) {
                 var y = cy + amplitude * Math.sin((x * frequency) + phase);
                 if (x === x0) ctx.moveTo(x, y);
                 else ctx.lineTo(x, y);
@@ -170,7 +177,7 @@ Item {
                 var startX = x0 + (span + barWidth) * indetProgress - barWidth;
                 var endXi = startX + barWidth;
                 var begun = false;
-                for (var xi = x0; xi <= x1; xi += 2) {
+                for (var xi = x0; xi <= x1; xi += step) {
                     if (xi >= startX && xi <= endXi) {
                         var yi = cy + amplitude * Math.sin((xi * frequency) + phase);
                         if (!begun) { ctx.moveTo(xi, yi); begun = true; }
@@ -181,13 +188,13 @@ Item {
             } else {
                 var endX = x0 + (x1 - x0) * Math.max(0, Math.min(1, progress));
                 var started = false;
-                for (var xd = x0; xd < endX; xd += 2) {
+                for (var xd = x0; xd < endX; xd += step) {
                     var yd = cy + amplitude * Math.sin((xd * frequency) + phase);
                     if (!started) { ctx.moveTo(xd, yd); started = true; }
                     else ctx.lineTo(xd, yd);
                 }
-                // End exactly at endX (not the last 2px step) so the active tip advances
-                // continuously instead of snapping to the 2px sampling grid.
+                // End exactly at endX (not the last sampling step) so the active tip
+                // advances continuously instead of snapping to the sampling grid.
                 if (started) {
                     var yEnd = cy + amplitude * Math.sin((endX * frequency) + phase);
                     ctx.lineTo(endX, yEnd);
