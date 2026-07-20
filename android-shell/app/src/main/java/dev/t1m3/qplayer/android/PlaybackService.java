@@ -124,6 +124,11 @@ public final class PlaybackService extends Service {
         // swiped away (stopWithTask="true") or explicitly stopped.
         PlayerController c = controller;
         if (c != null) {
+            // Capture position/queue/playMode before anything below pauses/tears
+            // playback down — QPlayerActivity.onDestroy() skips PlayerController.
+            // shutdown() while playing precisely so this Service can keep going in
+            // the background, so this is the only save-on-real-exit this path gets.
+            c.saveSessionState();
             if (c.isPlaying()) c.toggle();
             c.setPlaybackListener(bootstrapListener);
         }
@@ -146,6 +151,8 @@ public final class PlaybackService extends Service {
     public void onTaskRemoved(Intent rootIntent) {
         PlayerController c = controller;
         if (c != null) {
+            // See onDestroy(): capture position/queue/playMode before pausing.
+            c.saveSessionState();
             // Unregister before toggle(): toggle() runs on the controller's main
             // executor (a Handler.post on Android, i.e. deferred, not inline), so its
             // notifyPlayback() callback lands *after* clearNotification() below has

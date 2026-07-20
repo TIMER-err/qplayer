@@ -179,6 +179,12 @@ public final class PlayerController {
     // True after loadQueue() restores a previous session's track — toggle() will
     // call playAt() instead of resume() so the URL is freshly resolved.
     private volatile boolean needsReplay = false;
+    // The saved position to resume at, and which queue slot it applies to (so
+    // clicking a DIFFERENT track before resuming doesn't inherit the old song's
+    // position). playAt() consumes both unconditionally on its very first call
+    // after a restore, applying the offset only when the index still matches.
+    private volatile long pendingResumeMs = 0L;
+    private volatile int pendingResumeIndex = -1;
     private volatile String playLevel = "exhigh";
     private volatile boolean unblockEnabled = true;
     private volatile long uid;
@@ -252,6 +258,8 @@ public final class PlayerController {
     // --- Netease content (Repeater model: player.xxx; delegate reads modelData) ---
     public final Property<List<NeteaseSong>> searchResults = new Property<>(Collections.<NeteaseSong>emptyList());
     public final Property<Integer> resultCount = new Property<>(0);
+    /** Local-library matches for the same query text, shown alongside searchResults. */
+    public final Property<List<Track>> localSearchResults = new Property<>(Collections.<Track>emptyList());
     /** Hot search keywords shown when search input is empty. */
     public final Property<List<String>> hotSearches = new Property<>(Collections.<String>emptyList());
     /** User's search history (most recent first, max {@value #HISTORY_MAX} entries). */
@@ -1007,12 +1015,11 @@ public final class PlayerController {
         playQueue(library, i);
     }
 
-    /** Queue a netease song-list and start at {@code i}. Only this entry point
-     *  (an actual search-result click) feeds the search history — recommendations,
-     *  recently-played and playlist tracks aren't something the user searched for. */
+    /** Queue a netease song-list and start at {@code i}. Search history is fed by
+     *  the query text the user actually typed/submitted (SearchPage.qml), not by
+     *  which result they clicked — a song title isn't a search the user made. */
     public void playSearchResult(int i) {
         List<NeteaseSong> songs = searchResults.peek();
-        if (songs != null && i >= 0 && i < songs.size()) addSearchHistory(songs.get(i).name);
         playSongList(songs, i);
     }
 
@@ -1056,6 +1063,12 @@ public final class PlayerController {
     private void playAt(int i) {
         if (i < 0 || i >= queue.size()) return;
         playIndex = i;
+        // Consumed unconditionally on every call (see field comment), so a saved
+        // session position only ever gets one shot at applying, and only to the
+        // exact slot it was saved for.
+        long resumeMs = (i == pendingResumeIndex) ? Math.max(0L, pendingResumeMs) : 0L;
+        pendingResumeMs = 0L;
+        pendingResumeIndex = -1;
         // Make the switch feel instant even while the next source resolves (a netease
         // URL fetch takes a beat): silence the current track now, blank the now-playing
         // surface (lyrics + cover fall back to their placeholders), and start the
@@ -1079,7 +1092,7 @@ public final class PlayerController {
             album.set(orEmpty(t.album));
             coverUrl.set(orEmpty(thumbUrl(t.coverUrl, "512")));
             durationMs.set(t.durationMs);
-            positionMs.set(0L);
+            positionMs.set(resumeMs);
             currentLiked.set(t.neteaseId != 0 && likedSet.contains(t.neteaseId));
             currentLikeable.set(t.neteaseId != 0);
         });
@@ -1090,7 +1103,7 @@ public final class PlayerController {
             if (src == null || src.isEmpty()) return;
             loadLocalLyrics(t);
             Logger.info("play local: {}", t.title);
-            backend.play(src, 0L);
+            backend.play(src, resumeMs);
             playingIntent = true;
             post(() -> playing.set(true));
             notifyPlayback();
@@ -1100,7 +1113,7 @@ public final class PlayerController {
             String cached = t.neteaseId != 0 ? diskCache.getAudio(t.neteaseId) : null;
             if (cached != null) {
                 Logger.info("play netease (audio cache): {}", t.title);
-                backend.play(cached, 0L);
+                backend.play(cached, resumeMs);
                 playingIntent = true;
                 post(() -> playing.set(true));
                 notifyPlayback();
@@ -1109,7 +1122,7 @@ public final class PlayerController {
                 loadNeteaseLyrics(t, i);
             } else if (t.streamUrl != null) {
                 Logger.info("play netease (cached url): {}", t.title);
-                backend.play(t.playable(), 0L);
+                backend.play(t.playable(), resumeMs);
                 playingIntent = true;
                 post(() -> playing.set(true));
                 notifyPlayback();
@@ -1117,7 +1130,7 @@ public final class PlayerController {
                 // Populate the disk cache so the next play is local (skip trial clips).
                 cacheAudioAsync(t);
             } else {
-                resolveAndPlayNetease(t, i);
+                resolveAndPlayNetease(t, i, resumeMs);
             }
         }
         // Current track's fetches are now queued; warm next/prev behind them.
@@ -1549,7 +1562,7 @@ public final class PlayerController {
         worker.submit(() -> diskCache.cacheAudio(url, nid));
     }
 
-    private void resolveAndPlayNetease(Track t, int expectedIndex) {
+    private void resolveAndPlayNetease(Track t, int expectedIndex, long resumeMs) {
         long songId = t.neteaseId;
         worker.submit(() -> {
             try {
@@ -1615,7 +1628,7 @@ public final class PlayerController {
                     updateCover(t, expectedIndex);
                     loadNeteaseLyrics(t, expectedIndex);
                     Logger.info("play netease: {} — {}", t.title, playUrl);
-                    backend.play(playUrl, 0L);
+                    backend.play(playUrl, resumeMs);
                     playingIntent = true;
                     post(() -> playing.set(true));
                     notifyPlayback();
@@ -1735,8 +1748,16 @@ public final class PlayerController {
         try {
             java.io.File f = new java.io.File(dev.t1m3.qplayer.store.AppDirs.base(), "queue.json");
             f.getParentFile().mkdirs();
+            // Live backend position, not the positionMs Property: the Property only
+            // refreshes from pump() (render thread, paused while backgrounded/during
+            // shutdown), so it can be stale exactly when this matters most — the
+            // final save on app exit.
+            long pos = playIndex >= 0 ? Math.max(0L, backend.position()) : 0L;
             StringBuilder sb = new StringBuilder();
-            sb.append("{\"playIndex\":").append(playIndex).append(",\"tracks\":[");
+            sb.append("{\"playIndex\":").append(playIndex)
+              .append(",\"positionMs\":").append(pos)
+              .append(",\"playMode\":").append(playMode.peek())
+              .append(",\"tracks\":[");
             List<Track> snap = new ArrayList<>(queue);
             for (int i = 0; i < snap.size(); i++) {
                 Track t = snap.get(i);
@@ -1774,6 +1795,8 @@ public final class PlayerController {
                     java.nio.charset.StandardCharsets.UTF_8);
             com.google.gson.JsonObject root = new com.google.gson.JsonParser().parse(text).getAsJsonObject();
             int savedIdx = root.has("playIndex") ? root.get("playIndex").getAsInt() : 0;
+            long savedPos = root.has("positionMs") ? root.get("positionMs").getAsLong() : 0L;
+            int savedMode = root.has("playMode") ? root.get("playMode").getAsInt() : 0;
             com.google.gson.JsonArray arr = root.has("tracks") ? root.getAsJsonArray("tracks") : new com.google.gson.JsonArray();
             List<Track> loaded = new ArrayList<>();
             for (com.google.gson.JsonElement el : arr) {
@@ -1805,6 +1828,9 @@ public final class PlayerController {
                 int idx = Math.max(0, Math.min(savedIdx, loaded.size() - 1));
                 playIndex = idx;
                 needsReplay = true;
+                long clampedPos = Math.max(0L, savedPos);
+                pendingResumeIndex = idx;
+                pendingResumeMs = clampedPos;
                 final int finalIdx = idx;
                 final Track cur = loaded.get(idx);
                 post(() -> {
@@ -1815,7 +1841,20 @@ public final class PlayerController {
                     album.set(cur.album != null ? cur.album : "");
                     coverUrl.set(thumbUrl(cur.coverUrl != null ? cur.coverUrl : "", "512"));
                     durationMs.set(cur.durationMs);
+                    // So the progress bar shows the resume point before playback
+                    // actually starts (toggle() only plays on the user's first tap).
+                    positionMs.set(clampedPos);
+                    playMode.set(Math.max(0, Math.min(2, savedMode)));
                 });
+                // Load the full cover art + lyrics now (both cache-first internally)
+                // instead of waiting for the user to press play — playAt() normally
+                // does this, but playAt() itself isn't called until then.
+                updateCover(cur, idx);
+                if (cur.source == Track.Source.LOCAL) {
+                    loadLocalLyrics(cur);
+                } else if (cur.source == Track.Source.NETEASE) {
+                    loadNeteaseLyrics(cur, idx);
+                }
             }
         } catch (Throwable e) {
             Logger.warn("loadQueue failed: {}", e.getMessage());
@@ -1885,6 +1924,38 @@ public final class PlayerController {
         });
     }
 
+    /** Filter the local library by title/artist/album substring (case-insensitive)
+     *  and publish to {@link #localSearchResults}. Synchronous — the library is
+     *  already in memory (scanned at startup), no network round-trip to wait on. */
+    public void searchLocal(String keyword) {
+        String q = keyword == null ? "" : keyword.trim().toLowerCase();
+        if (q.isEmpty()) {
+            localSearchResults.set(Collections.<Track>emptyList());
+            return;
+        }
+        List<Track> matches = new ArrayList<>();
+        for (Track t : library) {
+            if (containsIgnoreCase(t.title, q) || containsIgnoreCase(t.artist, q)
+                    || containsIgnoreCase(t.album, q)) {
+                matches.add(t);
+            }
+        }
+        localSearchResults.set(matches);
+    }
+
+    private static boolean containsIgnoreCase(String s, String needleLower) {
+        return s != null && s.toLowerCase().contains(needleLower);
+    }
+
+    /** Play a track from {@link #localSearchResults} — a filtered view of
+     *  {@link #library}, so it needs its own queue-index mapping rather than
+     *  {@link #play(int)}, which indexes into the full library. */
+    public void playLocalSearchResult(int i) {
+        List<Track> results = localSearchResults.peek();
+        if (results == null || i < 0 || i >= results.size()) return;
+        playQueue(results, i);
+    }
+
     /** Batch-fill missing coverUrl fields from /v3/song/detail (the legacy
      *  /search/get omits album picUrl). Runs on the worker thread. */
     private void fillMissingCovers(List<NeteaseSong> songs) {
@@ -1943,7 +2014,7 @@ public final class PlayerController {
             int idx = playIndex;
             Logger.warn("playback error on netease track {}, clearing stale url and retrying", t.neteaseId);
             t.streamUrl = null;
-            resolveAndPlayNetease(t, idx);
+            resolveAndPlayNetease(t, idx, 0L);
             return;
         }
         autoAdvance();
@@ -2415,7 +2486,22 @@ public final class PlayerController {
         toast.set("已退出登录");
     }
 
+    /** Persist the queue + live playback position + play mode right now. The only
+     *  other {@link #saveQueue()} call site is a track change, which is long past
+     *  by the time the app actually exits mid-song — callers that own an app-is-
+     *  really-going-away moment (desktop's {@link #shutdown()}; Android's
+     *  PlaybackService.onTaskRemoved/onDestroy, since QPlayerActivity.onDestroy()
+     *  deliberately skips shutdown() while playing so the service can keep going
+     *  in the background) should call this so "resume where I left off" actually
+     *  reflects where playback was, not wherever the last track switch left it. */
+    public void saveSessionState() {
+        saveQueue();
+    }
+
     public void shutdown() {
+        // Capture the final position before release() tears down the backend (a
+        // released MediaPlayer's position() is undefined/0).
+        saveSessionState();
         backend.release();
         worker.shutdownNow();
     }

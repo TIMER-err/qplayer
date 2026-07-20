@@ -25,10 +25,12 @@ Item {
                 Layout.alignment: Qt.AlignVCenter
                 type: "filled"
                 leadingIcon: "search"
-                label: "搜索网易云歌曲"
-                // Real-time search on every keystroke
+                label: "搜索歌曲"
+                // Real-time search on every keystroke. searchLocal is a synchronous
+                // in-memory filter (no network round-trip to debounce), so it's safe
+                // to run on every keystroke unlike the netease search() call.
                 onTextChanged: {
-                    if (text.length > 0) player.search(text)
+                    if (text.length > 0) { player.search(text); player.searchLocal(text) }
                     else page.historyExpanded = false
                 }
                 onAccepted: {
@@ -266,6 +268,40 @@ Item {
         }
 
         // --- Search results (shown when input is not empty) ---
+        // Local matches (instant, in-memory) above the netease ones. Local's own
+        // VirtualSongList is height-capped to a few rows rather than fillHeight —
+        // two independently-scrolling Flickables can't both freely fill the
+        // remaining space, and local matches are usually few — so it scrolls
+        // internally past that cap while netease results take the rest.
+        Text {
+            Layout.leftMargin: 16
+            Layout.topMargin: 8
+            Layout.bottomMargin: 4
+            visible: query.text.length > 0 && localResults.count > 0
+            text: "本地"
+            font.pixelSize: 14
+            font.weight: Font.DemiBold
+            color: Theme.color.onSurfaceVariantColor
+        }
+        VirtualSongList {
+            id: localResults
+            Layout.fillWidth: true
+            Layout.preferredHeight: Math.min(count, 3) * rowH
+            visible: query.text.length > 0 && count > 0
+            list: player.localSearchResults
+            isLocal: true
+            onActivated: player.playLocalSearchResult(localResults.activatedIndex)
+        }
+        Text {
+            Layout.leftMargin: 16
+            Layout.topMargin: 8
+            Layout.bottomMargin: 4
+            visible: query.text.length > 0 && localResults.count > 0 && results.count > 0
+            text: "网易云"
+            font.pixelSize: 14
+            font.weight: Font.DemiBold
+            color: Theme.color.onSurfaceVariantColor
+        }
         VirtualSongList {
             id: results
             Layout.fillWidth: true
