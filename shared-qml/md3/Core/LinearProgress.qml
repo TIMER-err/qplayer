@@ -149,13 +149,12 @@ Item {
             var x0 = m, x1 = w - m;
             var amplitude = Math.min(h / 4, h / 2 - lw / 2);
             var frequency = 0.1; // Wave density
-            // The real fix for this wave's jagged look was an engine-side bug
-            // (qml4j Canvas 2D paints never turned on antialiasing, plus the
-            // offscreen-backing resolution was quantized too coarsely for common
-            // device scales — see TIMER-err/qml4j#2). Until qplayer picks up a
-            // qml4j release with that fix, a finer sampling step at least halves
-            // the facet size; cheap enough for a ~200px-wide bar.
-            var step = 1;
+            // qml4j 0.2.19+ already fixes this wave's jagged look at the engine
+            // level (Canvas 2D antialiasing + tighter offscreen-backing scale
+            // quantization, TIMER-err/qml4j#2) — no need for a finer sampling step
+            // here; halving it back to 2px avoids doubling this Canvas's per-frame
+            // trig/lineTo cost for no visual gain.
+            var step = 2;
 
             // Track (inactive)
             ctx.beginPath();

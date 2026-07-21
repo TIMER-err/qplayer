@@ -72,8 +72,19 @@ Rectangle {
                                             : Theme.color.onSurfaceVariantColor
                     Behavior on color { ColorAnimation { duration: 200 } }
                 }
-                Ripple {
+                // Tap target stays the full item (thumb-friendly), but the ripple's
+                // visual wave is masked to just the pill: a MouseArea behind it takes
+                // clicks outside the pill, while the Ripple (itself a MouseArea, so on
+                // top it wins the hit-test within the pill) both shows the wave and
+                // handles clicks inside it — see md3/Core/NavigationBar.qml for the
+                // same split.
+                MouseArea {
                     anchors.fill: parent
+                    z: -1
+                    onClicked: { bar.pendingIndex = index; bar.navigate() }
+                }
+                Ripple {
+                    anchors.fill: pill
                     clipRadius: 16
                     onClicked: { bar.pendingIndex = index; bar.navigate() }
                 }

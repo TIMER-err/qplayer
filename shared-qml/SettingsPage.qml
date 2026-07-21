@@ -335,45 +335,6 @@ Rectangle {
                             }
                         }
 
-                        // Lyric-timing offset stepper: compensates for LRC files whose
-                        // timestamps don't quite match the audio. Larger = later/slower,
-                        // smaller/negative = earlier/faster. Mirrored in the lyric page's
-                        // own quick-adjust dialog (LyricOverlay.qml) via the same property.
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 12
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 2
-                                Text {
-                                    text: "歌词偏移"
-                                    color: Theme.color.onSurfaceColor
-                                    font.family: Theme.typography.bodyLarge.family
-                                    font.pixelSize: Theme.typography.bodyLarge.size
-                                }
-                                Text {
-                                    text: "歌词和歌曲对不上时微调；数值越大歌词显示越慢"
-                                    color: Theme.color.onSurfaceVariantColor
-                                    font.family: Theme.typography.bodySmall.family
-                                    font.pixelSize: Theme.typography.bodySmall.size
-                                }
-                            }
-                            Button {
-                                type: "outlined"; text: "−"
-                                onClicked: settings.lyricOffsetMs = Math.max(-5000, settings.lyricOffsetMs - 50)
-                            }
-                            Text {
-                                text: (settings.lyricOffsetMs > 0 ? "+" : "") + settings.lyricOffsetMs + " ms"
-                                color: Theme.color.onSurfaceColor
-                                font.family: Theme.typography.bodyLarge.family
-                                font.pixelSize: Theme.typography.bodyLarge.size
-                            }
-                            Button {
-                                type: "outlined"; text: "+"
-                                onClicked: settings.lyricOffsetMs = Math.min(5000, settings.lyricOffsetMs + 50)
-                            }
-                        }
-
                         // Apple-style spring physics toggle (scroll + per-字 lift).
                         RowLayout {
                             Layout.fillWidth: true
