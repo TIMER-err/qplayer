@@ -29,7 +29,10 @@ Item {
 
     function folderOf(t) {
         if (!t || !t.filePath) return "";
-        var p = t.filePath.replace(/\\/g, "/");
+        // qml4j's expression parser doesn't accept a regex literal here (tested —
+        // `.replace(/\\/g, "/")` throws a QmlSyntaxException at parse time), so
+        // backslash-to-slash normalization goes through split/join instead.
+        var p = t.filePath.split("\\").join("/");
         var idx = p.lastIndexOf("/");
         return idx >= 0 ? p.substring(0, idx) : "";
     }
