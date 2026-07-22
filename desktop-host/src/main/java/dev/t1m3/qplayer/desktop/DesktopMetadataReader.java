@@ -44,6 +44,8 @@ public final class DesktopMetadataReader implements MetadataReader {
                 track.album = nullToEmpty(safeTag(tag, FieldKey.ALBUM));
                 Artwork art = tag.getFirstArtwork();
                 if (art != null) track.coverBytes = art.getBinaryData();
+                String lyric = safeTag(tag, FieldKey.LYRICS);
+                if (lyric != null && !lyric.isEmpty()) track.embeddedLyricText = lyric;
             }
         } catch (Throwable e) {
             // Unknown/odd formats (e.g. bare .wav) throw — keep filename defaults.

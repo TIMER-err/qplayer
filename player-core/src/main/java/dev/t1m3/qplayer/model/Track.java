@@ -50,6 +50,13 @@ public class Track {
     public String lyricFilePath;
     public String translationFilePath;
     public String romajiFilePath;
+    /** Embedded lyric text read straight off the file's tags by the platform
+     *  MetadataReader (e.g. desktop's jaudiotagger FieldKey.LYRICS, which — unlike
+     *  the hand-rolled {@code EmbeddedLyrics} fallback used where no such tag API
+     *  exists — also covers OGG/MP4 containers). Same transient-then-cleared
+     *  lifecycle as {@link #coverBytes}: LibraryScanner writes it to a cache .lrc
+     *  and nulls it out, never persisted on the Track itself. */
+    public String embeddedLyricText;
 
     /** File size / last-modified (LOCAL source) — the library cache's invalidation
      *  key, so an unchanged file skips the expensive tag/cover/lyric re-read. */

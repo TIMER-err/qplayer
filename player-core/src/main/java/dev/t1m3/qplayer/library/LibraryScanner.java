@@ -121,9 +121,13 @@ public final class LibraryScanner {
         t.translationFilePath = pickSidecar(parent, base, ".tlrc", ".translation.lrc");
         t.romajiFilePath = pickSidecar(parent, base, ".romaji.lrc", ".romaji.lys");
 
-        // No sidecar lyric -> try the file's embedded lyrics, extracted once to a cache .lrc.
+        // No sidecar lyric -> try the file's embedded lyrics, extracted once to a cache
+        // .lrc. Prefer whatever the platform MetadataReader already read (desktop's
+        // jaudiotagger covers OGG/MP4 too); fall back to the hand-rolled MP3/FLAC-only
+        // extractor for platforms (Android) whose tag API has no lyrics field.
         if (t.lyricFilePath == null) {
-            String embedded = extractEmbeddedLyric(audio);
+            String embedded = t.embeddedLyricText != null ? t.embeddedLyricText : extractEmbeddedLyric(audio);
+            t.embeddedLyricText = null;
             if (embedded != null) t.lyricFilePath = cache.writeLyric(t.filePath, embedded);
         }
         return t;
