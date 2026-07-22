@@ -1613,16 +1613,34 @@ public class LyricRenderer {
         return false;
     }
 
-    // The Korean fallback face at `base`'s size when `text` contains Hangul (and the
+    // Thai block (0E00-0E7F). The bundled PingFang face has none either.
+    private static boolean needsThai(String s) {
+        if (s == null) return false;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c >= 0x0E00 && c <= 0x0E7F) return true;
+        }
+        return false;
+    }
+
+    // The Korean/Thai fallback face at `base`'s size when `text` needs one (and the
     // platform ships one), else `base`. Measure and draw call this with the same
     // (text, base), so cached syllable widths and drawn advances stay aligned.
     private static Font fontForText(String text, Font base) {
-        if (!needsKorean(text)) return base;
-        // Fonts.korean returns a cache-owned, cross-frame Font — borrowed, not owned
-        // here, so it must NOT be closed (try-with-resources would free it mid-cache).
+        // Fonts.korean/thai return a cache-owned, cross-frame Font — borrowed, not
+        // owned here, so it must NOT be closed (try-with-resources would free it
+        // mid-cache).
         // noinspection resource
-        Font ko = Fonts.korean(base.getSize());
-        return ko != null ? ko : base;
+        if (needsKorean(text)) {
+            Font ko = Fonts.korean(base.getSize());
+            if (ko != null) return ko;
+        }
+        // noinspection resource
+        if (needsThai(text)) {
+            Font th = Fonts.thai(base.getSize());
+            if (th != null) return th;
+        }
+        return base;
     }
 
     // ---- Manual scroll touch API (called on the render/GL thread) -------------

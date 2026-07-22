@@ -43,6 +43,16 @@ public final class Fonts {
         "Source Han Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", "Droid Sans Fallback"
     };
 
+    // Thai fallback (PingFang has no Thai glyphs either). Same lazy-resolve-and-
+    // cache shape as the Korean fallback above.
+    private static Typeface thai;
+    private static boolean thaiResolved;
+    private static final Map<Long, Font> thaiCache = new HashMap<>();
+
+    private static final String[] THAI_CANDIDATES = {
+        "Noto Sans Thai", "Leelawadee UI", "Tahoma"
+    };
+
     /** Load the four bundled PingFang weights (any may be null → falls back to Regular). */
     public static void init(byte[] thin, byte[] light, byte[] regular, byte[] medium) {
         bundledBytes[Weight.THIN.ordinal()] = thin;
@@ -171,6 +181,45 @@ public final class Fonts {
             korean = null;
         }
         return korean;
+    }
+
+    /**
+     * A Thai-capable system Font at {@code size}, mirroring {@link #korean(float)} —
+     * PingFang SC has no Thai glyphs, so lines containing Thai script fall back to
+     * whatever the OS reports for it. One weight only, same rationale as Korean.
+     */
+    public static Font thai(float size) {
+        Typeface tf = thaiFace();
+        if (tf == null) return null;
+        long key = Float.floatToIntBits(size);
+        Font f = thaiCache.get(key);
+        if (f == null) {
+            f = new Font(tf, size);
+            f.setBaselineSnapped(false);
+            f.setSubpixel(true);
+            f.setHinting(FontHinting.NONE);
+            f.setEdging(FontEdging.SUBPIXEL_ANTI_ALIAS);
+            thaiCache.put(key, f);
+        }
+        return f;
+    }
+
+    private static Typeface thaiFace() {
+        if (thaiResolved) return thai;
+        thaiResolved = true;
+        FontMgr mgr = FontMgr.getDefault();
+        if (mgr == null) return null;
+        for (String name : THAI_CANDIDATES) {
+            Typeface t = mgr.matchFamilyStyle(name, FontStyle.NORMAL);
+            if (t != null && covers(t, 'ก')) { thai = t; return thai; }
+        }
+        try {
+            thai = mgr.matchFamilyStyleCharacter(
+                null, FontStyle.NORMAL, new String[]{"th", "th-TH"}, 0x0E01);
+        } catch (Throwable ignored) {
+            thai = null;
+        }
+        return thai;
     }
 
     private static boolean covers(Typeface t, char c) {
