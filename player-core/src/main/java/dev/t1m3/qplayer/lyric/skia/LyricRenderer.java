@@ -1623,13 +1623,28 @@ public class LyricRenderer {
         return false;
     }
 
-    // The Korean/Thai fallback face at `base`'s size when `text` needs one (and the
-    // platform ships one), else `base`. Measure and draw call this with the same
-    // (text, base), so cached syllable widths and drawn advances stay aligned.
+    // Hiragana (3040-309F), Katakana (30A0-30FF), Katakana Phonetic Extensions
+    // (31F0-31FF), Halfwidth Katakana (FF65-FF9F). NOT shared Han (PingFang already
+    // covers that) -- only the kana blocks PingFang SC has no glyphs for at all.
+    private static boolean needsJapanese(String s) {
+        if (s == null) return false;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if ((c >= 0x3040 && c <= 0x30FF) || (c >= 0x31F0 && c <= 0x31FF)
+                    || (c >= 0xFF65 && c <= 0xFF9F)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // The Korean/Thai/Japanese fallback face at `base`'s size when `text` needs one
+    // (and the platform ships one), else `base`. Measure and draw call this with the
+    // same (text, base), so cached syllable widths and drawn advances stay aligned.
     private static Font fontForText(String text, Font base) {
-        // Fonts.korean/thai return a cache-owned, cross-frame Font — borrowed, not
-        // owned here, so it must NOT be closed (try-with-resources would free it
-        // mid-cache).
+        // Fonts.korean/thai/japanese return a cache-owned, cross-frame Font —
+        // borrowed, not owned here, so it must NOT be closed (try-with-resources
+        // would free it mid-cache).
         // noinspection resource
         if (needsKorean(text)) {
             Font ko = Fonts.korean(base.getSize());
@@ -1639,6 +1654,11 @@ public class LyricRenderer {
         if (needsThai(text)) {
             Font th = Fonts.thai(base.getSize());
             if (th != null) return th;
+        }
+        // noinspection resource
+        if (needsJapanese(text)) {
+            Font ja = Fonts.japanese(base.getSize());
+            if (ja != null) return ja;
         }
         return base;
     }

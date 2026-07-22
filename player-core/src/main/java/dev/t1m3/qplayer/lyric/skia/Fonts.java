@@ -59,6 +59,18 @@ public final class Fonts {
         "Noto Sans Thai", "Leelawadee UI", "Tahoma"
     };
 
+    // Japanese fallback: PingFang SC is a Simplified-Chinese CJK face and covers a
+    // lot of shared Han, but has no Hiragana/Katakana glyphs at all — those render
+    // as tofu boxes without this. Same lazy-resolve-and-cache shape as Korean/Thai.
+    private static Typeface japanese;
+    private static boolean japaneseResolved;
+    private static final Map<Long, Font> japaneseCache = new HashMap<>();
+
+    private static final String[] JAPANESE_CANDIDATES = {
+        "Noto Sans CJK JP", "Noto Sans JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN",
+        "Yu Gothic UI", "Meiryo UI", "Meiryo", "MS Gothic", "Droid Sans Fallback"
+    };
+
     /** Load the four bundled PingFang weights (any may be null → falls back to Regular). */
     public static void init(byte[] thin, byte[] light, byte[] regular, byte[] medium) {
         bundledBytes[Weight.THIN.ordinal()] = thin;
@@ -262,6 +274,49 @@ public final class Fonts {
             thai = null;
         }
         return thai;
+    }
+
+    /**
+     * A Hiragana/Katakana-capable system Font at {@code size}, mirroring
+     * {@link #korean(float)} — PingFang SC has no Japanese kana glyphs (they'd
+     * otherwise render as tofu boxes), so lines containing kana fall back to
+     * whatever the OS reports for Japanese. Shared Han characters don't need this
+     * (PingFang already covers them); only the kana-detection call site cares.
+     */
+    public static Font japanese(float size) {
+        Typeface tf = japaneseFace();
+        if (tf == null) return null;
+        long key = Float.floatToIntBits(size);
+        Font f = japaneseCache.get(key);
+        if (f == null) {
+            f = new Font(tf, size);
+            f.setBaselineSnapped(false);
+            f.setSubpixel(true);
+            f.setHinting(FontHinting.NONE);
+            f.setEdging(FontEdging.SUBPIXEL_ANTI_ALIAS);
+            japaneseCache.put(key, f);
+        }
+        return f;
+    }
+
+    private static Typeface japaneseFace() {
+        if (japaneseResolved) return japanese;
+        japaneseResolved = true;
+        FontMgr mgr = FontMgr.getDefault();
+        if (mgr == null) return null;
+        for (String name : JAPANESE_CANDIDATES) {
+            // Hiragana 'あ' (U+3042) — matchFamilyStyle returns the closest face even
+            // for an unknown family, so confirm it actually carries the glyph first.
+            Typeface t = mgr.matchFamilyStyle(name, FontStyle.NORMAL);
+            if (t != null && covers(t, 'あ')) { japanese = t; return japanese; }
+        }
+        try {
+            japanese = mgr.matchFamilyStyleCharacter(
+                null, FontStyle.NORMAL, new String[]{"ja", "ja-JP"}, 0x3042);
+        } catch (Throwable ignored) {
+            japanese = null;
+        }
+        return japanese;
     }
 
     private static boolean covers(Typeface t, char c) {
