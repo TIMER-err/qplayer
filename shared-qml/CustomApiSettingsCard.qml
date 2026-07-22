@@ -69,19 +69,24 @@ ColumnLayout {
                 }
             }
 
-            // Hidden while the source is disabled — nothing below matters until
-            // it's turned on. NOTE: an earlier animated-height version (an Item
-            // wrapper clipped to `advancedFields.implicitHeight`, 0 while
-            // collapsed) shipped broken — a zero-height clipped Item apparently
-            // never gets its child ColumnLayout measured in this engine, so
-            // implicitHeight stayed stuck at 0 and the fields never appeared even
-            // once expanded. Plain `visible` toggling avoids the whole class of
-            // problem: an invisible ColumnLayout child is simply skipped by its
-            // parent Layout, no manual height/clip bookkeeping needed.
+            // Animated collapse while the source is disabled. Attempt #1 (an outer
+            // Item starting at height:0 with clip:true, animating to a CHILD
+            // ColumnLayout's implicitHeight) shipped broken: a zero-height clipped
+            // Item's child apparently never gets measured in this engine, so that
+            // child's implicitHeight stayed stuck at 0 forever. This version reads
+            // `implicitHeight` off THIS SAME ColumnLayout (an intrinsic, bottom-up
+            // measurement from its own children — independent of the top-down
+            // `Layout.preferredHeight` that's what actually gets animated/clipped
+            // here), so there's no separate always-zero ancestor to break the
+            // measurement in the first place.
             ColumnLayout {
                 id: advancedFields
                 Layout.fillWidth: true
-                visible: settings.customApiEnabled
+                Layout.preferredHeight: settings.customApiEnabled ? implicitHeight : 0
+                clip: true
+                opacity: settings.customApiEnabled ? 1 : 0
+                Behavior on Layout.preferredHeight { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+                Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
                 spacing: 12
 
             Text {
