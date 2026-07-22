@@ -19,10 +19,20 @@ Menu {
         var items = []
         var s = menu.song
         if (!s) { menu.model = items; return }
+        // Local-source Tracks (filePath set, e.g. a local file sitting in LocalPage or
+        // the live queue) have no netease identity at all — a much smaller menu, just
+        // the custom-playlist toggle, keyed by path instead of a netease song id.
+        if (s.filePath) {
+            if (player.isLocalInCustomPlaylist(s.filePath)) {
+                items.push({ text: "移出播放列表", icon: "playlist_remove", action: menu._removeLocalCustomAction(s.filePath) })
+            } else {
+                items.push({ text: "加入播放列表", icon: "playlist_add", action: menu._addLocalCustomAction(s.filePath) })
+            }
+            menu.model = items
+            return
+        }
         // Search-result/playlist-track rows hand over a NeteaseSong (".id"); queue and
-        // custom-playlist rows hand over a Track (".neteaseId") instead. Local-source
-        // Tracks (neteaseId 0, e.g. a local file sitting in the live queue) have no
-        // netease identity at all — none of these items apply, leave the menu empty.
+        // custom-playlist rows hand over a Track (".neteaseId") instead.
         var songId = s.id !== undefined ? s.id : s.neteaseId
         if (!songId) { menu.model = items; return }
         if (player.loggedIn) {
@@ -70,6 +80,12 @@ Menu {
     }
     function _removeCustomAction(songId) {
         return function() { player.removeFromCustomPlaylist(songId) }
+    }
+    function _addLocalCustomAction(filePath) {
+        return function() { player.addLocalToCustomPlaylist(filePath) }
+    }
+    function _removeLocalCustomAction(filePath) {
+        return function() { player.removeLocalFromCustomPlaylist(filePath) }
     }
     function _copyAction(songId) {
         return function() { player.copySongLink(songId) }

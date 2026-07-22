@@ -187,6 +187,9 @@ Item {
             list: page.visible ? page.displayTracks : null
             isLocal: true
             highlightCurrent: page.isDefaultView
+            // Long-press → add/remove this file from the custom playlist (issue #15's
+            // local-favorites ask) — see SongContextMenu's filePath branch.
+            songMenu: true
             onActivated: {
                 var t = local.list[local.activatedIndex];
                 if (!t) return;

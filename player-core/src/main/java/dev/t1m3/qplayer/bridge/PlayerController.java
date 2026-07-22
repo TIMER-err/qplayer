@@ -894,6 +894,49 @@ public final class PlayerController {
         }
     }
 
+    // --- Custom playlist: local tracks (issue #15's local-library favorites ask —
+    // the add/remove-by-id methods above are netease-only, since a local Track has
+    // no neteaseId; filePath is the local equivalent of a stable identity). ---
+
+    /** True when a local file is already in the custom playlist. */
+    public boolean isLocalInCustomPlaylist(String filePath) {
+        if (filePath == null || filePath.isEmpty()) return false;
+        for (Track t : customPlaylist) {
+            if (t.source == Track.Source.LOCAL && filePath.equals(t.filePath)) return true;
+        }
+        return false;
+    }
+
+    /** Add a local file (looked up from the scanned library by path) to the custom
+     *  playlist. */
+    public void addLocalToCustomPlaylist(String filePath) {
+        if (filePath == null || filePath.isEmpty() || isLocalInCustomPlaylist(filePath)) return;
+        Track found = null;
+        for (Track t : library) if (filePath.equals(t.filePath)) { found = t; break; }
+        if (found == null) {
+            toast.set("添加失败");
+            return;
+        }
+        customPlaylist.add(found);
+        customPlaylistTracks.set(new ArrayList<>(customPlaylist));
+        toast.set("已加入播放列表");
+        worker.submit(this::saveCustomPlaylist);
+    }
+
+    /** Remove a local file from the custom playlist by path. */
+    public void removeLocalFromCustomPlaylist(String filePath) {
+        if (filePath == null || filePath.isEmpty()) return;
+        for (Track t : customPlaylist) {
+            if (t.source == Track.Source.LOCAL && filePath.equals(t.filePath)) {
+                customPlaylist.remove(t);
+                customPlaylistTracks.set(new ArrayList<>(customPlaylist));
+                toast.set("已移出播放列表");
+                worker.submit(this::saveCustomPlaylist);
+                return;
+            }
+        }
+    }
+
     /** Drop a slot from the custom playlist by position (queue-page tab). */
     public void removeFromCustomPlaylistIndex(int i) {
         if (i < 0 || i >= customPlaylist.size()) return;
@@ -960,12 +1003,15 @@ public final class PlayerController {
             for (int i = 0; i < snap.size(); i++) {
                 Track t = snap.get(i);
                 if (i > 0) sb.append(',');
-                sb.append("{\"neteaseId\":").append(t.neteaseId);
+                sb.append("{\"source\":\"").append(t.source).append('"');
+                if (t.neteaseId != 0) sb.append(",\"neteaseId\":").append(t.neteaseId);
                 sb.append(",\"title\":").append(jsonStr(t.title));
                 sb.append(",\"artist\":").append(jsonStr(t.artist));
                 sb.append(",\"album\":").append(jsonStr(t.album));
                 sb.append(",\"coverUrl\":").append(jsonStr(t.coverUrl));
                 sb.append(",\"durationMs\":").append(t.durationMs);
+                if (t.filePath != null) sb.append(",\"filePath\":").append(jsonStr(t.filePath));
+                if (t.contentUri != null) sb.append(",\"contentUri\":").append(jsonStr(t.contentUri));
                 sb.append('}');
             }
             sb.append("]}");
@@ -989,14 +1035,24 @@ public final class PlayerController {
                 if (!el.isJsonObject()) continue;
                 com.google.gson.JsonObject o = el.getAsJsonObject();
                 Track t = new Track();
-                t.source = Track.Source.NETEASE;
+                String src = o.has("source") ? o.get("source").getAsString() : "NETEASE";
+                t.source = "LOCAL".equals(src) ? Track.Source.LOCAL : Track.Source.NETEASE;
                 t.neteaseId = o.has("neteaseId") ? o.get("neteaseId").getAsLong() : 0;
                 t.title    = o.has("title")    && !o.get("title").isJsonNull()    ? o.get("title").getAsString()    : "";
                 t.artist   = o.has("artist")   && !o.get("artist").isJsonNull()   ? o.get("artist").getAsString()   : "";
                 t.album    = o.has("album")    && !o.get("album").isJsonNull()    ? o.get("album").getAsString()    : "";
-                t.coverUrl = o.has("coverUrl") && !o.get("coverUrl").isJsonNull() ? o.get("coverUrl").getAsString() : "";
-                t.coverThumbPath = NeteaseClient.thumbUrl(t.coverUrl);
                 t.durationMs = o.has("durationMs") ? o.get("durationMs").getAsLong() : 0;
+                if (t.source == Track.Source.LOCAL) {
+                    t.filePath   = o.has("filePath")   && !o.get("filePath").isJsonNull()   ? o.get("filePath").getAsString()   : null;
+                    t.contentUri = o.has("contentUri") && !o.get("contentUri").isJsonNull() ? o.get("contentUri").getAsString() : null;
+                    // A saved local entry whose file the library no longer has (deleted,
+                    // or a rescan just hasn't run yet this launch) still shows up with
+                    // its last-known title/artist rather than silently vanishing; play
+                    // will simply fail like any other missing local file would.
+                } else {
+                    t.coverUrl = o.has("coverUrl") && !o.get("coverUrl").isJsonNull() ? o.get("coverUrl").getAsString() : "";
+                    t.coverThumbPath = NeteaseClient.thumbUrl(t.coverUrl);
+                }
                 loaded.add(t);
             }
             if (!loaded.isEmpty()) {
