@@ -691,6 +691,21 @@ public final class NeteaseClient {
                 }
             }
         }
+        return filterJunkNumericNames(out, keyword);
+    }
+
+    /** The legacy {@code search/get} endpoint occasionally mixes in low-quality UGC
+     *  tracks whose {@code name} is literally just a number (e.g. a DJ/sample-pack
+     *  index) — real, playable songs server-side, just noise for a text keyword
+     *  search. Drop them, unless the user's own keyword is itself numeric (so
+     *  searching "67" still finds a song actually named "67"). */
+    private static List<NeteaseSong> filterJunkNumericNames(List<NeteaseSong> songs, String keyword) {
+        if (keyword != null && keyword.trim().matches("\\d+")) return songs;
+        List<NeteaseSong> out = new ArrayList<>(songs.size());
+        for (NeteaseSong s : songs) {
+            if (s.name != null && s.name.trim().matches("\\d+")) continue;
+            out.add(s);
+        }
         return out;
     }
 
