@@ -176,7 +176,8 @@ public final class DesktopWindow {
         if (controller != null) v.context("player", controller);
         if (settings != null) v.context("settings", settings);
         boolean useSystemFont = settings != null && Boolean.TRUE.equals(settings.useSystemFont.peek());
-        loadFonts(v, resources, useSystemFont);
+        String customFamily = settings != null ? settings.lyricFontFamily.peek() : null;
+        loadFonts(v, resources, useSystemFont, customFamily);
         v.load(qmlSource);
         view = v;
         return v;
@@ -193,8 +194,20 @@ public final class DesktopWindow {
     private static final String[] WIN_BOLD_FONT_CANDIDATES = {"msyhbd.ttc", "simhei.ttf"};
 
     public static void loadFonts(QmlView v, ResourceLoader resources, boolean useSystemFont) {
+        loadFonts(v, resources, useSystemFont, null);
+    }
+
+    /** @param customFamily Windows font-picker UI selection (see
+     *  DesktopSettings.lyricFontFamily); takes precedence over useSystemFont, same
+     *  as Fonts.setCustomFamily's precedence over setUseSystemFont. Null/empty for
+     *  no override. */
+    public static void loadFonts(QmlView v, ResourceLoader resources, boolean useSystemFont, String customFamily) {
         byte[] reg = null, med = null;
-        if (useSystemFont) {
+        if (customFamily != null && !customFamily.isEmpty()) {
+            reg = readWindowsFontByFamily(customFamily, false);
+            med = readWindowsFontByFamily(customFamily, true);
+        }
+        if (reg == null && med == null && useSystemFont) {
             reg = readWindowsSystemFont(WIN_REGULAR_FONT_CANDIDATES);
             med = readWindowsSystemFont(WIN_BOLD_FONT_CANDIDATES);
         }
@@ -217,6 +230,47 @@ public final class DesktopWindow {
             }
         }
         return null;
+    }
+
+    // Registry key Windows itself keeps up to date with every installed font:
+    // display name ("Arial (TrueType)", "Arial Bold (TrueType)", ...) -> filename
+    // (relative to %WINDIR%\Fonts, or an absolute path for a per-user install).
+    private static final String FONTS_REGISTRY_KEY = "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts";
+
+    /** Resolve a plain family name (as listed by Fonts.listFamilies(), e.g. "Arial")
+     *  to that family's regular/bold font file bytes via the registry's display-name
+     *  index — QmlView.uiTypefaces needs raw file bytes, not a Typeface object (see
+     *  the class-level note above), so unlike the Skija lyric-page path there's no
+     *  way around reading an actual file. Windows-only; returns null anywhere the
+     *  lookup can't complete (not Windows, family not installed, unreadable file). */
+    private static byte[] readWindowsFontByFamily(String family, boolean bold) {
+        String winDir = System.getenv("WINDIR");
+        if (winDir == null || winDir.isEmpty()) return null;
+        try {
+            java.util.Map<String, Object> values = com.sun.jna.platform.win32.Advapi32Util.registryGetValues(
+                    com.sun.jna.platform.win32.WinReg.HKEY_LOCAL_MACHINE, FONTS_REGISTRY_KEY);
+            String lowerFamily = family.toLowerCase(java.util.Locale.ROOT);
+            String bestFile = null;
+            int bestScore = Integer.MIN_VALUE;
+            for (java.util.Map.Entry<String, Object> e : values.entrySet()) {
+                if (!(e.getValue() instanceof String)) continue;
+                String displayName = e.getKey().toLowerCase(java.util.Locale.ROOT);
+                if (!displayName.startsWith(lowerFamily)) continue;
+                boolean isBold = displayName.contains("bold");
+                boolean isItalic = displayName.contains("italic") || displayName.contains("oblique");
+                int score = 0;
+                if (isBold == bold) score += 2; // matches the weight we're after
+                if (!isItalic) score += 1;       // prefer upright over italic either way
+                if (displayName.equals(lowerFamily + (bold ? " bold (truetype)" : " (truetype)"))) score += 4;
+                if (score > bestScore) { bestScore = score; bestFile = (String) e.getValue(); }
+            }
+            if (bestFile == null) return null;
+            java.io.File f = new java.io.File(bestFile);
+            if (!f.isAbsolute()) f = new java.io.File(winDir + "\\Fonts\\" + bestFile);
+            return f.isFile() ? java.nio.file.Files.readAllBytes(f.toPath()) : null;
+        } catch (Throwable ignored) {
+            return null; // missing registry key, JNA unavailable, unreadable file, ...
+        }
     }
 
     boolean markViewLive() {

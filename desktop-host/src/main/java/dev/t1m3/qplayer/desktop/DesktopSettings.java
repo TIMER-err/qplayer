@@ -43,6 +43,18 @@ public final class DesktopSettings extends QObject implements LyricCompositor.Se
      *  on Windows (qml4j's uiTypefaces needs raw font-file bytes, not a Typeface
      *  object, so that half is a best-effort disk read of a system font file). */
     public final Property<Boolean> useSystemFont = new Property<>(Boolean.FALSE);
+    /** Windows font-picker UI, one step further than useSystemFont above: pin the
+     *  lyric page to one specific installed family instead of just "system default".
+     *  Empty = no override (falls back to useSystemFont/bundled). Takes effect the
+     *  same way useSystemFont does — live for the lyric page (Fonts.setCustomFamily),
+     *  restart-required and Windows-only for QML's own UI text (DesktopWindow's
+     *  registry lookup). Desktop-only (no Android twin): QML guards on
+     *  `typeof settings.lyricFontFamily !== "undefined"`. */
+    public final Property<String> lyricFontFamily = new Property<>("");
+    /** Every family FontMgr knows about, populated once at startup for the picker's
+     *  list (see Fonts.listFamilies()). Not persisted — cheap to regenerate. */
+    public final Property<java.util.List<String>> availableFontFamilies =
+            new Property<>(java.util.Collections.emptyList());
 
     public final Property<Object> lyricFontSize = new Property<>(28);
     public final Property<Object> lyricFontWeight = new Property<>(2);
@@ -179,6 +191,19 @@ public final class DesktopSettings extends QObject implements LyricCompositor.Se
             // (DesktopWindow re-reads this Property only at the next loadFonts()
             // call, in ensureView() — see the Property's own doc comment above).
             Fonts.setUseSystemFont(on);
+        });
+
+        availableFontFamilies.set(java.util.Arrays.asList(sortedFamilies()));
+        lyricFontFamily.set(getString("lyricFontFamily", ""));
+        Fonts.setCustomFamily(lyricFontFamily.peek());
+        lyricFontFamily.setInterceptor((p, v) -> {
+            p.setBypassInterceptor(v);
+            String family = asStr(p.peek());
+            put("lyricFontFamily", family);
+            // Live for the host-drawn lyric page; QML's own text needs a restart
+            // (DesktopWindow re-reads this Property only at the next loadFonts()
+            // call, in ensureView()) and only actually resolves a file on Windows.
+            Fonts.setCustomFamily(family);
         });
 
         lyricFontSize.set(getInt("lyricFontSize", 28));
@@ -376,6 +401,14 @@ public final class DesktopSettings extends QObject implements LyricCompositor.Se
 
     private static String asStr(Object v) {
         return v instanceof String ? (String) v : "";
+    }
+
+    /** Case-insensitive sorted snapshot of every installed font family, for the
+     *  Windows font-picker UI's list. */
+    private static String[] sortedFamilies() {
+        String[] names = Fonts.listFamilies();
+        java.util.Arrays.sort(names, String.CASE_INSENSITIVE_ORDER);
+        return names;
     }
 
     private void applyLyricConfig() {

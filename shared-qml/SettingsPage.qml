@@ -11,6 +11,7 @@ Rectangle {
     id: page
     signal back()
     color: Theme.color.surface
+    property bool fontPickerOpen: false
 
     // Catch-all so taps on empty areas don't fall through to the page beneath.
     // Declared first (lowest z); the controls above still receive their events.
@@ -189,6 +190,53 @@ Rectangle {
                         Switch {
                             checked: settings.useSystemFont
                             onClicked: settings.useSystemFont = checked
+                        }
+                    }
+                }
+
+                // Pick one specific installed font instead of just "system default"
+                // (issue #15, desktop/Windows-only — see FontPickerDialog.qml and
+                // DesktopWindow's registry lookup). Not present in AppSettings
+                // (Android), hence the typeof guard.
+                Rectangle {
+                    visible: typeof settings.lyricFontFamily !== "undefined"
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 12
+                    Layout.rightMargin: 12
+                    radius: 18
+                    color: Theme.color.surfaceContainerHighest
+                    implicitHeight: fontFamilyRow.implicitHeight + 32
+
+                    RowLayout {
+                        id: fontFamilyRow
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: 16
+                        anchors.rightMargin: 16
+                        spacing: 12
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Text {
+                                text: "指定字体"
+                                color: Theme.color.onSurfaceColor
+                                font.family: Theme.typography.bodyLarge.family
+                                font.pixelSize: Theme.typography.bodyLarge.size
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: settings.lyricFontFamily ? ("当前：" + settings.lyricFontFamily) : "未指定，跟随上方开关"
+                                color: Theme.color.onSurfaceVariantColor
+                                font.family: Theme.typography.bodySmall.family
+                                font.pixelSize: Theme.typography.bodySmall.size
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+                        Button {
+                            type: "tonal"; text: "选择…"
+                            onClicked: page.fontPickerOpen = true
                         }
                     }
                 }
@@ -775,5 +823,10 @@ Rectangle {
                 }
             }
         }
+    }
+
+    FontPickerDialog {
+        active: page.fontPickerOpen
+        onClosed: page.fontPickerOpen = false
     }
 }

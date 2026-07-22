@@ -28,6 +28,12 @@ public final class Fonts {
     // so setUseSystemFont(false) can restore them without re-reading resources.
     private static final byte[][] bundledBytes = new byte[Weight.values().length][];
     private static boolean systemFontActive = false;
+    // A user-picked specific family (Windows font-picker UI), takes precedence over
+    // systemFontActive when set; null/empty falls through to it. Kept separate from
+    // systemFontActive rather than folded into one enum so a family match failing
+    // (uninstalled/renamed font) has an obvious, already-tested fallback path to
+    // reuse (the same one systemFontActive itself falls back to).
+    private static String customFamilyName;
     private static Typeface icon;
     private static final Map<Long, Font> cache = new HashMap<>();
     private static final Map<Long, Font> iconCache = new HashMap<>();
@@ -59,7 +65,7 @@ public final class Fonts {
         bundledBytes[Weight.LIGHT.ordinal()] = light;
         bundledBytes[Weight.REGULAR.ordinal()] = regular;
         bundledBytes[Weight.MEDIUM.ordinal()] = medium;
-        if (!systemFontActive) applyBundledFaces();
+        reapply();
     }
 
     /** Settings-driven toggle (issue #15's "内置字体 / 系统默认字体" option): switch the
@@ -70,21 +76,57 @@ public final class Fonts {
      *  the change — no cache invalidation needed elsewhere since callers don't hold
      *  onto {@link Font} instances across a toggle. */
     public static void setUseSystemFont(boolean useSystem) {
-        if (systemFontActive == useSystem) return;
         systemFontActive = useSystem;
-        if (useSystem) {
+        reapply();
+    }
+
+    /** Windows font-picker UI: pin the lyric page to one specific installed family
+     *  (from {@link #listFamilies()}), overriding {@link #setUseSystemFont}. Pass
+     *  null/empty to clear the override and fall back to whatever setUseSystemFont
+     *  last set. Safe to call before {@link #init}; a family that fails to resolve
+     *  (uninstalled, renamed) just falls through to the system-default/bundled path
+     *  instead of leaving the lyric page blank. */
+    public static void setCustomFamily(String family) {
+        customFamilyName = (family != null && !family.isEmpty()) ? family : null;
+        reapply();
+    }
+
+    /** Every family name the platform's font manager knows about, for the picker UI
+     *  to list. Cheap to call repeatedly (Skija just walks its own index), so no
+     *  caching here — the caller (Settings) reads it once at startup. */
+    public static String[] listFamilies() {
+        FontMgr mgr = FontMgr.getDefault();
+        if (mgr == null) return new String[0];
+        int n = mgr.getFamiliesCount();
+        String[] out = new String[n];
+        for (int i = 0; i < n; i++) out[i] = mgr.getFamilyName(i);
+        return out;
+    }
+
+    private static void reapply() {
+        if (customFamilyName != null) {
+            FontMgr mgr = FontMgr.getDefault();
+            Typeface t = mgr != null ? mgr.matchFamilyStyle(customFamilyName, FontStyle.NORMAL) : null;
+            if (t != null) {
+                for (int i = 0; i < faces.length; i++) faces[i] = t;
+                cache.clear();
+                return;
+            }
+            // Match failed — fall through to the system-default/bundled path below
+            // rather than leaving faces on a stale typeface.
+        }
+        if (systemFontActive) {
             FontMgr mgr = FontMgr.getDefault();
             // null family name asks Skia for the platform's default face, same
             // convention already used by matchFamilyStyleCharacter below.
             Typeface sys = mgr != null ? mgr.matchFamilyStyle(null, FontStyle.NORMAL) : null;
             if (sys != null) {
                 for (int i = 0; i < faces.length; i++) faces[i] = sys;
-            } else {
-                systemFontActive = false; // no system match — stay on bundled rather than blank
+                cache.clear();
+                return;
             }
-        } else {
-            applyBundledFaces();
         }
+        applyBundledFaces();
         cache.clear();
     }
 
