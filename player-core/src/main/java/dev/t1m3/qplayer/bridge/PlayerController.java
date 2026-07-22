@@ -10,6 +10,7 @@ import dev.t1m3.qplayer.library.LibraryScanner;
 import dev.t1m3.qplayer.lyric.LyricLine;
 import dev.t1m3.qplayer.lyric.LyricParser;
 import dev.t1m3.qplayer.lyric.TtmlParser;
+import dev.t1m3.qplayer.lyric.WordTimeLrcParser;
 import dev.t1m3.qplayer.lyric.skia.LyricConfig;
 import dev.t1m3.qplayer.model.Track;
 import dev.t1m3.qplayer.netease.NeteaseClient;
@@ -1672,7 +1673,13 @@ public final class PlayerController {
             try {
                 String lrc = CustomApiClient.resolveLyric(cfg, id);
                 if (lrc != null) {
-                    ly = LyricParser.fromNeteaseStrings(null, lrc, null, null);
+                    // Some backends (e.g. go-music-api's QQ-sourced lyrics) return a
+                    // per-syllable [mm:ss.xx]-tagged text instead of plain line LRC —
+                    // treating that as plain LRC left every timestamp sitting in the
+                    // displayed text as literal garbage instead of being consumed.
+                    ly = WordTimeLrcParser.looksLikeWordTimeLrc(lrc)
+                            ? WordTimeLrcParser.parse(lrc)
+                            : LyricParser.fromNeteaseStrings(null, lrc, null, null);
                     if (!ly.isEmpty()) customLyricMem.put(id, ly);
                 }
             } catch (Throwable e) {
