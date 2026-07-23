@@ -3,6 +3,7 @@ package dev.t1m3.qplayer.bridge;
 import dev.t1m3.qplayer.audio.AudioBackend;
 import dev.t1m3.qplayer.audio.MetadataReader;
 import dev.t1m3.qplayer.cache.DiskCache;
+import dev.t1m3.qplayer.cache.SongMetaIndex;
 import dev.t1m3.qplayer.customapi.CustomApiClient;
 import dev.t1m3.qplayer.customapi.CustomApiConfig;
 import dev.t1m3.qplayer.customapi.CustomSong;
@@ -93,6 +94,10 @@ public final class PlayerController {
 
     /** Unified disk cache (audio / lyrics / images) with LRU eviction. */
     public final DiskCache diskCache = new DiskCache(200); // default 200 MB
+    /** id -> title/artist/cover lookup for songs seen before, so search() has
+     *  something to show when the live network call fails (offline, or the API
+     *  is just down) — DiskCache itself only knows bare ids, no display text. */
+    private final SongMetaIndex songMetaIndex = new SongMetaIndex();
 
     private final List<Track> library = new CopyOnWriteArrayList<>();
     private final List<Track> queue = new CopyOnWriteArrayList<>();
@@ -403,6 +408,7 @@ public final class PlayerController {
         // tracks fall through to autoAdvance.
         backend.setOnError(() -> onMain(this::onPlaybackError));
         worker.submit(this::loadSearchHistory);
+        songMetaIndex.load();
         loadQueue();
         loadCustomPlaylist();
         if (netease.isLoggedIn()) {
@@ -1738,7 +1744,15 @@ public final class PlayerController {
         if (t == null || t.trial || t.neteaseId == 0 || t.streamUrl == null) return;
         final String url = t.streamUrl;
         final long nid = t.neteaseId;
-        worker.submit(() -> diskCache.cacheAudio(url, nid));
+        // Whatever gets its audio cached is, by definition, playable offline —
+        // remember its title/artist/cover so offline search can actually surface
+        // it later, regardless of whether it was ever a search result itself
+        // (played from a playlist/recommendation/liked list, say).
+        songMetaIndex.upsert(nid, t.title, t.artist, t.album, t.coverUrl, t.durationMs);
+        worker.submit(() -> {
+            diskCache.cacheAudio(url, nid);
+            songMetaIndex.save();
+        });
     }
 
     private void resolveAndPlayNetease(Track t, int expectedIndex, long resumeMs) {
@@ -2161,6 +2175,8 @@ public final class PlayerController {
                 fillMissingCovers(r);
                 buildSongThumbs(r, "128");
                 searchCache.put(key, new CacheEntry(r));
+                for (NeteaseSong s : r) songMetaIndex.upsert(s);
+                songMetaIndex.save();
                 post(() -> {
                     if (!key.equals(currentSearchKey)) return;
                     searchResults.set(r);
@@ -2169,6 +2185,20 @@ public final class PlayerController {
                 });
             } catch (Throwable e) {
                 Logger.warn("search failed: {}", e.getMessage());
+                // Offline (or the API's just down): fall back to songs this process
+                // has actually seen before (search results, anything ever played) —
+                // DiskCache alone only knows bare ids, no title/artist to show, so
+                // this is the only source offline search has to work with.
+                List<NeteaseSong> offline = songMetaIndex.search(key, 30);
+                if (!offline.isEmpty() && key.equals(currentSearchKey)) {
+                    post(() -> {
+                        if (!key.equals(currentSearchKey)) return;
+                        searchResults.set(offline);
+                        resultCount.set(offline.size());
+                        rebuildSearchRows();
+                        toast.set("当前无网络，显示本地缓存结果");
+                    });
+                }
             }
         });
     }
