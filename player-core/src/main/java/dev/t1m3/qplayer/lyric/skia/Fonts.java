@@ -134,14 +134,29 @@ public final class Fonts {
             // Android's SkFontMgr_android binding needs an actual family name (a
             // bare null lookup returns null there), the same reason korean()/
             // thai()/japanese() below never risk a null-family query either. Try
-            // the null-family shortcut first (desktop's common case, zero
-            // candidate-list guessing), then fall back to naming known system
-            // families explicitly before giving up to the bundled face.
-            Typeface sys = mgr != null ? mgr.matchFamilyStyle(null, FontStyle.NORMAL) : null;
+            // the null-family shortcut first, then fall back to naming known
+            // system families explicitly.
+            //
+            // Bug fixed 2026-07-23: neither step originally checked the resolved
+            // face actually HAS CJK glyphs before accepting it — unlike korean()/
+            // thai()/japanese() below, which all verify via covers(). A platform's
+            // "default UI font" is very often Latin-only (Android's null-family/
+            // "sans-serif" both land on Roboto; Windows null-family lands on Segoe
+            // UI — neither carries CJK glyphs, Windows' own font-linking that
+            // normally papers over this for real apps doesn't apply to a raw
+            // Skija Typeface), so this silently produced a face that rendered
+            // English fine and every CJK character as tofu. Every candidate below
+            // (including the null-family shortcut) now has to pass the same
+            // covers() check real per-script fallback candidates do.
+            Typeface sys = null;
+            if (mgr != null) {
+                Typeface nullFamily = mgr.matchFamilyStyle(null, FontStyle.NORMAL);
+                if (nullFamily != null && covers(nullFamily, '中')) sys = nullFamily;
+            }
             if (sys == null && mgr != null) {
                 for (String name : SYSTEM_DEFAULT_CANDIDATES) {
                     Typeface t = mgr.matchFamilyStyle(name, FontStyle.NORMAL);
-                    if (t != null) { sys = t; break; }
+                    if (t != null && covers(t, '中')) { sys = t; break; }
                 }
             }
             if (sys != null) {
@@ -149,18 +164,30 @@ public final class Fonts {
                 cache.clear();
                 return;
             }
+            // Nothing on this platform covers CJK under the "system default" label
+            // at all — fall through to the bundled PingFang SC rather than ship a
+            // face that would tofu every CJK character.
         }
         applyBundledFaces();
         cache.clear();
     }
 
-    // Android's SkFontMgr_android has no "system default" concept reachable via a
-    // null family name — these are its actual shipped UI/CJK families (AOSP's
-    // fonts.xml), tried in order until one resolves. Harmless no-ops on desktop
-    // (that path already succeeded via the null-family lookup above and never
-    // reaches here).
+    // Named system-family fallbacks, tried only if the null-family "give me the
+    // platform default" lookup above didn't resolve to something with real CJK
+    // glyphs. Covers the three desktop platforms' actual CJK UI fonts plus
+    // Android's AOSP fonts.xml families — every entry still has to pass the
+    // covers() check, so a Latin-only match (e.g. Android's "sans-serif"/Roboto,
+    // Windows' Arial) is skipped rather than silently accepted.
     private static final String[] SYSTEM_DEFAULT_CANDIDATES = {
-        "sans-serif", "Roboto", "Noto Sans CJK SC", "Noto Sans SC", "Droid Sans Fallback"
+        // Windows
+        "Microsoft YaHei UI", "Microsoft YaHei", "Microsoft JhengHei UI", "Microsoft JhengHei",
+        "SimSun", "SimHei",
+        // macOS
+        "PingFang SC", "PingFang TC", "Heiti SC",
+        // Linux
+        "Noto Sans CJK SC", "Noto Sans SC", "WenQuanYi Zen Hei", "WenQuanYi Micro Hei",
+        // Android (AOSP fonts.xml)
+        "Noto Sans CJK SC", "Droid Sans Fallback",
     };
 
     private static void applyBundledFaces() {
