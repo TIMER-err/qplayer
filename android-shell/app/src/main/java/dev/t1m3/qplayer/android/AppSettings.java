@@ -59,6 +59,10 @@ public final class AppSettings extends QObject
     public final Property<Boolean> lyricScale = new Property<>(Boolean.TRUE);
     /** White glow behind sung syllables on the lyric page. */
     public final Property<Boolean> lyricGlow = new Property<>(Boolean.TRUE);
+    /** Plain-LRC (no real per-syllable timing) lines: on synthesizes an evenly-
+     *  spaced per-character sweep (linear front-to-back); off lights the whole
+     *  line up together as one block. See LyricConfig#linearAnimForPlainLrc. */
+    public final Property<Boolean> lyricLinearAnim = new Property<>(Boolean.TRUE);
     /** Apple-Music edge blur: unfocused lyric lines blur progressively toward the edges. */
     public final Property<Boolean> lyricEdgeBlur = new Property<>(Boolean.FALSE);
     /** Static fluid background (render once + cache) vs. animated. */
@@ -233,6 +237,7 @@ public final class AppSettings extends QObject
         lyricSpring.set(prefs.getBoolean("lyricSpring", true));
         lyricScale.set(prefs.getBoolean("lyricScale", true));
         lyricGlow.set(prefs.getBoolean("lyricGlow", true));
+        lyricLinearAnim.set(prefs.getBoolean("lyricLinearAnim", true));
         lyricEdgeBlur.set(prefs.getBoolean("lyricEdgeBlur", false));
         lyricBgStatic.set(prefs.getBoolean("lyricBgStatic", false));
         lyricOffsetMs.set(prefs.getInt("lyricOffsetMs", 0));
@@ -265,6 +270,11 @@ public final class AppSettings extends QObject
         lyricGlow.setInterceptor((p, v) -> {
             p.setBypassInterceptor(v);
             prefs.edit().putBoolean("lyricGlow", Boolean.TRUE.equals(p.peek())).apply();
+            applyLyricConfig();
+        });
+        lyricLinearAnim.setInterceptor((p, v) -> {
+            p.setBypassInterceptor(v);
+            prefs.edit().putBoolean("lyricLinearAnim", Boolean.TRUE.equals(p.peek())).apply();
             applyLyricConfig();
         });
         lyricEdgeBlur.setInterceptor((p, v) -> {
@@ -416,6 +426,7 @@ public final class AppSettings extends QObject
         c.springPhysics.setValue(Boolean.TRUE.equals(lyricSpring.peek()));
         c.scaleEmphasis.setValue(Boolean.TRUE.equals(lyricScale.peek()));
         c.glow.setValue(Boolean.TRUE.equals(lyricGlow.peek()));
+        c.linearAnimForPlainLrc.setValue(Boolean.TRUE.equals(lyricLinearAnim.peek()));
         c.edgeBlur.setValue(Boolean.TRUE.equals(lyricEdgeBlur.peek()));
         c.offsetMs.setValue(asInt(lyricOffsetMs.peek()));
     }

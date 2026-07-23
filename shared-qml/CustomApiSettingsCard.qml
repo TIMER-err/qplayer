@@ -45,28 +45,31 @@ ColumnLayout {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 12
-                ColumnLayout {
+                Text {
                     Layout.fillWidth: true
-                    spacing: 2
-                    Text {
-                        text: "启用自定义 API 源"
-                        color: Theme.color.onSurfaceColor
-                        font.family: Theme.typography.bodyLarge.family
-                        font.pixelSize: Theme.typography.bodyLarge.size
-                    }
-                    Text {
-                        Layout.fillWidth: true
-                        text: "独立于网易云的搜索入口，用下面的字段接一个自建/第三方音乐 API"
-                        color: Theme.color.onSurfaceVariantColor
-                        font.family: Theme.typography.bodySmall.family
-                        font.pixelSize: Theme.typography.bodySmall.size
-                        wrapMode: Text.WordWrap
-                    }
+                    text: "启用自定义 API 源"
+                    color: Theme.color.onSurfaceColor
+                    font.family: Theme.typography.bodyLarge.family
+                    font.pixelSize: Theme.typography.bodyLarge.size
                 }
                 Switch {
                     checked: settings.customApiEnabled
                     onClicked: settings.customApiEnabled = checked
                 }
+            }
+            // Flattened to a direct customApiCol child (not nested inside the
+            // RowLayout above alongside the switch) — Layout.fillWidth only
+            // reliably reaches a Layout's IMMEDIATE child in this engine, and two
+            // levels of nesting (RowLayout > ColumnLayout > Text) left this
+            // description with no real width to wrap against, so it ran past the
+            // card's edge instead of wrapping.
+            Text {
+                Layout.fillWidth: true
+                text: "独立于网易云的搜索入口，用下面的字段接一个自建/第三方音乐 API"
+                color: Theme.color.onSurfaceVariantColor
+                font.family: Theme.typography.bodySmall.family
+                font.pixelSize: Theme.typography.bodySmall.size
+                wrapMode: Text.WordWrap
             }
 
             // Animated collapse while the source is disabled. Attempt #1 (an outer

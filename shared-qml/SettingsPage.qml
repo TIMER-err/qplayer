@@ -514,6 +514,33 @@ Rectangle {
                             }
                         }
 
+                        // Plain-LRC (no real per-word timing) lines: linear
+                        // front-to-back sweep vs the whole line lighting up together.
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 12
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+                                Text {
+                                    text: "非逐字歌词线性动画"
+                                    color: Theme.color.onSurfaceColor
+                                    font.family: Theme.typography.bodyLarge.family
+                                    font.pixelSize: Theme.typography.bodyLarge.size
+                                }
+                                Text {
+                                    text: "关闭时整行一起点亮"
+                                    color: Theme.color.onSurfaceVariantColor
+                                    font.family: Theme.typography.bodySmall.family
+                                    font.pixelSize: Theme.typography.bodySmall.size
+                                }
+                            }
+                            Switch {
+                                checked: settings.lyricLinearAnim
+                                onClicked: settings.lyricLinearAnim = checked
+                            }
+                        }
+
                         // Apple-Music edge blur: unfocused lines blur toward the edges.
                         RowLayout {
                             Layout.fillWidth: true

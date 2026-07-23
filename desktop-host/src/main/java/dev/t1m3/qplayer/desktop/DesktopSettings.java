@@ -62,6 +62,10 @@ public final class DesktopSettings extends QObject implements LyricCompositor.Se
     public final Property<Boolean> lyricSpring = new Property<>(Boolean.TRUE);
     public final Property<Boolean> lyricScale = new Property<>(Boolean.TRUE);
     public final Property<Boolean> lyricGlow = new Property<>(Boolean.TRUE);
+    /** Plain-LRC (no real per-syllable timing) lines: on synthesizes an evenly-
+     *  spaced per-character sweep (linear front-to-back); off lights the whole
+     *  line up together as one block. See LyricConfig#linearAnimForPlainLrc. */
+    public final Property<Boolean> lyricLinearAnim = new Property<>(Boolean.TRUE);
     public final Property<Boolean> lyricEdgeBlur = new Property<>(Boolean.FALSE);
     public final Property<Boolean> lyricBgStatic = new Property<>(Boolean.FALSE);
     /** Manual lyric-timing offset in ms; see {@link LyricConfig#offsetMs}. */
@@ -212,6 +216,7 @@ public final class DesktopSettings extends QObject implements LyricCompositor.Se
         lyricSpring.set(getBool("lyricSpring", true));
         lyricScale.set(getBool("lyricScale", true));
         lyricGlow.set(getBool("lyricGlow", true));
+        lyricLinearAnim.set(getBool("lyricLinearAnim", true));
         lyricEdgeBlur.set(getBool("lyricEdgeBlur", false));
         lyricBgStatic.set(getBool("lyricBgStatic", false));
         lyricOffsetMs.set(getInt("lyricOffsetMs", 0));
@@ -244,6 +249,11 @@ public final class DesktopSettings extends QObject implements LyricCompositor.Se
         lyricGlow.setInterceptor((p, v) -> {
             p.setBypassInterceptor(v);
             put("lyricGlow", Boolean.TRUE.equals(p.peek()));
+            applyLyricConfig();
+        });
+        lyricLinearAnim.setInterceptor((p, v) -> {
+            p.setBypassInterceptor(v);
+            put("lyricLinearAnim", Boolean.TRUE.equals(p.peek()));
             applyLyricConfig();
         });
         lyricEdgeBlur.setInterceptor((p, v) -> {
@@ -420,6 +430,7 @@ public final class DesktopSettings extends QObject implements LyricCompositor.Se
         c.springPhysics.setValue(Boolean.TRUE.equals(lyricSpring.peek()));
         c.scaleEmphasis.setValue(Boolean.TRUE.equals(lyricScale.peek()));
         c.glow.setValue(Boolean.TRUE.equals(lyricGlow.peek()));
+        c.linearAnimForPlainLrc.setValue(Boolean.TRUE.equals(lyricLinearAnim.peek()));
         c.edgeBlur.setValue(Boolean.TRUE.equals(lyricEdgeBlur.peek()));
         c.offsetMs.setValue(asInt(lyricOffsetMs.peek()));
     }

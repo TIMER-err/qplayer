@@ -232,18 +232,14 @@ public class LyricRenderer {
     private static final int SNAP_JUMP_LINES = 6;
 
     private List<LyricLine> lines = Collections.emptyList();
-    /**
-     * Whether the loaded lyric source carries per-syllable timing.
-     * {@code true} when at least one line has &gt; 1 syllable —
-     * implies YRC / LYS / TTML / QRC etc. {@code false} for plain LRC
-     * (parser produces a single line-wide syllable per line). Used as
-     * the global gate for the per-syllable lift: a single-字 line in a
-     * YRC source should still lift, but the same line shape in a LRC
-     * source shouldn't, so the per-line {@code size() > 1} heuristic
-     * was producing inconsistent lift between songs depending on how
-     * many one-word lines each had.
-     */
-    private boolean hasPerSyllableTiming = false;
+    /** Whether every line in the current song has usable monotonic per-token
+     *  timing to sweep/lift/glow with — real for per-syllable sources, or
+     *  synthetic-but-evenly-spread for plain LRC when
+     *  {@link LyricConfig#linearAnimForPlainLrc} is on. False only for plain
+     *  LRC with that setting off, where lines light up as one block instead.
+     *  Computed once at {@link #setLyrics}, not per-frame, since it also
+     *  decided how the lines were tokenized. */
+    private boolean animatablePerToken = false;
     /**
      * Lines bundled into "active groups". A solo line is its own group; a
      * pair (or chain) of overlapping DUET_LEFT / DUET_RIGHT lines becomes
@@ -487,18 +483,26 @@ public class LyricRenderer {
                 break;
             }
         }
-        this.hasPerSyllableTiming = perSyl;
+        // Settings-driven: whether a plain-LRC line's synthetic per-token timing
+        // is spread evenly (linear front-to-back sweep/lift/glow, matching a real
+        // per-syllable source) or collapsed to the whole line's own start/duration
+        // (the whole line lights up together as one block instead — still gets
+        // the line-level scaleEmphasis/glow, just no per-character sweep motion).
+        // Read once per load, same as {@code perSyl} itself; a live mid-song
+        // toggle only takes effect on the next track change, not the current
+        // line's already-tokenized syllables.
+        boolean linearPlainLrc = Boolean.TRUE.equals(LyricConfig.instance.linearAnimForPlainLrc.getValue());
+        this.animatablePerToken = perSyl || linearPlainLrc;
 
         // LRC (line-level) lyrics parse to a single syllable per line, so the
         // syllable-boundary wrap never finds a break point and long lines run
         // off the edge. Split each line's lone syllable into wrap tokens (one
-        // per CJK char, Latin split on spaces) that share the line's timing —
-        // wrapStarts can then break between them. Per-syllable sources already
-        // carry their own break points, so leave them untouched.
+        // per CJK char, Latin split on spaces). Per-syllable sources already
+        // carry their own real break points, so leave them untouched.
         if (!perSyl) {
             for (LyricLine l : this.lines) {
                 if (l.syllables.size() != 1) continue;
-                List<Syllable> toks = tokenizeForWrap(l.syllables.get(0));
+                List<Syllable> toks = tokenizeForWrap(l.syllables.get(0), linearPlainLrc);
                 if (toks.size() > 1) {
                     l.syllables.clear();
                     l.syllables.addAll(toks);
@@ -520,31 +524,59 @@ public class LyricRenderer {
         this.userHoldAnchor = Integer.MIN_VALUE;
     }
 
-    // Break a whole-line syllable into wrap-friendly tokens that keep its
-    // timing: each CJK character is its own token; Latin text splits on spaces
-    // (the run of spaces rides with the preceding token's trailing break).
-    private static List<Syllable> tokenizeForWrap(Syllable s) {
+    // Break a whole-line syllable into wrap-friendly tokens (each CJK character
+    // is its own token; Latin text splits on spaces, the run of spaces riding
+    // with the preceding token's trailing break). `spreadEvenly` (settings-
+    // driven, see LyricConfig#linearAnimForPlainLrc) decides the per-token
+    // timing:
+    //  - true: spread the line's real start/duration evenly across the tokens
+    //    by count — token i of n runs from start + i*(dur/n) to
+    //    start + (i+1)*(dur/n), the last one absorbing the integer-division
+    //    remainder so the tokens' spans still sum to the line's real duration
+    //    exactly. Synthetic (not real per-word timing), but monotonically
+    //    increasing, which is all the sweep/lift/glow code (written for real
+    //    per-syllable sources) actually needs to run on it — linear front-to-
+    //    back instead of the whole line lighting up as one block.
+    //  - false: every token keeps the WHOLE line's start/duration (all
+    //    identical) — only good enough for wrapStarts to find a break point,
+    //    NOT for the sweep/lift/glow code (identical timestamps collapse its
+    //    "which token is active" search); callers must gate that off when
+    //    passing false (see animatablePerToken).
+    private static List<Syllable> tokenizeForWrap(Syllable s, boolean spreadEvenly) {
         String text = s.text == null ? "" : s.text;
         long start = s.startMs;
         long dur = s.durationMs;
-        List<Syllable> out = new java.util.ArrayList<>();
+        List<String> runs = new java.util.ArrayList<>();
         int i = 0, n = text.length();
         while (i < n) {
             char c = text.charAt(i);
             if (c == ' ') {
                 int j = i;
                 while (j < n && text.charAt(j) == ' ') j++;
-                out.add(new Syllable(text.substring(i, j), start, dur));
+                runs.add(text.substring(i, j));
                 i = j;
             } else if (isWrapCjk(c)) {
-                out.add(new Syllable(String.valueOf(c), start, dur));
+                runs.add(String.valueOf(c));
                 i++;
             } else {
                 int j = i;
                 while (j < n && text.charAt(j) != ' ' && !isWrapCjk(text.charAt(j))) j++;
-                out.add(new Syllable(text.substring(i, j), start, dur));
+                runs.add(text.substring(i, j));
                 i = j;
             }
+        }
+        List<Syllable> out = new java.util.ArrayList<>(runs.size());
+        int runCount = runs.size();
+        if (runCount == 0) return out;
+        if (!spreadEvenly) {
+            for (String run : runs) out.add(new Syllable(run, start, dur));
+            return out;
+        }
+        long perRun = dur / runCount;
+        for (int r = 0; r < runCount; r++) {
+            long rStart = start + r * perRun;
+            long rDur = (r == runCount - 1) ? (start + dur - rStart) : perRun;
+            out.add(new Syllable(runs.get(r), rStart, rDur));
         }
         return out;
     }
@@ -1233,15 +1265,8 @@ public class LyricRenderer {
 
                 float wrapRowH = (r == 0) ? rowHeight : (isBg ? rowHeightBgWrap : rowHeightLyricWrap);
                 float rowBaselineY = lineYTop + rowHeight + r * wrapRowH - descent - 4f;
-                // Per-syllable lift gates on the SOURCE type, not the
-                // line. A YRC song with an occasional one-字 line should
-                // still lift that line; an LRC song should never lift.
-                // {@link #hasPerSyllableTiming} is computed once at
-                // setLyrics time so the lift amplitude is consistent
-                // across every line of the same song.
-                boolean enableLift = hasPerSyllableTiming;
                 drawSyllableRange(line.syllables, lineSylW, from, to, rowX - lead, rowBaselineY, font,
-                        ascent, descent, positionMs, baseAlpha, activeK, enableLift, spring, glowOn);
+                        ascent, descent, positionMs, baseAlpha, activeK, animatablePerToken, spring, glowOn);
 
                 if (visWidth > maxRowWidth) {
                     maxRowWidth = visWidth;
@@ -1960,10 +1985,12 @@ public class LyricRenderer {
         float rowRightX = sylLeft[n];
         if (rowRightX - startX <= 0f) return;
 
-        // Line-level (LRC) lyrics have no real per-syllable timing — the
-        // karaoke sweep over the same-timed tokens would read as a fake
-        // per-character wipe. Gate the sweep (and lift) on per-syllable timing;
-        // without it the line just lights up as a whole via baseAlpha.
+        // enableLift == every token here has monotonically increasing timing to
+        // interpolate across (real per-syllable, or linearAnimForPlainLrc's
+        // synthetic evenly-spread tokens) — false means plain-LRC tokens all
+        // share the whole line's identical start/duration (tokenizeForWrap's
+        // spreadEvenly=false path), which would collapse computeSweepX's
+        // "which token is active" search instead of sweeping meaningfully.
         float sweepX = enableLift ? computeSweepX(syllables, from, to, sylLeft, pos) : 0f;
 
         // Layer bounds wide enough for the peak lift + glyph descender, plus the
@@ -2003,11 +2030,11 @@ public class LyricRenderer {
                     k = 1f - (1f - t) * (1f - t) * (1f - t);
                 }
                 liftBuf[s] = enableLift ? -LIFT_PEAK_PX * k * activeK : 0f;
-                // Per-syllable timing sources ramp glow in with that syllable's own
-                // lift progress k; plain LRC has no real per-character progress to
-                // derive from, so the whole line just glows uniformly with the
-                // line's own activeK instead of going dark (glowOn users always get
-                // glow on the active line, not just per-syllable sources).
+                // Per-token timing sources (real or linearAnimForPlainLrc's
+                // synthetic spread) ramp glow in with that token's own lift
+                // progress k; a "whole line together" plain-LRC line has no real
+                // per-character progress to derive from, so it glows uniformly
+                // with the line's own activeK instead of not glowing at all.
                 float ga;
                 if (!glowOn) {
                     ga = 0f;
@@ -2049,7 +2076,9 @@ public class LyricRenderer {
             }
 
             // Smooth horizontal sweep (DST_IN): bright on the sung side, dark on the
-            // unsung side, blending over SWEEP_FADE_PX at the head.
+            // unsung side, blending over SWEEP_FADE_PX at the head. Skipped for a
+            // "whole line together" plain-LRC line (enableLift false) — there's
+            // nothing meaningful for sweepX (parked at 0) to mask against there.
             if (enableLift) {
                 float maskDark = 1f - (1f - DARK_MASK_ALPHA) * activeK;
                 applySweepMask(canvas, sweepX, maskDark);
