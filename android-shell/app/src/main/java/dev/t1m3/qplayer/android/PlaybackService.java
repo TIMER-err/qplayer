@@ -192,8 +192,19 @@ public final class PlaybackService extends Service {
         if (c == null) return;
         Track t = c.currentTrack();
         boolean playing = c.isPlaying();
-        long pos = c.position();
-        long dur = c.duration();
+        // c.position()/c.duration() read the live backend clock directly, which
+        // is 0 until playAt() actually runs -- e.g. right after a session
+        // restore (task-removed kill + relaunch), positionMs/durationMs are set
+        // correctly but the backend itself hasn't been told to play anything yet
+        // until the user's first tap. Same fallback already applied to
+        // LyricCompositor's progress bar / lyric-column position and
+        // PlayerController.applyLyrics's lyricIndex sync -- this is the fourth
+        // (notification / lock-screen / Bluetooth media control progress) spot
+        // reading that same clock, missed when the other three were fixed.
+        Long posProp = c.positionMs.peek();
+        Long durProp = c.durationMs.peek();
+        long pos = playing ? c.position() : (posProp != null ? posProp : 0L);
+        long dur = playing ? c.duration() : (durProp != null && durProp > 0 ? durProp : 0L);
 
         MediaMetadataCompat.Builder mb = new MediaMetadataCompat.Builder();
         Bitmap art = null;
