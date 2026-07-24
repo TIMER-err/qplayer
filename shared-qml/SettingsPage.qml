@@ -161,27 +161,31 @@ Rectangle {
             // is ever "settled"; the exiting one is on its way off-screen).
             contentHeight: {
                 switch (page.currentCategory) {
-                case "外观": return panelAppearance.implicitHeight + 24
-                case "播放": return panelPlayback.implicitHeight + 24
-                case "歌词": return panelLyric.implicitHeight + 24
-                case "本地": return panelLocal.implicitHeight + 24
-                case "关于": return panelAbout.implicitHeight + 24
+                case "外观": return panelAppearance.height + 24
+                case "播放": return panelPlayback.height + 24
+                case "歌词": return panelLyric.height + 24
+                case "本地": return panelLocal.height + 24
+                case "关于": return panelAbout.height + 24
                 default: return 0
                 }
             }
 
-            // Plain Item, not a Layout: the 5 category panels below are
-            // absolutely positioned (x-offset) so two can overlap on-screen
-            // during a cross-slide transition — a ColumnLayout would stack them
-            // vertically instead.
+            // Plain Item, not a Layout: the 5 category panels are absolutely
+            // positioned (x-offset) rather than stacked. height must be bound
+            // explicitly (plain Item doesn't default height to implicitHeight
+            // the way real Qt Quick does) — qml4j's hit-testing walks every
+            // ancestor's own width/height as a bounding-box check on the way
+            // down to a MouseArea/Button, so a 0-height Item here silently
+            // swallows every click to everything beneath it.
             Item {
                 id: content
                 width: parent.width
+                height: parent.contentHeight
 
                 Item {
                     id: panelAppearance
                     width: parent.width
-                    implicitHeight: appearanceCards.implicitHeight
+                    height: appearanceCards.implicitHeight
                     visible: page.currentCategory === "外观"
                     x: page.panelX("外观")
                     z: page.currentCategory === "外观" ? 1 : 0
@@ -208,7 +212,7 @@ Rectangle {
                 Item {
                     id: panelPlayback
                     width: parent.width
-                    implicitHeight: playbackCards.implicitHeight
+                    height: playbackCards.implicitHeight
                     visible: page.currentCategory === "播放"
                     x: page.panelX("播放")
                     z: page.currentCategory === "播放" ? 1 : 0
@@ -235,7 +239,7 @@ Rectangle {
                 Item {
                     id: panelLyric
                     width: parent.width
-                    implicitHeight: lyricCards.implicitHeight
+                    height: lyricCards.implicitHeight
                     visible: page.currentCategory === "歌词"
                     x: page.panelX("歌词")
                     z: page.currentCategory === "歌词" ? 1 : 0
@@ -257,7 +261,7 @@ Rectangle {
                 Item {
                     id: panelLocal
                     width: parent.width
-                    implicitHeight: localCards.implicitHeight
+                    height: localCards.implicitHeight
                     visible: page.currentCategory === "本地"
                     x: page.panelX("本地")
                     z: page.currentCategory === "本地" ? 1 : 0
@@ -279,7 +283,7 @@ Rectangle {
                 Item {
                     id: panelAbout
                     width: parent.width
-                    implicitHeight: aboutCards.implicitHeight
+                    height: aboutCards.implicitHeight
                     visible: page.currentCategory === "关于"
                     x: page.panelX("关于")
                     z: page.currentCategory === "关于" ? 1 : 0
