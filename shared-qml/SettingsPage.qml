@@ -179,14 +179,28 @@ Rectangle {
                 id: content
                 width: parent.width
 
-                ColumnLayout {
+                Item {
                     id: panelAppearance
                     width: parent.width
+                    implicitHeight: appearanceCards.implicitHeight
                     visible: page.currentCategory === "外观" || page.exitingCategory === "外观"
                     x: page.panelX("外观")
                     z: page.currentCategory === "外观" ? 1 : 0
                     Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-                    spacing: 14
+
+                    // Opaque backing so this panel fully occludes the other one
+                    // still sliding out behind it — without it, gaps around/
+                    // between cards let the other panel's cards show through
+                    // mid-slide, which read as the two pages' items overlapping.
+                    Rectangle {
+                        anchors.fill: parent
+                        color: Theme.color.surface
+                    }
+
+                    ColumnLayout {
+                        id: appearanceCards
+                        width: parent.width
+                        spacing: 14
 
                 // Dark-mode policy: three-way segmented button writing settings.darkMode.
                 Rectangle {
@@ -365,16 +379,27 @@ Rectangle {
                         }
                     }
                 }
+                    }
                 } // end 外观
 
-                ColumnLayout {
+                Item {
                     id: panelPlayback
                     width: parent.width
+                    implicitHeight: playbackCards.implicitHeight
                     visible: page.currentCategory === "播放" || page.exitingCategory === "播放"
                     x: page.panelX("播放")
                     z: page.currentCategory === "播放" ? 1 : 0
                     Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-                    spacing: 14
+
+                    Rectangle {
+                        anchors.fill: parent
+                        color: Theme.color.surface
+                    }
+
+                    ColumnLayout {
+                        id: playbackCards
+                        width: parent.width
+                        spacing: 14
 
                 // Source-switching toggle: grey/VIP/trial netease tracks fall back
                 // to the unblock sources (gdstudio / bodian / kuwo) before skipping.
@@ -465,16 +490,27 @@ Rectangle {
                 // card's markup inline here pushed SettingsPage's generated method past
                 // the JVM's 64KB bytecode limit (MethodTooLargeException at runtime).
                 CustomApiSettingsCard {}
+                    }
                 } // end 播放
 
-                ColumnLayout {
+                Item {
                     id: panelLyric
                     width: parent.width
+                    implicitHeight: lyricCards.implicitHeight
                     visible: page.currentCategory === "歌词" || page.exitingCategory === "歌词"
                     x: page.panelX("歌词")
                     z: page.currentCategory === "歌词" ? 1 : 0
                     Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-                    spacing: 14
+
+                    Rectangle {
+                        anchors.fill: parent
+                        color: Theme.color.surface
+                    }
+
+                    ColumnLayout {
+                        id: lyricCards
+                        width: parent.width
+                        spacing: 14
 
                 Rectangle {
                     Layout.fillWidth: true
@@ -735,16 +771,27 @@ Rectangle {
                     }
                 }
 
+                    }
                 } // end 歌词
 
-                ColumnLayout {
+                Item {
                     id: panelLocal
                     width: parent.width
+                    implicitHeight: localCards.implicitHeight
                     visible: page.currentCategory === "本地" || page.exitingCategory === "本地"
                     x: page.panelX("本地")
                     z: page.currentCategory === "本地" ? 1 : 0
                     Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-                    spacing: 14
+
+                    Rectangle {
+                        anchors.fill: parent
+                        color: Theme.color.surface
+                    }
+
+                    ColumnLayout {
+                        id: localCards
+                        width: parent.width
+                        spacing: 14
 
                 // Cache controls are cross-platform (both Settings twins have
                 // maxCacheSizeMB); only the "缓存目录" sub-fields below stay
@@ -910,16 +957,27 @@ Rectangle {
                         }
                     }
                 }
+                    }
                 } // end 本地
 
-                ColumnLayout {
+                Item {
                     id: panelAbout
                     width: parent.width
+                    implicitHeight: aboutCards.implicitHeight
                     visible: page.currentCategory === "关于" || page.exitingCategory === "关于"
                     x: page.panelX("关于")
                     z: page.currentCategory === "关于" ? 1 : 0
                     Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-                    spacing: 14
+
+                    Rectangle {
+                        anchors.fill: parent
+                        color: Theme.color.surface
+                    }
+
+                    ColumnLayout {
+                        id: aboutCards
+                        width: parent.width
+                        spacing: 14
 
                 Rectangle {
                     Layout.fillWidth: true
@@ -975,6 +1033,7 @@ Rectangle {
                         }
                     }
                 }
+                    }
                 } // end 关于
             }
         }
