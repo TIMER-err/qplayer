@@ -32,31 +32,26 @@ Rectangle {
     property var categories: ["外观", "播放", "歌词", "本地", "关于"]
 
     // Single-panel slide+fade: only the ENTERING panel ever animates (from a
-    // parked offset on the underline's direction back to 0, opacity 0 -> 1);
-    // the outgoing one just disappears instantly via `visible`. An earlier
-    // version kept both panels visible and animating during the transition
-    // (a true cross-slide) — measured as dropping frames on real hardware
-    // (two full card-stack subtrees repainting every frame, every frame, for
-    // the whole transition; qml4j has no cheap layer-cache to offset that,
-    // see the qml4j-gotchas memory items 9/10). This halves the simultaneous
-    // render cost by construction while still giving the switch some motion
-    // instead of an instant hard cut.
-    property int slideDir: 1
+    // parked offset back to 0, opacity 0 -> 1); the outgoing one just
+    // disappears instantly via `visible`. An earlier version kept both
+    // panels visible and animating during the transition (a true
+    // cross-slide) — measured as dropping frames on real hardware (two full
+    // card-stack subtrees repainting every frame, every frame, for the whole
+    // transition; qml4j has no cheap layer-cache to offset that, see the
+    // qml4j-gotchas memory items 9/10). This halves the simultaneous render
+    // cost by construction while still giving the switch some motion instead
+    // of an instant hard cut. Always enters from the right (fixed direction,
+    // not tied to which side the underline moved from) per explicit request.
     property real slideOffset: 48
 
     function selectCategory(name) {
         if (name === page.currentCategory) return
-        var oldIdx = page.categories.indexOf(page.currentCategory)
-        var newIdx = page.categories.indexOf(name)
-        page.slideDir = newIdx > oldIdx ? 1 : -1
         page.currentCategory = name
     }
 
-    // 0 once settled; starts parked on the side matching slideDir (so it
-    // slides in from the direction the underline just moved toward).
+    // 0 once settled; starts parked to the right otherwise.
     function panelX(catName) {
-        if (page.currentCategory === catName) return 0
-        return page.slideDir > 0 ? page.slideOffset : -page.slideOffset
+        return page.currentCategory === catName ? 0 : page.slideOffset
     }
 
     function panelOpacity(catName) {
