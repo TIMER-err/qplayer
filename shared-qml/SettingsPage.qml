@@ -23,6 +23,40 @@ Rectangle {
     property string currentCategory: "外观"
     property var categories: ["外观", "播放", "歌词", "本地", "关于"]
 
+    // Cross-slide transition state: exitingCategory stays non-empty for one
+    // animation cycle after a switch so the old panel keeps rendering (at an
+    // offset) while the new one slides in from the other side, matching the
+    // underline's direction of travel. slideDir is which way that direction is.
+    property string exitingCategory: ""
+    property int slideDir: 1
+    property real slideOffset: 48
+
+    function selectCategory(name) {
+        if (name === page.currentCategory) return
+        var oldIdx = page.categories.indexOf(page.currentCategory)
+        var newIdx = page.categories.indexOf(name)
+        page.slideDir = newIdx > oldIdx ? 1 : -1
+        page.exitingCategory = page.currentCategory
+        page.currentCategory = name
+        exitTimer.restart()
+    }
+
+    // Each category panel's x binding: 0 when active/settled, slid out toward
+    // slideDir when exiting, parked on the entry side otherwise (so it's ready
+    // to slide in next time it becomes active, whichever direction that is).
+    function panelX(catName) {
+        if (page.currentCategory === catName) return 0
+        if (page.exitingCategory === catName) return page.slideDir > 0 ? -page.slideOffset : page.slideOffset
+        return page.slideDir > 0 ? page.slideOffset : -page.slideOffset
+    }
+
+    Timer {
+        id: exitTimer
+        interval: 260
+        repeat: false
+        onTriggered: page.exitingCategory = ""
+    }
+
     // Catch-all so taps on empty areas don't fall through to the page beneath.
     // Declared first (lowest z); the controls above still receive their events.
     MouseArea { anchors.fill: parent }
@@ -94,7 +128,7 @@ Rectangle {
                         }
                         MouseArea {
                             anchors.fill: parent
-                            onClicked: page.currentCategory = modelData
+                            onClicked: page.selectCategory(modelData)
                         }
                     }
                 }
@@ -117,24 +151,41 @@ Rectangle {
         }
 
         Flickable {
+            id: settingsFlickable
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
             contentWidth: width
-            contentHeight: content.implicitHeight + 24
+            // Bound to whichever panel is active (not a sum of all 5 — only one
+            // is ever "settled"; the exiting one is on its way off-screen).
+            contentHeight: {
+                switch (page.currentCategory) {
+                case "外观": return panelAppearance.implicitHeight + 24
+                case "播放": return panelPlayback.implicitHeight + 24
+                case "歌词": return panelLyric.implicitHeight + 24
+                case "本地": return panelLocal.implicitHeight + 24
+                case "关于": return panelAbout.implicitHeight + 24
+                default: return 0
+                }
+            }
 
-            ColumnLayout {
+            // Plain Item, not a Layout: the 5 category panels below are
+            // absolutely positioned (x-offset) so two can overlap on-screen
+            // during a cross-slide transition — a ColumnLayout would stack them
+            // vertically instead. Each panel keeps Layout.fillWidth on ITS OWN
+            // children unaffected (that's relative to the panel itself, which
+            // stays a real ColumnLayout underneath).
+            Item {
                 id: content
                 width: parent.width
-                spacing: 14
 
                 ColumnLayout {
-                    Layout.fillWidth: true
-                    visible: page.currentCategory === "外观"
-                    // No fade here (tried it — animating opacity across a whole
-                    // heavy card subtree was visibly janky). The underline slide
-                    // above is the switch animation; content just switches
-                    // instantly, same as most tab-bar implementations do.
+                    id: panelAppearance
+                    width: parent.width
+                    visible: page.currentCategory === "外观" || page.exitingCategory === "外观"
+                    x: page.panelX("外观")
+                    z: page.currentCategory === "外观" ? 1 : 0
+                    Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
                     spacing: 14
 
                 // Dark-mode policy: three-way segmented button writing settings.darkMode.
@@ -317,8 +368,12 @@ Rectangle {
                 } // end 外观
 
                 ColumnLayout {
-                    Layout.fillWidth: true
-                    visible: page.currentCategory === "播放"
+                    id: panelPlayback
+                    width: parent.width
+                    visible: page.currentCategory === "播放" || page.exitingCategory === "播放"
+                    x: page.panelX("播放")
+                    z: page.currentCategory === "播放" ? 1 : 0
+                    Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
                     spacing: 14
 
                 // Source-switching toggle: grey/VIP/trial netease tracks fall back
@@ -413,8 +468,12 @@ Rectangle {
                 } // end 播放
 
                 ColumnLayout {
-                    Layout.fillWidth: true
-                    visible: page.currentCategory === "歌词"
+                    id: panelLyric
+                    width: parent.width
+                    visible: page.currentCategory === "歌词" || page.exitingCategory === "歌词"
+                    x: page.panelX("歌词")
+                    z: page.currentCategory === "歌词" ? 1 : 0
+                    Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
                     spacing: 14
 
                 Rectangle {
@@ -679,8 +738,12 @@ Rectangle {
                 } // end 歌词
 
                 ColumnLayout {
-                    Layout.fillWidth: true
-                    visible: page.currentCategory === "本地"
+                    id: panelLocal
+                    width: parent.width
+                    visible: page.currentCategory === "本地" || page.exitingCategory === "本地"
+                    x: page.panelX("本地")
+                    z: page.currentCategory === "本地" ? 1 : 0
+                    Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
                     spacing: 14
 
                 // Cache controls are cross-platform (both Settings twins have
@@ -850,8 +913,12 @@ Rectangle {
                 } // end 本地
 
                 ColumnLayout {
-                    Layout.fillWidth: true
-                    visible: page.currentCategory === "关于"
+                    id: panelAbout
+                    width: parent.width
+                    visible: page.currentCategory === "关于" || page.exitingCategory === "关于"
+                    x: page.panelX("关于")
+                    z: page.currentCategory === "关于" ? 1 : 0
+                    Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
                     spacing: 14
 
                 Rectangle {
