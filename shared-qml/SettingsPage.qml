@@ -13,6 +13,16 @@ Rectangle {
     color: Theme.color.surface
     property bool fontPickerOpen: false
 
+    // Category tab bar (issue: settings had grown into one long scroll with just
+    // inline section labels — this replaces that with an explicit selector).
+    // Fixed 5-category list, always the same on every platform: 存储's cache
+    // controls are cross-platform (both Settings twins have maxCacheSizeMB) and
+    // now live under 本地 alongside the music-folder picker (that one card still
+    // individually typeof-guards itself for Android, same as before) — merging
+    // them meant one fewer tab than the original 6-category cut.
+    property string currentCategory: "外观"
+    property var categories: ["外观", "播放", "歌词", "本地", "关于"]
+
     // Catch-all so taps on empty areas don't fall through to the page beneath.
     // Declared first (lowest z); the controls above still receive their events.
     MouseArea { anchors.fill: parent }
@@ -42,6 +52,70 @@ Rectangle {
             }
         }
 
+        // Category selector: a plain Item (not a Flickable — 5 categories at
+        // equal width always fits in one row, even on a narrow phone screen, so
+        // there's nothing to scroll).
+        Item {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 46
+            Layout.topMargin: 2
+            Layout.bottomMargin: 4
+            Layout.leftMargin: 12
+            Layout.rightMargin: 12
+
+            // Even division of this Item's own width — every category label is
+            // exactly 2 characters, so equal-width slots read as intentional
+            // rather than cramped, and (more importantly) let the underline
+            // below be pure arithmetic instead of having to introspect a
+            // Repeater delegate's actual on-screen geometry.
+            property int currentIndex: page.categories.indexOf(page.currentCategory)
+            property real tabWidth: width / Math.max(1, page.categories.length)
+
+            RowLayout {
+                anchors.fill: parent
+                spacing: 0
+                Repeater {
+                    model: page.categories
+                    Item {
+                        id: tabSlot
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        property bool active: modelData === page.currentCategory
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: modelData
+                            fontSize: 15
+                            color: tabSlot.active ? Theme.color.primary : Theme.color.onSurfaceVariantColor
+                            font.family: tabSlot.active
+                                ? Theme.typography.titleSmall.family
+                                : Theme.typography.bodyLarge.family
+                            Behavior on color { ColorAnimation { duration: 200 } }
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: page.currentCategory = modelData
+                        }
+                    }
+                }
+            }
+
+            // Selection indicator: a short underline that slides + resizes to the
+            // active tab's slot, Apple/Material "underlined tab" style, rather
+            // than the earlier filled-pill chips.
+            Rectangle {
+                id: tabUnderline
+                height: 2
+                radius: 1
+                color: Theme.color.primary
+                y: parent.height - height - 2
+                width: parent.tabWidth * 0.7
+                x: parent.tabWidth * parent.currentIndex + (parent.tabWidth - width) / 2
+                Behavior on x { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+                Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+            }
+        }
+
         Flickable {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -54,14 +128,14 @@ Rectangle {
                 width: parent.width
                 spacing: 14
 
-                Text {
-                    Layout.leftMargin: 20
-                    Layout.topMargin: 6
-                    text: "外观"
-                    color: Theme.color.primary
-                    font.family: Theme.typography.titleSmall.family
-                    font.pixelSize: Theme.typography.titleSmall.size
-                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    visible: page.currentCategory === "外观"
+                    // No fade here (tried it — animating opacity across a whole
+                    // heavy card subtree was visibly janky). The underline slide
+                    // above is the switch animation; content just switches
+                    // instantly, same as most tab-bar implementations do.
+                    spacing: 14
 
                 // Dark-mode policy: three-way segmented button writing settings.darkMode.
                 Rectangle {
@@ -240,15 +314,12 @@ Rectangle {
                         }
                     }
                 }
+                } // end 外观
 
-                Text {
-                    Layout.leftMargin: 20
-                    Layout.topMargin: 6
-                    text: "播放"
-                    color: Theme.color.primary
-                    font.family: Theme.typography.titleSmall.family
-                    font.pixelSize: Theme.typography.titleSmall.size
-                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    visible: page.currentCategory === "播放"
+                    spacing: 14
 
                 // Source-switching toggle: grey/VIP/trial netease tracks fall back
                 // to the unblock sources (gdstudio / bodian / kuwo) before skipping.
@@ -339,15 +410,13 @@ Rectangle {
                 // card's markup inline here pushed SettingsPage's generated method past
                 // the JVM's 64KB bytecode limit (MethodTooLargeException at runtime).
                 CustomApiSettingsCard {}
+                } // end 播放
 
-                Text {
-                    Layout.leftMargin: 20
-                    Layout.topMargin: 6
-                    text: "歌词"
-                    color: Theme.color.primary
-                    font.family: Theme.typography.titleSmall.family
-                    font.pixelSize: Theme.typography.titleSmall.size
-                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    visible: page.currentCategory === "歌词"
+                    spacing: 14
+
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.leftMargin: 12
@@ -607,14 +676,17 @@ Rectangle {
                     }
                 }
 
-                Text {
-                    Layout.leftMargin: 20
-                    Layout.topMargin: 6
-                    text: "存储"
-                    color: Theme.color.primary
-                    font.family: Theme.typography.titleSmall.family
-                    font.pixelSize: Theme.typography.titleSmall.size
-                }
+                } // end 歌词
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    visible: page.currentCategory === "本地"
+                    spacing: 14
+
+                // Cache controls are cross-platform (both Settings twins have
+                // maxCacheSizeMB); only the "缓存目录" sub-fields below stay
+                // desktop-only-guarded, same as before merging this and the
+                // music-folder card into one 本地 tab.
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.leftMargin: 12
@@ -726,16 +798,6 @@ Rectangle {
                     }
                 }
 
-                // Desktop-only: hidden on Android where AppSettings has no musicFolder.
-                Text {
-                    visible: typeof settings.musicFolder !== "undefined"
-                    Layout.leftMargin: 20
-                    Layout.topMargin: 6
-                    text: "本地"
-                    color: Theme.color.primary
-                    font.family: Theme.typography.titleSmall.family
-                    font.pixelSize: Theme.typography.titleSmall.size
-                }
                 Rectangle {
                     visible: typeof settings.musicFolder !== "undefined"
                     Layout.fillWidth: true
@@ -785,15 +847,13 @@ Rectangle {
                         }
                     }
                 }
+                } // end 本地
 
-                Text {
-                    Layout.leftMargin: 20
-                    Layout.topMargin: 6
-                    text: "关于"
-                    color: Theme.color.primary
-                    font.family: Theme.typography.titleSmall.family
-                    font.pixelSize: Theme.typography.titleSmall.size
-                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    visible: page.currentCategory === "关于"
+                    spacing: 14
+
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.leftMargin: 12
@@ -848,6 +908,7 @@ Rectangle {
                         }
                     }
                 }
+                } // end 关于
             }
         }
     }
