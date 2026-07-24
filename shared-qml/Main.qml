@@ -67,6 +67,18 @@ Rectangle {
         player.requestExit();
     }
 
+    // Detail/queue/settings/account are independent booleans, each just driving
+    // its own overlay's opacity/y — nothing stopped two from being true at once
+    // (e.g. opening account while settings was still open), so the later-declared
+    // one visually covered the other. Route every "open X" site through this so
+    // opening one always closes the rest first.
+    function openOverlay(which) {
+        app.detailOpen = which === "detail"
+        app.settingsOpen = which === "settings"
+        app.accountOpen = which === "account"
+        player.setQueueOpen(which === "queue")
+    }
+
     // MD3 fade-through page switch: fade the content out, swap, fade it back in.
     function switchTo(idx) {
         app.detailOpen = false;          // dismiss any open playlist detail
@@ -142,17 +154,17 @@ Rectangle {
         IconButton {
             type: "standard"
             icon: "queue_music"
-            onClicked: player.setQueueOpen(true)
+            onClicked: app.openOverlay("queue")
         }
         IconButton {
             type: "standard"
             icon: player.loggedIn ? "account_circle" : "login"
-            onClicked: if (player.loggedIn) app.accountOpen = true; else app.loginOpen = true
+            onClicked: if (player.loggedIn) app.openOverlay("account"); else app.loginOpen = true
         }
         IconButton {
             type: "standard"
             icon: "settings"
-            onClicked: app.settingsOpen = true
+            onClicked: app.openOverlay("settings")
         }
         IconButton {
             type: "standard"
@@ -185,7 +197,7 @@ Rectangle {
                 id: home
                 anchors.fill: parent
                 visible: app.page === 0
-                onOpenPlaylist: { player.openPlaylist(home.pendingPlaylist.id); app.detailOpen = true }
+                onOpenPlaylist: { player.openPlaylist(home.pendingPlaylist.id); app.openOverlay("detail") }
             }
             SearchPage {
                 anchors.fill: parent
@@ -195,7 +207,7 @@ Rectangle {
                 id: library
                 anchors.fill: parent
                 visible: app.page === 2
-                onOpenPlaylist: { player.openPlaylist(library.pendingPlaylist.id); app.detailOpen = true }
+                onOpenPlaylist: { player.openPlaylist(library.pendingPlaylist.id); app.openOverlay("detail") }
                 onRequestLogin: app.loginOpen = true
             }
             RecentPage {

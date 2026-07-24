@@ -57,19 +57,18 @@ ColumnLayout {
                     onClicked: settings.customApiEnabled = checked
                 }
             }
-            // Flattened to a direct customApiCol child (not nested inside the
-            // RowLayout above alongside the switch) — Layout.fillWidth only
-            // reliably reaches a Layout's IMMEDIATE child in this engine, and two
-            // levels of nesting (RowLayout > ColumnLayout > Text) left this
-            // description with no real width to wrap against, so it ran past the
-            // card's edge instead of wrapping.
+            // Manual line breaks, same reason and same fix as AboutSettingsCards.qml's
+            // version text: qml4j's auto WordWrap for this Text never settled against
+            // the card's real (later-resolved) width, no matter how the width was
+            // sourced (Layout.fillWidth, explicit width: parent.width, an
+            // externally-passed availableWidth, delaying first appearance) -- it kept
+            // rendering the tail of the string cut off instead of wrapping. Hard-coding
+            // the breaks sidesteps the auto-wrap path entirely.
             Text {
-                Layout.fillWidth: true
-                text: "独立于网易云的搜索入口，用下面的字段接一个自建/第三方音乐 API"
+                text: "独立于网易云的搜索入口，\n用下面的字段接一个自建/第三方\n音乐 API"
                 color: Theme.color.onSurfaceVariantColor
                 font.family: Theme.typography.bodySmall.family
                 font.pixelSize: Theme.typography.bodySmall.size
-                wrapMode: Text.WordWrap
             }
 
             // Animated collapse while the source is disabled. Attempt #1 (an outer
@@ -94,7 +93,7 @@ ColumnLayout {
 
             Text {
                 Layout.fillWidth: true
-                text: "URL 模板用 {keyword}/{id} 占位符；字段填 JSON 路径，如 data.list、name、artists[].name（数组转字符串用 / 拼接多个值）"
+                text: "URL 模板用 {keyword}/{id}\n占位符；字段填 JSON 路径，\n如 data.list、name、\nartists[].name（数组转\n字符串用 / 拼接多个值）"
                 color: Theme.color.onSurfaceVariantColor
                 font.family: Theme.typography.bodySmall.family
                 font.pixelSize: Theme.typography.bodySmall.size

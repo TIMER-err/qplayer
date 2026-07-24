@@ -147,7 +147,7 @@ ColumnLayout {
             }
             Text {
                 Layout.fillWidth: true
-                text: "歌词页立即生效；其余界面文字需要重启软件，且目前只有 Windows 上会真正切换"
+                text: "歌词页立即生效；其余界面文字\n需要重启软件，且目前只有\nWindows 上会真正切换"
                 color: Theme.color.onSurfaceVariantColor
                 font.family: Theme.typography.bodySmall.family
                 font.pixelSize: Theme.typography.bodySmall.size

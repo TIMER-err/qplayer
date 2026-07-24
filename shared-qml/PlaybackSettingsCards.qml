@@ -54,7 +54,7 @@ ColumnLayout {
             }
             Text {
                 Layout.fillWidth: true
-                text: "灰色/VIP/试听歌曲自动尝试其他音源"
+                text: "灰色/VIP/试听歌曲\n自动尝试其他音源"
                 color: Theme.color.onSurfaceVariantColor
                 font.family: Theme.typography.bodySmall.family
                 font.pixelSize: Theme.typography.bodySmall.size
@@ -98,7 +98,7 @@ ColumnLayout {
             }
             Text {
                 Layout.fillWidth: true
-                text: "通过 gh-proxy 镜像下载应用更新"
+                text: "通过 gh-proxy\n镜像下载应用更新"
                 color: Theme.color.onSurfaceVariantColor
                 font.family: Theme.typography.bodySmall.family
                 font.pixelSize: Theme.typography.bodySmall.size
