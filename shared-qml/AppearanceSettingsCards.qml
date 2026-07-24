@@ -8,6 +8,15 @@ import md3.Core
 // SettingsPage's generated method past the JVM's 64KB bytecode limit
 // (MethodTooLargeException at runtime, not caught by `mvn package`).
 //
+// Every card below keeps its title+control row and its description Text as
+// DIRECT siblings inside one outer ColumnLayout (never a description nested
+// inside a second inner ColumnLayout alongside the row) — Layout.fillWidth
+// only reliably reaches a Layout's IMMEDIATE child in this engine; one extra
+// level of nesting (RowLayout > ColumnLayout > Text) left the description
+// with no real width to wrap against, so it overflowed the card instead of
+// wrapping (see CustomApiSettingsCard.qml's identical fix, and the
+// qml4j-gotchas memory).
+//
 // 外观 tab: dark-mode policy, Monet dynamic color, bundled-vs-system font,
 // specific font family picker.
 ColumnLayout {
@@ -56,46 +65,46 @@ ColumnLayout {
         Layout.rightMargin: 12
         radius: 18
         color: Theme.color.surfaceContainerHighest
-        implicitHeight: monetRow.implicitHeight + 32
+        implicitHeight: monetCol.implicitHeight + 32
 
-        RowLayout {
-            id: monetRow
+        ColumnLayout {
+            id: monetCol
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.leftMargin: 16
-            anchors.rightMargin: 16
-            spacing: 12
+            anchors.top: parent.top
+            anchors.margins: 16
+            spacing: 4
 
-            Rectangle {
-                Layout.preferredWidth: 40
-                Layout.preferredHeight: 40
-                radius: 20
-                color: Theme.color.primary
-                border.width: 1
-                border.color: Theme.color.outlineVariant
-            }
-            ColumnLayout {
+            RowLayout {
                 Layout.fillWidth: true
-                spacing: 2
+                spacing: 12
+                Rectangle {
+                    Layout.preferredWidth: 40
+                    Layout.preferredHeight: 40
+                    radius: 20
+                    color: Theme.color.primary
+                    border.width: 1
+                    border.color: Theme.color.outlineVariant
+                }
                 Text {
+                    Layout.fillWidth: true
                     text: "莫奈取色"
                     color: Theme.color.onSurfaceColor
                     font.family: Theme.typography.bodyLarge.family
                     font.pixelSize: Theme.typography.bodyLarge.size
                 }
-                Text {
-                    Layout.fillWidth: true
-                    text: "随封面动态生成主题配色"
-                    color: Theme.color.onSurfaceVariantColor
-                    font.family: Theme.typography.bodySmall.family
-                    font.pixelSize: Theme.typography.bodySmall.size
-                    wrapMode: Text.WordWrap
+                Switch {
+                    checked: settings.monetEnabled
+                    onClicked: settings.monetEnabled = checked
                 }
             }
-            Switch {
-                checked: settings.monetEnabled
-                onClicked: settings.monetEnabled = checked
+            Text {
+                Layout.fillWidth: true
+                text: "随封面动态生成主题配色"
+                color: Theme.color.onSurfaceVariantColor
+                font.family: Theme.typography.bodySmall.family
+                font.pixelSize: Theme.typography.bodySmall.size
+                wrapMode: Text.WordWrap
             }
         }
     }
@@ -111,38 +120,38 @@ ColumnLayout {
         Layout.rightMargin: 12
         radius: 18
         color: Theme.color.surfaceContainerHighest
-        implicitHeight: fontRow.implicitHeight + 32
+        implicitHeight: fontCol.implicitHeight + 32
 
-        RowLayout {
-            id: fontRow
+        ColumnLayout {
+            id: fontCol
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.leftMargin: 16
-            anchors.rightMargin: 16
-            spacing: 12
+            anchors.top: parent.top
+            anchors.margins: 16
+            spacing: 4
 
-            ColumnLayout {
+            RowLayout {
                 Layout.fillWidth: true
-                spacing: 2
+                spacing: 12
                 Text {
+                    Layout.fillWidth: true
                     text: "使用系统默认字体"
                     color: Theme.color.onSurfaceColor
                     font.family: Theme.typography.bodyLarge.family
                     font.pixelSize: Theme.typography.bodyLarge.size
                 }
-                Text {
-                    Layout.fillWidth: true
-                    text: "歌词页立即生效；其余界面文字需要重启软件，且目前只有 Windows 上会真正切换"
-                    color: Theme.color.onSurfaceVariantColor
-                    font.family: Theme.typography.bodySmall.family
-                    font.pixelSize: Theme.typography.bodySmall.size
-                    wrapMode: Text.WordWrap
+                Switch {
+                    checked: settings.useSystemFont
+                    onClicked: settings.useSystemFont = checked
                 }
             }
-            Switch {
-                checked: settings.useSystemFont
-                onClicked: settings.useSystemFont = checked
+            Text {
+                Layout.fillWidth: true
+                text: "歌词页立即生效；其余界面文字需要重启软件，且目前只有 Windows 上会真正切换"
+                color: Theme.color.onSurfaceVariantColor
+                font.family: Theme.typography.bodySmall.family
+                font.pixelSize: Theme.typography.bodySmall.size
+                wrapMode: Text.WordWrap
             }
         }
     }
@@ -158,38 +167,38 @@ ColumnLayout {
         Layout.rightMargin: 12
         radius: 18
         color: Theme.color.surfaceContainerHighest
-        implicitHeight: fontFamilyRow.implicitHeight + 32
+        implicitHeight: fontFamilyCol.implicitHeight + 32
 
-        RowLayout {
-            id: fontFamilyRow
+        ColumnLayout {
+            id: fontFamilyCol
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.leftMargin: 16
-            anchors.rightMargin: 16
-            spacing: 12
+            anchors.top: parent.top
+            anchors.margins: 16
+            spacing: 4
 
-            ColumnLayout {
+            RowLayout {
                 Layout.fillWidth: true
-                spacing: 2
+                spacing: 12
                 Text {
+                    Layout.fillWidth: true
                     text: "指定字体"
                     color: Theme.color.onSurfaceColor
                     font.family: Theme.typography.bodyLarge.family
                     font.pixelSize: Theme.typography.bodyLarge.size
                 }
-                Text {
-                    Layout.fillWidth: true
-                    text: settings.lyricFontFamily ? ("当前：" + settings.lyricFontFamily) : "未指定，跟随上方开关"
-                    color: Theme.color.onSurfaceVariantColor
-                    font.family: Theme.typography.bodySmall.family
-                    font.pixelSize: Theme.typography.bodySmall.size
-                    wrapMode: Text.WordWrap
+                Button {
+                    type: "tonal"; text: "选择…"
+                    onClicked: root.pickFont()
                 }
             }
-            Button {
-                type: "tonal"; text: "选择…"
-                onClicked: root.pickFont()
+            Text {
+                Layout.fillWidth: true
+                text: settings.lyricFontFamily ? ("当前：" + settings.lyricFontFamily) : "未指定，跟随上方开关"
+                color: Theme.color.onSurfaceVariantColor
+                font.family: Theme.typography.bodySmall.family
+                font.pixelSize: Theme.typography.bodySmall.size
+                wrapMode: Text.WordWrap
             }
         }
     }
