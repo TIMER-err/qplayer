@@ -124,7 +124,7 @@ ColumnLayout {
             }
             Text {
                 Layout.fillWidth: true
-                text: "滚动与逐字上抬\n使用弹簧物理"
+                text: "滚动与逐字上抬使用弹簧物理"
                 color: Theme.color.onSurfaceVariantColor
                 font.family: Theme.typography.bodySmall.family
                 font.pixelSize: Theme.typography.bodySmall.size
@@ -149,7 +149,7 @@ ColumnLayout {
             }
             Text {
                 Layout.fillWidth: true
-                text: "当前行放大、\n其余行略缩"
+                text: "当前行放大、其余行略缩"
                 color: Theme.color.onSurfaceVariantColor
                 font.family: Theme.typography.bodySmall.family
                 font.pixelSize: Theme.typography.bodySmall.size
@@ -174,7 +174,7 @@ ColumnLayout {
             }
             Text {
                 Layout.fillWidth: true
-                text: "已唱字词白色辉光\n(较耗电)"
+                text: "已唱字词白色辉光(较耗电)"
                 color: Theme.color.onSurfaceVariantColor
                 font.family: Theme.typography.bodySmall.family
                 font.pixelSize: Theme.typography.bodySmall.size
@@ -200,7 +200,7 @@ ColumnLayout {
             }
             Text {
                 Layout.fillWidth: true
-                text: "关闭时\n整行一起点亮"
+                text: "关闭时整行一起点亮"
                 color: Theme.color.onSurfaceVariantColor
                 font.family: Theme.typography.bodySmall.family
                 font.pixelSize: Theme.typography.bodySmall.size
@@ -225,7 +225,7 @@ ColumnLayout {
             }
             Text {
                 Layout.fillWidth: true
-                text: "未聚焦歌词按远近\n渐进高斯模糊(较耗电)"
+                text: "未聚焦歌词按远近渐进高斯模糊(较耗电)"
                 color: Theme.color.onSurfaceVariantColor
                 font.family: Theme.typography.bodySmall.family
                 font.pixelSize: Theme.typography.bodySmall.size
@@ -244,7 +244,7 @@ ColumnLayout {
             }
             Text {
                 Layout.fillWidth: true
-                text: "动态流动 / 静态\n(渲染一次,更省电)"
+                text: "动态流动 / 静态(渲染一次,更省电)"
                 color: Theme.color.onSurfaceVariantColor
                 font.family: Theme.typography.bodySmall.family
                 font.pixelSize: Theme.typography.bodySmall.size

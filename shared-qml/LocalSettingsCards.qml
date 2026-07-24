@@ -101,7 +101,7 @@ ColumnLayout {
             Text {
                 visible: typeof settings.cacheFolder !== "undefined"
                 Layout.fillWidth: true
-                text: "本地音乐库封面/歌词缓存\n与网易云缓存都存在这里；\n修改后不会自动搬运旧文件，\n会重新扫描并在新目录下\n重建缓存"
+                text: "本地音乐库封面/歌词缓存与网易云缓存都存在这里；修改后不会自动搬运旧文件，会重新扫描并在新目录下重建缓存"
                 color: Theme.color.onSurfaceVariantColor
                 font.family: Theme.typography.bodySmall.family
                 font.pixelSize: Theme.typography.bodySmall.size
@@ -152,7 +152,7 @@ ColumnLayout {
             }
             Text {
                 Layout.fillWidth: true
-                text: "修改后将自动重新扫描\n该目录中的音乐文件"
+                text: "修改后将自动重新扫描该目录中的音乐文件"
                 color: Theme.color.onSurfaceVariantColor
                 font.family: Theme.typography.bodySmall.family
                 font.pixelSize: Theme.typography.bodySmall.size

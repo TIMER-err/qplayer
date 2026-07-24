@@ -100,7 +100,7 @@ ColumnLayout {
 
             Text {
                 Layout.fillWidth: true
-                text: "URL 模板用 {keyword}/{id}\n占位符；字段填 JSON 路径，\n如 data.list、name、\nartists[].name（数组转\n字符串用 / 拼接多个值）"
+                text: "URL 模板用 {keyword}/{id} 占位符；字段填 JSON 路径，如 data.list、name、artists[].name（数组转字符串用 / 拼接多个值）"
                 color: Theme.color.onSurfaceVariantColor
                 font.family: Theme.typography.bodySmall.family
                 font.pixelSize: Theme.typography.bodySmall.size
