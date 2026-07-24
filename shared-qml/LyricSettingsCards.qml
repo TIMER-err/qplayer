@@ -113,10 +113,12 @@ ColumnLayout {
                         font.pixelSize: Theme.typography.bodyLarge.size
                     }
                     Text {
+                        Layout.fillWidth: true
                         text: "滚动与逐字上抬使用弹簧物理"
                         color: Theme.color.onSurfaceVariantColor
                         font.family: Theme.typography.bodySmall.family
                         font.pixelSize: Theme.typography.bodySmall.size
+                        wrapMode: Text.WordWrap
                     }
                 }
                 Switch {
@@ -139,10 +141,12 @@ ColumnLayout {
                         font.pixelSize: Theme.typography.bodyLarge.size
                     }
                     Text {
+                        Layout.fillWidth: true
                         text: "当前行放大、其余行略缩"
                         color: Theme.color.onSurfaceVariantColor
                         font.family: Theme.typography.bodySmall.family
                         font.pixelSize: Theme.typography.bodySmall.size
+                        wrapMode: Text.WordWrap
                     }
                 }
                 Switch {
@@ -165,10 +169,12 @@ ColumnLayout {
                         font.pixelSize: Theme.typography.bodyLarge.size
                     }
                     Text {
+                        Layout.fillWidth: true
                         text: "已唱字词白色辉光(较耗电)"
                         color: Theme.color.onSurfaceVariantColor
                         font.family: Theme.typography.bodySmall.family
                         font.pixelSize: Theme.typography.bodySmall.size
+                        wrapMode: Text.WordWrap
                     }
                 }
                 Switch {
@@ -192,10 +198,12 @@ ColumnLayout {
                         font.pixelSize: Theme.typography.bodyLarge.size
                     }
                     Text {
+                        Layout.fillWidth: true
                         text: "关闭时整行一起点亮"
                         color: Theme.color.onSurfaceVariantColor
                         font.family: Theme.typography.bodySmall.family
                         font.pixelSize: Theme.typography.bodySmall.size
+                        wrapMode: Text.WordWrap
                     }
                 }
                 Switch {
@@ -218,10 +226,12 @@ ColumnLayout {
                         font.pixelSize: Theme.typography.bodyLarge.size
                     }
                     Text {
+                        Layout.fillWidth: true
                         text: "未聚焦歌词按远近渐进高斯模糊(较耗电)"
                         color: Theme.color.onSurfaceVariantColor
                         font.family: Theme.typography.bodySmall.family
                         font.pixelSize: Theme.typography.bodySmall.size
+                        wrapMode: Text.WordWrap
                     }
                 }
                 Switch {

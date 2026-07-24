@@ -41,10 +41,12 @@ ColumnLayout {
                     font.pixelSize: Theme.typography.bodyLarge.size
                 }
                 Text {
+                    Layout.fillWidth: true
                     text: "灰色/VIP/试听歌曲自动尝试其他音源"
                     color: Theme.color.onSurfaceVariantColor
                     font.family: Theme.typography.bodySmall.family
                     font.pixelSize: Theme.typography.bodySmall.size
+                    wrapMode: Text.WordWrap
                 }
             }
             Switch {
@@ -83,10 +85,12 @@ ColumnLayout {
                     font.pixelSize: Theme.typography.bodyLarge.size
                 }
                 Text {
+                    Layout.fillWidth: true
                     text: "通过 gh-proxy 镜像下载应用更新"
                     color: Theme.color.onSurfaceVariantColor
                     font.family: Theme.typography.bodySmall.family
                     font.pixelSize: Theme.typography.bodySmall.size
+                    wrapMode: Text.WordWrap
                 }
             }
             Switch {
