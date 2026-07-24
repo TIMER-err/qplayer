@@ -57,18 +57,13 @@ ColumnLayout {
                     onClicked: settings.customApiEnabled = checked
                 }
             }
-            // Manual line breaks, same reason and same fix as AboutSettingsCards.qml's
-            // version text: qml4j's auto WordWrap for this Text never settled against
-            // the card's real (later-resolved) width, no matter how the width was
-            // sourced (Layout.fillWidth, explicit width: parent.width, an
-            // externally-passed availableWidth, delaying first appearance) -- it kept
-            // rendering the tail of the string cut off instead of wrapping. Hard-coding
-            // the breaks sidesteps the auto-wrap path entirely.
             Text {
-                text: "独立于网易云的搜索入口，\n用下面的字段接一个自建/第三方\n音乐 API"
+                Layout.fillWidth: true
+                text: "独立于网易云的搜索入口，用下面的字段接一个自建/第三方音乐 API"
                 color: Theme.color.onSurfaceVariantColor
                 font.family: Theme.typography.bodySmall.family
                 font.pixelSize: Theme.typography.bodySmall.size
+                wrapMode: Text.WordWrap
             }
 
             // Animated collapse while the source is disabled. Attempt #1 (an outer
@@ -83,6 +78,18 @@ ColumnLayout {
             // measurement in the first place.
             ColumnLayout {
                 id: advancedFields
+                // Real visible:false when fully collapsed (not just opacity:0/
+                // height:0) so its 17 TextField rows drop out of every settle
+                // pass entirely instead of still being measured every time just
+                // to occupy zero space — qml4j's tree-wide relayout caps itself
+                // at 8 passes per settle, and this subtree was heavy enough that
+                // the sibling description Text right above it (independent of
+                // this one, but sharing the same customApiCol settle budget)
+                // apparently never converged on a correct wrap width while this
+                // stayed layout-participating at all times. Stays visible
+                // through the collapse fade (opacity>0.001) so the shrink still
+                // animates instead of popping.
+                visible: settings.customApiEnabled || opacity > 0.001
                 Layout.fillWidth: true
                 Layout.preferredHeight: settings.customApiEnabled ? implicitHeight : 0
                 clip: true
