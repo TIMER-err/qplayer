@@ -31,11 +31,16 @@ Rectangle {
     property string currentCategory: "外观"
     property var categories: ["外观", "播放", "歌词", "本地", "关于"]
 
-    // Cross-slide transition state: exitingCategory stays non-empty for one
-    // animation cycle after a switch so the old panel keeps rendering (at an
-    // offset) while the new one slides in from the other side, matching the
-    // underline's direction of travel. slideDir is which way that direction is.
-    property string exitingCategory: ""
+    // Single-panel slide+fade: only the ENTERING panel ever animates (from a
+    // parked offset on the underline's direction back to 0, opacity 0 -> 1);
+    // the outgoing one just disappears instantly via `visible`. An earlier
+    // version kept both panels visible and animating during the transition
+    // (a true cross-slide) — measured as dropping frames on real hardware
+    // (two full card-stack subtrees repainting every frame, every frame, for
+    // the whole transition; qml4j has no cheap layer-cache to offset that,
+    // see the qml4j-gotchas memory items 9/10). This halves the simultaneous
+    // render cost by construction while still giving the switch some motion
+    // instead of an instant hard cut.
     property int slideDir: 1
     property real slideOffset: 48
 
@@ -44,25 +49,18 @@ Rectangle {
         var oldIdx = page.categories.indexOf(page.currentCategory)
         var newIdx = page.categories.indexOf(name)
         page.slideDir = newIdx > oldIdx ? 1 : -1
-        page.exitingCategory = page.currentCategory
         page.currentCategory = name
-        exitTimer.restart()
     }
 
-    // Each category panel's x binding: 0 when active/settled, slid out toward
-    // slideDir when exiting, parked on the entry side otherwise (so it's ready
-    // to slide in next time it becomes active, whichever direction that is).
+    // 0 once settled; starts parked on the side matching slideDir (so it
+    // slides in from the direction the underline just moved toward).
     function panelX(catName) {
         if (page.currentCategory === catName) return 0
-        if (page.exitingCategory === catName) return page.slideDir > 0 ? -page.slideOffset : page.slideOffset
         return page.slideDir > 0 ? page.slideOffset : -page.slideOffset
     }
 
-    Timer {
-        id: exitTimer
-        interval: 260
-        repeat: false
-        onTriggered: page.exitingCategory = ""
+    function panelOpacity(catName) {
+        return page.currentCategory === catName ? 1 : 0
     }
 
     // Catch-all so taps on empty areas don't fall through to the page beneath.
@@ -189,7 +187,7 @@ Rectangle {
                     id: panelAppearance
                     width: parent.width
                     implicitHeight: appearanceCards.implicitHeight
-                    visible: page.currentCategory === "外观" || page.exitingCategory === "外观"
+                    visible: page.currentCategory === "外观"
                     x: page.panelX("外观")
                     z: page.currentCategory === "外观" ? 1 : 0
                     Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
@@ -206,6 +204,8 @@ Rectangle {
                     AppearanceSettingsCards {
                         id: appearanceCards
                         width: parent.width
+                        opacity: page.panelOpacity("外观")
+                        Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
                         onPickFont: page.fontPickerOpen = true
                     }
                 } // end 外观
@@ -214,7 +214,7 @@ Rectangle {
                     id: panelPlayback
                     width: parent.width
                     implicitHeight: playbackCards.implicitHeight
-                    visible: page.currentCategory === "播放" || page.exitingCategory === "播放"
+                    visible: page.currentCategory === "播放"
                     x: page.panelX("播放")
                     z: page.currentCategory === "播放" ? 1 : 0
                     Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
@@ -228,6 +228,8 @@ Rectangle {
                         id: playbackCards
                         width: parent.width
                         spacing: 14
+                        opacity: page.panelOpacity("播放")
+                        Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
                         PlaybackSettingsCards { Layout.fillWidth: true }
                         // See CustomApiSettingsCard.qml — factored into its own file
                         // for the same 64KB-method reason noted above.
@@ -239,7 +241,7 @@ Rectangle {
                     id: panelLyric
                     width: parent.width
                     implicitHeight: lyricCards.implicitHeight
-                    visible: page.currentCategory === "歌词" || page.exitingCategory === "歌词"
+                    visible: page.currentCategory === "歌词"
                     x: page.panelX("歌词")
                     z: page.currentCategory === "歌词" ? 1 : 0
                     Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
@@ -252,6 +254,8 @@ Rectangle {
                     LyricSettingsCards {
                         id: lyricCards
                         width: parent.width
+                        opacity: page.panelOpacity("歌词")
+                        Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
                     }
                 } // end 歌词
 
@@ -259,7 +263,7 @@ Rectangle {
                     id: panelLocal
                     width: parent.width
                     implicitHeight: localCards.implicitHeight
-                    visible: page.currentCategory === "本地" || page.exitingCategory === "本地"
+                    visible: page.currentCategory === "本地"
                     x: page.panelX("本地")
                     z: page.currentCategory === "本地" ? 1 : 0
                     Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
@@ -272,6 +276,8 @@ Rectangle {
                     LocalSettingsCards {
                         id: localCards
                         width: parent.width
+                        opacity: page.panelOpacity("本地")
+                        Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
                     }
                 } // end 本地
 
@@ -279,7 +285,7 @@ Rectangle {
                     id: panelAbout
                     width: parent.width
                     implicitHeight: aboutCards.implicitHeight
-                    visible: page.currentCategory === "关于" || page.exitingCategory === "关于"
+                    visible: page.currentCategory === "关于"
                     x: page.panelX("关于")
                     z: page.currentCategory === "关于" ? 1 : 0
                     Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
@@ -292,6 +298,8 @@ Rectangle {
                     AboutSettingsCards {
                         id: aboutCards
                         width: parent.width
+                        opacity: page.panelOpacity("关于")
+                        Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
                     }
                 } // end 关于
             }
