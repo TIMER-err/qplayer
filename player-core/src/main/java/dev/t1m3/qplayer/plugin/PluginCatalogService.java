@@ -20,30 +20,35 @@ import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.security.KeyFactory;
 import java.security.PublicKey;
+import java.security.interfaces.ECPublicKey;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * Resolves the newest release of each known plugin repository and verifies the
  * package it publishes.
  *
- * <p>There is no catalog file and no catalog signing key. The repositories below
- * are pinned in the binary together with their publisher public key, and the
- * available version is whatever GitHub reports as that repository's latest
- * release. Adding a source is a code change, which is the intended trade-off:
- * one hardcoded list instead of a signed, separately published document.
+ * <p>The repository list and publisher trust anchors live in a bundled JSON
+ * resource. The available version is whatever GitHub reports as each repository's
+ * latest release. Updating the list is still a reviewed QPlayer code change, but
+ * the data is maintained separately from this implementation.
  *
  * <p>The publisher key stays pinned because GitHub downloads may travel through
  * third-party mirrors (see {@link GitHubDownloadUrls}); the package signature is
  * what makes an untrusted transport acceptable.
  */
 public final class PluginCatalogService {
+    private static final String CATALOG_RESOURCE =
+            "/dev/t1m3/qplayer/plugin/plugin-catalog.json";
+
     /** A plugin project QPlayer knows about. Not user-editable and not downloaded. */
-    public static final class Source {
+    static final class Source {
         public final String id;
         public final String name;
         public final String description;
@@ -52,7 +57,7 @@ public final class PluginCatalogService {
         /** Base64 X.509 P-256 key that must have signed the package. */
         public final String publisherKey;
 
-        public Source(String id, String name, String description, String repo, String publisherKey) {
+        Source(String id, String name, String description, String repo, String publisherKey) {
             this.id = id;
             this.name = name;
             this.description = description;
@@ -69,26 +74,28 @@ public final class PluginCatalogService {
         }
     }
 
-    public static final Source[] SOURCES = {
-            new Source("netease", "网易云音乐",
-                    "由独立项目维护的网易云音乐音源插件，提供搜索、播放、歌词、登录、心动推荐与一起听。",
-                    "TIMER-err/qplayer-netease-plugin",
-                    "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEb/6w4W2oyOmqybld26Cnv17mXEA6x1Xkw"
-                            + "4zCrd+hfAnmcEJjBTKtC9jO0Q4DVDOzXsmehlW+PJRINAZ99up6aQ=="),
-    };
-
     private static final int MAX_RELEASE_BYTES = 2 * 1024 * 1024;
     private static final long MAX_PLUGIN_BYTES = 64L * 1024L * 1024L;
     private final PluginPackageVerifier packageVerifier;
+    private final CatalogLoader catalogLoader;
     private final CatalogDownloader catalogDownloader;
+    private volatile List<Source> sources;
 
     public PluginCatalogService(PluginPackageVerifier packageVerifier) {
-        this(packageVerifier, PluginCatalogService::downloadBytes);
+        this(packageVerifier, PluginCatalogService::loadBundledSources,
+                PluginCatalogService::downloadBytes);
     }
 
     PluginCatalogService(PluginPackageVerifier packageVerifier,
-                         CatalogDownloader catalogDownloader) {
+                         List<Source> sources, CatalogDownloader catalogDownloader) {
+        this(packageVerifier, () -> sources, catalogDownloader);
+    }
+
+    private PluginCatalogService(PluginPackageVerifier packageVerifier,
+                                 CatalogLoader catalogLoader,
+                                 CatalogDownloader catalogDownloader) {
         this.packageVerifier = packageVerifier;
+        this.catalogLoader = catalogLoader;
         this.catalogDownloader = catalogDownloader;
     }
 
@@ -100,7 +107,7 @@ public final class PluginCatalogService {
     public List<PluginCatalogEntry> loadLatest(boolean proxyFirst) throws IOException {
         List<PluginCatalogEntry> entries = new ArrayList<>();
         IOException last = null;
-        for (Source source : SOURCES) {
+        for (Source source : sources()) {
             try {
                 entries.add(loadLatest(source, proxyFirst));
             } catch (IOException | RuntimeException error) {
@@ -114,6 +121,80 @@ public final class PluginCatalogService {
             throw last != null ? last : new IOException("no plugin sources are configured");
         }
         return Collections.unmodifiableList(entries);
+    }
+
+    private List<Source> sources() throws IOException {
+        List<Source> loaded = sources;
+        if (loaded != null) return loaded;
+        synchronized (this) {
+            if (sources == null) sources = catalogLoader.load();
+            return sources;
+        }
+    }
+
+    static List<Source> loadBundledSources() throws IOException {
+        try (InputStream input = PluginCatalogService.class.getResourceAsStream(CATALOG_RESOURCE)) {
+            if (input == null) throw new IOException("plugin catalog resource is missing");
+            return parseSources(readLimited(input, MAX_RELEASE_BYTES));
+        }
+    }
+
+    static List<Source> parseSources(byte[] json) throws IOException {
+        try {
+            JsonElement root = JsonParser.parseString(new String(json, StandardCharsets.UTF_8));
+            if (root == null || !root.isJsonArray() || root.getAsJsonArray().isEmpty()) {
+                throw new IOException("plugin catalog must be a non-empty array");
+            }
+            List<Source> parsed = new ArrayList<>();
+            Set<String> ids = new HashSet<>();
+            for (JsonElement element : root.getAsJsonArray()) {
+                if (!element.isJsonObject()) {
+                    throw new IOException("plugin catalog entries must be objects");
+                }
+                JsonObject object = element.getAsJsonObject();
+                Source source = new Source(
+                        requiredString(object, "id"),
+                        requiredString(object, "name"),
+                        requiredString(object, "description"),
+                        requiredString(object, "repo"),
+                        requiredString(object, "publisherKey"));
+                try { dev.t1m3.qplayer.media.MediaId.validateProvider(source.id); }
+                catch (IllegalArgumentException error) {
+                    throw new IOException("plugin catalog id is invalid: " + source.id, error);
+                }
+                if (!ids.add(source.id)) {
+                    throw new IOException("plugin catalog id is duplicated: " + source.id);
+                }
+                if (!source.repo.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) {
+                    throw new IOException("plugin catalog repository is invalid: " + source.repo);
+                }
+                try {
+                    PublicKey key = decodeKey(source.publisherKey);
+                    if (!(key instanceof ECPublicKey)
+                            || ((ECPublicKey) key).getParams().getCurve().getField().getFieldSize() != 256) {
+                        throw new GeneralSecurityException("publisher key is not P-256");
+                    }
+                } catch (GeneralSecurityException error) {
+                    throw new IOException("plugin catalog publisher key is invalid: " + source.id, error);
+                }
+                parsed.add(source);
+            }
+            return Collections.unmodifiableList(parsed);
+        } catch (IOException error) {
+            throw error;
+        } catch (RuntimeException error) {
+            throw new IOException("plugin catalog JSON is invalid", error);
+        }
+    }
+
+    private static String requiredString(JsonObject object, String member) throws IOException {
+        JsonElement value = object.get(member);
+        if (value == null || !value.isJsonPrimitive()
+                || !value.getAsJsonPrimitive().isString()
+                || value.getAsString().trim().isEmpty()) {
+            throw new IOException("plugin catalog field is invalid: " + member);
+        }
+        return value.getAsString().trim();
     }
 
     private PluginCatalogEntry loadLatest(Source source, boolean proxyFirst) throws IOException {
@@ -348,5 +429,9 @@ public final class PluginCatalogService {
 
     interface CatalogDownloader {
         byte[] download(String url, int limit) throws IOException;
+    }
+
+    interface CatalogLoader {
+        List<Source> load() throws IOException;
     }
 }

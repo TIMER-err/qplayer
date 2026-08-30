@@ -543,8 +543,7 @@ public final class PlayerController {
     public final Property<Boolean> pluginCatalogLoading = new Property<>(false);
     public final Property<List<PluginUiContributionRow>> pluginUiContributions =
             new Property<>(Collections.<PluginUiContributionRow>emptyList());
-    /** App-wide plugin list dialog and per-plugin settings navigation events. */
-    public final Property<Long> pluginManagerRevision = new Property<>(0L);
+    /** Per-plugin settings navigation event. */
     public final Property<String> pluginSettingsId = new Property<>("");
     public final Property<Long> pluginSettingsRevision = new Property<>(0L);
     /** No enabled primary provider is available. Home renders a setup action instead
@@ -1001,14 +1000,6 @@ public final class PlayerController {
             refreshPluginCatalog();
         }
         sourceSetupRevision.set(sourceSetupRevision.peek() + 1L);
-    }
-
-    /** Open the compact installed/available plugin picker from Settings. */
-    public void requestPluginManager() {
-        if (pluginCatalogEntries.peek() == null || pluginCatalogEntries.peek().isEmpty()) {
-            refreshPluginCatalog();
-        }
-        pluginManagerRevision.set(pluginManagerRevision.peek() + 1L);
     }
 
     /** Navigate to one host-owned plugin settings page. The page may represent
