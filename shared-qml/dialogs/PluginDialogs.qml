@@ -9,10 +9,20 @@ Item {
     id: root
 
     readonly property bool modalOpened: sourceSetupDialog.opened
+                                        || pluginListDialog.opened
                                         || pluginWarningDialog.opened
                                         || pluginRemovalDialog.opened
 
+    function handleBack() {
+        if (pluginListDialog.opened) {
+            pluginListDialog.close()
+            return true
+        }
+        return root.modalOpened
+    }
+
     SourceSetupDialog { id: sourceSetupDialog }
+    PluginListDialog { id: pluginListDialog }
 
     Dialog {
         id: pluginWarningDialog
@@ -64,6 +74,11 @@ Item {
     property real pluginRemovalPromptWatch: player.pluginRemovalPromptRevision
     onPluginRemovalPromptWatchChanged: {
         if (player.pluginRemovalPromptRevision > 0) pluginRemovalDialog.open()
+    }
+
+    property real pluginManagerWatch: player.pluginManagerRevision
+    onPluginManagerWatchChanged: {
+        if (player.pluginManagerRevision > 0) pluginListDialog.open()
     }
 
     Component.onCompleted: {

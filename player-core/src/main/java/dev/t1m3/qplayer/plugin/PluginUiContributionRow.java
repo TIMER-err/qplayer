@@ -7,4 +7,6 @@ public final class PluginUiContributionRow {
     public String id = "";
     public String placement = "";
     public String source = "";
+    public String label = "";
+    public String icon = "extension";
 }

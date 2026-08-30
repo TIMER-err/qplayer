@@ -114,6 +114,20 @@ public final class PluginProviderService {
         });
     }
 
+    /** Validate song DTOs already produced inside the same plugin invocation.
+     * This avoids recursively invoking a plugin actor when a background handler
+     * asks the host to replace the queue. */
+    public List<Song> validateSongs(String provider, Object raw) {
+        if (!(raw instanceof List)) throw new PluginExecutionException("songs must be an array");
+        List<?> values = (List<?>) raw;
+        if (values.size() > 500) {
+            throw new PluginExecutionException("too many songs");
+        }
+        List<Song> songs = new ArrayList<>();
+        for (Object value : values) songs.add(parseSong(provider, map(value, "song")));
+        return songs;
+    }
+
     public CompletableFuture<Artist> artist(MediaId id) {
         id.requireKind(MediaKind.ARTIST);
         return manager.invoke(id.provider(), ProviderCapability.ARTIST_DETAILS.wireName(),

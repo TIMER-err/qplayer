@@ -2,8 +2,7 @@ package dev.t1m3.qplayer.media;
 
 /** Stable kinds used in provider-qualified media ids and the plugin ABI. */
 public enum MediaKind {
-    SONG("song"), ARTIST("artist"), ALBUM("album"), PLAYLIST("playlist"), USER("user"),
-    ROOM("room");
+    SONG("song"), ARTIST("artist"), ALBUM("album"), PLAYLIST("playlist"), USER("user");
 
     private final String wireName;
 

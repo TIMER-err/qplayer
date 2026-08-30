@@ -19,9 +19,15 @@ public final class PluginQmlWindows implements AutoCloseable {
     private static final int WIDTH = 720;
     private static final int HEIGHT = 560;
     private final PlayerController controller;
+    private final GlfwClipboard clipboard;
     private final List<Entry> entries = new ArrayList<>();
 
-    public PluginQmlWindows(PlayerController controller) { this.controller = controller; }
+    public PluginQmlWindows(PlayerController controller, DesktopWindow window) {
+        this.controller = controller;
+        this.clipboard = new GlfwClipboard(window);
+    }
+
+    GlfwClipboard clipboard() { return clipboard; }
 
     public void open(String pluginId, String contributionId) {
         for (Entry entry : entries) {
@@ -46,7 +52,7 @@ public final class PluginQmlWindows implements AutoCloseable {
             Logger.warn("plugin QML window creation failed");
             return;
         }
-        Entry entry = new Entry(pluginId + ":" + contributionId, handle);
+        Entry entry = new Entry(this, pluginId + ":" + contributionId, handle);
         entries.add(entry);
         installCallbacks(entry);
         entry.thread = new PluginQmlRenderThread(controller, pluginId, contributionId, entry);
@@ -149,6 +155,7 @@ public final class PluginQmlWindows implements AutoCloseable {
     }
 
     static final class Entry {
+        final PluginQmlWindows windows;
         final String key;
         final long window;
         final ConcurrentLinkedQueue<Consumer<QmlView>> input = new ConcurrentLinkedQueue<>();
@@ -156,7 +163,11 @@ public final class PluginQmlWindows implements AutoCloseable {
         volatile double cursorX, cursorY;
         volatile boolean firstFrame, shown, closed;
         PluginQmlRenderThread thread;
-        Entry(String key, long window) { this.key = key; this.window = window; }
+        Entry(PluginQmlWindows windows, String key, long window) {
+            this.windows = windows;
+            this.key = key;
+            this.window = window;
+        }
         void drain(QmlView view) {
             Consumer<QmlView> event;
             while ((event = input.poll()) != null) event.accept(view);

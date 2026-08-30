@@ -34,6 +34,13 @@ import java.util.concurrent.Executors;
 
 /** Core-owned, namespaced implementations of the non-UI plugin host services. */
 public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCloseable {
+    /** Provider-neutral player services supplied by PlayerController. Keeping the
+     * delegate here lets plugins coordinate playback without exposing the controller
+     * object, Java reflection, or source-specific protocol code. */
+    public interface AppBridge {
+        CompletableFuture<Object> call(String pluginId, String method, Map<String, Object> arguments);
+        void unavailable(String pluginId);
+    }
     private static final long MAX_STORAGE_BYTES = 1024L * 1024L;
     private static final long MAX_HTTP_BYTES = 16L * 1024L * 1024L;
     private static final int MAX_URL_CHARS = 16 * 1024;
@@ -49,6 +56,7 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
     private final Path storageRoot;
     private final PluginCredentialVault credentials;
     private final Gson gson = new Gson();
+    private volatile AppBridge appBridge;
 
     public CorePluginHostApi() {
         this(AppDirs.configFile("plugin-data"), new PluginCredentialVault());
@@ -62,6 +70,8 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
     public void setCredentialListener(PluginCredentialVault.CredentialListener listener) {
         credentials.setCredentialListener(listener);
     }
+
+    public void setAppBridge(AppBridge bridge) { this.appBridge = bridge; }
 
     public boolean consumeCredentialUnlock() { return credentials.consumeCredentialUnlock(); }
     public boolean retryCredentialUnlock() { return credentials.retryCredentialUnlock(); }
@@ -90,6 +100,8 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
 
     @Override public void unregister(String pluginId) {
         policies.remove(pluginId);
+        AppBridge bridge = appBridge;
+        if (bridge != null) bridge.unavailable(pluginId);
     }
 
     /** Validate a URL returned to a host-owned Image/audio path, where the
@@ -196,11 +208,26 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
                         catch (IOException error) { throw new CompletionException(error); }
                     }, network);
                 default:
-                    return failed(new UnsupportedOperationException("host method is not implemented: " + method));
+                    AppBridge bridge = appBridge;
+                    PluginPermission appPermission = appPermission(method);
+                    if (appPermission != null) require(manifest, appPermission);
+                    return bridge != null && appPermission != null
+                            ? bridge.call(pluginId, method, args)
+                            : failed(new UnsupportedOperationException(
+                                    "host method is not implemented: " + method));
             }
         } catch (Exception error) {
             return failed(error);
         }
+    }
+
+    private static PluginPermission appPermission(String method) {
+        if ("playback.read".equals(method)) return PluginPermission.PLAYBACK_READ;
+        if (method.startsWith("playback.")) return PluginPermission.PLAYBACK_CONTROL;
+        if (method.startsWith("queue.")) return PluginPermission.QUEUE_WRITE;
+        if (method.startsWith("notifications.")) return PluginPermission.NOTIFICATIONS;
+        if (method.startsWith("clipboard.")) return PluginPermission.CLIPBOARD;
+        return null;
     }
 
     private Object storageGet(String pluginId, String key) throws IOException {

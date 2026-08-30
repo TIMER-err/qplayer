@@ -24,9 +24,6 @@ import dev.t1m3.qplayer.media.Playlist;
 import dev.t1m3.qplayer.media.ProviderHome;
 import dev.t1m3.qplayer.media.Song;
 import dev.t1m3.qplayer.media.StreamDescriptor;
-import dev.t1m3.qplayer.media.TogetherCommand;
-import dev.t1m3.qplayer.media.TogetherRoom;
-import dev.t1m3.qplayer.media.TogetherSnapshot;
 import dev.t1m3.qplayer.model.Track;
 import dev.t1m3.qplayer.plugin.CorePluginHostApi;
 import dev.t1m3.qplayer.plugin.PluginManager;
@@ -41,7 +38,6 @@ import dev.t1m3.qplayer.plugin.PluginUiSession;
 import dev.t1m3.qplayer.plugin.PluginPackageVerifier;
 import dev.t1m3.qplayer.plugin.PluginPermission;
 import dev.t1m3.qplayer.plugin.PluginProviderService;
-import dev.t1m3.qplayer.plugin.PluginTogetherService;
 import dev.t1m3.qplayer.plugin.PluginRegistry;
 import dev.t1m3.qplayer.plugin.PluginRow;
 import dev.t1m3.qplayer.plugin.PluginManifest;
@@ -85,6 +81,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -191,15 +188,6 @@ public final class PlayerController {
                 t.setDaemon(true);
                 return t;
             }, new ThreadPoolExecutor.DiscardOldestPolicy());
-    /** Listen-Together owns a serial network clock: API polling, heartbeats and
-     *  reports must stay ordered, and must never queue behind cover/search work. */
-    private final ScheduledExecutorService togetherWorker =
-            Executors.newSingleThreadScheduledExecutor(r -> {
-                Thread t = new Thread(r, "qplayer-listen-together");
-                t.setDaemon(true);
-                return t;
-            });
-
     /** Unified disk cache (audio / lyrics / images) with LRU eviction. */
     public final DiskCache diskCache = new DiskCache(200); // default 200 MB
     /** id -> title/artist/cover lookup for songs seen before, so search() has
@@ -219,8 +207,6 @@ public final class PlayerController {
             new PluginProviderService(pluginManager, pluginHostApi);
     private final PluginAccountService pluginAccounts =
             new PluginAccountService(pluginManager, pluginHostApi);
-    private final PluginTogetherService pluginTogether =
-            new PluginTogetherService(pluginManager, pluginHostApi);
     private final PluginInstaller pluginInstaller = new PluginInstaller(pluginRegistry);
     private final PluginPackageVerifier pluginVerifier = new PluginPackageVerifier();
     private final PluginCatalogService pluginCatalog = new PluginCatalogService(pluginVerifier);
@@ -271,9 +257,10 @@ public final class PlayerController {
     // backend.isPlaying() is briefly false right after play() — reporting that to the
     // media session shows a stale "paused". The session uses this intent instead.
     private volatile boolean playingIntent = false;
-    private volatile Boolean pendingTogetherDesiredPlaying;
-    private volatile long pendingTogetherTargetSongId;
-    private volatile String pendingTogetherTargetMediaId = "";
+    /** One-shot desired state for a plugin-selected track whose source is still
+     * preparing asynchronously. This is transport-neutral host plumbing. */
+    private volatile Boolean pendingPluginDesiredPlaying;
+    private volatile String pendingPluginTargetMediaId = "";
     // The lyric renderer needs a stricter state than playingIntent: play() expresses
     // intent before an async source has opened/decoded/primed, while lyrics may already
     // be available. Only onStarted marks the media clock as genuinely running.
@@ -545,6 +532,10 @@ public final class PlayerController {
     public final Property<Boolean> pluginCatalogLoading = new Property<>(false);
     public final Property<List<PluginUiContributionRow>> pluginUiContributions =
             new Property<>(Collections.<PluginUiContributionRow>emptyList());
+    /** App-wide plugin list dialog and per-plugin settings navigation events. */
+    public final Property<Long> pluginManagerRevision = new Property<>(0L);
+    public final Property<String> pluginSettingsId = new Property<>("");
+    public final Property<Long> pluginSettingsRevision = new Property<>(0L);
     /** No enabled primary provider is available. Home renders a setup action instead
      * of pretending an online request is still connecting. */
     public final Property<Boolean> sourceSetupRequired = new Property<>(true);
@@ -738,53 +729,10 @@ public final class PlayerController {
             "在官方网站登录后，复制请求头中的 Cookie 值并粘贴到下方。凭据仅用于验证，成功后会加密保存。");
     public final Property<String> loginCredentialLabel = new Property<>("Cookie 请求头");
 
-    // --- Listen Together --------------------------------------------------
-    public final Property<Boolean> listenTogetherInRoom = new Property<>(false);
-    public final Property<Boolean> listenTogetherAvailable = new Property<>(false);
-    public final Property<Boolean> listenTogetherBusy = new Property<>(false);
-    public final Property<String> listenTogetherRoomId = new Property<>("");
-    public final Property<String> listenTogetherMembers = new Property<>("");
-    public final Property<String> listenTogetherStatusText = new Property<>("尚未加入房间");
-    public final Property<String> listenTogetherInvitation = new Property<>("");
-
-    private volatile boolean togetherActive;
-    private volatile String togetherRoomId = "";
-    private volatile long togetherUserId;
-    private volatile long togetherClientSeq;
-    private volatile long togetherQueueVersion;
-    private volatile long togetherTickCount;
-    private volatile long togetherSuppressReportsUntil;
-    /** NetEase risk control must pause the whole sync clock. Retrying the same
-     *  rejected report every one-second tick only extends the restriction. */
-    private volatile long togetherRateLimitUntil;
-    private volatile int togetherRateLimitFailures;
-    private static final long TOGETHER_RATE_LIMIT_BASE_MS = 30_000L;
-    private static final long TOGETHER_RATE_LIMIT_MAX_MS = 120_000L;
-    private static final int TOGETHER_RATE_LIMIT_MAX_RETRIES = 3;
-    /** The room creator is the initial natural-advance authority. Any participant
-     *  that later switches tracks takes ownership; followers wait for that user's
-     *  GOTO instead of racing a second autoAdvance at the same song boundary. */
-    private volatile long togetherLeaderUserId;
-    private static final long TOGETHER_AUTO_ADVANCE_GRACE_MS = 3500L;
-    private final AtomicLong togetherAutoAdvanceGeneration = new AtomicLong();
-    private volatile long togetherPendingAutoAdvanceSongId;
-    private volatile int togetherPendingAutoAdvanceIndex = -1;
-    private volatile String pluginTogetherPendingAutoAdvanceMediaId = "";
-    private volatile long togetherLastRemoteSeq = -1L;
-    private volatile String togetherLastRemoteCommand = "";
-    /** Remote command queued onto the host main thread but not applied yet. Without
-     *  this guard, a slow frame can enqueue the same snapshot on consecutive polls. */
-    private volatile String togetherPendingRemoteCommand = "";
-    private volatile long togetherPendingRemoteSeq = -1L;
-    private volatile String togetherLastQueueSignature = "";
-    private volatile long togetherLastSongId;
-    private volatile boolean togetherLastPlaying;
-    private volatile long togetherLastSeekRevision;
-    private volatile String pluginTogetherProvider = "";
-    private volatile String pluginTogetherAccountId = "";
-    private volatile String pluginTogetherLeaderId = "";
-    private volatile String pluginTogetherLastSongId = "";
-    private volatile boolean pluginTogetherRestoreInFlight;
+    /** Generic plugin playback coordination; no protocol or provider semantics. */
+    private volatile String pluginAutoAdvanceBlocker = "";
+    private final AtomicLong playbackEndRevision = new AtomicLong();
+    private volatile boolean appShuttingDown;
 
     // --- Debug ------------------------------------------------------------
     public final Property<String> logText = new Property<>("");
@@ -840,6 +788,15 @@ public final class PlayerController {
         netease.setErrorListener(msg -> post(() -> toast.set(msg)));
         netease.setCredentialListener(this::showCredentialNotice);
         pluginHostApi.setCredentialListener(this::showPluginCredentialNotice);
+        pluginHostApi.setAppBridge(new CorePluginHostApi.AppBridge() {
+            @Override public CompletableFuture<Object> call(String pluginId, String method,
+                                                              Map<String, Object> arguments) {
+                return pluginAppCall(pluginId, method, arguments);
+            }
+            @Override public void unavailable(String pluginId) {
+                pluginAppUnavailable(pluginId);
+            }
+        });
         credentialOwnerOnlyFallback.set(pluginHostApi.usesOwnerOnlyCredentialProtection());
         backend.setVolume(volume.peek());
         backend.setOnComplete(() -> onMain(this::autoAdvance));
@@ -852,17 +809,14 @@ public final class PlayerController {
             stoppedLyricPositionMs = Math.max(0L, backend.position());
             playbackStarted = true;
             post(() -> loading.set(false));
-            Boolean togetherDesired = pendingTogetherDesiredPlaying;
-            long target = pendingTogetherTargetSongId;
+            Boolean pluginDesired = pendingPluginDesiredPlaying;
             Track startedTrack = currentTrack();
-            if (togetherDesired != null && startedTrack != null
-                    && (startedTrack.neteaseId == target
-                        || (!pendingTogetherTargetMediaId.isEmpty()
-                            && pendingTogetherTargetMediaId.equals(startedTrack.canonicalId())))) {
-                pendingTogetherDesiredPlaying = null;
-                pendingTogetherTargetSongId = 0L;
-                pendingTogetherTargetMediaId = "";
-                if (!togetherDesired) {
+            if (pluginDesired != null && startedTrack != null
+                    && !pendingPluginTargetMediaId.isEmpty()
+                    && pendingPluginTargetMediaId.equals(startedTrack.canonicalId())) {
+                pendingPluginDesiredPlaying = null;
+                pendingPluginTargetMediaId = "";
+                if (!pluginDesired) {
                     cancelFadeAtGain(1f);
                     backend.pause();
                     playingIntent = false;
@@ -907,8 +861,6 @@ public final class PlayerController {
         legacySourceMigrationAvailable.set(detectLegacySourceMigration());
         publishPlugins();
         refreshPluginCatalog();
-        togetherWorker.scheduleAtFixedRate(this::listenTogetherTick,
-                1L, 1L, TimeUnit.SECONDS);
         if (!onlineSourcesArePluginOnly() && primaryProvider() == null && netease.isLoggedIn()) {
             loggedIn.set(true);
             refreshLogin();
@@ -977,7 +929,6 @@ public final class PlayerController {
         pluginInstallBusy.set(true);
         worker.submit(() -> {
             try {
-                if (pluginId.equals(pluginTogetherProvider)) clearTogetherRoom(false);
                 pluginManager.remove(pluginId);
                 post(() -> {
                     cancelSourcePluginRemoval();
@@ -1015,8 +966,6 @@ public final class PlayerController {
         sourceSetupRequired.set(!sourceReady);
         if (sourceReady) pluginSetupState.acknowledge();
         sourceSetupPending.set(!sourceReady && !pluginSetupState.acknowledged());
-        listenTogetherAvailable.set(primaryProviderWith(
-                ProviderCapability.LISTEN_TOGETHER) != null);
         sourcePlaylistMutationAvailable.set(primaryProviderWith(
                 ProviderCapability.PLAYLIST_MUTATION) != null);
         sourceHeartRecommendationAvailable.set(primaryProviderWith(
@@ -1034,6 +983,191 @@ public final class PlayerController {
             refreshPluginCatalog();
         }
         sourceSetupRevision.set(sourceSetupRevision.peek() + 1L);
+    }
+
+    /** Open the compact installed/available plugin picker from Settings. */
+    public void requestPluginManager() {
+        if (pluginCatalogEntries.peek() == null || pluginCatalogEntries.peek().isEmpty()) {
+            refreshPluginCatalog();
+        }
+        pluginManagerRevision.set(pluginManagerRevision.peek() + 1L);
+    }
+
+    /** Navigate to one host-owned plugin settings page. The page may represent
+     * either an installed plugin or an entry that is only available in catalog. */
+    public void requestPluginSettings(String pluginId) {
+        if (pluginId == null || pluginId.trim().isEmpty()) return;
+        pluginSettingsId.set(pluginId.trim());
+        pluginSettingsRevision.set(pluginSettingsRevision.peek() + 1L);
+    }
+
+    /** Provider-neutral services for plugin-owned app features. Protocol state,
+     * room semantics and synchronization policy deliberately stay in JavaScript. */
+    private CompletableFuture<Object> pluginAppCall(String pluginId, String method,
+                                                     Map<String, Object> arguments) {
+        Map<String, Object> args = arguments != null ? arguments : Collections.emptyMap();
+        switch (method) {
+            case "playback.read":
+                return onMainResult(() -> pluginPlaybackSnapshot(pluginId));
+            case "playback.play":
+                return onMainResult(() -> { mediaResume(); return Boolean.TRUE; });
+            case "playback.pause":
+                return onMainResult(() -> { mediaPause(); return Boolean.TRUE; });
+            case "playback.seek": {
+                long target = boundedPluginLong(args.get("positionMs"), 0L, 31L * 24L * 60L * 60L * 1000L);
+                return onMainResult(() -> { mediaSeek(target); return Boolean.TRUE; });
+            }
+            case "playback.select": {
+                String songId = pluginSongId(pluginId, args.get("songId"));
+                long target = boundedPluginLong(args.get("positionMs"), 0L,
+                        31L * 24L * 60L * 60L * 1000L);
+                boolean shouldPlay = !Boolean.FALSE.equals(args.get("playing"));
+                return onMainResult(() -> selectPluginTrack(songId, target, shouldPlay));
+            }
+            case "playback.next":
+                return onMainResult(() -> { performAutoAdvance(); return Boolean.TRUE; });
+            case "playback.blockAutoAdvance": {
+                boolean block = Boolean.TRUE.equals(args.get("blocked"));
+                return onMainResult(() -> {
+                    if (block) pluginAutoAdvanceBlocker = pluginId;
+                    else if (pluginId.equals(pluginAutoAdvanceBlocker)) {
+                        pluginAutoAdvanceBlocker = "";
+                        if (pendingNaturalEnd && !queue.isEmpty()) performAutoAdvance();
+                    }
+                    return Boolean.TRUE;
+                });
+            }
+            case "queue.replace": {
+                List<Song> songs = pluginProviders.validateSongs(pluginId, args.get("songs"));
+                String songId = pluginSongId(pluginId, args.get("currentSongId"));
+                long target = boundedPluginLong(args.get("positionMs"), 0L,
+                        31L * 24L * 60L * 60L * 1000L);
+                boolean shouldPlay = !Boolean.FALSE.equals(args.get("playing"));
+                return onMainResult(() -> replacePluginQueue(songs, songId, target, shouldPlay));
+            }
+            case "notifications.toast":
+                showToast(pluginText(args.get("message"), 500));
+                return CompletableFuture.completedFuture(Boolean.TRUE);
+            case "clipboard.write": {
+                String text = pluginText(args.get("text"), 16 * 1024);
+                java.util.function.Consumer<String> sink = clipboard;
+                if (sink == null) return failedPluginCall("clipboard is unavailable");
+                sink.accept(text);
+                return CompletableFuture.completedFuture(Boolean.TRUE);
+            }
+            default:
+                return failedPluginCall("host method is not implemented: " + method);
+        }
+    }
+
+    private Map<String, Object> pluginPlaybackSnapshot(String pluginId) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        Track current = currentTrack();
+        String currentId = current != null && pluginId.equals(providerOf(current))
+                ? nativeSongId(current) : "";
+        List<String> ids = new ArrayList<>();
+        boolean queueOwned = true;
+        for (Track track : queue) {
+            if (!pluginId.equals(providerOf(track))) { queueOwned = false; break; }
+            ids.add(nativeSongId(track));
+        }
+        result.put("currentSongId", currentId);
+        result.put("queueSongIds", queueOwned ? ids : Collections.emptyList());
+        result.put("positionMs", Math.max(0L, backend.position()));
+        result.put("durationMs", Math.max(0L, backend.duration()));
+        result.put("playing", playingIntent);
+        result.put("transitioning", pendingPluginDesiredPlaying != null);
+        result.put("seekRevision", seekRevision.get());
+        result.put("endRevision", playbackEndRevision.get());
+        return result;
+    }
+
+    private Boolean selectPluginTrack(String canonicalId, long target, boolean shouldPlay) {
+        int targetIndex = -1;
+        for (int i = 0; i < queue.size(); i++) {
+            if (canonicalId.equals(queue.get(i).canonicalId())) { targetIndex = i; break; }
+        }
+        if (targetIndex < 0) throw new IllegalArgumentException("target song is not in the queue");
+        Track current = currentTrack();
+        if (current == null || !canonicalId.equals(current.canonicalId())) {
+            pendingPluginDesiredPlaying = shouldPlay;
+            pendingPluginTargetMediaId = canonicalId;
+            pendingResumeMs = target;
+            pendingResumeIndex = targetIndex;
+            playAt(targetIndex);
+        } else {
+            mediaSeek(target);
+            if (shouldPlay) mediaResume(); else mediaPause();
+        }
+        return Boolean.TRUE;
+    }
+
+    private Boolean replacePluginQueue(List<Song> songs, String canonicalId, long target,
+                                       boolean shouldPlay) {
+        List<Track> tracks = new ArrayList<>(songs.size());
+        for (Song song : songs) tracks.add(toTrackPlugin(song));
+        int targetIndex = -1;
+        for (int i = 0; i < tracks.size(); i++) {
+            if (canonicalId.equals(tracks.get(i).canonicalId())) { targetIndex = i; break; }
+        }
+        if (targetIndex < 0) throw new IllegalArgumentException("target song is not in replacement queue");
+        queue.clear();
+        queue.addAll(tracks);
+        currentQueuePlaylistId = 0L;
+        currentQueueMediaPlaylistId = "";
+        post(() -> queueTracks.set(new ArrayList<>(queue)));
+        return selectPluginTrack(canonicalId, target, shouldPlay);
+    }
+
+    private static String nativeSongId(Track track) {
+        try { return MediaId.parse(track.canonicalId()).nativeId(); }
+        catch (IllegalArgumentException ignored) { return ""; }
+    }
+
+    private static String pluginSongId(String pluginId, Object raw) {
+        String value = pluginText(raw, 2048);
+        if (value.isEmpty()) return "";
+        if (value.indexOf(':') >= 0) {
+            MediaId id = MediaId.parse(value).requireKind(dev.t1m3.qplayer.media.MediaKind.SONG);
+            if (!pluginId.equals(id.provider())) throw new IllegalArgumentException("song provider mismatch");
+            return id.toString();
+        }
+        return MediaId.of(pluginId, dev.t1m3.qplayer.media.MediaKind.SONG, value).toString();
+    }
+
+    private static String pluginText(Object raw, int limit) {
+        String value = raw == null ? "" : String.valueOf(raw);
+        if (value.length() > limit) throw new IllegalArgumentException("plugin text is too long");
+        return value;
+    }
+
+    private static long boundedPluginLong(Object raw, long min, long max) {
+        if (!(raw instanceof Number)) return min;
+        long value = ((Number) raw).longValue();
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private CompletableFuture<Object> onMainResult(java.util.concurrent.Callable<Object> action) {
+        CompletableFuture<Object> future = new CompletableFuture<>();
+        onMain(() -> {
+            try { future.complete(action.call()); }
+            catch (Throwable error) { future.completeExceptionally(error); }
+        });
+        return future;
+    }
+
+    private static CompletableFuture<Object> failedPluginCall(String message) {
+        CompletableFuture<Object> future = new CompletableFuture<>();
+        future.completeExceptionally(new UnsupportedOperationException(message));
+        return future;
+    }
+
+    private void pluginAppUnavailable(String pluginId) {
+        onMain(() -> {
+            if (!pluginId.equals(pluginAutoAdvanceBlocker)) return;
+            pluginAutoAdvanceBlocker = "";
+            if (!appShuttingDown && pendingNaturalEnd && !queue.isEmpty()) performAutoAdvance();
+        });
     }
 
     /** Remember an explicit local-only choice so onboarding is not forced again on
@@ -2986,9 +3120,14 @@ public final class PlayerController {
 
     private void playAt(int i) {
         if (i < 0 || i >= queue.size()) return;
+        String requestedMediaId = queue.get(i).canonicalId();
+        if (pendingPluginDesiredPlaying != null
+                && !pendingPluginTargetMediaId.equals(requestedMediaId)) {
+            pendingPluginDesiredPlaying = null;
+            pendingPluginTargetMediaId = "";
+        }
         // Any real local/remote selection supersedes a follower's delayed takeover.
         // The generation also makes an already-queued timeout callback harmless.
-        cancelPendingTogetherAutoAdvance();
         // loadQueue() sets needsReplay because its restored track exists only as
         // metadata until the user resumes it. Any successful route into playAt(),
         // including clicking a different song first, is now taking responsibility
@@ -3591,17 +3730,8 @@ public final class PlayerController {
     private void autoAdvance() {
         if (queue.isEmpty()) return;
         pendingNaturalEnd = true;
-        if (!pluginTogetherProvider.isEmpty() && !pluginTogetherAccountId.isEmpty()
-                && !pluginTogetherLeaderId.isEmpty()
-                && !pluginTogetherAccountId.equals(pluginTogetherLeaderId)) {
-            schedulePluginTogetherAutoAdvanceFallback();
-            return;
-        }
-        if (shouldWaitForTogetherLeader(togetherActive, togetherUserId,
-                togetherLeaderUserId)) {
-            scheduleTogetherAutoAdvanceFallback();
-            return;
-        }
+        playbackEndRevision.incrementAndGet();
+        if (!pluginAutoAdvanceBlocker.isEmpty()) return;
         performAutoAdvance();
     }
 
@@ -3617,58 +3747,6 @@ public final class PlayerController {
                 playAt((playIndex + 1) % queue.size());
                 break;
         }
-    }
-
-    /** Followers do not independently choose the next song: that is harmless in
-     *  list order but races badly in shuffle mode. Keep a bounded failover so a
-     *  sleeping/disconnected creator cannot strand playback at the end forever. */
-    private void scheduleTogetherAutoAdvanceFallback() {
-        Track ended = currentTrack();
-        if (ended == null || ended.neteaseId == 0L) {
-            performAutoAdvance();
-            return;
-        }
-        final long endedSongId = ended.neteaseId;
-        final int endedIndex = playIndex;
-        final long generation = togetherAutoAdvanceGeneration.incrementAndGet();
-        togetherPendingAutoAdvanceSongId = endedSongId;
-        togetherPendingAutoAdvanceIndex = endedIndex;
-        Logger.info("listen-together: waiting for leader {} to advance song {}",
-                togetherLeaderUserId, endedSongId);
-        togetherWorker.schedule(() -> onMain(() -> {
-            Track current = currentTrack();
-            if (generation != togetherAutoAdvanceGeneration.get()
-                    || playIndex != endedIndex || current == null
-                    || current.neteaseId != endedSongId) return;
-            togetherPendingAutoAdvanceSongId = 0L;
-            togetherPendingAutoAdvanceIndex = -1;
-            Logger.warn("listen-together: leader advance timed out; taking over");
-            performAutoAdvance();
-        }), TOGETHER_AUTO_ADVANCE_GRACE_MS, TimeUnit.MILLISECONDS);
-    }
-
-    private void schedulePluginTogetherAutoAdvanceFallback() {
-        Track current = currentTrack();
-        if (current == null) {
-            performAutoAdvance();
-            return;
-        }
-        final long generation = togetherAutoAdvanceGeneration.incrementAndGet();
-        pluginTogetherPendingAutoAdvanceMediaId = current.canonicalId();
-        togetherWorker.schedule(() -> onMain(() -> {
-            if (generation != togetherAutoAdvanceGeneration.get()
-                    || pluginTogetherPendingAutoAdvanceMediaId.isEmpty()) return;
-            pluginTogetherPendingAutoAdvanceMediaId = "";
-            Logger.warn("plugin together leader advance timed out; taking over");
-            performAutoAdvance();
-        }), TOGETHER_AUTO_ADVANCE_GRACE_MS, TimeUnit.MILLISECONDS);
-    }
-
-    private void cancelPendingTogetherAutoAdvance() {
-        togetherAutoAdvanceGeneration.incrementAndGet();
-        togetherPendingAutoAdvanceSongId = 0L;
-        togetherPendingAutoAdvanceIndex = -1;
-        pluginTogetherPendingAutoAdvanceMediaId = "";
     }
 
     public void seek(long ms) {
@@ -6518,1132 +6596,9 @@ public final class PlayerController {
         return d > 0 ? d : 0L;
     }
 
-    // --- Provider-neutral Listen Together --------------------------------
-
-    private void createPluginTogetherRoom(PluginManifest plugin) {
-        Track current = currentTrack();
-        if (current == null || !plugin.id.equals(providerOf(current))) {
-            showToast("请先播放当前音源的一首歌曲");
-            return;
-        }
-        if (Boolean.TRUE.equals(listenTogetherBusy.peek())) return;
-        listenTogetherBusy.set(true);
-        togetherWorker.execute(() -> {
-            try {
-                TogetherRoom room = pluginTogether.create(plugin.id).get(20, TimeUnit.SECONDS);
-                establishPluginTogetherRoom(plugin.id, room);
-                reportPluginTogetherQueue();
-                reportPluginTogetherCommand("GOTO", "", current.canonicalId(),
-                        Math.max(0L, backend.position()));
-                baselinePluginTogether();
-                post(() -> {
-                    listenTogetherBusy.set(false);
-                    showToast("一起听房间已创建");
-                });
-            } catch (Throwable error) {
-                Logger.warn("plugin {} create together failed: {}", plugin.id,
-                        safeMessage(error));
-                post(() -> {
-                    listenTogetherBusy.set(false);
-                    showToast("创建一起听房间失败：" + safeMessage(error));
-                });
-            }
-        });
-    }
-
-    private void joinPluginTogether(PluginManifest plugin, String invitation) {
-        final String roomId = inviteParameter(invitation, "roomId");
-        String inviter = inviteParameter(invitation, "inviterId");
-        if (inviter.isEmpty()) inviter = inviteParameter(invitation, "inviterUid");
-        final String inviterId = inviter;
-        if (roomId.isEmpty()) {
-            showToast("邀请信息缺少 roomId");
-            return;
-        }
-        if (Boolean.TRUE.equals(listenTogetherBusy.peek())) return;
-        listenTogetherBusy.set(true);
-        togetherWorker.execute(() -> {
-            try {
-                if (!pluginTogether.check(plugin.id, roomId).get(20, TimeUnit.SECONDS)) {
-                    throw new java.io.IOException("房间已失效或无法加入");
-                }
-                TogetherRoom room = pluginTogether.join(plugin.id, roomId, inviterId)
-                        .get(20, TimeUnit.SECONDS);
-                establishPluginTogetherRoom(plugin.id, room);
-                applyPluginTogetherSnapshot(pluginTogether.snapshot(plugin.id, roomId)
-                        .get(20, TimeUnit.SECONDS), true, false);
-                post(() -> {
-                    listenTogetherBusy.set(false);
-                    showToast("已加入一起听");
-                });
-            } catch (Throwable error) {
-                Logger.warn("plugin {} join together failed: {}", plugin.id,
-                        safeMessage(error));
-                clearTogetherRoom(false);
-                post(() -> {
-                    listenTogetherBusy.set(false);
-                    showToast("加入一起听失败：" + safeMessage(error));
-                });
-            }
-        });
-    }
-
-    private void restorePluginTogether(PluginManifest plugin) {
-        if (pluginTogetherRestoreInFlight) return;
-        pluginTogetherRestoreInFlight = true;
-        togetherWorker.execute(() -> {
-            try {
-                TogetherRoom room = pluginTogether.currentRoom(plugin.id)
-                        .get(20, TimeUnit.SECONDS);
-                if (room == null || room.id.isEmpty() || togetherActive) return;
-                establishPluginTogetherRoom(plugin.id, room);
-                TogetherSnapshot snapshot = pluginTogether.snapshot(plugin.id, room.id)
-                        .get(20, TimeUnit.SECONDS);
-                String target = snapshot.command != null ? snapshot.command.targetSongId : "";
-                if (target.isEmpty() && !snapshot.songIds.isEmpty()) target = snapshot.songIds.get(0);
-                if (!target.isEmpty()) {
-                    reportPluginTogetherCommand("PAUSE", target, target,
-                            snapshot.command != null ? snapshot.command.progressMs : 0L);
-                }
-                applyPluginTogetherSnapshot(snapshot, true, true);
-                post(() -> showToast("正在一起听"));
-            } catch (Throwable error) {
-                Logger.warn("plugin {} restore together failed: {}", plugin.id,
-                        safeMessage(error));
-                if (plugin.id.equals(pluginTogetherProvider)) clearTogetherRoom(false);
-            } finally {
-                pluginTogetherRestoreInFlight = false;
-            }
-        });
-    }
-
-    private void establishPluginTogetherRoom(String provider, TogetherRoom room) {
-        if (room == null || room.id == null || room.id.isEmpty()) {
-            throw new IllegalArgumentException("Together room is empty");
-        }
-        pluginTogetherProvider = provider;
-        togetherRoomId = room.id;
-        togetherActive = true;
-        togetherTickCount = 0L;
-        togetherClientSeq = 0L;
-        togetherQueueVersion = 0L;
-        togetherLastRemoteSeq = -1L;
-        togetherLastRemoteCommand = "";
-        togetherPendingRemoteCommand = "";
-        togetherPendingRemoteSeq = -1L;
-        pluginTogetherLeaderId = room.creatorAccountId == null
-                || room.creatorAccountId.isEmpty() ? pluginTogetherAccountId
-                : room.creatorAccountId;
-        togetherSuppressReportsUntil = System.currentTimeMillis() + 1800L;
-        publishPluginTogetherRoom(room);
-        baselinePluginTogether();
-    }
-
-    private void publishPluginTogetherRoom(TogetherRoom room) {
-        StringBuilder members = new StringBuilder();
-        for (AccountProfile member : room.members) {
-            if (members.length() > 0) members.append("、");
-            members.append(member.displayName == null || member.displayName.isEmpty()
-                    ? member.id : member.displayName);
-        }
-        String names = members.length() == 0 ? "等待另一位听众加入" : members.toString();
-        String status = "房间已连接" + (room.members.isEmpty()
-                ? "" : " · " + room.members.size() + " 人");
-        String invitation = buildPluginTogetherInvitation();
-        post(() -> {
-            listenTogetherInRoom.set(true);
-            listenTogetherRoomId.set(room.id);
-            listenTogetherMembers.set(names);
-            listenTogetherStatusText.set(status);
-            listenTogetherInvitation.set(invitation);
-        });
-    }
-
-    private String buildPluginTogetherInvitation() {
-        try {
-            return "qplayer://together?provider="
-                    + java.net.URLEncoder.encode(pluginTogetherProvider, "UTF-8")
-                    + "&roomId=" + java.net.URLEncoder.encode(togetherRoomId, "UTF-8")
-                    + "&inviterId=" + java.net.URLEncoder.encode(pluginTogetherAccountId, "UTF-8");
-        } catch (java.io.UnsupportedEncodingException impossible) {
-            throw new AssertionError(impossible);
-        }
-    }
-
-    private void pluginTogetherTick() {
-        final String provider = pluginTogetherProvider;
-        final String roomId = togetherRoomId;
-        if (provider.isEmpty() || roomId.isEmpty()) return;
-        try {
-            if (System.currentTimeMillis() >= togetherSuppressReportsUntil) {
-                reportPluginTogetherLocalChanges();
-            }
-            TogetherSnapshot snapshot = pluginTogether.snapshot(provider, roomId)
-                    .get(20, TimeUnit.SECONDS);
-            if (!provider.equals(pluginTogetherProvider) || !roomId.equals(togetherRoomId)) return;
-            applyPluginTogetherSnapshot(snapshot, false, false);
-            if (++togetherTickCount % 5L == 0L) {
-                Track track = currentTrack();
-                pluginTogether.heartbeat(provider, roomId,
-                        track != null && provider.equals(providerOf(track))
-                                ? track.canonicalId() : "",
-                        playingIntent, Math.max(0L, backend.position()))
-                        .get(20, TimeUnit.SECONDS);
-                TogetherRoom currentRoom = pluginTogether.currentRoom(provider)
-                        .get(20, TimeUnit.SECONDS);
-                if (currentRoom == null) clearTogetherRoom(true);
-                else publishPluginTogetherRoom(currentRoom);
-            }
-        } catch (Throwable error) {
-            Logger.warn("plugin {} together sync failed: {}", provider, safeMessage(error));
-            post(() -> {
-                if (provider.equals(pluginTogetherProvider))
-                    listenTogetherStatusText.set("正在重新连接…");
-            });
-        }
-    }
-
-    private void reportPluginTogetherLocalChanges() throws Exception {
-        String signature = currentPluginTogetherQueueSignature();
-        if (!signature.equals(togetherLastQueueSignature)) {
-            reportPluginTogetherQueue();
-            togetherLastQueueSignature = signature;
-        }
-        Track track = currentTrack();
-        String songId = track != null && pluginTogetherProvider.equals(providerOf(track))
-                ? track.canonicalId() : "";
-        if (songId.isEmpty()) return;
-        long seek = seekRevision.get();
-        if (!songId.equals(pluginTogetherLastSongId)) {
-            reportPluginTogetherCommand("GOTO", pluginTogetherLastSongId, songId, 0L);
-            pluginTogetherLeaderId = pluginTogetherAccountId;
-        } else if (seek != togetherLastSeekRevision) {
-            reportPluginTogetherCommand("PROGRESS", songId, songId,
-                    Math.max(0L, backend.position()));
-        } else if (playingIntent != togetherLastPlaying) {
-            reportPluginTogetherCommand(playingIntent ? "PLAY" : "PAUSE", songId, songId,
-                    Math.max(0L, backend.position()));
-        }
-        pluginTogetherLastSongId = songId;
-        togetherLastPlaying = playingIntent;
-        togetherLastSeekRevision = seek;
-    }
-
-    private void reportPluginTogetherQueue() throws Exception {
-        pluginTogether.reportPlaylist(pluginTogetherProvider, togetherRoomId,
-                pluginTogetherAccountId, ++togetherQueueVersion,
-                currentPluginTogetherSongIds()).get(20, TimeUnit.SECONDS);
-    }
-
-    private void reportPluginTogetherCommand(String type, String former, String target,
-                                               long progressMs) throws Exception {
-        TogetherCommand command = new TogetherCommand();
-        command.type = type;
-        command.formerSongId = former == null ? "" : former;
-        command.targetSongId = target == null ? "" : target;
-        command.progressMs = Math.max(0L, progressMs);
-        command.playing = playingIntent;
-        command.sequence = ++togetherClientSeq;
-        pluginTogether.reportCommand(pluginTogetherProvider, togetherRoomId, command)
-                .get(20, TimeUnit.SECONDS);
-    }
-
-    private List<String> currentPluginTogetherSongIds() {
-        List<String> ids = new ArrayList<>();
-        String provider = pluginTogetherProvider;
-        for (Track track : queue) {
-            if (provider.equals(providerOf(track))) ids.add(track.canonicalId());
-        }
-        return ids;
-    }
-
-    private String currentPluginTogetherQueueSignature() {
-        return String.join(",", currentPluginTogetherSongIds());
-    }
-
-    private void baselinePluginTogether() {
-        togetherLastQueueSignature = currentPluginTogetherQueueSignature();
-        Track track = currentTrack();
-        pluginTogetherLastSongId = track != null
-                && pluginTogetherProvider.equals(providerOf(track)) ? track.canonicalId() : "";
-        togetherLastPlaying = playingIntent;
-        togetherLastSeekRevision = seekRevision.get();
-    }
-
-    private void applyPluginTogetherSnapshot(TogetherSnapshot snapshot, boolean initial,
-                                               boolean keepLocalPlaybackState) throws Exception {
-        if (snapshot == null || !togetherActive || pluginTogetherProvider.isEmpty()) return;
-        TogetherCommand remote = snapshot.command;
-        String signature = remote == null ? "" : remote.accountId + ":" + remote.sequence + ":"
-                + remote.type + ":" + remote.targetSongId + ":" + remote.progressMs + ":"
-                + remote.playing;
-        boolean newCommand = remote != null
-                && !pluginTogetherAccountId.equals(remote.accountId)
-                && isNewTogetherRemoteCommand(remote.sequence, signature,
-                        togetherLastRemoteSeq, togetherLastRemoteCommand,
-                        togetherPendingRemoteSeq, togetherPendingRemoteCommand);
-        String remoteQueue = String.join(",", snapshot.songIds);
-        boolean replaceQueue = !snapshot.songIds.isEmpty()
-                && !remoteQueue.equals(currentPluginTogetherQueueSignature());
-        if (!replaceQueue && !newCommand) return;
-        List<Song> songs = replaceQueue
-                ? pluginProviders.songsByIds(pluginTogetherProvider, snapshot.songIds)
-                        .get(20, TimeUnit.SECONDS)
-                : Collections.<Song>emptyList();
-        togetherSuppressReportsUntil = System.currentTimeMillis() + 1800L;
-        final TogetherCommand command = newCommand ? remote : null;
-        final List<Song> replacement = songs;
-        if (newCommand) {
-            togetherPendingRemoteCommand = signature;
-            togetherPendingRemoteSeq = remote.sequence;
-        }
-        onMain(() -> {
-            if (!togetherActive) return;
-            Track before = currentTrack();
-            String beforeId = before != null ? before.canonicalId() : "";
-            if (replaceQueue && !replacement.isEmpty()) {
-                List<Track> tracks = new ArrayList<>();
-                for (Song song : replacement) tracks.add(toTrackPlugin(song));
-                queue.clear();
-                queue.addAll(tracks);
-                queueTracks.set(new ArrayList<>(queue));
-                currentQueuePlaylistId = 0L;
-            }
-            String target = command != null && !command.targetSongId.isEmpty()
-                    ? command.targetSongId : beforeId;
-            if (target.isEmpty() && !snapshot.songIds.isEmpty()) target = snapshot.songIds.get(0);
-            int targetIndex = indexOfCanonicalTrack(target);
-            if (targetIndex < 0) return;
-            if (command != null) {
-                togetherLastRemoteSeq = command.sequence;
-                togetherLastRemoteCommand = signature;
-                togetherPendingRemoteCommand = "";
-                togetherPendingRemoteSeq = -1L;
-                if (isTogetherTrackSwitch(command.type) && !command.accountId.isEmpty()) {
-                    pluginTogetherLeaderId = command.accountId;
-                    cancelPendingTogetherAutoAdvance();
-                }
-                if (!initial) {
-                    String message = togetherCommandToast(command.type);
-                    if (!message.isEmpty()) showToast(message);
-                }
-            }
-            boolean desiredPlaying = keepLocalPlaybackState || command == null
-                    || "PROGRESS".equalsIgnoreCase(command.type)
-                    ? playingIntent : command.playing;
-            boolean changedTrack = !target.equals(beforeId);
-            long progress = command != null ? Math.max(0L, command.progressMs) : 0L;
-            if (!initial && changedTrack && command != null
-                    && isTogetherTrackSwitch(command.type)) progress = 0L;
-            if (changedTrack) {
-                pendingTogetherDesiredPlaying = desiredPlaying;
-                pendingTogetherTargetMediaId = target;
-                pendingResumeMs = progress;
-                pendingResumeIndex = targetIndex;
-                playAt(targetIndex);
-            } else if (command != null) {
-                long drift = Math.abs(Math.max(0L, backend.position()) - progress);
-                if (drift > 3000L || "PROGRESS".equalsIgnoreCase(command.type)
-                        || "GOTO".equalsIgnoreCase(command.type)) {
-                    resetNaturalEndFadeAfterSeek();
-                    seekRevision.incrementAndGet();
-                    stoppedLyricPositionMs = progress;
-                    backend.seek(progress);
-                    positionMs.set(progress);
-                }
-                applyTogetherPlaying(desiredPlaying);
-            }
-            baselinePluginTogether();
-        });
-    }
-
-    private int indexOfCanonicalTrack(String mediaId) {
-        if (mediaId == null || mediaId.isEmpty()) return -1;
-        for (int i = 0; i < queue.size(); i++) {
-            if (mediaId.equals(queue.get(i).canonicalId())) return i;
-        }
-        return -1;
-    }
-
-    // --- Legacy built-in provider compatibility --------------------------
-
-    public void createListenTogetherRoom() {
-        if (!loggedIn.peek()) {
-            showToast("请先登录后使用一起听");
-            return;
-        }
-        PluginManifest plugin = primaryProviderWith(ProviderCapability.LISTEN_TOGETHER);
-        if (plugin != null) {
-            createPluginTogetherRoom(plugin);
-            return;
-        }
-        Track current = currentTrack();
-        if (current == null || current.source != Track.Source.NETEASE || current.neteaseId == 0L) {
-            showToast("请先播放一首在线歌曲");
-            return;
-        }
-        if (Boolean.TRUE.equals(listenTogetherBusy.peek())) return;
-        listenTogetherBusy.set(true);
-        togetherWorker.execute(() -> {
-            try {
-                long userId = uid != 0L ? uid : netease.loginUid();
-                NeteaseClient.TogetherRoom room = netease.createTogetherRoom();
-                establishTogetherRoom(room, userId);
-                reportTogetherQueueNow();
-                reportTogetherCommandNow("GOTO", 0L, current.neteaseId);
-                baselineTogetherLocal();
-                post(() -> {
-                    listenTogetherBusy.set(false);
-                    showToast("一起听房间已创建");
-                });
-            } catch (Throwable e) {
-                Logger.warn("create listen-together room failed: {}", e.getMessage());
-                post(() -> {
-                    listenTogetherBusy.set(false);
-                    showToast("创建一起听房间失败：" + safeMessage(e));
-                });
-            }
-        });
-    }
-
-    /** Join from the official app's shared URL (roomId + inviterId query items). */
-    public void joinListenTogether(String invitation) {
-        if (!loggedIn.peek()) {
-            showToast("请先登录后使用一起听");
-            return;
-        }
-        PluginManifest plugin = primaryProviderWith(ProviderCapability.LISTEN_TOGETHER);
-        String invitationProvider = inviteParameter(invitation, "provider");
-        if (plugin != null) {
-            if (!invitationProvider.isEmpty() && !plugin.id.equals(invitationProvider)) {
-                showToast("请先切换到邀请对应的音源插件");
-                return;
-            }
-            joinPluginTogether(plugin, invitation);
-            return;
-        }
-        if (onlineSourcesArePluginOnly()) {
-            showToast(invitationProvider.isEmpty()
-                    ? "当前音源不支持一起听" : "请安装并启用邀请对应的音源插件");
-            return;
-        }
-        final String roomId = inviteParameter(invitation, "roomId");
-        String inviter = inviteParameter(invitation, "inviterId");
-        if (inviter.isEmpty()) inviter = inviteParameter(invitation, "inviterUid");
-        final long inviterId;
-        try {
-            inviterId = Long.parseLong(inviter);
-        } catch (Throwable ignored) {
-            showToast("邀请链接缺少 inviterId");
-            return;
-        }
-        if (roomId.isEmpty()) {
-            showToast("邀请链接缺少 roomId");
-            return;
-        }
-        if (Boolean.TRUE.equals(listenTogetherBusy.peek())) return;
-        listenTogetherBusy.set(true);
-        togetherWorker.execute(() -> {
-            try {
-                if (!netease.togetherRoomJoinable(roomId)) {
-                    throw new java.io.IOException("房间已失效或无法加入");
-                }
-                long userId = uid != 0L ? uid : netease.loginUid();
-                NeteaseClient.TogetherRoom room =
-                        netease.acceptTogetherInvitation(roomId, inviterId);
-                establishTogetherRoom(room, userId);
-                NeteaseClient.TogetherSnapshot snapshot = netease.togetherSnapshot(roomId);
-                applyTogetherSnapshot(snapshot, true, false);
-                post(() -> {
-                    listenTogetherBusy.set(false);
-                    showToast("已加入一起听");
-                });
-            } catch (Throwable e) {
-                Logger.warn("join listen-together room failed: {}", e.getMessage());
-                clearTogetherRoom(false);
-                post(() -> {
-                    listenTogetherBusy.set(false);
-                    showToast("加入一起听失败：" + safeMessage(e));
-                });
-            }
-        });
-    }
-
-    public void copyListenTogetherInvitation() {
-        if (!togetherActive) return;
-        String invitation = !pluginTogetherProvider.isEmpty()
-                ? buildPluginTogetherInvitation() : buildTogetherInvitation();
-        post(() -> listenTogetherInvitation.set(invitation));
-        java.util.function.Consumer<String> sink = clipboard;
-        if (sink != null) {
-            sink.accept(invitation);
-            showToast("已复制一起听邀请");
-        } else {
-            showToast(invitation);
-        }
-    }
-
-    public void leaveListenTogether() {
-        final String roomId = togetherRoomId;
-        if (roomId.isEmpty() || Boolean.TRUE.equals(listenTogetherBusy.peek())) return;
-        if (!pluginTogetherProvider.isEmpty()) {
-            final String provider = pluginTogetherProvider;
-            listenTogetherBusy.set(true);
-            clearTogetherRoom(false);
-            togetherWorker.execute(() -> {
-                try { pluginTogether.end(provider, roomId).get(20, TimeUnit.SECONDS); }
-                catch (Throwable error) {
-                    Logger.warn("plugin {} leave together failed: {}", provider,
-                            safeMessage(error));
-                }
-                post(() -> {
-                    listenTogetherBusy.set(false);
-                    showToast("已退出一起听");
-                });
-            });
-            return;
-        }
-        listenTogetherBusy.set(true);
-        // Clear immediately so no later poll can apply stale remote playback while
-        // the end request is in flight. Server failure must not trap the local UI.
-        clearTogetherRoom(false);
-        togetherWorker.execute(() -> {
-            try {
-                netease.endTogetherRoom(roomId);
-            } catch (Throwable e) {
-                Logger.warn("leave listen-together room failed: {}", e.getMessage());
-            }
-            post(() -> {
-                listenTogetherBusy.set(false);
-                showToast("已退出一起听");
-            });
-        });
-    }
-
-    private void restoreListenTogetherRoom() {
-        PluginManifest plugin = primaryProviderWith(ProviderCapability.LISTEN_TOGETHER);
-        if (plugin != null && loggedIn.peek() && !togetherActive) {
-            restorePluginTogether(plugin);
-            return;
-        }
-        if (!netease.isLoggedIn() || togetherActive) return;
-        togetherWorker.execute(() -> {
-            try {
-                NeteaseClient.TogetherStatus status = netease.togetherStatus();
-                if (!status.inRoom || status.room == null || status.room.roomId.isEmpty()) return;
-                long userId = uid != 0L ? uid : netease.loginUid();
-                establishTogetherRoom(status.room, userId);
-                NeteaseClient.TogetherSnapshot snapshot =
-                        netease.togetherSnapshot(status.room.roomId);
-
-                // Restoring an old room during process startup is not an implicit
-                // request to start audio. The peer may still be playing, but this
-                // fresh QPlayer instance begins paused: make that pause authoritative
-                // for the room, then load the shared queue/progress without adopting
-                // the snapshot's PLAY flag. A deliberate "join" action uses the
-                // normal path above and still follows the room's live state.
-                long targetId = snapshot.command != null
-                        ? snapshot.command.targetSongId : 0L;
-                if (targetId == 0L && !snapshot.songIds.isEmpty()) {
-                    targetId = snapshot.songIds.get(0);
-                }
-                long progress = snapshot.command != null
-                        ? Math.max(0L, snapshot.command.progressMs) : 0L;
-                if (targetId != 0L) {
-                    try {
-                        netease.reportTogetherCommand(status.room.roomId, "PAUSE",
-                                progress, false, targetId, targetId,
-                                ++togetherClientSeq);
-                    } catch (Throwable reportError) {
-                        Logger.warn("startup listen-together pause report failed: {}",
-                                reportError.getMessage());
-                    }
-                }
-                applyTogetherSnapshot(snapshot, true, true);
-                post(() -> showToast("正在一起听"));
-            } catch (Throwable e) {
-                Logger.warn("restore listen-together room failed: {}", e.getMessage());
-            }
-        });
-    }
-
-    private void establishTogetherRoom(NeteaseClient.TogetherRoom room, long userId) {
-        togetherRoomId = room.roomId;
-        togetherUserId = userId;
-        togetherActive = true;
-        togetherTickCount = 0L;
-        togetherClientSeq = 0L;
-        togetherQueueVersion = 0L;
-        togetherLastRemoteSeq = -1L;
-        togetherLastRemoteCommand = "";
-        togetherPendingRemoteCommand = "";
-        togetherPendingRemoteSeq = -1L;
-        togetherRateLimitUntil = 0L;
-        togetherRateLimitFailures = 0;
-        cancelPendingTogetherAutoAdvance();
-        togetherLeaderUserId = togetherLeaderId(room, userId);
-        togetherSuppressReportsUntil = System.currentTimeMillis() + 1800L;
-        publishTogetherRoom(room);
-        baselineTogetherLocal();
-    }
-
-    private void publishTogetherRoom(NeteaseClient.TogetherRoom room) {
-        // Membership/status refreshes repeat the immutable room creator. Use it only
-        // for initial election; otherwise they would undo dynamic control transfer
-        // after another participant switches tracks.
-        if (togetherLeaderUserId == 0L) {
-            togetherLeaderUserId = togetherLeaderId(room, togetherUserId);
-        }
-        StringBuilder members = new StringBuilder();
-        for (NeteaseClient.TogetherUser user : room.users) {
-            if (members.length() > 0) members.append("、");
-            members.append(user.nickname == null || user.nickname.isEmpty()
-                    ? String.valueOf(user.userId) : user.nickname);
-        }
-        String names = members.length() == 0 ? "等待另一位听众加入" : members.toString();
-        String status = "房间已连接" + (room.users.isEmpty() ? "" : " · " + room.users.size() + " 人");
-        String invitation = buildTogetherInvitation();
-        post(() -> {
-            listenTogetherInRoom.set(true);
-            listenTogetherRoomId.set(room.roomId);
-            listenTogetherMembers.set(names);
-            listenTogetherStatusText.set(status);
-            listenTogetherInvitation.set(invitation);
-        });
-    }
-
-    private void clearTogetherRoom(boolean serverEnded) {
-        final boolean advanceLocally = togetherPendingAutoAdvanceSongId != 0L
-                || !pluginTogetherPendingAutoAdvanceMediaId.isEmpty();
-        togetherActive = false;
-        pluginTogetherProvider = "";
-        pluginTogetherLeaderId = "";
-        pluginTogetherLastSongId = "";
-        togetherRoomId = "";
-        togetherUserId = 0L;
-        togetherLeaderUserId = 0L;
-        pendingTogetherDesiredPlaying = null;
-        pendingTogetherTargetSongId = 0L;
-        pendingTogetherTargetMediaId = "";
-        togetherPendingRemoteCommand = "";
-        togetherPendingRemoteSeq = -1L;
-        togetherRateLimitUntil = 0L;
-        togetherRateLimitFailures = 0;
-        if (advanceLocally) {
-            onMain(() -> {
-                if (togetherPendingAutoAdvanceSongId == 0L
-                        && pluginTogetherPendingAutoAdvanceMediaId.isEmpty()) return;
-                cancelPendingTogetherAutoAdvance();
-                performAutoAdvance();
-            });
-        }
-        post(() -> {
-            listenTogetherInRoom.set(false);
-            listenTogetherRoomId.set("");
-            listenTogetherMembers.set("");
-            listenTogetherInvitation.set("");
-            listenTogetherStatusText.set(serverEnded ? "房间已结束" : "尚未加入房间");
-        });
-    }
-
-    private void listenTogetherTick() {
-        if (!togetherActive) return;
-        if (!pluginTogetherProvider.isEmpty()) {
-            pluginTogetherTick();
-            return;
-        }
-        final String roomId = togetherRoomId;
-        if (roomId.isEmpty()) return;
-        if (System.currentTimeMillis() < togetherRateLimitUntil) return;
-        try {
-            if (System.currentTimeMillis() >= togetherSuppressReportsUntil) {
-                reportTogetherLocalChanges();
-            }
-            NeteaseClient.TogetherSnapshot snapshot = netease.togetherSnapshot(roomId);
-            if (!roomId.equals(togetherRoomId)) return;
-            applyTogetherSnapshot(snapshot, false, false);
-
-            long tick = ++togetherTickCount;
-            if (tick % 5L == 0L) {
-                Track track = currentTrack();
-                netease.togetherHeartbeat(roomId,
-                        track != null ? track.neteaseId : 0L,
-                        playingIntent, Math.max(0L, backend.position()));
-                NeteaseClient.TogetherStatus status = netease.togetherStatus();
-                if (!status.inRoom || status.room == null) {
-                    clearTogetherRoom(true);
-                } else {
-                    publishTogetherRoom(status.room);
-                }
-            }
-            boolean recoveredFromRateLimit = togetherRateLimitFailures > 0;
-            togetherRateLimitUntil = 0L;
-            togetherRateLimitFailures = 0;
-            if (recoveredFromRateLimit) {
-                post(() -> {
-                    if (togetherActive) listenTogetherStatusText.set("房间已连接");
-                });
-            }
-        } catch (Throwable e) {
-            if (isTogetherRateLimited(e)) {
-                int failures = Math.min(16, togetherRateLimitFailures + 1);
-                togetherRateLimitFailures = failures;
-                if (togetherRateLimitShouldPause(failures)) {
-                    togetherRateLimitUntil = Long.MAX_VALUE;
-                    Logger.warn("listen-together rate limited {} times; automatic sync paused: {}",
-                            failures, e.getMessage());
-                    post(() -> {
-                        if (togetherActive) {
-                            listenTogetherStatusText.set(
-                                    "同步因操作频繁已暂停，请退出房间后重新加入");
-                        }
-                    });
-                    return;
-                }
-                long delayMs = togetherRateLimitBackoffMs(failures);
-                togetherRateLimitUntil = System.currentTimeMillis() + delayMs;
-                long delaySeconds = delayMs / 1000L;
-                Logger.warn("listen-together rate limited; retrying in {}s: {}",
-                        delaySeconds, e.getMessage());
-                post(() -> {
-                    if (togetherActive) {
-                        listenTogetherStatusText.set(
-                                "同步请求过于频繁，" + delaySeconds + " 秒后重试");
-                    }
-                });
-                return;
-            }
-            Logger.warn("listen-together sync failed: {}", e.getMessage());
-            post(() -> {
-                if (togetherActive) listenTogetherStatusText.set("正在重新连接…");
-            });
-        }
-    }
-
-    static long togetherRateLimitBackoffMs(int consecutiveFailures) {
-        int exponent = Math.max(0, Math.min(2, consecutiveFailures - 1));
-        return Math.min(TOGETHER_RATE_LIMIT_MAX_MS,
-                TOGETHER_RATE_LIMIT_BASE_MS << exponent);
-    }
-
-    static boolean togetherRateLimitShouldPause(int consecutiveFailures) {
-        return consecutiveFailures > TOGETHER_RATE_LIMIT_MAX_RETRIES;
-    }
-
-    static boolean isTogetherRateLimited(Throwable error) {
-        Throwable current = error;
-        for (int depth = 0; current != null && depth < 8; depth++) {
-            String message = current.getMessage();
-            if (message != null) {
-                String lower = message.toLowerCase(java.util.Locale.ROOT);
-                if (message.contains("操作频繁")
-                        || message.contains("请求频繁")
-                        || (message.contains("频繁") && message.contains("稍后"))
-                        || lower.contains("too many requests")
-                        || lower.contains("rate limit")
-                        || lower.contains("http 429")) {
-                    return true;
-                }
-            }
-            current = current.getCause();
-        }
-        return false;
-    }
-
-    private void reportTogetherLocalChanges() throws java.io.IOException {
-        String queueSignature = currentTogetherQueueSignature();
-        if (!queueSignature.equals(togetherLastQueueSignature)) {
-            reportTogetherQueueNow();
-            togetherLastQueueSignature = queueSignature;
-        }
-
-        Track track = currentTrack();
-        long songId = track != null ? track.neteaseId : 0L;
-        long seek = seekRevision.get();
-        if (songId == 0L) return;
-        if (songId != togetherLastSongId) {
-            // playAt() replaces the logical track before an uncached source has
-            // finished resolving. During that gap backend.position() still belongs
-            // to the outgoing source (especially while the render pump is stopped),
-            // so publishing it as GOTO.progress makes the peer open the next song at
-            // the previous song's timestamp. A live song switch always starts at 0;
-            // initial room creation still uses the overload below to share the
-            // already-playing song's real position.
-            reportTogetherCommandNow("GOTO", togetherLastSongId, songId, 0L);
-            // Transfer only after the server accepted GOTO. On a network failure the
-            // next tick retries instead of leaving the two clients with conflicting
-            // private ideas of who owns natural advance. Remote-applied changes call
-            // baselineTogetherLocal(), so they cannot steal ownership from sender.
-            togetherLeaderUserId = togetherUserId;
-        } else if (seek != togetherLastSeekRevision) {
-            reportTogetherCommandNow("PROGRESS", songId, songId);
-        } else if (playingIntent != togetherLastPlaying) {
-            reportTogetherCommandNow(playingIntent ? "PLAY" : "PAUSE", songId, songId);
-        }
-        togetherLastSongId = songId;
-        togetherLastPlaying = playingIntent;
-        togetherLastSeekRevision = seek;
-    }
-
-    private void reportTogetherQueueNow() throws java.io.IOException {
-        netease.reportTogetherPlaylist(togetherRoomId, togetherUserId,
-                ++togetherQueueVersion, currentTogetherSongIds());
-    }
-
-    private void reportTogetherCommandNow(String type, long former, long target)
-            throws java.io.IOException {
-        reportTogetherCommandNow(type, former, target, backend.position());
-    }
-
-    private void reportTogetherCommandNow(String type, long former, long target, long progressMs)
-            throws java.io.IOException {
-        netease.reportTogetherCommand(togetherRoomId, type,
-                Math.max(0L, progressMs), playingIntent, former, target,
-                ++togetherClientSeq);
-    }
-
-    private void applyTogetherSnapshot(NeteaseClient.TogetherSnapshot snapshot, boolean initial,
-            boolean keepLocalPlaybackState)
-            throws java.io.IOException {
-        if (snapshot == null || !togetherActive) return;
-        NeteaseClient.TogetherCommand command = snapshot.command;
-        String remoteSignature = command == null ? "" : command.userId + ":"
-                + command.serverSeq + ":" + command.commandType + ":"
-                + command.targetSongId + ":" + command.progressMs + ":" + command.playStatus;
-        boolean newCommand = command != null && command.userId != togetherUserId
-                && isNewTogetherRemoteCommand(command.serverSeq, remoteSignature,
-                        togetherLastRemoteSeq, togetherLastRemoteCommand,
-                        togetherPendingRemoteSeq, togetherPendingRemoteCommand);
-
-        String remoteQueueSignature = songIdsSignature(snapshot.songIds);
-        boolean replaceQueue = !snapshot.songIds.isEmpty()
-                && !remoteQueueSignature.equals(currentTogetherQueueSignature());
-
-        // The playlist and its matching GOTO are separate server writes. A poll can
-        // therefore observe the new list together with the previous play command.
-        // Never index into that list using playIndex: the same numeric slot can be a
-        // completely different song, which would then be reported as a local GOTO
-        // and race the real command (jump -> jump back, depending on write order).
-        // Preserve the current song when it is present; otherwise wait until the
-        // command naming a song in the new list arrives.
-        Track localTrack = currentTrack();
-        final long localSongId = localTrack != null ? localTrack.neteaseId : 0L;
-        final long replacementTarget = replaceQueue
-                ? togetherReplacementTarget(snapshot.songIds, localSongId,
-                        newCommand ? command.targetSongId : 0L)
-                : 0L;
-        if (replaceQueue && replacementTarget == 0L) return;
-
-        List<NeteaseSong> replacement = replaceQueue
-                ? togetherSongDetails(snapshot.songIds) : Collections.<NeteaseSong>emptyList();
-        if (!replaceQueue && !newCommand) return;
-
-        togetherSuppressReportsUntil = System.currentTimeMillis() + 1800L;
-        final boolean shouldReplace = replaceQueue && !replacement.isEmpty();
-        final List<NeteaseSong> songs = replacement;
-        final NeteaseClient.TogetherCommand remote = newCommand ? command : null;
-        final String applyingRemoteSignature = newCommand ? remoteSignature : "";
-        if (newCommand) {
-            togetherPendingRemoteCommand = applyingRemoteSignature;
-            togetherPendingRemoteSeq = command.serverSeq;
-        }
-        onMain(() -> {
-            if (!togetherActive) {
-                if (applyingRemoteSignature.equals(togetherPendingRemoteCommand)) {
-                    togetherPendingRemoteCommand = "";
-                    togetherPendingRemoteSeq = -1L;
-                }
-                return;
-            }
-
-            Track currentBeforeReplacement = currentTrack();
-            long targetId = remote != null && remote.targetSongId != 0L
-                    ? remote.targetSongId
-                    : (shouldReplace ? replacementTarget : localSongId);
-            List<Track> replacementTracks = Collections.emptyList();
-            int targetIndex;
-            if (shouldReplace) {
-                List<Track> tracks = new ArrayList<>(songs.size());
-                for (NeteaseSong song : songs) tracks.add(toTrack(song));
-                replacementTracks = tracks;
-                targetIndex = indexOfNeteaseTrack(tracks, targetId);
-                // A detail response can omit an unavailable song. Do not destroy the
-                // live queue or consume its GOTO until the target is actually usable.
-                if (targetIndex < 0) {
-                    if (applyingRemoteSignature.equals(togetherPendingRemoteCommand)) {
-                        togetherPendingRemoteCommand = "";
-                        togetherPendingRemoteSeq = -1L;
-                    }
-                    return;
-                }
-                currentQueuePlaylistId = 0L;
-                queue.clear();
-                queue.addAll(replacementTracks);
-                post(() -> queueTracks.set(new ArrayList<>(queue)));
-            } else {
-                targetIndex = indexOfNeteaseTrack(targetId);
-            }
-
-            if (targetIndex < 0) {
-                if (applyingRemoteSignature.equals(togetherPendingRemoteCommand)) {
-                    togetherPendingRemoteCommand = "";
-                    togetherPendingRemoteSeq = -1L;
-                }
-                return;
-            }
-
-            if (remote != null) {
-                togetherLastRemoteSeq = remote.serverSeq;
-                togetherLastRemoteCommand = applyingRemoteSignature;
-                if (applyingRemoteSignature.equals(togetherPendingRemoteCommand)) {
-                    togetherPendingRemoteCommand = "";
-                    togetherPendingRemoteSeq = -1L;
-                }
-                if (!initial) {
-                    String message = togetherCommandToast(remote.commandType);
-                    if (!message.isEmpty()) showToast(message);
-                }
-                togetherLeaderUserId = togetherLeaderAfterRemoteCommand(
-                        togetherLeaderUserId, remote);
-            }
-
-            // A PROGRESS report describes only a seek. NetEase still attaches the
-            // sender's playStatus to it, but applying that field here incorrectly
-            // starts a locally-paused participant (or pauses a locally-playing one)
-            // whenever the other participant scrubs. Preserve the local state for
-            // pure timeline commands; PLAY/PAUSE remain separate room commands.
-            boolean desiredPlaying = keepLocalPlaybackState || remote == null
-                    || "PROGRESS".equalsIgnoreCase(remote.commandType)
-                    ? playingIntent : remote.shouldPlay();
-            boolean changedTrack = currentBeforeReplacement == null
-                    || currentBeforeReplacement.neteaseId != targetId;
-            // Repeat-one and a one-song queue produce a GOTO to the same id. If this
-            // follower is sitting at EOF waiting for the leader, seeking the exhausted
-            // decoder is insufficient (and playingIntent is already true, so resume is
-            // skipped); reopen the source through playAt just like a real track change.
-            boolean replayCompletedTrack = !changedTrack && remote != null
-                    && isTogetherTrackSwitch(remote.commandType)
-                    && togetherPendingAutoAdvanceSongId == targetId
-                    && togetherPendingAutoAdvanceIndex == targetIndex;
-            long progress = togetherAppliedProgress(remote, initial,
-                    changedTrack || replayCompletedTrack,
-                    backend.position());
-            // A queue-only reorder can move the current song without changing the
-            // audible source. Keep playback running and only rebind its index.
-            if (!changedTrack && shouldReplace && playIndex != targetIndex) {
-                playIndex = targetIndex;
-                final int reboundIndex = targetIndex;
-                post(() -> index.set(reboundIndex));
-            }
-            if (changedTrack || replayCompletedTrack) {
-                pendingTogetherDesiredPlaying = desiredPlaying;
-                pendingTogetherTargetSongId = targetId;
-                pendingResumeMs = progress;
-                pendingResumeIndex = targetIndex;
-                playAt(targetIndex);
-            } else if (remote != null) {
-                long drift = Math.abs(Math.max(0L, backend.position()) - progress);
-                if (drift > 3000L || "PROGRESS".equalsIgnoreCase(remote.commandType)
-                        || "GOTO".equalsIgnoreCase(remote.commandType)) {
-                    resetNaturalEndFadeAfterSeek();
-                    seekRevision.incrementAndGet();
-                    stoppedLyricPositionMs = progress;
-                    backend.seek(progress);
-                    post(() -> positionMs.set(progress));
-                }
-                applyTogetherPlaying(desiredPlaying);
-            }
-            baselineTogetherLocal();
-        });
-    }
-
-    /** Resolve the start point carried by a room snapshot without letting an old
-     *  track's play head leak into a live switch. NetEase's GOTO/NEXT/PREV command
-     *  can be observed while its sender is still resolving the replacement source,
-     *  in which case {@code progress} is the outgoing song's timestamp. This is
-     *  particularly visible when the receiver's render pump is suspended because its
-     *  UI-side zero baseline cannot be published until rendering resumes. A deliberate
-     *  initial join is different: it must adopt the room's current point rather than
-     *  restart it. */
-    static long togetherAppliedProgress(NeteaseClient.TogetherCommand command,
-            boolean initial, boolean changedTrack, long localPositionMs) {
-        if (command == null) return Math.max(0L, localPositionMs);
-        long reported = Math.max(0L, command.progressMs);
-        if (!initial && changedTrack && isTogetherTrackSwitch(command.commandType)) return 0L;
-        return reported;
-    }
-
-    private static boolean isTogetherTrackSwitch(String commandType) {
-        return "GOTO".equalsIgnoreCase(commandType)
-                || "NEXT".equalsIgnoreCase(commandType)
-                || "PREV".equalsIgnoreCase(commandType);
-    }
-
-    /** Room creator wins when the API supplies it. Older/partial responses may omit
-     *  creatorId, so all clients deterministically fall back to the smallest known
-     *  participant id (including themselves) rather than each electing itself. */
-    static long togetherLeaderId(NeteaseClient.TogetherRoom room, long localUserId) {
-        if (room != null && room.creatorId > 0L) return room.creatorId;
-        long leader = localUserId > 0L ? localUserId : Long.MAX_VALUE;
-        if (room != null) {
-            for (NeteaseClient.TogetherUser user : room.users) {
-                if (user != null && user.userId > 0L && user.userId < leader) {
-                    leader = user.userId;
-                }
-            }
-        }
-        return leader == Long.MAX_VALUE ? 0L : leader;
-    }
-
-    static boolean shouldWaitForTogetherLeader(boolean active, long localUserId,
-            long leaderUserId) {
-        return active && localUserId > 0L && leaderUserId > 0L
-                && localUserId != leaderUserId;
-    }
-
-    /** Track selection transfers authority; transport-only commands do not. */
-    static long togetherLeaderAfterRemoteCommand(long currentLeaderUserId,
-            NeteaseClient.TogetherCommand command) {
-        if (command != null && command.userId > 0L
-                && isTogetherTrackSwitch(command.commandType)) {
-            return command.userId;
-        }
-        return currentLeaderUserId;
-    }
-
-    /** Selects a stable target when a remote playlist is observed. A non-zero
-     *  command target is authoritative, but only if that exact id is already in
-     *  the received list. Without one, the currently audible song must survive a
-     *  reorder; returning zero tells the caller to defer an unmatched replacement. */
-    static long togetherReplacementTarget(List<Long> remoteSongIds, long localSongId,
-            long commandTargetSongId) {
-        if (remoteSongIds == null || remoteSongIds.isEmpty()) return 0L;
-        long desired = commandTargetSongId != 0L ? commandTargetSongId : localSongId;
-        if (desired == 0L) return 0L;
-        for (Long id : remoteSongIds) {
-            if (id != null && id == desired) return desired;
-        }
-        return 0L;
-    }
-
-    /** NetEase's serverSeq is a server timestamp. Eventual-consistency reads may
-     *  briefly return an older playCommand after a newer GOTO was already seen; a
-     *  different signature alone must not make that stale command executable. */
-    static boolean isNewTogetherRemoteCommand(long candidateSeq, String candidateSignature,
-            long appliedSeq, String appliedSignature, long pendingSeq, String pendingSignature) {
-        String signature = candidateSignature == null ? "" : candidateSignature;
-        if (signature.equals(appliedSignature) || signature.equals(pendingSignature)) return false;
-        long newestSeenSeq = Math.max(appliedSeq, pendingSeq);
-        return candidateSeq > newestSeenSeq || candidateSeq == newestSeenSeq;
-    }
-
-    private void applyTogetherPlaying(boolean shouldPlay) {
-        if (shouldPlay == playingIntent) return;
-        cancelFadeAtGain(1f);
-        if (shouldPlay) {
-            backend.resume();
-            playingIntent = true;
-            post(() -> playing.set(true));
-        } else {
-            backend.pause();
-            playingIntent = false;
-            post(() -> playing.set(false));
-        }
-        notifyPlayback();
-    }
-
-    private List<NeteaseSong> togetherSongDetails(List<Long> ids) throws java.io.IOException {
-        Map<Long, NeteaseSong> byId = new HashMap<>();
-        for (int start = 0; start < ids.size(); start += 200) {
-            int end = Math.min(ids.size(), start + 200);
-            for (NeteaseSong song : netease.songDetails(ids.subList(start, end))) {
-                byId.put(song.id, song);
-            }
-        }
-        List<NeteaseSong> ordered = new ArrayList<>();
-        for (Long id : ids) {
-            NeteaseSong song = byId.get(id);
-            if (song != null) ordered.add(song);
-        }
-        fillMissingCovers(ordered);
-        buildSongThumbs(ordered, "128");
-        return ordered;
-    }
-
-    private int indexOfNeteaseTrack(long songId) {
-        return indexOfNeteaseTrack(queue, songId);
-    }
-
-    private static int indexOfNeteaseTrack(List<Track> tracks, long songId) {
-        for (int i = 0; i < tracks.size(); i++) {
-            if (tracks.get(i).neteaseId == songId) return i;
-        }
-        return -1;
-    }
-
-    private List<Long> currentTogetherSongIds() {
-        List<Long> ids = new ArrayList<>();
-        for (Track track : queue) {
-            if (track.source == Track.Source.NETEASE && track.neteaseId != 0L) {
-                ids.add(track.neteaseId);
-            }
-        }
-        return ids;
-    }
-
-    private String currentTogetherQueueSignature() {
-        return songIdsSignature(currentTogetherSongIds());
-    }
-
-    private static String songIdsSignature(List<Long> ids) {
-        StringBuilder out = new StringBuilder();
-        if (ids != null) for (Long id : ids) out.append(id).append(',');
-        return out.toString();
-    }
-
-    private void baselineTogetherLocal() {
-        togetherLastQueueSignature = currentTogetherQueueSignature();
-        Track current = currentTrack();
-        togetherLastSongId = current != null ? current.neteaseId : 0L;
-        togetherLastPlaying = playingIntent;
-        togetherLastSeekRevision = seekRevision.get();
-    }
-
-    private String buildTogetherInvitation() {
-        Track current = currentTrack();
-        long songId = current != null ? current.neteaseId : 0L;
-        return "qplayer://listen-together/?songId=" + songId
-                + "&roomId=" + togetherRoomId + "&inviterId=" + togetherUserId;
-    }
-
-    private static String inviteParameter(String text, String name) {
-        if (text == null || text.trim().isEmpty()) return "";
-        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile(
-                "(?:[?&]|\\b)" + java.util.regex.Pattern.quote(name)
-                        + "=([^&#\\s]+)", java.util.regex.Pattern.CASE_INSENSITIVE)
-                .matcher(text.trim());
-        if (!matcher.find()) return "";
-        try {
-            return java.net.URLDecoder.decode(matcher.group(1), "UTF-8");
-        } catch (Throwable ignored) {
-            return matcher.group(1);
-        }
-    }
-
     private static String safeMessage(Throwable error) {
         String message = error == null ? null : error.getMessage();
         return message == null || message.trim().isEmpty() ? "未知错误" : message;
-    }
-
-    private static String togetherCommandToast(String commandType) {
-        if (commandType == null) return "";
-        if ("PROGRESS".equalsIgnoreCase(commandType)) return "对方调整了播放进度";
-        if ("GOTO".equalsIgnoreCase(commandType)
-                || "NEXT".equalsIgnoreCase(commandType)
-                || "PREV".equalsIgnoreCase(commandType)) return "对方切换了歌曲";
-        if ("PLAY".equalsIgnoreCase(commandType)) return "对方开始播放";
-        if ("PAUSE".equalsIgnoreCase(commandType)) return "对方暂停了播放";
-        return "";
     }
 
     // --- Login (fully async: qrLoginKey/qrLoginCheck are blocking HTTP, must
@@ -7887,7 +6842,6 @@ public final class PlayerController {
 
     private void publishPluginAccount(String provider, AccountProfile account) {
         if (account == null || !provider.equals(pluginRegistry.primaryProvider())) return;
-        pluginTogetherAccountId = account.loggedIn ? orEmpty(account.id) : "";
         loggedIn.set(account.loggedIn);
         userName.set(orEmpty(account.displayName));
         userAvatar.set(orEmpty(account.avatarUrl));
@@ -7899,9 +6853,6 @@ public final class PlayerController {
             userVipType.set(account.membershipTier);
             userLevel.set(account.level);
             userSignature.set(orEmpty(account.signature));
-            if (pluginHasCapability(provider, ProviderCapability.LISTEN_TOGETHER)) {
-                restoreListenTogetherRoom();
-            }
         }
         if (account.loggedIn) {
             if (pluginHostApi.consumeCredentialUnlock()) {
@@ -7963,7 +6914,6 @@ public final class PlayerController {
                     loadHome();
                     loadMyPlaylists();
                     refreshLiked();
-                    restoreListenTogetherRoom();
                 }
             } catch (Throwable e) {
                 Logger.warn("refreshLogin failed: {}", e.toString());
@@ -7999,7 +6949,6 @@ public final class PlayerController {
             clearPublishedAccount();
             return;
         }
-        clearTogetherRoom(false);
         netease.logout();
         clearPublishedAccount();
         showToast("已退出登录");
@@ -8034,6 +6983,7 @@ public final class PlayerController {
     }
 
     public void shutdown() {
+        appShuttingDown = true;
         // Capture the final position before release() tears down the backend (a
         // released MediaPlayer's position() is undefined/0).
         saveSessionState();
@@ -8054,7 +7004,6 @@ public final class PlayerController {
         retryWorker.shutdownNow();
         monetFetchWorker.shutdownNow();
         monetWorker.shutdownNow();
-        togetherWorker.shutdownNow();
         pluginManager.close();
         pluginHostApi.close();
     }

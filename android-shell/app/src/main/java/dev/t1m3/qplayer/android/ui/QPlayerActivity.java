@@ -198,7 +198,7 @@ public final class QPlayerActivity extends Activity {
         settings.registerAction("checkUpdate", controller::checkForUpdateManual);
         settings.registerAction("openRepo",
                 () -> controller.openExternalUrl("https://github.com/TIMER-err/qplayer"));
-        settings.registerAction("importPlugin", controller::requestPluginImport);
+        settings.registerAction("managePlugins", controller::requestPluginManager);
         settings.registerInfo("version", () -> "v" + controller.appVersion.peek());
         settings.registerInfo("cacheUsage", () -> controller.cacheSizeMB.peek() + " MB");
         settings.load(new PrefsSettingsStore(this), SettingsCatalog.ANDROID);

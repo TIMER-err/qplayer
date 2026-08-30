@@ -13,13 +13,6 @@ public class MediaIdTest {
         assertEquals(id, MediaId.parse(id.toString()));
     }
 
-    @Test
-    public void roundTripsProviderQualifiedRoom() {
-        MediaId id = MediaId.of("netease", MediaKind.ROOM, "room:42");
-        assertEquals("netease:room:room%3A42", id.toString());
-        assertEquals(id, MediaId.parse(id.toString()).requireKind(MediaKind.ROOM));
-    }
-
     @Test(expected = IllegalArgumentException.class)
     public void rejectsProviderSpoofingSyntax() {
         MediaId.of("NetEase:other", MediaKind.SONG, "1");

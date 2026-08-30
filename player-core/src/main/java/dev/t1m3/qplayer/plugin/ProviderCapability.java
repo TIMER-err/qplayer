@@ -10,7 +10,11 @@ public enum ProviderCapability {
     RESOLVE_STREAM("resolveStream"), LYRICS("lyrics"), SCROBBLE("scrobble"),
     LIKE("like"), PLAYLIST_MUTATION("playlistMutation"),
     HEART_RECOMMENDATION("heartRecommendation"), SHARE("share"),
-    MATCH_SONG("matchSong"), LOGIN("login"), LISTEN_TOGETHER("listenTogether");
+    MATCH_SONG("matchSong"), LOGIN("login"),
+    /** Manifest-only compatibility for pre-migration packages. The host does not
+     * route or implement this handler; current plugins own the feature through
+     * custom UI, backgroundTick and generic playback services. */
+    @Deprecated LISTEN_TOGETHER("listenTogether");
 
     private final String wireName;
 

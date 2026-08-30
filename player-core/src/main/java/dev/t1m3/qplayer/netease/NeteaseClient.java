@@ -123,16 +123,6 @@ public final class NeteaseClient {
     public Set<Long> likedSongIds(long uid) throws IOException { throw removed(); }
     public List<NeteaseSong> recommendSongs() throws IOException { throw removed(); }
     public List<NeteaseSong> intelligenceSongs(long id, long playlist, long start) throws IOException { throw removed(); }
-    public TogetherRoom createTogetherRoom() throws IOException { throw removed(); }
-    public TogetherStatus togetherStatus() throws IOException { throw removed(); }
-    public boolean togetherRoomJoinable(String id) throws IOException { throw removed(); }
-    public TogetherRoom acceptTogetherInvitation(String id, long inviter) throws IOException { throw removed(); }
-    public TogetherSnapshot togetherSnapshot(String id) throws IOException { throw removed(); }
-    public void reportTogetherPlaylist(String room, long current, long progress, List<Long> ids) throws IOException { throw removed(); }
-    public void reportTogetherCommand(String room, String command, long former, boolean playing,
-                                      long target, long progress, long seq) throws IOException { throw removed(); }
-    public void togetherHeartbeat(String room, long progress, boolean playing, long id) throws IOException { throw removed(); }
-    public void endTogetherRoom(String room) throws IOException { throw removed(); }
     public NeteaseUser userDetail(long id) throws IOException { throw removed(); }
     public String qrLoginKey() throws IOException { throw removed(); }
     public String qrLoginContent(String key) { return ""; }
@@ -307,39 +297,4 @@ public final class NeteaseClient {
         }
     }
 
-    public static final class TogetherUser {
-        public long userId;
-        public String nickname = "";
-        public String avatarUrl = "";
-    }
-
-    public static final class TogetherRoom {
-        public String roomId = "";
-        public long creatorId;
-        public long effectiveDurationMs;
-        public final List<TogetherUser> users = new ArrayList<>();
-    }
-
-    public static final class TogetherStatus {
-        public boolean inRoom;
-        public String status = "";
-        public TogetherRoom room;
-    }
-
-    public static final class TogetherSnapshot {
-        public final List<Long> songIds = new ArrayList<>();
-        public final List<Map<String, Object>> versions = new ArrayList<>();
-        public TogetherCommand command;
-    }
-
-    public static final class TogetherCommand {
-        public long userId;
-        public String commandType = "";
-        public long formerSongId;
-        public long targetSongId;
-        public long progressMs;
-        public String playStatus = "";
-        public long serverSeq;
-        public boolean shouldPlay() { return "PLAY".equalsIgnoreCase(playStatus); }
-    }
 }

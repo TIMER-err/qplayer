@@ -176,9 +176,9 @@ public final class SettingsCatalog {
                 .build());
 
         // ---- 插件 -----------------------------------------------------------
-        out.add(SettingSpec.action("importPlugin", PLUGINS, "导入音源插件", "选择 .qplug")
-                .icon("extension")
-                .desc("插件包含可执行 JavaScript/QML；安装前将显示来源、权限和安全警告")
+        out.add(SettingSpec.action("managePlugins", PLUGINS, "插件管理", "查看插件")
+                .buttonType("filledTonal")
+                .desc("查看已安装和可用插件；每个插件拥有独立的设置页面")
                 .build());
 
         // ---- 关于 -----------------------------------------------------------

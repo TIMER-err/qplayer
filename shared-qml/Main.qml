@@ -67,8 +67,29 @@ Rectangle {
     property bool albumLoaded: false
     property bool queueLoaded: false
     property bool settingsLoaded: false
+    property bool pluginSettingsLoaded: false
     property bool accountLoaded: false
     property bool cacheListLoaded: false
+    property var playerPluginActions: {
+        var out = []
+        var rows = player.pluginUiContributions || []
+        for (var i = 0; i < rows.length; i++) {
+            if (rows[i].placement === "playerAction") out.push(rows[i])
+        }
+        return out
+    }
+    function footerActions() {
+        var out = [{ action: "download", icon: "download", text: "已下载" }]
+        for (var i = 0; i < app.playerPluginActions.length; i++) {
+            var item = app.playerPluginActions[i]
+            out.push({ action: "plugin", icon: item.icon, text: item.label,
+                       pluginId: item.pluginId, contributionId: item.id })
+        }
+        out.push({ action: "account", icon: player.loggedIn ? "account_circle" : "login",
+                   text: player.loggedIn ? "账户" : "登录" })
+        out.push({ action: "settings", icon: "settings", text: "设置" })
+        return out
+    }
     // openArtist/openAlbum are called from reusable child components that cannot
     // see this root id. The controller publishes an event revision for every call
     // (not just false -> true), and the page manager turns it into a route push.
@@ -79,6 +100,11 @@ Rectangle {
             app.pushPage("artist", player.pageNavigationEntityId)
         else if (player.pageNavigationTarget === "album")
             app.pushPage("album", player.pageNavigationEntityId)
+    }
+    property real pluginSettingsNavigationWatch: player.pluginSettingsRevision
+    onPluginSettingsNavigationWatchChanged: {
+        if (pluginSettingsNavigationWatch > 0)
+            app.pushPage("pluginSettings", player.pluginSettingsId)
     }
     // Host-side closes are uncommon (normal back now pops the stack), but mirror
     // one if it happens so the route cannot remain logically open after its
@@ -153,7 +179,7 @@ Rectangle {
         if ((credentialNoticeDialog.opened && player.credentialNoticeType === 3)
                 || credentialFallbackConfirmDialog.opened
                 || credentialReloginUnavailableDialog.opened
-                || pluginDialogs.modalOpened) return;
+                || pluginDialogs.handleBack()) return;
         if (player.songArtistPickerOpen) { player.closeSongArtistPicker(); return; }
         if (app.showLog)            { app.showLog = false; return; }
         if (app.loginOpen)          { app.loginOpen = false; return; }
@@ -167,6 +193,7 @@ Rectangle {
         if (which === "artist") app.artistLoaded = true
         if (which === "album") app.albumLoaded = true
         if (which === "settings") app.settingsLoaded = true
+        if (which === "pluginSettings") app.pluginSettingsLoaded = true
         if (which === "account") app.accountLoaded = true
         if (which === "cachedSongs") app.cacheListLoaded = true
         if (which === "queue") app.queueLoaded = true
@@ -499,10 +526,9 @@ Rectangle {
         // competing with page-level actions in the top bar. Labels fade with the
         // extended rail; the compact rail keeps the same icon targets.
         footer: Item {
-            // Logged-in users get the listen-together action next to the account
-            // entry on both the compact rail (tablets) and the extended rail
-            // (desktop). Collapse the extra row entirely while signed out.
-            implicitHeight: player.loggedIn && player.listenTogetherAvailable ? 212 : 164
+            // Feature actions are contributed by plugins; the host only supplies
+            // stable navigation placement and an isolated UI launcher.
+            implicitHeight: 20 + app.footerActions().length * 48
 
             Rectangle {
                 x: 12
@@ -513,18 +539,7 @@ Rectangle {
             }
 
             Repeater {
-                model: player.loggedIn && player.listenTogetherAvailable
-                    ? [
-                        { action: "download", icon: "download", text: "已下载" },
-                        { action: "together", icon: "group", text: "一起听" },
-                        { action: "account", icon: "account_circle", text: "账户" },
-                        { action: "settings", icon: "settings", text: "设置" }
-                      ]
-                    : [
-                        { action: "download", icon: "download", text: "已下载" },
-                        { action: "account", icon: "login", text: "登录" },
-                        { action: "settings", icon: "settings", text: "设置" }
-                      ]
+                model: app.footerActions()
 
                 Item {
                     id: footerAction
@@ -553,8 +568,7 @@ Rectangle {
                         text: modelData.icon
                         font.family: Theme.iconFont.name
                         font.pixelSize: 22
-                        color: modelData.action === "together" && player.listenTogetherInRoom
-                               ? Theme.color.primary : Theme.color.onSurfaceVariantColor
+                        color: Theme.color.onSurfaceVariantColor
                         Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
                     }
 
@@ -584,8 +598,9 @@ Rectangle {
                             if (modelData.action === "download") {
                                 player.refreshCachedSongs()
                                 app.replacePage("cachedSongs", 0)
-                            } else if (modelData.action === "together") {
-                                togetherDialog.open()
+                            } else if (modelData.action === "plugin") {
+                                player.requestPluginUi(modelData.pluginId,
+                                                       modelData.contributionId)
                             } else if (modelData.action === "account") {
                                 if (player.loggedIn) app.replacePage("account", 0)
                                 else app.loginOpen = true
@@ -635,13 +650,13 @@ Rectangle {
                 app.replacePage("cachedSongs", 0)
             }
         }
-        IconButton {
-            visible: !app.wide && player.loggedIn && player.listenTogetherAvailable
-            type: "standard"
-            icon: "group"
-            contentColor: player.listenTogetherInRoom
-                          ? Theme.color.primary : Theme.color.onSurfaceVariantColor
-            onClicked: togetherDialog.open()
+        Repeater {
+            model: !app.wide ? app.playerPluginActions : []
+            delegate: IconButton {
+                type: "standard"
+                icon: modelData.icon
+                onClicked: player.requestPluginUi(modelData.pluginId, modelData.id)
+            }
         }
         IconButton {
             visible: !app.wide
@@ -808,6 +823,20 @@ Rectangle {
             ManagedPageLoader {
                 pageManager: app
                 motion: rootPageMotion
+                routeType: "pluginSettings"
+                active: app.pluginSettingsLoaded
+                sourceComponent: Component {
+                    PluginSettingsPage {
+                        pluginId: player.pluginSettingsId
+                        onHome: app.goHome()
+                        onBack: app.popPage()
+                    }
+                }
+            }
+
+            ManagedPageLoader {
+                pageManager: app
+                motion: rootPageMotion
                 routeType: "cachedSongs"
                 active: app.cacheListLoaded
                 sourceComponent: Component {
@@ -879,8 +908,6 @@ Rectangle {
         active: app.loginOpen
         onClosed: app.loginOpen = false
     }
-
-    ListenTogetherDialog { id: togetherDialog }
 
     SongArtistsDialog { id: songArtistsDialog }
 

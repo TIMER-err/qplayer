@@ -40,6 +40,7 @@ final class PluginQmlRenderThread extends Thread {
             synchronized (QmlRuntimeLock.MONITOR) {
                 session = controller.createPluginUiSession(pluginId, contributionId);
                 view = session.view();
+                if (session.clipboardAllowed()) view.setClipboard(owner.windows.clipboard());
                 view.renderer().setPictureCache(false);
                 sizeRoot(view, size[0], size[1]);
             }

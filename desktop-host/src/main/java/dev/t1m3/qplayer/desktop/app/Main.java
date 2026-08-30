@@ -142,7 +142,7 @@ public final class Main {
         settings.registerAction("clearCache", controller::clearDiskCache);
         settings.registerAction("checkUpdate", controller::checkForUpdateManual);
         settings.registerAction("openRepo", () -> openUrl("https://github.com/TIMER-err/qplayer"));
-        settings.registerAction("importPlugin", controller::requestPluginImport);
+        settings.registerAction("managePlugins", controller::requestPluginManager);
         settings.registerInfo("version", () -> "v" + controller.appVersion.peek());
         settings.registerInfo("cacheUsage", () -> controller.cacheSizeMB.peek() + " MB");
         JsonSettingsStore desktopStore = new JsonSettingsStore();
@@ -165,7 +165,7 @@ public final class Main {
         QmlEngine engine = new QmlEngine();
         DesktopWindow window = new DesktopWindow(engine, qml, resources, controller, settings,
                 qmlCompilationCache);
-        PluginQmlWindows pluginWindows = new PluginQmlWindows(controller);
+        PluginQmlWindows pluginWindows = new PluginQmlWindows(controller, window);
         window.setPluginQmlWindows(pluginWindows);
         controller.setPluginUiLauncher((pluginId, contributionId) ->
                 window.postMainTask(() -> pluginWindows.open(pluginId, contributionId)));

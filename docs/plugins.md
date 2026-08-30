@@ -13,11 +13,11 @@ converts them to:
 <provider>:<kind>:<percent-encoded-native-id>
 ```
 
-Kinds are `song`, `album`, `artist`, `playlist`, `user`, and `room`. Native IDs are
+Kinds are `song`, `album`, `artist`, `playlist`, and `user`. Native IDs are
 limited to 2048 UTF-8 bytes and may not contain control characters. A plugin only
 receives native IDs belonging to itself. It must never manufacture another
-provider's canonical ID. Persisted queues, caches, playlist context, Together
-snapshots, and UI navigation all use canonical IDs.
+provider's canonical ID. Persisted queues, caches, playlist context, and UI
+navigation all use canonical IDs.
 
 ## Package layout
 
@@ -108,13 +108,17 @@ Each advertised capability maps to a same-named handler:
 | `scrobble` | playback report |
 | `heartRecommendation` | seed song and optional playlist → songs |
 | `share` | canonical entity → share URL/text |
-| `listenTogether` | room create/status/check/join/snapshot/report/heartbeat/end |
 
 The host validates response sizes, entity kinds, canonical ownership, URL grants,
 pagination bounds, lyric size, headers, and enum values. See the source-neutral
 DTOs in `player-core/src/main/java/dev/t1m3/qplayer/media` for the complete field
-set and `PluginProviderService`, `PluginAccountService`, and
-`PluginTogetherService` for the normative parser behavior.
+set and `PluginProviderService` and `PluginAccountService` for the normative
+parser behavior. Provider-specific features such as Listen Together are ordinary
+plugin handlers rather than host capabilities.
+
+For non-destructive upgrades, the manifest parser still accepts the deprecated
+`listenTogether` capability used by the first plugin package, but QPlayer does not
+invoke it or expose any matching UI/protocol service.
 
 ## Host calls
 
@@ -127,6 +131,11 @@ Calls are asynchronous: `qplayer.call(method, arguments)` returns a Promise.
 | `http.request` | `network` | HTTPS/domain/method/DNS/redirect policy; bounded body |
 | `crypto.*` | none | digest, random, AES, HMAC, modular exponentiation, X25519 |
 | `compression.gunzip` | none | bounded decompression |
+| `playback.read` | `playbackRead` | current native song id, provider-owned queue, clock, transition state and revisions |
+| `playback.play/pause/seek/select/next/blockAutoAdvance` | `playbackControl` | provider-neutral playback coordination |
+| `queue.replace` | `queueWrite` | validates plugin Song DTOs before replacing the queue |
+| `notifications.toast` | `notifications` | host Snackbar/Toast, including over the lyric page |
+| `clipboard.write` | `clipboard` | platform clipboard |
 
 Network URLs returned for playback and artwork are checked again by the host.
 Host-fetched artwork and cached audio enforce the policy on every redirect. A
@@ -151,8 +160,13 @@ Logging out should delete the plugin's credential keys.
 Declare `customUi` and a contribution:
 
 ```json
-{"id":"preferences","placement":"settings","source":"ui/Preferences.qml"}
+{"id":"preferences","placement":"settings","source":"ui/Preferences.qml",
+ "label":"Preferences","icon":"tune"}
 ```
+
+`placement: "settings"` adds a plugin-settings entry. `placement:
+"playerAction"` adds the declared `label`/`icon` to the compact top bar and wide
+navigation rail without teaching QPlayer what the feature does.
 
 The document opens in a separate safe Rhino realm and, on desktop, a separate
 render window/thread. Its only bridge is `plugin`, with reactive `busy`,
@@ -165,6 +179,11 @@ host bridge exposes only its explicit `call` method. Safe-realm JavaScript is
 instruction-observed and interrupted when one binding or handler overruns its limit.
 Clipboard integration is absent unless the package requested and the user granted
 `clipboard`; platform hosts may still choose not to provide it.
+
+A plugin that declares `backgroundTimers` may export `backgroundTick`. QPlayer
+invokes it approximately once per second on the plugin actor, never overlaps two
+ticks for the same plugin, and stops it when the plugin is disabled or removed.
+This is the intended place for plugin-owned room protocols and synchronization.
 
 ## Migration and compatibility
 

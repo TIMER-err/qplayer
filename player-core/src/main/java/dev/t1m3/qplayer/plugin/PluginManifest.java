@@ -36,6 +36,8 @@ public final class PluginManifest {
         public String id = "";
         public String placement = "";
         public String source = "";
+        public String label = "";
+        public String icon = "extension";
     }
 
     public void validate() {
@@ -92,6 +94,13 @@ public final class PluginManifest {
             if (contribution.placement == null
                     || !contribution.placement.matches("[a-z][a-zA-Z0-9._-]{0,63}")) {
                 throw new IllegalArgumentException("invalid UI placement");
+            }
+            if (contribution.label == null || contribution.label.length() > 40) {
+                throw new IllegalArgumentException("invalid UI contribution label");
+            }
+            if (contribution.icon == null
+                    || !contribution.icon.matches("[a-z][a-z0-9_]{0,63}")) {
+                throw new IllegalArgumentException("invalid UI contribution icon");
             }
         }
         if (!ui.isEmpty() && !permissionSet.contains(PluginPermission.CUSTOM_UI.wireName())) {

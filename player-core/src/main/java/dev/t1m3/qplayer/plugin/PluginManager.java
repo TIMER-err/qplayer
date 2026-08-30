@@ -19,6 +19,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /** Owns enabled runtimes independently of any QML/render-thread lifecycle. */
 public final class PluginManager implements AutoCloseable {
@@ -26,12 +30,22 @@ public final class PluginManager implements AutoCloseable {
     private final PluginRegistry registry;
     private final PluginHostApi hostApi;
     private final Map<String, PluginRuntime> runtimes = new LinkedHashMap<>();
+    private final Set<String> backgroundHandlers = ConcurrentHashMap.newKeySet();
+    private final Set<String> backgroundBusy = ConcurrentHashMap.newKeySet();
+    private final ScheduledExecutorService background =
+            Executors.newSingleThreadScheduledExecutor(runnable -> {
+                Thread thread = new Thread(runnable, "qplayer-plugin-background");
+                thread.setDaemon(true);
+                return thread;
+            });
     private final Gson gson = new Gson();
 
     public PluginManager(Path pluginsRoot, PluginRegistry registry, PluginHostApi hostApi) {
         this.pluginsRoot = pluginsRoot.toAbsolutePath().normalize();
         this.registry = registry;
         this.hostApi = hostApi;
+        background.scheduleAtFixedRate(this::tickBackgroundPlugins,
+                1L, 1L, TimeUnit.SECONDS);
     }
 
     public synchronized void startEnabled() {
@@ -56,6 +70,8 @@ public final class PluginManager implements AutoCloseable {
         PluginRuntime current = runtimes.get(pluginId);
         if (current != null && !entry.activeVersion.equals(current.manifest().version)) {
             runtimes.remove(pluginId);
+            backgroundHandlers.remove(pluginId);
+            backgroundBusy.remove(pluginId);
             current.close();
             if (hostApi instanceof PolicyAwarePluginHostApi) {
                 ((PolicyAwarePluginHostApi) hostApi).unregister(pluginId);
@@ -84,6 +100,8 @@ public final class PluginManager implements AutoCloseable {
             if (previous != null && !previous.enabled) disable(pkg.manifest().id);
         } catch (Throwable failure) {
             PluginRuntime failed = runtimes.remove(pkg.manifest().id);
+            backgroundHandlers.remove(pkg.manifest().id);
+            backgroundBusy.remove(pkg.manifest().id);
             if (failed != null) failed.close();
             if (hostApi instanceof PolicyAwarePluginHostApi) {
                 ((PolicyAwarePluginHostApi) hostApi).unregister(pkg.manifest().id);
@@ -112,6 +130,8 @@ public final class PluginManager implements AutoCloseable {
 
     public synchronized void disable(String pluginId) throws IOException {
         PluginRuntime runtime = runtimes.remove(pluginId);
+        backgroundHandlers.remove(pluginId);
+        backgroundBusy.remove(pluginId);
         if (runtime != null) runtime.close();
         if (hostApi instanceof PolicyAwarePluginHostApi) {
             ((PolicyAwarePluginHostApi) hostApi).unregister(pluginId);
@@ -126,6 +146,8 @@ public final class PluginManager implements AutoCloseable {
         PluginRegistry.Entry entry = registry.get(pluginId);
         if (entry == null) throw new IllegalArgumentException("unknown plugin " + pluginId);
         PluginRuntime runtime = runtimes.remove(pluginId);
+        backgroundHandlers.remove(pluginId);
+        backgroundBusy.remove(pluginId);
         if (runtime != null) runtime.close();
         if (hostApi instanceof PolicyAwarePluginHostApi) {
             ((PolicyAwarePluginHostApi) hostApi).unregister(pluginId);
@@ -175,6 +197,9 @@ public final class PluginManager implements AutoCloseable {
                 row.id = item.id;
                 row.placement = item.placement;
                 row.source = item.source;
+                row.label = item.label == null || item.label.isEmpty()
+                        ? manifest.name : item.label;
+                row.icon = item.icon == null || item.icon.isEmpty() ? "extension" : item.icon;
                 result.add(row);
             }
         }
@@ -197,6 +222,9 @@ public final class PluginManager implements AutoCloseable {
         row.id = selected.id;
         row.placement = selected.placement;
         row.source = selected.source;
+        row.label = selected.label == null || selected.label.isEmpty()
+                ? runtime.manifest().name : selected.label;
+        row.icon = selected.icon == null || selected.icon.isEmpty() ? "extension" : selected.icon;
         Path root = pluginsRoot.resolve(pluginId).resolve(runtime.manifest().version).normalize();
         if (!root.startsWith(pluginsRoot)) throw new IOException("plugin UI root is invalid");
         return new PluginUiSession(this, coreHost, root, row,
@@ -224,8 +252,22 @@ public final class PluginManager implements AutoCloseable {
             ((PolicyAwarePluginHostApi) hostApi).register(manifest);
         }
         try {
-            runtimes.put(entry.id, PluginRuntime.start(root, manifest, hostApi));
+            PluginRuntime runtime = PluginRuntime.start(root, manifest, hostApi);
+            runtimes.put(entry.id, runtime);
+            if (manifest.permissionSet().contains(PluginPermission.BACKGROUND_TIMERS)) {
+                try {
+                    if (runtime.hasHandler("backgroundTick").get(5, TimeUnit.SECONDS)) {
+                        backgroundHandlers.add(entry.id);
+                    }
+                } catch (Exception error) {
+                    throw new IOException("plugin background handler check failed", error);
+                }
+            }
         } catch (IOException | RuntimeException error) {
+            PluginRuntime failed = runtimes.remove(entry.id);
+            backgroundHandlers.remove(entry.id);
+            backgroundBusy.remove(entry.id);
+            if (failed != null) failed.close();
             if (hostApi instanceof PolicyAwarePluginHostApi) {
                 ((PolicyAwarePluginHostApi) hostApi).unregister(entry.id);
             }
@@ -281,6 +323,18 @@ public final class PluginManager implements AutoCloseable {
         return digest.digest();
     }
 
+    private void tickBackgroundPlugins() {
+        for (String pluginId : new ArrayList<>(backgroundHandlers)) {
+            if (!backgroundBusy.add(pluginId)) continue;
+            invoke(pluginId, "backgroundTick", Collections.<String, Object>emptyMap())
+                    .whenComplete((ignored, error) -> {
+                        backgroundBusy.remove(pluginId);
+                        if (error != null) Logger.warn("plugin {} background tick failed: {}",
+                                pluginId, error.getMessage());
+                    });
+        }
+    }
+
     private static String hex(byte[] value) {
         StringBuilder out = new StringBuilder(value.length * 2);
         for (byte item : value) out.append(String.format(Locale.ROOT, "%02x", item & 0xff));
@@ -294,6 +348,9 @@ public final class PluginManager implements AutoCloseable {
     }
 
     @Override public synchronized void close() {
+        background.shutdownNow();
+        backgroundHandlers.clear();
+        backgroundBusy.clear();
         for (Map.Entry<String, PluginRuntime> item : runtimes.entrySet()) {
             item.getValue().close();
             if (hostApi instanceof PolicyAwarePluginHostApi) {

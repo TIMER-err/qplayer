@@ -190,87 +190,6 @@ Rectangle {
                     }
 
                     Repeater {
-                        model: page.currentCategory === "插件" ? player.pluginUiContributions : null
-                        delegate: SettingCard {
-                            Layout.fillWidth: true
-                            RowLayout {
-                                Layout.fillWidth: true
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    SettingTitle { text: modelData.pluginName + " · 扩展界面" }
-                                    SettingDesc { text: modelData.id + " · " + modelData.placement }
-                                }
-                                Button {
-                                    type: "outlined"
-                                    icon: "open_in_new"
-                                    text: "打开"
-                                    onClicked: player.requestPluginUi(modelData.pluginId, modelData.id)
-                                }
-                            }
-                        }
-                    }
-
-                    SettingCard {
-                        Layout.fillWidth: true
-                        visible: page.currentCategory === "插件"
-                                 && (!player.sourcePlugins || player.sourcePlugins.length === 0)
-
-                        SettingTitle { text: "尚未安装音源插件" }
-                        SettingDesc {
-                            text: "QPlayer 核心不提供在线音源。导入插件后，对应的搜索、首页、账户和扩展功能会出现在现有界面中。"
-                        }
-                    }
-
-                    Repeater {
-                        model: page.currentCategory === "插件" ? player.sourcePlugins : null
-                        delegate: SettingCard {
-                            Layout.fillWidth: true
-                            property var pluginData: modelData
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 10
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 2
-                                    SettingTitle {
-                                        text: pluginData.name + "  " + pluginData.version
-                                    }
-                                    SettingDesc {
-                                        text: pluginData.id + (pluginData.signed
-                                              ? " · 已验证签名" : " · 未验证来源")
-                                    }
-                                }
-                                Button {
-                                    visible: pluginData.enabled
-                                    type: pluginData.primary ? "filledTonal" : "outlined"
-                                    text: pluginData.primary ? "主音源" : "设为主音源"
-                                    enabled: !pluginData.primary
-                                    onClicked: player.setPrimarySourcePlugin(pluginData.id)
-                                }
-                                Switch {
-                                    checked: pluginData.enabled
-                                    onClicked: player.setSourcePluginEnabled(pluginData.id, checked)
-                                }
-                                IconButton {
-                                    icon: "delete"
-                                    enabled: !player.pluginInstallBusy
-                                    onClicked: player.requestSourcePluginRemoval(pluginData.id)
-                                }
-                            }
-                            SettingDesc {
-                                text: "权限：" + (pluginData.permissions.length > 0
-                                      ? pluginData.permissions : "无额外权限")
-                            }
-                        }
-                    }
-
-                    PluginCatalogCard {
-                        Layout.fillWidth: true
-                        visible: page.currentCategory === "插件" && !page.twoColumn
-                    }
-
-                    Repeater {
                         model: page.leftGroups
                         delegate: SettingCard {
                             Layout.fillWidth: true
@@ -309,11 +228,6 @@ Rectangle {
                     Layout.alignment: Qt.AlignTop
                     spacing: 14
                     visible: page.twoColumn
-
-                    PluginCatalogCard {
-                        Layout.fillWidth: true
-                        visible: page.currentCategory === "插件"
-                    }
 
                     Repeater {
                         model: page.rightGroups
