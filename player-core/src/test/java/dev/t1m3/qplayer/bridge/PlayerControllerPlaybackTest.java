@@ -4,6 +4,7 @@ import dev.t1m3.qplayer.audio.AudioBackend;
 import dev.t1m3.qplayer.model.Track;
 import dev.t1m3.qplayer.netease.NeteaseClient;
 import dev.t1m3.qplayer.netease.dto.NeteaseSong;
+import dev.t1m3.qplayer.plugin.PluginCredentialVault;
 import dev.t1m3.qplayer.store.AppDirs;
 import org.junit.Rule;
 import org.junit.Test;
@@ -24,6 +25,48 @@ public class PlayerControllerPlaybackTest {
 
     @Rule
     public final TemporaryFolder temporaryFolder = new TemporaryFolder();
+
+    @Test
+    public void encryptedCredentialNoticeWaitsForValidatedLogin() throws Exception {
+        String oldBase = AppDirs.base();
+        String oldCacheBase = AppDirs.cacheBase();
+        PlayerController controller = null;
+        try {
+            Path base = temporaryFolder.newFolder("credential-notice-gate").toPath();
+            AppDirs.setBase(base.toString());
+            AppDirs.setCacheBase(base.resolve("cache").toString());
+            controller = new PlayerController(
+                    new FakeAudioBackend(), track -> { }, NeteaseClient.INSTANCE);
+
+            java.lang.reflect.Method received = PlayerController.class.getDeclaredMethod(
+                    "showPluginCredentialNotice", PluginCredentialVault.CredentialEvent.class);
+            received.setAccessible(true);
+            received.invoke(controller, PluginCredentialVault.CredentialEvent.ENCRYPTED);
+
+            assertEquals(0L, controller.credentialNoticeRevision.peek().longValue());
+
+            java.lang.reflect.Method publish = PlayerController.class.getDeclaredMethod(
+                    "publishPendingCredentialEncryptedNotice");
+            publish.setAccessible(true);
+            publish.invoke(controller);
+
+            assertEquals(1, controller.credentialNoticeType.peek().intValue());
+            assertEquals(1L, controller.credentialNoticeRevision.peek().longValue());
+
+            received.invoke(controller, PluginCredentialVault.CredentialEvent.ENCRYPTED);
+            java.lang.reflect.Method clear = PlayerController.class.getDeclaredMethod(
+                    "clearPublishedAccount");
+            clear.setAccessible(true);
+            clear.invoke(controller);
+            publish.invoke(controller);
+
+            assertEquals(1L, controller.credentialNoticeRevision.peek().longValue());
+        } finally {
+            if (controller != null) controller.shutdown();
+            AppDirs.setBase(oldBase);
+            AppDirs.setCacheBase(oldCacheBase);
+        }
+    }
 
     @Test
     public void selectingTrackAfterSessionRestoreDoesNotReplayItOnResume() throws Exception {

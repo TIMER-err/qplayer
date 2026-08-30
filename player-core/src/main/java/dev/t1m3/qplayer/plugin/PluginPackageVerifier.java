@@ -90,6 +90,10 @@ public final class PluginPackageVerifier {
                 throw new IOException("plugin entry is not covered by signed hashes");
             }
             for (PluginManifest.UiContribution contribution : manifest.ui) {
+                // Dialogs are declarative: a contribution names no file. Only an
+                // older package that still carries the deprecated source path has
+                // something to cover here.
+                if (contribution.source == null || contribution.source.isEmpty()) continue;
                 if (!hashes.containsKey(contribution.source)) {
                     throw new IOException("UI contribution is not covered by signed hashes: "
                             + contribution.source);

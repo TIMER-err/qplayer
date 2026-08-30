@@ -156,30 +156,59 @@ Credentials are AES-GCM encrypted under a shared installation data key but are
 enveloped and stored under a cryptographically separated plugin/key namespace.
 Logging out should delete the plugin's credential keys.
 
-## Optional QML
+## Declarative dialogs
 
-Declare `customUi` and a contribution:
+A plugin contributes no QML. It declares `customUi` and a contribution, and
+QPlayer renders the dialog with its own components:
 
 ```json
-{"id":"preferences","placement":"settings","source":"ui/Preferences.qml",
- "label":"Preferences","icon":"tune"}
+{"id":"preferences","placement":"settings","label":"Preferences","icon":"tune"}
 ```
 
 `placement: "settings"` adds a plugin-settings entry. `placement:
 "playerAction"` adds the declared `label`/`icon` to the compact top bar and wide
 navigation rail without teaching QPlayer what the feature does.
 
-The document opens in a separate safe Rhino realm and, on desktop, a separate
-render window/thread. Its only bridge is `plugin`, with reactive `busy`,
-`resultJson`, `error`, `revision`, and `call(action,payloadJson)`. Calls are routed
-only to `ui.<contribution-id>`. Resources are confined to the verified package and
-network images obey the plugin domain grant. It receives no `player`, settings,
-Java, filesystem, or host-window object. Native file/window QML types and shared
-process singletons are absent, inherited reflection methods are blocked, and the
-host bridge exposes only its explicit `call` method. Safe-realm JavaScript is
-instruction-observed and interrupted when one binding or handler overruns its limit.
-Clipboard integration is absent unless the package requested and the user granted
-`clipboard`; platform hosts may still choose not to provide it.
+Opening the entry invokes `ui.<contribution-id>` with action `open`; the
+description's `refreshMs` (0, or 500-60000) makes the host re-invoke it with
+`refresh`; pressing a button invokes it with that button's own `id`. Every call
+carries `{action, payload:{inputs}}`, where `inputs` maps each declared input id
+to its current text. Each reply replaces the dialog, so the plugin owns the
+state and the host owns the pixels.
+
+```js
+return {
+  title: "一起听", subtitle: "网易云音乐", icon: "group", refreshMs: 1500,
+  body: [
+    {type: "text", style: "title", center: true, text: "2 人正在一起听"},
+    {type: "input", id: "invitation", placeholder: "邀请链接或房间 ID"},
+    {type: "row", items: [
+      {type: "button", id: "create", label: "创建房间", style: "filled"},
+      {type: "button", id: "join", label: "加入房间", style: "outlined"}
+    ]}
+  ]
+};
+```
+
+| Node | Fields |
+|---|---|
+| `text` | `text`, `style` (`title`/`body`/`caption`), `center` |
+| `error` | `text` |
+| `input` | `id`, `placeholder`, `value`, `secret` |
+| `button` | `id`, `label`, `style` (`filled`/`outlined`/`text`), `enabled`, `destructive` |
+| `row` | `items`: 1-3 buttons, no nesting |
+| `spacer` | `height` 0-48 |
+
+At most 10 body nodes. Ids match `[a-z][a-z0-9._-]{0,63}` and must be unique per
+input. The whole description is validated before it reaches the UI, and an
+off-schema field fails the entire reply rather than being dropped, so a plugin
+cannot probe for which malformed shapes survive. There are deliberately no
+colors, images, raw markup or geometry: a plugin describes a dialog, it does not
+paint one, and it cannot imitate host chrome it was not given. Because the host
+renders it, a plugin dialog follows the app's theme with no work from the plugin.
+
+For non-destructive upgrades a contribution's deprecated `source` field is still
+accepted and ignored.
 
 A plugin that declares `backgroundTimers` may export `backgroundTick`. QPlayer
 invokes it approximately once per second on the plugin actor, never overlaps two

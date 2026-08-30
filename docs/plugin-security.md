@@ -24,11 +24,12 @@ trust and review every requested permission.
 - Persistent storage and encrypted credentials are namespaced by validated plugin
   ID and hashed logical key. A credential envelope embeds plugin ID and key, so a
   copied ciphertext fails namespace authentication.
-- Optional plugin QML has its own safe engine realm and resource loader. It cannot
-  see QPlayer's controller or shared context and can invoke only its contribution's
-  `ui.*` handler. Native file/window types, shared style singletons, and inherited
-  Java reflection methods are excluded; third-party bindings and handlers run in
-  interpreted mode with an instruction-observed execution deadline.
+- Plugin dialogs carry no plugin code. A plugin returns a description and QPlayer
+  renders it with its own components, so no third-party document, QML engine or
+  realm is ever constructed. Node types, ids, enums, counts and text lengths are
+  validated first, and an off-schema field fails the whole description. The schema
+  exposes no colors, images, markup or geometry, so a described dialog cannot
+  imitate host chrome it was not given.
 - Disabling a plugin stops its actor and unregisters its network policy. A malformed
   registry is preserved for recovery and all plugins start disabled.
 

@@ -24,7 +24,7 @@ Item {
         showAcceptButton: false
         rejectText: "暂时只使用本地音乐"
         text: player.legacySourceMigrationAvailable
-            ? "检测到旧版在线歌曲或登录凭据。安装对应的音源插件后，播放队列会自动切换到新接口；可读取的登录凭据也会在验证成功后迁移，原始数据暂时保留以便回退。"
+            ? "检测到旧版在线歌曲或登录凭据。安装对应的音源插件后，播放队列会自动切换到新接口；可读取的登录凭据会在插件验证成功后迁移，并从旧存储中删除。"
             : "核心不内置在线音源。请选择下方的内置源，或从文件导入其他插件；本地音乐无需安装插件即可继续使用。"
         onRejected: player.dismissSourceSetup()
 

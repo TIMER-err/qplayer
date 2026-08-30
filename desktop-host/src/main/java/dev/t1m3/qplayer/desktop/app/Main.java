@@ -21,7 +21,6 @@ import dev.t1m3.qplayer.desktop.settings.DesktopThemeMonitor;
 import dev.t1m3.qplayer.desktop.settings.JsonSettingsStore;
 import dev.t1m3.qplayer.desktop.tray.TrayController;
 import dev.t1m3.qplayer.desktop.window.DesktopWindow;
-import dev.t1m3.qplayer.desktop.window.PluginQmlWindows;
 import dev.t1m3.qplayer.library.LibraryScanner;
 import dev.t1m3.qplayer.lyric.skia.Fonts;
 import dev.t1m3.qplayer.resources.CompressedResources;
@@ -165,10 +164,6 @@ public final class Main {
         QmlEngine engine = new QmlEngine();
         DesktopWindow window = new DesktopWindow(engine, qml, resources, controller, settings,
                 qmlCompilationCache);
-        PluginQmlWindows pluginWindows = new PluginQmlWindows(controller, window);
-        window.setPluginQmlWindows(pluginWindows);
-        controller.setPluginUiLauncher((pluginId, contributionId) ->
-                window.postMainTask(() -> pluginWindows.open(pluginId, contributionId)));
         settings.onChange("darkMode", ignored -> {
             DesktopFilePicker.setDarkTheme(settings.resolvedDarkValue());
             window.refreshSystemChromeTheme();

@@ -44,17 +44,30 @@ public final class NeteaseClient {
 
     private final Gson gson = new Gson();
     private final Map<String, String> cookies = new ConcurrentHashMap<>();
-    private final Path cookieFile = AppDirs.credentialsFile("netease-cookies.enc");
-    private final Path legacyCookieFile = AppDirs.credentialsFile("netease-cookies.json");
-    private final CredentialCipher cookieCipher = new CredentialCipher(
-            AppDirs.credentialsFile("credential-encryption.key"),
-            CredentialKeyProtection.current());
+    private final Path cookieFile;
+    private final Path legacyCookieFile;
+    private final CredentialCipher cookieCipher;
     private final Object eventLock = new Object();
     private final List<CredentialEvent> pendingEvents = new ArrayList<>();
     private volatile CredentialListener credentialListener;
     private boolean credentialUnlockPending;
 
-    private NeteaseClient() { loadCookies(false); }
+    private NeteaseClient() {
+        this(AppDirs.credentialsFile("netease-cookies.enc"),
+                AppDirs.credentialsFile("netease-cookies.json"),
+                new CredentialCipher(AppDirs.credentialsFile("credential-encryption.key"),
+                        CredentialKeyProtection.current()));
+    }
+
+    NeteaseClient(Path cookieFile, Path legacyCookieFile, CredentialCipher cookieCipher) {
+        if (cookieFile == null || legacyCookieFile == null || cookieCipher == null) {
+            throw new IllegalArgumentException("legacy credential paths");
+        }
+        this.cookieFile = cookieFile;
+        this.legacyCookieFile = legacyCookieFile;
+        this.cookieCipher = cookieCipher;
+        loadCookies(false);
+    }
 
     public void setErrorListener(ErrorListener ignored) { }
 

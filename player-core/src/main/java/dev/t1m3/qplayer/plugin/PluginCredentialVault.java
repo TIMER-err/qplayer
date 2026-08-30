@@ -63,10 +63,11 @@ public final class PluginCredentialVault {
             throw new IllegalArgumentException("credential value is too large");
         }
         Path target = path(pluginId, key);
+        boolean newCredential = !Files.isRegularFile(target);
         byte[] plaintext = envelope(pluginId, key, value);
         try {
             StorageFiles.writeCredentialBytesAtomic(target, cipher.encrypt(plaintext));
-            observeKeyAccess(false);
+            observeKeyAccess(false, newCredential);
         } catch (IOException | GeneralSecurityException error) {
             emit(CredentialEvent.KEYSTORE_READ_FAILED);
             throw error;
@@ -82,7 +83,7 @@ public final class PluginCredentialVault {
         final byte[] plaintext;
         try {
             plaintext = cipher.decrypt(Files.readAllBytes(source));
-            observeKeyAccess(true);
+            observeKeyAccess(true, false);
         } catch (IOException | GeneralSecurityException error) {
             emit(CredentialEvent.KEYSTORE_READ_FAILED);
             throw error;
@@ -106,7 +107,7 @@ public final class PluginCredentialVault {
         final byte[] plaintext;
         try {
             plaintext = cipher.decryptInteractively(Files.readAllBytes(source));
-            observeKeyAccess(true);
+            observeKeyAccess(true, false);
         } catch (IOException | GeneralSecurityException error) {
             emit(CredentialEvent.KEYSTORE_READ_FAILED);
             throw error;
@@ -204,10 +205,11 @@ public final class PluginCredentialVault {
         return cipher.usesOwnerOnlyProtection();
     }
 
-    private void observeKeyAccess(boolean reading) {
+    private void observeKeyAccess(boolean reading, boolean newCredential) {
         CredentialCipher.KeyAccess access = cipher.lastKeyAccess();
         if (access == CredentialCipher.KeyAccess.PLATFORM_CREATED
-                || access == CredentialCipher.KeyAccess.PLATFORM_MIGRATED) {
+                || access == CredentialCipher.KeyAccess.PLATFORM_MIGRATED
+                || (newCredential && access == CredentialCipher.KeyAccess.PLATFORM_READ)) {
             fallbackNoticeSent = false;
             emit(CredentialEvent.ENCRYPTED);
         } else if (access == CredentialCipher.KeyAccess.OWNER_ONLY_FALLBACK) {

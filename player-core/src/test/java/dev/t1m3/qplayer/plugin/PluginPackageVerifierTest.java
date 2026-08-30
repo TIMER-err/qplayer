@@ -42,6 +42,58 @@ public class PluginPackageVerifierTest {
         assertTrue(verified.hashes().containsKey("main.js"));
     }
 
+    /** Dialogs are declarative: a contribution names no file, so there is nothing
+     *  for the signed hash manifest to cover. Regression for an install that
+     *  failed with "UI contribution is not covered by signed hashes". */
+    @Test
+    public void verifiesAContributionThatShipsNoDocument() throws Exception {
+        KeyPair keys = keys();
+        PluginManifest.UiContribution contribution = new PluginManifest.UiContribution();
+        contribution.id = "listen-together";
+        contribution.placement = "playerAction";
+        contribution.label = "Listen Together";
+        contribution.icon = "group";
+        Path archive = uiPackageFile("declarative.qplug", keys, contribution);
+
+        VerifiedPluginPackage verified = new PluginPackageVerifier()
+                .verify(archive, keys.getPublic(), false);
+
+        assertEquals(1, verified.manifest().ui.size());
+        assertTrue(verified.manifest().ui.get(0).source.isEmpty());
+    }
+
+    private Path uiPackageFile(String name, KeyPair keys,
+                               PluginManifest.UiContribution contribution) throws Exception {
+        PluginManifest manifest = new PluginManifest();
+        manifest.schemaVersion = 1;
+        manifest.id = "fixture";
+        manifest.name = "Fixture";
+        manifest.version = "1.0.0";
+        manifest.apiVersion = "1.0";
+        manifest.permissions.add(PluginPermission.CUSTOM_UI.wireName());
+        manifest.ui.add(contribution);
+        byte[] manifestBytes = new Gson().toJson(manifest).getBytes(StandardCharsets.UTF_8);
+        byte[] scriptBytes = "module.exports={handlers:{}};".getBytes(StandardCharsets.UTF_8);
+        Map<String, String> hashes = new LinkedHashMap<>();
+        hashes.put("plugin.json", hex(MessageDigest.getInstance("SHA-256").digest(manifestBytes)));
+        hashes.put("main.js", hex(MessageDigest.getInstance("SHA-256").digest(scriptBytes)));
+        byte[] hashesBytes = new Gson().toJson(hashes).getBytes(StandardCharsets.UTF_8);
+        Signature signer = Signature.getInstance("SHA256withECDSA");
+        signer.initSign(keys.getPrivate());
+        signer.update(hashesBytes);
+        byte[] signature = Base64.getEncoder().encode(signer.sign());
+
+        Path archive = temporary.getRoot().toPath().resolve(name);
+        try (OutputStream output = Files.newOutputStream(archive);
+             ZipOutputStream zip = new ZipOutputStream(output)) {
+            put(zip, "plugin.json", manifestBytes);
+            put(zip, "main.js", scriptBytes);
+            put(zip, PluginPackageVerifier.HASHES_PATH, hashesBytes);
+            put(zip, PluginPackageVerifier.SIGNATURE_PATH, signature);
+        }
+        return archive;
+    }
+
     @Test(expected = java.security.GeneralSecurityException.class)
     public void rejectsFileChangedAfterHashManifestWasSigned() throws Exception {
         KeyPair keys = keys();

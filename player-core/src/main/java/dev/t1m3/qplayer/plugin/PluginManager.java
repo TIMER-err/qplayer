@@ -196,39 +196,13 @@ public final class PluginManager implements AutoCloseable {
                 row.pluginName = manifest.name;
                 row.id = item.id;
                 row.placement = item.placement;
-                row.source = item.source;
-                row.label = item.label == null || item.label.isEmpty()
+                        row.label = item.label == null || item.label.isEmpty()
                         ? manifest.name : item.label;
                 row.icon = item.icon == null || item.icon.isEmpty() ? "extension" : item.icon;
                 result.add(row);
             }
         }
         return Collections.unmodifiableList(result);
-    }
-
-    public synchronized PluginUiSession openUiSession(String pluginId, String contributionId,
-                                                       CorePluginHostApi coreHost)
-            throws IOException {
-        PluginRuntime runtime = runtimes.get(pluginId);
-        if (runtime == null) throw new IOException("plugin is not enabled");
-        PluginManifest.UiContribution selected = null;
-        for (PluginManifest.UiContribution item : runtime.manifest().ui) {
-            if (item.id.equals(contributionId)) { selected = item; break; }
-        }
-        if (selected == null) throw new IOException("plugin UI contribution does not exist");
-        PluginUiContributionRow row = new PluginUiContributionRow();
-        row.pluginId = runtime.manifest().id;
-        row.pluginName = runtime.manifest().name;
-        row.id = selected.id;
-        row.placement = selected.placement;
-        row.source = selected.source;
-        row.label = selected.label == null || selected.label.isEmpty()
-                ? runtime.manifest().name : selected.label;
-        row.icon = selected.icon == null || selected.icon.isEmpty() ? "extension" : selected.icon;
-        Path root = pluginsRoot.resolve(pluginId).resolve(runtime.manifest().version).normalize();
-        if (!root.startsWith(pluginsRoot)) throw new IOException("plugin UI root is invalid");
-        return new PluginUiSession(this, coreHost, root, row,
-                runtime.manifest().permissionSet().contains(PluginPermission.CLIPBOARD));
     }
 
     private void start(PluginRegistry.Entry entry) throws IOException {

@@ -86,6 +86,31 @@ public class PluginCredentialVaultTest {
     }
 
     @Test
+    public void newLoginNotifiesWhenPlatformKeyAlreadyExists() throws Exception {
+        Path directory = temporary.newFolder("existing-platform-key").toPath();
+        Path root = directory.resolve("credentials");
+        Path key = directory.resolve("master.key");
+        CredentialKeyProtector protector = new ReversibleProtector();
+
+        PluginCredentialVault firstLogin = new PluginCredentialVault(
+                root, new CredentialCipher(key, protector));
+        firstLogin.put("first", "cookie", new byte[]{1});
+        assertTrue(firstLogin.delete("first", "cookie"));
+
+        PluginCredentialVault laterLogin = new PluginCredentialVault(
+                root, new CredentialCipher(key, protector));
+        List<PluginCredentialVault.CredentialEvent> events = new ArrayList<>();
+        laterLogin.setCredentialListener(events::add);
+        laterLogin.put("first", "cookie", new byte[]{2});
+        laterLogin.put("first", "cookie", new byte[]{3});
+
+        assertTrue(events.contains(PluginCredentialVault.CredentialEvent.ENCRYPTED));
+        assertTrue(events.stream()
+                .filter(event -> event == PluginCredentialVault.CredentialEvent.ENCRYPTED)
+                .count() == 1L);
+    }
+
+    @Test
     public void explicitFallbackDeletesUnreadablePluginCiphertext() throws Exception {
         Path directory = temporary.newFolder("explicit-fallback").toPath();
         Path root = directory.resolve("credentials");

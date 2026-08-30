@@ -4,9 +4,9 @@ import md3.Core
 import "."
 import "../components"
 
-// Host-owned settings surface for one plugin. Third-party QML is never embedded
-// into this realm: declared settings contributions open through the existing
-// isolated PluginUiSession instead.
+// Host-owned settings surface for one plugin. No third-party QML exists anywhere:
+// a declared settings contribution opens the shared PluginDialog, which QPlayer
+// renders from the plugin's validated description.
 Rectangle {
     id: page
     signal back()

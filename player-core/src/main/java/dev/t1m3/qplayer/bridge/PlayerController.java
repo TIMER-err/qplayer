@@ -34,7 +34,7 @@ import dev.t1m3.qplayer.plugin.PluginCatalogEntry;
 import dev.t1m3.qplayer.plugin.PluginCatalogService;
 import dev.t1m3.qplayer.plugin.PluginCompatibility;
 import dev.t1m3.qplayer.plugin.PluginUiContributionRow;
-import dev.t1m3.qplayer.plugin.PluginUiSession;
+import dev.t1m3.qplayer.plugin.PluginUiDescription;
 import dev.t1m3.qplayer.plugin.PluginPackageVerifier;
 import dev.t1m3.qplayer.plugin.PluginPermission;
 import dev.t1m3.qplayer.plugin.PluginProviderService;
@@ -213,7 +213,6 @@ public final class PlayerController {
     private final PluginCatalogService pluginCatalog = new PluginCatalogService(pluginVerifier);
     private final PluginSetupState pluginSetupState = new PluginSetupState();
     private volatile PluginPicker pluginPicker;
-    private volatile PluginUiLauncher pluginUiLauncher;
     private volatile VerifiedPluginPackage pendingPluginPackage;
     private volatile boolean pendingPluginPackageTemporary;
 
@@ -750,7 +749,9 @@ public final class PlayerController {
     public final Property<Integer> credentialReloginResult = new Property<>(0);
     public final Property<Long> credentialReloginRevision = new Property<>(0L);
     private volatile boolean credentialReloginBusy;
+    private volatile boolean pendingCredentialEncryptedNotice;
     private volatile boolean legacyCredentialMigrationAttempted;
+    private final AtomicLong legacyCredentialMigrationGeneration = new AtomicLong();
 
     /** Sets {@link #toast} to {@code msg}, forcing a Snackbar even if it's the
      *  exact same text as last time. qml4j's property-changed notification
@@ -1199,6 +1200,7 @@ public final class PlayerController {
         if (current == null || current.isEmpty()) return;
         markCatalogInstalledState(current);
         pluginCatalogEntries.set(new ArrayList<>(current));
+        publishPluginUpdatePrompt();
     }
 
     private void markCatalogInstalledState(List<PluginCatalogEntry> entries) {
@@ -1213,6 +1215,73 @@ public final class PlayerController {
         }
     }
 
+    // --- Plugin update prompt ----------------------------------------------
+    // A newer plugin release is announced with a dialog, but never on top of the
+    // app's own update dialog: a QPlayer release can change what a plugin needs
+    // (minHostVersion), so updating the app first is the order that cannot get
+    // stuck, and two stacked update dialogs on startup is the collision this
+    // exists to avoid. QML re-checks on the app dialog's close, so whichever
+    // check finishes first, the plugin prompt still gets its turn.
+
+    /** True while a plugin update prompt is waiting to be shown or is showing. */
+    public final Property<Boolean> pluginUpdateAvailable = new Property<>(false);
+    public final Property<String> pluginUpdateId = new Property<>("");
+    public final Property<String> pluginUpdateName = new Property<>("");
+    public final Property<String> pluginUpdateVersion = new Property<>("");
+    public final Property<String> pluginUpdateInstalledVersion = new Property<>("");
+
+    /** id@version already offered in this session, so a periodic catalog refresh
+     *  does not re-prompt for something the user dismissed. */
+    private final java.util.Set<String> promptedPluginUpdates =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /** QML calls this once the prompt has been accepted or dismissed. */
+    public void acknowledgePluginUpdate() {
+        pluginUpdateAvailable.set(false);
+        pluginUpdateId.set("");
+        pluginUpdateName.set("");
+        pluginUpdateVersion.set("");
+        pluginUpdateInstalledVersion.set("");
+        // Another installed plugin may also be out of date; offer the next one.
+        publishPluginUpdatePrompt();
+    }
+
+    /**
+     * QML calls this when the app updater pre-empts a plugin prompt that was
+     * already on screen. Unlike {@link #acknowledgePluginUpdate()} this does not
+     * consume the offer: the key is released so the same plugin is proposed
+     * again once the app dialog is gone.
+     */
+    public void deferPluginUpdate() {
+        promptedPluginUpdates.remove(pluginUpdateId.peek() + "@" + pluginUpdateVersion.peek());
+        pluginUpdateAvailable.set(false);
+    }
+
+    /** QML calls this when the app-update dialog closes, releasing the hold. */
+    public void appUpdatePromptClosed() {
+        appUpdatePromptDismissed = true;
+        publishPluginUpdatePrompt();
+    }
+
+    private volatile boolean appUpdatePromptDismissed;
+
+    private void publishPluginUpdatePrompt() {
+        if (Boolean.TRUE.equals(pluginUpdateAvailable.peek())) return;
+        if (Boolean.TRUE.equals(updateAvailable.peek()) && !appUpdatePromptDismissed) return;
+        List<PluginCatalogEntry> entries = pluginCatalogEntries.peek();
+        if (entries == null) return;
+        for (PluginCatalogEntry entry : entries) {
+            if (!entry.updateAvailable) continue;
+            if (!promptedPluginUpdates.add(entry.id + "@" + entry.version)) continue;
+            pluginUpdateId.set(entry.id);
+            pluginUpdateName.set(entry.name);
+            pluginUpdateVersion.set(entry.version);
+            pluginUpdateInstalledVersion.set(entry.installedVersion);
+            pluginUpdateAvailable.set(true);
+            return;
+        }
+    }
+
     public void refreshPluginCatalog() {
         if (Boolean.TRUE.equals(pluginCatalogLoading.peek())) return;
         pluginCatalogLoading.set(true);
@@ -1224,6 +1293,7 @@ public final class PlayerController {
                 post(() -> {
                     pluginCatalogEntries.set(publishedEntries);
                     pluginCatalogLoading.set(false);
+                    publishPluginUpdatePrompt();
                 });
             } catch (Throwable error) {
                 post(() -> pluginCatalogLoading.set(false));
@@ -1385,20 +1455,35 @@ public final class PlayerController {
         String credential = netease.legacyCookieHeaderForMigration();
         if (credential == null || credential.isEmpty()) return;
         legacyCredentialMigrationAttempted = true;
+        final long generation = legacyCredentialMigrationGeneration.incrementAndGet();
         pluginAccounts.submit(provider, pluginCredentialMethodId, credential)
                 .whenComplete((challenge, error) -> post(() -> {
+                    if (generation != legacyCredentialMigrationGeneration.get()) {
+                        // Logout won the race. If the delayed submit nevertheless
+                        // persisted the credential, remove it again instead of
+                        // resurrecting the account after the user logged out.
+                        if (error == null && challenge != null && challenge.account != null
+                                && challenge.account.loggedIn) {
+                            pluginAccounts.logout(provider);
+                        }
+                        pendingCredentialEncryptedNotice = false;
+                        netease.logout();
+                        return;
+                    }
                     if (error != null || challenge == null || challenge.account == null
                             || !challenge.account.loggedIn) {
+                        pendingCredentialEncryptedNotice = false;
                         legacyCredentialMigrationAttempted = false;
                         Logger.warn("legacy credential migration to plugin failed: {}",
                                 safeMessage(error));
                         return;
                     }
-                    // The source plugin is now verified and authoritative. Retain
-                    // the legacy ciphertext for lossless rollback until a later
-                    // cleanup release explicitly retires this one-time bridge.
+                    // The source plugin has persisted and verified the credential;
+                    // keeping the old envelope would silently log the user back in
+                    // after a later plugin logout.
+                    netease.logout();
                     publishPluginAccount(provider, challenge.account);
-                    Logger.info("legacy source credential verified and migrated to plugin vault");
+                    Logger.info("legacy source credential migrated and removed from core storage");
                     showToast("登录凭据已迁移到音源插件");
                 }));
     }
@@ -1406,22 +1491,106 @@ public final class PlayerController {
     @FunctionalInterface
     public interface PluginPicker { void pick(); }
 
-    @FunctionalInterface
-    public interface PluginUiLauncher { void open(String pluginId, String contributionId); }
-
     public void setPluginPicker(PluginPicker picker) { this.pluginPicker = picker; }
-    public void setPluginUiLauncher(PluginUiLauncher launcher) { this.pluginUiLauncher = launcher; }
+
+    // --- Plugin dialogs -----------------------------------------------------
+    // A plugin contributes no QML. It returns a validated description from its
+    // ui.<contribution> handler and QPlayer renders it with md3.Core, so the
+    // dialog follows the app theme and no third-party document is ever loaded.
+    // Every action (open, refresh, a button id) re-invokes the handler and
+    // replaces the description — the plugin owns the state, the host owns the
+    // pixels.
+
+    /** True while a plugin dialog is on screen. */
+    public final Property<Boolean> pluginDialogOpen = new Property<>(false);
+    /** Canonical JSON from {@link PluginUiDescription}; "" before the first reply. */
+    public final Property<String> pluginDialogJson = new Property<>("");
+    /** True while a user-initiated action is in flight (background refreshes do not set it). */
+    public final Property<Boolean> pluginDialogBusy = new Property<>(false);
+    public final Property<String> pluginDialogError = new Property<>("");
+    /** Title shown before the plugin's first description arrives. */
+    public final Property<String> pluginDialogTitle = new Property<>("");
+
+    private volatile String dialogPluginId = "";
+    private volatile String dialogContributionId = "";
 
     public void requestPluginUi(String pluginId, String contributionId) {
-        PluginUiLauncher launcher = pluginUiLauncher;
-        if (launcher == null) { showToast("当前平台暂不支持插件扩展界面"); return; }
-        launcher.open(pluginId, contributionId);
+        if (pluginId == null || contributionId == null) return;
+        String label = contributionId;
+        for (PluginUiContributionRow row : pluginUiContributions.peek()) {
+            if (row.pluginId.equals(pluginId) && row.id.equals(contributionId)) {
+                label = row.label;
+                break;
+            }
+        }
+        dialogPluginId = pluginId;
+        dialogContributionId = contributionId;
+        pluginDialogTitle.set(label);
+        pluginDialogJson.set("");
+        pluginDialogError.set("");
+        pluginDialogBusy.set(false);
+        pluginDialogOpen.set(true);
+        invokePluginDialog("open", Collections.<String, Object>emptyMap(), true);
     }
 
-    /** Host-only factory. Each call produces a distinct safe QML realm. */
-    public PluginUiSession createPluginUiSession(String pluginId, String contributionId)
-            throws java.io.IOException {
-        return pluginManager.openUiSession(pluginId, contributionId, pluginHostApi);
+    /** A button press: {@code actionId} is the button's own id. */
+    public void pluginDialogAction(String actionId, String inputsJson) {
+        if (actionId == null || actionId.isEmpty()) return;
+        Map<String, Object> inputs;
+        try {
+            Map<String, Object> parsed = new Gson().fromJson(
+                    inputsJson == null || inputsJson.isEmpty() ? "{}" : inputsJson,
+                    new com.google.gson.reflect.TypeToken<java.util.LinkedHashMap<String, Object>>() {}.getType());
+            inputs = parsed != null ? parsed : Collections.<String, Object>emptyMap();
+        } catch (RuntimeException error) {
+            inputs = Collections.emptyMap();
+        }
+        invokePluginDialog(actionId, inputs, true);
+    }
+
+    /** Driven by the description's refreshMs; never blocks the buttons. */
+    public void pluginDialogRefresh() {
+        if (Boolean.TRUE.equals(pluginDialogBusy.peek())) return;
+        invokePluginDialog("refresh", Collections.<String, Object>emptyMap(), false);
+    }
+
+    public void closePluginDialog() {
+        dialogPluginId = "";
+        dialogContributionId = "";
+        pluginDialogOpen.set(false);
+        pluginDialogJson.set("");
+        pluginDialogError.set("");
+        pluginDialogBusy.set(false);
+    }
+
+    private void invokePluginDialog(String action, Map<String, Object> inputs, boolean showBusy) {
+        final String pluginId = dialogPluginId;
+        final String contributionId = dialogContributionId;
+        if (pluginId.isEmpty() || contributionId.isEmpty()) return;
+        if (showBusy) pluginDialogBusy.set(true);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("inputs", inputs);
+        Map<String, Object> arguments = new LinkedHashMap<>();
+        arguments.put("action", action);
+        arguments.put("payload", payload);
+        pluginManager.invoke(pluginId, "ui." + contributionId, arguments)
+                .whenComplete((value, failure) -> post(() -> {
+                    // A reply that arrives after the user closed or switched dialogs
+                    // must not repaint the new one.
+                    if (!pluginId.equals(dialogPluginId)
+                            || !contributionId.equals(dialogContributionId)) return;
+                    if (showBusy) pluginDialogBusy.set(false);
+                    if (failure != null) {
+                        pluginDialogError.set(safeMessage(failure));
+                        return;
+                    }
+                    try {
+                        pluginDialogJson.set(PluginUiDescription.normalize(value));
+                        pluginDialogError.set("");
+                    } catch (RuntimeException error) {
+                        pluginDialogError.set(safeMessage(error));
+                    }
+                }));
     }
 
     public void requestPluginImport() {
@@ -1522,14 +1691,16 @@ public final class PlayerController {
     }
 
     private void showCredentialNotice(NeteaseClient.CredentialEvent event) {
+        if (event == NeteaseClient.CredentialEvent.ENCRYPTED) {
+            pendingCredentialEncryptedNotice = true;
+            return;
+        }
+        pendingCredentialEncryptedNotice = false;
         final int type;
-        if (event == NeteaseClient.CredentialEvent.ENCRYPTED) type = 1;
-        else if (event == NeteaseClient.CredentialEvent.KEYSTORE_FALLBACK) type = 2;
+        if (event == NeteaseClient.CredentialEvent.KEYSTORE_FALLBACK) type = 2;
         else type = 3;
         post(() -> {
-            if (event == NeteaseClient.CredentialEvent.ENCRYPTED) {
-                credentialOwnerOnlyFallback.set(false);
-            } else if (event == NeteaseClient.CredentialEvent.KEYSTORE_FALLBACK) {
+            if (event == NeteaseClient.CredentialEvent.KEYSTORE_FALLBACK) {
                 credentialOwnerOnlyFallback.set(true);
             }
             credentialNoticeType.set(type);
@@ -1538,19 +1709,29 @@ public final class PlayerController {
     }
 
     private void showPluginCredentialNotice(PluginCredentialVault.CredentialEvent event) {
+        if (event == PluginCredentialVault.CredentialEvent.ENCRYPTED) {
+            pendingCredentialEncryptedNotice = true;
+            return;
+        }
+        pendingCredentialEncryptedNotice = false;
         final int type;
-        if (event == PluginCredentialVault.CredentialEvent.ENCRYPTED) type = 1;
-        else if (event == PluginCredentialVault.CredentialEvent.KEYSTORE_FALLBACK) type = 2;
+        if (event == PluginCredentialVault.CredentialEvent.KEYSTORE_FALLBACK) type = 2;
         else type = 3;
         post(() -> {
-            if (event == PluginCredentialVault.CredentialEvent.ENCRYPTED) {
-                credentialOwnerOnlyFallback.set(false);
-            } else if (event == PluginCredentialVault.CredentialEvent.KEYSTORE_FALLBACK) {
+            if (event == PluginCredentialVault.CredentialEvent.KEYSTORE_FALLBACK) {
                 credentialOwnerOnlyFallback.set(true);
             }
             credentialNoticeType.set(type);
             credentialNoticeRevision.set(credentialNoticeRevision.peek() + 1L);
         });
+    }
+
+    private void publishPendingCredentialEncryptedNotice() {
+        if (!pendingCredentialEncryptedNotice) return;
+        pendingCredentialEncryptedNotice = false;
+        credentialOwnerOnlyFallback.set(false);
+        credentialNoticeType.set(1);
+        credentialNoticeRevision.set(credentialNoticeRevision.peek() + 1L);
     }
 
     /** Retry a potentially interactive key-store unlock without blocking rendering. */
@@ -6805,6 +6986,7 @@ public final class PlayerController {
                 if (!credentialFlow) startQrLogin();
                 break;
             case "failed":
+                pendingCredentialEncryptedNotice = false;
                 qrStatus.set(800);
                 webLoginBusy.set(false);
                 webLoginError.set(challenge.message == null || challenge.message.isEmpty()
@@ -6843,6 +7025,7 @@ public final class PlayerController {
             userSignature.set(orEmpty(account.signature));
         }
         if (account.loggedIn) {
+            publishPendingCredentialEncryptedNotice();
             if (pluginHostApi.consumeCredentialUnlock()) {
                 showToast("已从系统密钥库安全恢复登录凭据");
             }
@@ -6850,6 +7033,7 @@ public final class PlayerController {
             loadMyPlaylists();
             loadRecent();
         } else {
+            pendingCredentialEncryptedNotice = false;
             pluginLikedSet.clear();
             likedCount.set(0);
             currentLiked.set(false);
@@ -6894,6 +7078,8 @@ public final class PlayerController {
                     userVipType.set(vip);
                     userLevel.set(lvl);
                     userSignature.set(sig);
+                    if (in) publishPendingCredentialEncryptedNotice();
+                    else pendingCredentialEncryptedNotice = false;
                 });
                 if (in) {
                     if (id > 0 && netease.consumeCredentialUnlock()) {
@@ -6921,19 +7107,26 @@ public final class PlayerController {
     }
 
     public void logout() {
+        pendingCredentialEncryptedNotice = false;
         String provider = pendingPluginLoginProvider;
         if (!provider.isEmpty()) {
+            legacyCredentialMigrationGeneration.incrementAndGet();
             pluginAccounts.logout(provider).whenComplete((ignored, error) -> post(() -> {
                 if (error != null) {
                     showToast("退出登录失败：" + safeMessage(error));
                     return;
                 }
+                legacyCredentialMigrationAttempted = true;
+                netease.logout();
                 clearPublishedAccount();
                 showToast("已退出登录");
             }));
             return;
         }
         if (onlineSourcesArePluginOnly()) {
+            legacyCredentialMigrationGeneration.incrementAndGet();
+            legacyCredentialMigrationAttempted = true;
+            netease.logout();
             clearPublishedAccount();
             return;
         }
@@ -6943,6 +7136,7 @@ public final class PlayerController {
     }
 
     private void clearPublishedAccount() {
+        pendingCredentialEncryptedNotice = false;
         uid = 0;
         loggedIn.set(false);
         userName.set("");

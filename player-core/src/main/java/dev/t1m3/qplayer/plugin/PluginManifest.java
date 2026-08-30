@@ -31,11 +31,14 @@ public final class PluginManifest {
     public List<String> networkDomains = new ArrayList<>();
     public List<String> networkMethods = new ArrayList<>();
     public List<UiContribution> ui = new ArrayList<>();
+    private static final int MAX_UI_CONTRIBUTIONS = 8;
 
     public static final class UiContribution {
         public String id = "";
         public String placement = "";
-        public String source = "";
+        /** Accepted and ignored: contributions described QML documents before
+         *  dialogs became declarative. Kept so an older package still parses. */
+        @Deprecated public String source = "";
         public String label = "";
         public String icon = "extension";
     }
@@ -90,7 +93,6 @@ public final class PluginManifest {
             if (!contributionIds.add(contribution.id)) {
                 throw new IllegalArgumentException("duplicate UI contribution " + contribution.id);
             }
-            requirePackagePath("UI source", contribution.source, ".qml");
             if (contribution.placement == null
                     || !contribution.placement.matches("[a-z][a-zA-Z0-9._-]{0,63}")) {
                 throw new IllegalArgumentException("invalid UI placement");
@@ -105,6 +107,9 @@ public final class PluginManifest {
         }
         if (!ui.isEmpty() && !permissionSet.contains(PluginPermission.CUSTOM_UI.wireName())) {
             throw new IllegalArgumentException("UI contributions require customUi permission");
+        }
+        if (ui.size() > MAX_UI_CONTRIBUTIONS) {
+            throw new IllegalArgumentException("too many UI contributions");
         }
     }
 

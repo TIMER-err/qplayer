@@ -152,12 +152,6 @@ public final class QPlayerActivity extends Activity {
         controller.setInstaller(this::downloadAndInstallUpdate);
         controller.setCoverPicker(this::pickPlaylistCover);
         controller.setPluginPicker(this::pickPluginPackage);
-        controller.setPluginUiLauncher((pluginId, contributionId) -> runOnUiThread(() -> {
-            android.content.Intent intent = new android.content.Intent(this, PluginUiActivity.class);
-            intent.putExtra(PluginUiActivity.EXTRA_PLUGIN_ID, pluginId);
-            intent.putExtra(PluginUiActivity.EXTRA_CONTRIBUTION_ID, contributionId);
-            startActivity(intent);
-        }));
         controller.setWebLoginLauncher(this::openWebLogin);
 
         // Playback control runs on the main thread (alive in the background, unlike
