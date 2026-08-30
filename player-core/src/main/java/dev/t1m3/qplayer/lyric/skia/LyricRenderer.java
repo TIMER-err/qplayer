@@ -1386,7 +1386,9 @@ public class LyricRenderer {
                 boolean preSwitchSweep = myGroupIdx == activeGroupIndex
                         && positionMs >= fastSweepStartMs && positionMs < line.endMs();
                 boolean postSwitchSweep = myGroupIdx < activeGroupIndex && !isPartner;
-                if (melodifyMotion && (preSwitchSweep || postSwitchSweep)) {
+                boolean sweepInFlight = myGroupIdx < activeGroupIndex
+                        && fastSweepAnchorMs[i] >= 0L;
+                if (melodifyMotion && (preSwitchSweep || postSwitchSweep || sweepInFlight)) {
                     long endMs = line.endMs() + 1L;
                     long anchor = fastSweepAnchorMs[i];
                     if (anchor < 0L) {
