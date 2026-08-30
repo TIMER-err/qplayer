@@ -1,0 +1,16 @@
+[
+  {
+    "id": "netease",
+    "name": "网易云音乐",
+    "description": "由独立项目维护的网易云音乐音源插件，提供搜索、播放、歌词、登录、心动推荐与一起听。",
+    "repo": "TIMER-err/qplayer-netease-plugin",
+    "publisherKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEb/6w4W2oyOmqybld26Cnv17mXEA6x1Xkw4zCrd+hfAnmcEJjBTKtC9jO0Q4DVDOzXsmehlW+PJRINAZ99up6aQ=="
+  },
+  {
+    "id": "qq",
+    "name": "QQ 音乐",
+    "description": "由独立项目维护的 QQ 音乐音源插件，提供搜索、播放、歌词与 Cookie 登录。",
+    "repo": "TIMER-err/qplayer-qqmusic-plugin",
+    "publisherKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAED7z1yYQ9a5UVpOPUict1ShkKH26NnbEMMAHsxy5zJEPeDd3J2etP1PRKXylO2KWWZgib2KB5/yZ0Xgmj+36TBg=="
+  }
+]

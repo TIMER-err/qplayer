@@ -38,8 +38,16 @@ Rectangle {
     // A desktop-width window fits two card columns; one card per row there left
     // most of the page empty sideways and very long vertically. Same 600px break
     // Main.qml uses to swap the bottom bar for the rail.
-    property bool twoColumn: page.width >= 600
+    property bool twoColumn: page.width >= 600 && page.currentCategory !== "插件"
     property var installedPlugins: player.sourcePlugins || []
+    property var availablePlugins: {
+        var out = []
+        var rows = player.pluginCatalogEntries || []
+        for (var i = 0; i < rows.length; i++) {
+            if (!rows[i].installed) out.push(rows[i])
+        }
+        return out
+    }
 
     // The two columns pack INDEPENDENTLY (each is its own ColumnLayout), rather
     // than sharing grid rows: a grid row is as tall as its tallest card, so a
@@ -190,9 +198,18 @@ Rectangle {
                         }
                     }
 
+                    Text {
+                        Layout.fillWidth: true
+                        Layout.leftMargin: 4
+                        visible: page.currentCategory === "插件"
+                        text: "已安装"
+                        color: Theme.color.primary
+                        fontSize: 14
+                        font.weight: Font.DemiBold
+                    }
+
                     Repeater {
-                        model: page.currentCategory === "插件" && !page.twoColumn
-                               ? page.installedPlugins : null
+                        model: page.currentCategory === "插件" ? page.installedPlugins : null
                         delegate: PluginSettingsEntry {
                             Layout.fillWidth: true
                             pluginData: modelData
@@ -206,7 +223,70 @@ Rectangle {
 
                         SettingTitle { text: "尚未安装插件" }
                         SettingDesc {
-                            text: "使用“插件管理”安装音源或功能插件。"
+                            text: "可以从下方官方列表安装，或从本地文件导入插件。"
+                        }
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        Layout.leftMargin: 4
+                        visible: page.currentCategory === "插件"
+                                 && page.availablePlugins.length > 0
+                        text: "可安装"
+                        color: Theme.color.primary
+                        fontSize: 14
+                        font.weight: Font.DemiBold
+                    }
+
+                    Repeater {
+                        model: page.currentCategory === "插件" ? page.availablePlugins : null
+                        delegate: PluginCatalogEntry {
+                            Layout.fillWidth: true
+                            pluginData: modelData
+                        }
+                    }
+
+                    SettingCard {
+                        Layout.fillWidth: true
+                        visible: page.currentCategory === "插件"
+                                 && player.pluginCatalogLoading
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+                            LoadingIndicator {
+                                running: player.pluginCatalogLoading
+                                size: 24
+                            }
+                            SettingDesc { text: "正在获取插件列表…" }
+                        }
+                    }
+
+                    SettingCard {
+                        Layout.fillWidth: true
+                        visible: page.currentCategory === "插件"
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            Button {
+                                type: "text"
+                                icon: "refresh"
+                                text: "刷新列表"
+                                enabled: !player.pluginCatalogLoading && !player.pluginInstallBusy
+                                onClicked: player.refreshPluginCatalog()
+                            }
+                            Item { Layout.fillWidth: true }
+                            Button {
+                                type: "outlined"
+                                icon: "upload_file"
+                                text: "从文件导入"
+                                enabled: !player.pluginInstallBusy
+                                onClicked: player.requestPluginImport()
+                            }
+                        }
+                        SettingDesc {
+                            text: "官方插件列表随 QPlayer 维护；也可以导入本地 .qplug 文件。"
                         }
                     }
 
@@ -249,15 +329,6 @@ Rectangle {
                     Layout.alignment: Qt.AlignTop
                     spacing: 14
                     visible: page.twoColumn
-
-                    Repeater {
-                        model: page.currentCategory === "插件"
-                               ? page.installedPlugins : null
-                        delegate: PluginSettingsEntry {
-                            Layout.fillWidth: true
-                            pluginData: modelData
-                        }
-                    }
 
                     Repeater {
                         model: page.rightGroups
