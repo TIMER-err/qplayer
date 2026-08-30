@@ -98,6 +98,8 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     // Logical-pixel scale: QML is authored in dp; render at the screen density so
     // Material components are physically sized (and the canvas drawn larger).
     private final float uiScale;
+    /** 磁盘编译产物缓存目录(由 Activity 提供,reinstall 时清空)。 */
+    private java.io.File sceneCacheDir;
 
     public QmlGLSurfaceView(Context ctx, QmlEngine engine, String qmlSource, ResourceLoader resources,
                             float uiScale) {
@@ -391,6 +393,12 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         return view;
     }
 
+    /** 启用 QML 编译产物磁盘缓存(命中后跳过 parse→bytecode,启动更快)。
+     *  必须在 GL 线程首次 load 之前设置。 */
+    public void setSceneCacheDir(java.io.File dir) {
+        this.sceneCacheDir = dir;
+    }
+
     /** Expose a controller to QML as the {@code player} context global. Must be
      *  set before the GL thread first lays out (i.e. right after construction). */
     public void setController(PlayerController c) {
@@ -511,6 +519,11 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                             hideImeOnUiThread();
                         }
                     });
+                    // 磁盘缓存 QML 编译产物(parse→bytecode):命中后二次启动跳过
+                    // 主要编译耗时,字节码再走 dex 缓存,几乎零编译。
+                    if (sceneCacheDir != null) {
+                        view.compilationCache(new DiskCompiledSceneCache(sceneCacheDir), "qml-main");
+                    }
                     if (controller != null) view.context("player", controller);
                     if (settings != null) view.context("settings", settings);
                     // hostWindow (the desktop-only custom title bar bridge) must still

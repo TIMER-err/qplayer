@@ -122,7 +122,7 @@ public final class SettingsCatalog {
         // ---- 歌词 -----------------------------------------------------------
         // One card per control, like every other tab: no group() here, so each
         // row is its own card and the wide-window grid can pair them up.
-        out.add(SettingSpec.slider("lyricFontSize", LYRIC, "字号", 28, 14, 40, 1)
+        out.add(SettingSpec.slider("lyricFontSize", LYRIC, "字号", 28, 14, 64, 1)
                 .unit(" px").dots()
                 .build());
         out.add(SettingSpec.segmented("lyricFontWeight", LYRIC, "字重", 2,
@@ -131,8 +131,17 @@ public final class SettingsCatalog {
         out.add(SettingSpec.slider("lyricLineSpacing", LYRIC, "行间距", 200, 100, 250, 5)
                 .scale(100).unit("×").dots()
                 .build());
+        out.add(SettingSpec.slider("lyricEmphasisScale", LYRIC, "歌词放大", 114, 100, 130, 1)
+                .scale(100).unit("×").desc("当前行放大的倍率（默认 1.14）")
+                .build());
+        out.add(SettingSpec.toggle("lyricAutoLineSpacing", LYRIC, "自动行间距", false)
+                .desc("使用 Melodify 行间距公式（开启后行间距滑块无效）")
+                .build());
         out.add(SettingSpec.toggle("lyricSpring", LYRIC, "弹簧动效", true)
                 .desc("滚动与逐字上抬使用弹簧物理")
+                .build());
+        out.add(SettingSpec.toggle("lyricMelodifyMotion", LYRIC, "Apple Music 动效", true)
+                .desc("念完即切 + 提前跳转 + 距离级联 + 缩放同步（关闭 = 原版动效）")
                 .build());
         out.add(SettingSpec.toggle("lyricScale", LYRIC, "放大缩放", true)
                 .desc("当前行放大、其余行略缩")

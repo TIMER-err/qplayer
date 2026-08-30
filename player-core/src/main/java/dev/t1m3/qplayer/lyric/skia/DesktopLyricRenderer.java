@@ -44,7 +44,7 @@ public final class DesktopLyricRenderer implements AutoCloseable {
                        int fontSize, int fontWeight, boolean shadow, Colors colors,
                        long positionMs, long nowNanos) {
         if (canvas == null || width <= 0f || height <= 0f || colors == null) return;
-        int safeSize = Math.max(18, Math.min(38, fontSize));
+        int safeSize = Math.max(18, Math.min(64, fontSize));
         Fonts.Weight weight = toWeight(fontWeight);
         if (safeSize != cachedFontSize || weight != cachedWeight) {
             closeVisuals();

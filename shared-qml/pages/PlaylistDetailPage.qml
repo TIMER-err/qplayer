@@ -16,6 +16,23 @@ Rectangle {
     property bool loadingWatch: player.playlistLoading
     onLoadingWatchChanged: if (player.playlistLoading) tracks.contentY = 0
 
+    // ── 歌单内搜索：按歌名/歌手过滤，仅影响显示，不影响播放队列语义 ──
+    property string filterText: ""
+    property var filteredTracks: {
+        var all = player.playlistTracks
+        if (!all) return all
+        var q = page.filterText.trim().toLowerCase()
+        if (q === "") return all
+        var out = []
+        for (var i = 0; i < all.length; i++) {
+            var t = all[i]
+            var hit = (t.name && t.name.toLowerCase().indexOf(q) >= 0)
+                   || (t.artist && t.artist.toLowerCase().indexOf(q) >= 0)
+            if (hit) out.push(t)
+        }
+        return out
+    }
+
     // Swallow taps on empty areas so they don't reach the page beneath.
     MouseArea { anchors.fill: parent }
 
@@ -96,6 +113,99 @@ Rectangle {
             }
         }
 
+        // 歌单内搜索框(与搜索页同款 MD3 outlined:胶囊 + 浮动标签 + 图标 +
+        // 聚焦 primary 边框)
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 48
+            Layout.leftMargin: 16
+            Layout.rightMargin: 16
+            color: "transparent"
+            visible: player.playlistTracks !== null
+
+            Text {
+                id: pfSearchIcon
+                anchors.left: parent.left
+                anchors.leftMargin: 13
+                anchors.verticalCenter: parent.verticalCenter
+                text: "search"
+                font.family: Theme.iconFont.name
+                font.pixelSize: 20
+                color: Theme.color.onSurfaceVariantColor
+            }
+
+            Item {
+                id: pfInputArea
+                anchors.left: pfSearchIcon.right
+                anchors.leftMargin: 8
+                anchors.right: parent.right
+                anchors.rightMargin: 36
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+
+                // MD3 floating label: 空且未聚焦时居中,聚焦/输入后上浮到边框缺口
+                property bool isFloating: pfField.activeFocus || pfField.text.length > 0
+
+                Text {
+                    id: pfFloatLabel
+                    x: 0
+                    y: pfInputArea.isFloating ? -7 : (pfInputArea.height - height) / 2
+                    text: "搜索歌单内歌曲"
+                    color: Theme.color.onSurfaceVariantColor
+                    opacity: pfInputArea.isFloating ? 0.8 : 0.7
+                    font.family: Theme.typography.bodyLarge.family
+                    font.pixelSize: pfInputArea.isFloating ? 11 : 15
+                    Behavior on y { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                    Behavior on font.pixelSize { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                }
+
+                TextInput {
+                    id: pfField
+                    anchors.fill: parent
+                    verticalAlignment: TextInput.AlignVCenter
+                    color: Theme.color.onSurfaceColor
+                    font.pixelSize: 15
+                    font.family: Theme.typography.bodyLarge.family
+                    selectionColor: Theme.color.primary
+                    selectedTextColor: Theme.color.onPrimaryColor
+                    clip: true
+                    text: page.filterText
+                    onTextChanged: page.filterText = text
+                }
+            }
+
+            OutlinedBorder {
+                anchors.fill: parent
+                cornerRadius: height / 2
+                strokeWidth: 1
+                strokeColor: Theme.color.outline
+                notchVisible: pfInputArea.isFloating
+                notchX: pfInputArea.x - 4
+                notchWidth: pfFloatLabel.width + 8
+            }
+            OutlinedBorder {
+                anchors.fill: parent
+                cornerRadius: height / 2
+                strokeWidth: 2
+                strokeColor: Theme.color.primary
+                notchVisible: pfInputArea.isFloating
+                notchX: pfInputArea.x - 4
+                notchWidth: pfFloatLabel.width + 8
+                opacity: pfField.activeFocus ? 1 : 0
+                Behavior on opacity { NumberAnimation { duration: 150 } }
+            }
+
+            IconButton {
+                id: pfClear
+                visible: pfField.text.length > 0
+                type: "standard"; icon: "close"
+                anchors.right: parent.right
+                anchors.rightMargin: 2
+                anchors.verticalCenter: parent.verticalCenter
+                onClicked: { pfField.text = ""; page.filterText = "" }
+            }
+        }
+
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -107,7 +217,7 @@ Rectangle {
                 // Drop the row delegates when the detail page is closed (see
                 // QueuePage): an invisible detail otherwise keeps the whole
                 // playlist's SongRows alive after you return home.
-                list: page.visible ? player.playlistTracks : null
+                list: page.visible ? page.filteredTracks : null
                 // Long-press a track → add to another playlist, and (in your own
                 // playlist) remove it from this one. Not login-gated: "加入播放列表"
                 // (local list) works signed-out too.
@@ -123,6 +233,16 @@ Rectangle {
                 running: player.playlistLoading
                 withContainer: true
                 size: 56
+            }
+
+            // 搜索无匹配
+            Text {
+                anchors.centerIn: parent
+                visible: !player.playlistLoading && page.filterText !== ""
+                         && page.filteredTracks && page.filteredTracks.length === 0
+                text: "没有匹配的歌曲"
+                fontSize: 16
+                color: Theme.color.onSurfaceVariantColor
             }
         }
     }

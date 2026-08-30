@@ -41,12 +41,23 @@ final class LyricMotion {
         if (positionMs < popStart) return 0f;
         if (positionMs < popStart + BACKGROUND_POP_IN_MS) {
             float progress = (positionMs - popStart) / (float) BACKGROUND_POP_IN_MS;
-            return easeOutBack(progress);
+            // 过阻尼（临界阻尼）弹簧阶跃响应——起步快、收敛无过冲，与 Melodify 的
+            // 和声行滑入一致（替代原 easeOutBack 的欠阻尼回弹）。
+            return overdampedSpring(progress);
         }
         if (positionMs < group.endMs) return 1f;
         float elapsed = (positionMs - group.endMs) / (float) BACKGROUND_POP_OUT_MS;
         if (elapsed >= 1f) return 0f;
         return 1f - smoothstep(0f, 1f, elapsed);
+    }
+
+    /** 临界阻尼弹簧阶跃响应 1-(1+ωt)·e^(-ωt)：无过冲，起步最快、尾部缓收。
+     *  ω=8 使 460ms 出场窗口结束时收敛到 ~99.7%。 */
+    private static float overdampedSpring(float t) {
+        if (t <= 0f) return 0f;
+        if (t >= 1f) return 1f;
+        double x = 8.0 * t;
+        return (float) (1.0 - (1.0 + x) * Math.exp(-x));
     }
 
     static float interludeSlot(long positionMs, long startMs, long endMs, float height) {
@@ -70,12 +81,5 @@ final class LyricMotion {
         if (progress <= 0f) return 0f;
         if (progress >= 1f) return 1f;
         return progress * progress * (3f - 2f * progress);
-    }
-
-    private static float easeOutBack(float value) {
-        float c1 = 1.7f;
-        float c3 = c1 + 1f;
-        float shifted = value - 1f;
-        return 1f + c3 * shifted * shifted * shifted + c1 * shifted * shifted;
     }
 }

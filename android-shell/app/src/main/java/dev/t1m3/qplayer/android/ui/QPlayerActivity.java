@@ -214,10 +214,14 @@ public final class QPlayerActivity extends Activity {
         // wipe it whenever the apk is (re)installed so stale dex never loads.
         java.io.File dexCache = new java.io.File(getCacheDir(), "qml-dex");
         invalidateDexCacheOnReinstall(dexCache);
+        // QML 编译产物缓存(parse→bytecode):同样 reinstall 清空,与 dex 缓存配套。
+        java.io.File sceneCache = new java.io.File(getCacheDir(), "qml-scene");
+        invalidateDexCacheOnReinstall(sceneCache);
         QmlEngine engine = new QmlEngine(
                 new DexClassLoaderBackend(getClass().getClassLoader(), 26, dexCache));
         float density = getResources().getDisplayMetrics().density;
         glView = new QmlGLSurfaceView(this, engine, qml, resources, density);
+        glView.setSceneCacheDir(sceneCache);
         glView.setController(controller);
         glView.setSettings(settings);
         glView.setErrorListener(trace -> runOnUiThread(() -> showError(trace)));

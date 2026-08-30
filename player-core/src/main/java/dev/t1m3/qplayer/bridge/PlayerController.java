@@ -4476,12 +4476,32 @@ public final class PlayerController {
         playlistSubscribed.set(false);
         playlistOwned.set(false);
         playlistDeletable.set(false);
+        // ── 缓存优先(红心 1000+ 秒开):有缓存曲目先立即显示,后台网络刷新后替换 ──
+        final PlaylistCacheIndex.Cached cached = playlistCacheIndex.get(playlistId);
+        final boolean showedCache = cached != null && !cached.songs.isEmpty();
+        if (showedCache) {
+            List<NeteaseSong> fromCache = new ArrayList<>(cached.songs.size());
+            for (NeteaseSong cs : cached.songs) fromCache.add(withLocalThumb(cs));
+            String cover = cached.coverUrl != null
+                    ? diskCache.getThumb64(thumbUrl(cached.coverUrl, gridCoverSize())) : null;
+            final String cachedName = cached.name;
+            final String cachedCover = cover != null ? cover
+                    : (cached.coverUrl != null ? cached.coverUrl : "");
+            post(() -> {
+                if (currentPlaylistId != playlistId) return;
+                playlistTitle.set(cachedName == null ? "" : cachedName);
+                playlistCoverPath.set(cachedCover);
+                playlistTracks.set(fromCache);
+                playlistLoading.set(false);
+            });
+        }
         worker.submit(() -> {
             try {
                 fetchAndPublishPlaylist(playlistId);
             } catch (Throwable e) {
                 Logger.warn("open playlist {} failed: {}", playlistId, e.getMessage());
-                offlinePlaylistFallback(playlistId);
+                // 缓存已在显示:静默保留(不重复 toast);否则走离线兜底
+                if (!showedCache) offlinePlaylistFallback(playlistId);
             }
         });
     }
@@ -4494,7 +4514,8 @@ public final class PlayerController {
      *  until a real update actually lands, no loading-spinner flash every retry). */
     private void fetchAndPublishPlaylist(long playlistId) throws Exception {
         NeteasePlaylist detail = netease.playlistDetail(playlistId);
-        List<NeteaseSong> songs = netease.playlistTracks(playlistId, 200);
+        // 大歌单(红心 1000+)要完整加载:limit 只截断 trackIds 遍历,给足上限。
+        List<NeteaseSong> songs = netease.playlistTracks(playlistId, 5000);
         fillMissingCovers(songs);
         buildSongThumbs(songs, "128");
         // Thumbnails are keyed by coverUrl, not by playlist, so a track already

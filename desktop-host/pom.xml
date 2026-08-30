@@ -119,6 +119,29 @@
         <dependency>
             <groupId>io.github.timer-err</groupId>
             <artifactId>qml4j-core</artifactId>
+            <version>0.2.31-local</version>
+        </dependency>
+        <!-- qml4j 本地补丁版的运行时依赖(qml4j-core 自身的 pom 不带版本,显式声明
+             保证任何环境下 classpath 都有 asm/rhino/antlr,避免 NoClassDefFoundError) -->
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm</artifactId>
+            <version>9.7</version>
+        </dependency>
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-util</artifactId>
+            <version>9.7</version>
+        </dependency>
+        <dependency>
+            <groupId>org.antlr</groupId>
+            <artifactId>antlr4-runtime</artifactId>
+            <version>4.13.2</version>
+        </dependency>
+        <dependency>
+            <groupId>org.mozilla</groupId>
+            <artifactId>rhino</artifactId>
+            <version>1.9.1</version>
         </dependency>
         <dependency>
             <groupId>junit</groupId>

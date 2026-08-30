@@ -41,8 +41,10 @@ final class LyricRowRenderer implements AutoCloseable {
     private static final float DARK_MASK_ALPHA = 0.36f;
     private static final double LIFT_OMEGA0 = 3.7416574;
     private static final double LIFT_ZETA = 0.935414;
-    private static final float GLOW_ALPHA = 0.55f;
-    private static final long WORD_GLOW_MIN_DURATION_MS = 1500L;
+    // 辉光门控与强度照搬 Melodify（qplayerWordGlow）：GLOW_ALPHA 0.7、词时长 ≥1000ms
+    // （无条件，不再依赖 dropShadow）、纯 ASCII 可打印且长度 >7 的词才发光。
+    private static final float GLOW_ALPHA = 0.7f;
+    private static final long WORD_GLOW_MIN_DURATION_MS = 1000L;
     private static final float WORD_RIBBON_LIFT_PX = 2f;
     private static final float MAX_SHADER_LIFT_PX = LIFT_PEAK_PX + WORD_RIBBON_LIFT_PX;
     private static final float TEXT_SHADOW_OFFSET_Y = 2f;
@@ -272,7 +274,22 @@ final class LyricRowRenderer implements AutoCloseable {
                 Syllable last = syllables.get(row.from + word.lastSyllable);
                 long wordEnd = last.startMs + Math.max(0L, last.durationMs);
                 long wordDuration = wordEnd - first.startMs;
-                if (shadowOn && wordDuration < WORD_GLOW_MIN_DURATION_MS) continue;
+                // 门控（照搬 Melodify qplayerWordGlow）：词时长 ≥1000ms（无条件）+
+                // 纯 ASCII 可打印、长度 >7 的词才发光（中文/短词/非可打印 ASCII 不亮）。
+                if (wordDuration < WORD_GLOW_MIN_DURATION_MS) continue;
+                StringBuilder gw = new StringBuilder();
+                for (int k = word.firstSyllable; k <= word.lastSyllable; k++) {
+                    gw.append(syllables.get(row.from + k).text);
+                }
+                String gwt = gw.toString();
+                if (gwt.length() <= 7) continue;
+                boolean gAscii = true;
+                for (int ci = 0; ci < gwt.length(); ci++) {
+                    char c = gwt.charAt(ci);
+                    boolean ws = c >= 0x09 && c <= 0x0d;
+                    if (!ws && (c < 0x20 || c > 0x7e)) { gAscii = false; break; }
+                }
+                if (!gAscii) continue;
                 if (positionMs < first.startMs || positionMs > wordEnd) continue;
                 float progress = (positionMs - first.startMs) / (float) Math.max(1L, wordDuration);
                 float alpha = activeK * smoothstep(0f, 0.18f, progress)

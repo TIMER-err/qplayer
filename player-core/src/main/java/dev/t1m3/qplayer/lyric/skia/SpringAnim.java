@@ -121,6 +121,13 @@ public class SpringAnim {
     public void   reset()             { setValue(targetPosition); }
     public double getVelocity()       { return velocityAt(currentTime); }
 
+    /** True while a delayed target is still queued (not yet started). Retargeting
+     *  during this window would discard the pending delay — callers use this to keep
+     *  cascade delays intact across frames (Melodify scaleSpring sync). */
+    public boolean hasPendingTarget() {
+        return hasQueuedPosition;
+    }
+
     public boolean arrived() {
         return Math.abs(targetPosition - currentPosition) < EPS
                 && Math.abs(velocityAt(currentTime))     < EPS

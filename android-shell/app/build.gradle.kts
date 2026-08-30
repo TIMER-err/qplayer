@@ -9,7 +9,7 @@ android {
     defaultConfig {
         applicationId = "dev.t1m3.qplayer"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 26
         versionCode = 67
         versionName = "1.3.0"
         manifestPlaceholders["appLabel"] = "QPlayer"
@@ -50,6 +50,11 @@ android {
             versionNameSuffix = "-debug"
             manifestPlaceholders["appLabel"] = "QPlayer (debug)"
         }
+    }
+
+    lint {
+        // 本地分发（非 Google Play）允许较低 targetSdk；上架时再改回 33+。
+        disable += "ExpiredTargetSdkVersion"
     }
 
     packaging {
@@ -102,7 +107,14 @@ dependencies {
     skijaNative("io.github.humbleui:skija-android-arm64:0.143.17")
 
     // The RECODE refactor merged parser/engine/compiler/render into one module.
-    implementation("io.github.timer-err:qml4j-core:0.2.29")
+    // 本地补丁版(0.2.31 源码 + Flickable 橡皮筋回弹补丁):见 qml4j 本地仓库
+    // 0.2.31-local。上游更新时重新构建该版本号即可。
+    implementation("io.github.timer-err:qml4j-core:0.2.31-local")
+    // qml4j 本地补丁版的运行时依赖:显式声明,避免依赖传递解析不到 asm/rhino/antlr
+    implementation("org.ow2.asm:asm:9.7")
+    implementation("org.ow2.asm:asm-util:9.7")
+    implementation("org.antlr:antlr4-runtime:4.13.2")
+    implementation("org.mozilla:rhino:1.9.1")
 
     // Our platform-neutral player core (netease + lyrics + audio abstraction +
     // QML bridge). Pulls gson + zxing-core transitively; all Android-dexable.
