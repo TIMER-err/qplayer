@@ -208,8 +208,11 @@ public final class QPlayerActivity extends Activity {
         // (the lyric face must itself cover CJK + Latin — no automatic fallback).
         FileResourceLoader resources = new FileResourceLoader(getAssets());
         try {
-            dev.t1m3.qplayer.lyric.skia.Fonts.init(weight -> CompressedResources.load(resources,
-                    "fonts/PingFangSC-" + bundledFontWeightName(weight) + ".otf"));
+            dev.t1m3.qplayer.lyric.skia.Fonts.init(weight ->
+                    CompressedResources.load(resources,
+                            weight == dev.t1m3.qplayer.lyric.skia.Fonts.Weight.BOLD
+                                    ? "fonts/" + bundledFontWeightName(weight)
+                                    : "fonts/PingFangSC-" + bundledFontWeightName(weight) + ".otf"));
             // Material Symbols for the host-drawn lyric transport icons (drawn by
             // shaped ligature name, same as the QML scene's icons).
             dev.t1m3.qplayer.lyric.skia.Fonts.initIcon(
@@ -221,10 +224,14 @@ public final class QPlayerActivity extends Activity {
         // wipe it whenever the apk is (re)installed so stale dex never loads.
         java.io.File dexCache = new java.io.File(getCacheDir(), "qml-dex");
         invalidateDexCacheOnReinstall(dexCache);
+        // QML 编译产物缓存(parse→bytecode):同样 reinstall 清空,与 dex 缓存配套。
+        java.io.File sceneCache = new java.io.File(getCacheDir(), "qml-scene");
+        invalidateDexCacheOnReinstall(sceneCache);
         QmlEngine engine = new QmlEngine(
                 new DexClassLoaderBackend(getClass().getClassLoader(), 26, dexCache));
         float density = getResources().getDisplayMetrics().density;
         glView = new QmlGLSurfaceView(this, engine, qml, resources, density);
+        glView.setSceneCacheDir(sceneCache);
         glView.setController(controller);
         glView.setSettings(settings);
         glView.setErrorListener(trace -> runOnUiThread(() -> showError(trace)));
@@ -267,6 +274,7 @@ public final class QPlayerActivity extends Activity {
             case THIN: return "Thin";
             case LIGHT: return "Light";
             case MEDIUM: return "Medium";
+            case BOLD: return "SFPro-Bold.ttf";
             case REGULAR:
             default: return "Regular";
         }

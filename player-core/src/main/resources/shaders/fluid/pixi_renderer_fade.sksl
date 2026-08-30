@@ -1,6 +1,7 @@
 uniform float2 resolution;
 uniform float time;
 uniform float bend;
+uniform float beat;
 uniform shader cover;
 uniform shader coverPrev;
 uniform float fade;
@@ -88,7 +89,8 @@ float3 samplePrevious(float2 coord) {
 }
 
 half4 main(float2 fragCoord) {
-    float2 coord = sCurve(fragCoord);
-    float3 rgb = mix(samplePrevious(coord), sampleCurrent(coord), fade);
+    float zoom = 1.0 - 0.09 * beat;
+    float2 uv = (sCurve(fragCoord) - 0.5) * zoom + 0.5;
+    float3 rgb = mix(samplePrevious(uv), sampleCurrent(uv), fade);
     return half4(rgb, 1.0);
 }

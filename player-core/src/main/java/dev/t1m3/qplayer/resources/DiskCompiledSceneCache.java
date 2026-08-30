@@ -1,4 +1,4 @@
-package dev.t1m3.qplayer.desktop.resources;
+package dev.t1m3.qplayer.resources;
 
 import dev.t1m3.qplayer.util.Logger;
 import io.github.timer_err.qml4j.compiler.CompiledScene;

@@ -52,6 +52,11 @@ android {
         }
     }
 
+    lint {
+        // 本地分发（非 Google Play）允许较低 targetSdk；上架时再改回 33+。
+        disable += "ExpiredTargetSdkVersion"
+    }
+
     packaging {
         resources.excludes += setOf(
             "META-INF/AL2.0",

@@ -15,10 +15,10 @@ final class LyricScrollController {
 
     private static final float DECELERATION = 2400f;
     private static final float MIN_FLING_VELOCITY = 60f;
-    private static final long IDLE_RETURN_NS = 4_000_000_000L;
+    private static final long IDLE_RETURN_NS = 3_000_000_000L;
     private static final int VELOCITY_SAMPLES = 8;
     private static final float VELOCITY_WINDOW_SECONDS = 0.09f;
-    private static final float WHEEL_STEP_PX = 48f;
+    private static final float WHEEL_STEP_PX = 100f;
 
     private boolean active;
     private boolean dragging;
@@ -106,10 +106,9 @@ final class LyricScrollController {
     }
 
     void pointerUp() {
+        // Melodify: 无 fling 惯性,抬手即停。
         if (!dragging) return;
         dragging = false;
-        flingVelocity = computeFlingVelocity();
-        flinging = Math.abs(flingVelocity) > MIN_FLING_VELOCITY;
         lastStepNs = System.nanoTime();
         lastInteractionNs = lastStepNs;
     }
@@ -130,32 +129,18 @@ final class LyricScrollController {
             lastStepNs = nowNs;
             return offset;
         }
-        if (flinging) {
-            holdAnchor = anchorIndex;
-            float dt = (nowNs - lastStepNs) / 1_000_000_000f;
-            lastStepNs = nowNs;
-            if (dt > 0.05f) dt = 0.05f;
-            if (dt > 0f) {
-                float next = offset + flingVelocity * dt;
-                offset = clamp(next);
-                if (offset != next) flingVelocity = 0f;
-                else flingVelocity = decayVelocity(flingVelocity, dt);
-                if (Math.abs(flingVelocity) < MIN_FLING_VELOCITY) flinging = false;
-            }
-            return offset;
-        }
         if (returning) {
-            float value = (float) returnSpring.animate(targetOffset);
-            if (Math.abs(value - targetOffset) < 0.5f) {
+            // Melodify: 3s 空闲后每帧 lerp k=0.18 回 0,无弹簧。
+            offset += (targetOffset - offset) * 0.18f;
+            if (Math.abs(offset - targetOffset) < 0.5f) {
+                offset = targetOffset;
                 returning = false;
                 active = false;
             }
-            return value;
+            return offset;
         }
         if ((nowNs - lastInteractionNs) > IDLE_RETURN_NS && anchorIndex != holdAnchor) {
             returning = true;
-            returnSpring.setValue(offset);
-            return (float) returnSpring.animate(targetOffset);
         }
         return offset;
     }

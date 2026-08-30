@@ -139,8 +139,8 @@ public final class FluidBackground {
      * used to build the device-resolution static cache.
      */
     public void render(Canvas canvas, DirectContext ctx, float uiScale, float w, float h,
-                       byte[] coverBytes, String trackKey, long nowNs, boolean staticMode,
-                       int style) {
+                       byte[] coverBytes, String trackKey, long nowNs, float beat,
+                       boolean staticMode, int style) {
         int selectedStyle = normalizeStyle(style);
         if (selectedStyle != activeStyle) {
             activeStyle = selectedStyle;
@@ -222,7 +222,7 @@ public final class FluidBackground {
             // build failed -> fall through to the live shader this frame
         }
 
-        drawFluid(canvas, fullRect, w, h, time, fadeProgress(nowNs));
+        drawFluid(canvas, fullRect, w, h, time, fadeProgress(nowNs), beat);
     }
 
     // Fade progress 0..1 since the last cover swap; releases the previous cover once done.
@@ -256,9 +256,9 @@ public final class FluidBackground {
     // runtime shader bakes its uniforms at makeShader time, so an animated `time`
     // rebuilds it each call -- but that just instantiates the already-compiled
     // effect; the cover child shader and the Paint are reused.
-    private void drawFluid(Canvas canvas, Rect dstRect, float resW, float resH, float time, float fade) {
+    private void drawFluid(Canvas canvas, Rect dstRect, float resW, float resH, float time, float fade, float beat) {
         if (activeStyle == STYLE_MESH_GRADIENT) {
-            drawMeshGradient(canvas, resW, resH, time, fade);
+            drawMeshGradient(canvas, resW, resH, time, fade, beat);
             return;
         }
         boolean fading = coverPrevShader != null && fade < 1f;
@@ -270,6 +270,7 @@ public final class FluidBackground {
             try (RuntimeEffectBuilder b = new RuntimeEffectBuilder(makeEffect(activeStyle, fading))) {
                 b.setUniform("resolution", resW, resH);
                 b.setUniform("time", time);
+                b.setUniform("beat", beat);
                 b.setChild("cover", currentChild);
                 if (activeStyle == STYLE_PIXI_RENDERER) b.setUniform("bend", bendDirection);
                 if (activeStyle != STYLE_CLASSIC) b.setUniform("angles", coverAngles);
@@ -291,19 +292,19 @@ public final class FluidBackground {
         }
     }
 
-    private void drawMeshGradient(Canvas canvas, float w, float h, float time, float fade) {
+    private void drawMeshGradient(Canvas canvas, float w, float h, float time, float fade, float beat) {
         boolean fading = coverPrevAdjustedShader != null && coverPrevMesh != null;
         // AMLL keeps previous mesh states fully opaque underneath while the
         // newest state rises linearly from alpha 0, then discards older states at 1.1.
         if (fading) drawMeshGradientState(
-                canvas, coverPrevMesh, coverPrevAdjustedShader, w, h, time, 1f);
+                canvas, coverPrevMesh, coverPrevAdjustedShader, w, h, time, 1f, beat);
         drawMeshGradientState(
-                canvas, coverMesh, coverAdjustedShader, w, h, time, fading ? fade : 1f);
+                canvas, coverMesh, coverAdjustedShader, w, h, time, fading ? fade : 1f, beat);
     }
 
     private void drawMeshGradientState(Canvas canvas, AMLLMeshGradient.Data mesh,
                                        Shader coverChild, float w, float h,
-                                       float time, float alpha) {
+                                       float time, float alpha, float beat) {
         if (mesh == null || coverChild == null || alpha <= 0f) return;
         Shader shaded = null;
         try {
@@ -311,6 +312,7 @@ public final class FluidBackground {
                     makeEffect(STYLE_MESH_GRADIENT, false))) {
                 b.setUniform("time", time);
                 b.setUniform("alpha", alpha);
+                b.setUniform("beat", beat);
                 b.setChild("cover", coverChild);
                 shaded = b.makeShader();
             }
@@ -332,7 +334,7 @@ public final class FluidBackground {
     private void buildStatic(DirectContext ctx, int dw, int dh, float time) {
         invalidateStatic();
         try (Surface off = Surface.makeRenderTarget(ctx, false, ImageInfo.makeN32Premul(dw, dh))) {
-            drawFluid(off.getCanvas(), Rect.makeWH(dw, dh), dw, dh, time, 1f);
+            drawFluid(off.getCanvas(), Rect.makeWH(dw, dh), dw, dh, time, 1f, 0f);
             staticImage = off.makeImageSnapshot();
             staticW = dw;
             staticH = dh;

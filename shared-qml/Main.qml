@@ -310,9 +310,21 @@ Rectangle {
         // Jump to the bottom/root destination underneath the current route stack,
         // not to a hard-coded navigation tab. A playlist opened from Search or My
         // Music must therefore return to Search/My Music with their state intact.
-        // Drop every overlay immediately, then animate that existing root back in.
+        // 设置页等 push 页面:先播 back 离场动画,再动画根页进入。
         rootPageMotion.stopAnimations()
-        app.clearPages()
+        var departing = app.topRouteValue()
+        if (departing) {
+            pageTransitionCleanup.stop()
+            app.navigationDirection = "back"
+            app.transitionUnderlayType = ""
+            app.leavingPageType = departing.type
+            app.pageTransitionActive = true
+            pageTransitionCleanup.restart()
+            app.navigationStack = []
+            app.syncPageState("")
+        } else {
+            app.clearPages()
+        }
         rootPageMotion.enter()
     }
 
@@ -367,7 +379,21 @@ Rectangle {
     // trees being laid out during the transition.
     function switchTo(idx) {
         var returningFromRoute = app.navigationStack.length > 0
-        app.clearPages()
+        var departing = app.topRouteValue()
+        if (departing) {
+            // 设置页等 push 页面还在栈上:先按 back 方向播放它的离场动画
+            // (ManagedPageLoader 会保持绘制直到淡出),而不是瞬间移除。
+            pageTransitionCleanup.stop()
+            app.navigationDirection = "back"
+            app.transitionUnderlayType = ""
+            app.leavingPageType = departing.type
+            app.pageTransitionActive = true
+            pageTransitionCleanup.restart()
+            app.navigationStack = []
+            app.syncPageState("")
+        } else {
+            app.clearPages()
+        }
         if (idx === app.page) {
             if (app.pageTransitionPreset === 0 && returningFromRoute)
                 rootPageMotion.enter()

@@ -1,7 +1,7 @@
 package dev.t1m3.qplayer.desktop.window;
 
 import dev.t1m3.qplayer.bridge.PlayerController;
-import dev.t1m3.qplayer.desktop.resources.DiskCompiledSceneCache;
+import dev.t1m3.qplayer.resources.DiskCompiledSceneCache;
 import dev.t1m3.qplayer.lyric.LyricLine;
 import dev.t1m3.qplayer.lyric.LyricTimeline;
 import dev.t1m3.qplayer.lyric.skia.LyricConfig;

@@ -249,6 +249,17 @@ public final class PlayerController {
     // Source-of-truth play position. The `index` Property mirrors it for the UI but
     // lags in the background (pump paused), so all playback logic uses this instead.
     private volatile int playIndex = -1;
+
+    // Apple-style automix (beat-matched overlap before the track ends). The backend
+    // (desktop mixer) does the audio work; this state only tracks the UI handover.
+    private volatile dev.t1m3.qplayer.settings.SettingsCore automixSettings;
+    private boolean amInFlight = false;
+    private int amNextIdx = -1;
+    // Absolute track position where the current song's UI clock starts (0 normally,
+    // the automix entry offset after a beat-matched handover). Mirrors Melodify's
+    // clockAnchor: the backend always reports absolute positions, the UI subtracts
+    // this anchor; lyric indexing stays absolute (lyric times are track-absolute).
+    private long automixBase = 0L;
     /** Playlist that produced the current queue, or 0 for search/local/custom queues.
      *  Heart mode needs the original playlist id in addition to its seed song. */
     private volatile long currentQueuePlaylistId;
@@ -780,6 +791,10 @@ public final class PlayerController {
         this(backend, metadataReader, NeteaseClient.INSTANCE);
     }
 
+    public float beatLevel() {
+        return backend.beatLevel();
+    }
+
     public PlayerController(AudioBackend backend, MetadataReader metadataReader, NeteaseClient netease) {
         this.backend = backend;
         this.metadataReader = metadataReader;
@@ -802,6 +817,7 @@ public final class PlayerController {
         credentialOwnerOnlyFallback.set(pluginHostApi.usesOwnerOnlyCredentialProtection());
         backend.setVolume(volume.peek());
         backend.setOnComplete(() -> onMain(this::autoAdvance));
+        backend.setOnAutomixFired(() -> onMain(this::onAutomixFired));
         // Re-baseline the media session's position once audio actually starts (the
         // backend prepares asynchronously, so the position at play() time is stale).
         backend.setOnStarted(() -> {
@@ -2040,11 +2056,12 @@ public final class PlayerController {
         }
         long now = System.currentTimeMillis();
         tickFade();
+        maybeBeginAutomix();
         if (now - lastPositionPush >= 200L) {
             lastPositionPush = now;
             if (backend.isPlaying()) {
                 long pos = backend.position();
-                positionMs.set(pos);
+                positionMs.set(Math.max(0L, pos - automixBase));
                 updateLyricIndex(pos - LyricConfig.instance.offsetMs.getValue());
             }
         }
@@ -3295,6 +3312,10 @@ public final class PlayerController {
             pendingPluginDesiredPlaying = null;
             pendingPluginTargetMediaId = "";
         }
+        backend.cancelAutomix();
+        amInFlight = false;
+        amNextIdx = -1;
+        automixBase = 0L;
         // Any real local/remote selection supersedes a follower's delayed takeover.
         // The generation also makes an already-queued timeout callback harmless.
         // loadQueue() sets needsReplay because its restored track exists only as
@@ -3340,6 +3361,7 @@ public final class PlayerController {
         worker.submit(this::saveQueue);
         final int idx = i;
         final Track t = queue.get(i);
+        backend.setExpectedDuration(t.durationMs);
         post(() -> {
             applyTrackLyricOffset(t);
             index.set(idx);
@@ -3896,6 +3918,215 @@ public final class PlayerController {
     // Track finished on its own: repeat-one replays it, shuffle jumps randomly,
     // list-loop advances. Wired to backend.onComplete (not next()) so repeat-one
     // doesn't fight a user's manual skip. Already on the main thread (onComplete).
+
+    // ---- Automix (Apple-style intelligent transition) -----------------------
+
+    public void setAutomixSettings(dev.t1m3.qplayer.settings.SettingsCore s) {
+        this.automixSettings = s;
+    }
+
+    /** Phase 1: once the current track enters the lead window, resolve + plan + arm
+     *  the next track on the backend. Runs from pump() (render thread). */
+    private void maybeBeginAutomix() {
+        if (automixSettings == null || !automixSettings.bool("automixEnabled")) return;
+        if (amInFlight || backend.hasAutomixArmed()) return;
+        if (!backend.isPlaying()) return;
+        int mode = playMode.peek();
+        if (mode == 2) return; // repeat one — the natural loop handles it
+        long dur = backend.duration();
+        if (dur <= 0) return;
+        long pos = backend.position();
+        long remaining = dur - pos;
+        if (remaining > 16_000L || remaining < 4_000L) return;
+        int nextIdx = mode == 1 ? randomIndex() : playIndex + 1;
+        if (nextIdx < 0 || nextIdx >= queue.size()) return;
+        Track t = queue.get(nextIdx);
+        if (t == null) return;
+        amInFlight = true;
+        amNextIdx = nextIdx;
+        long aOutStartMs = (long) (dur * 0.40);
+        if (t.source == Track.Source.LOCAL) {
+            String src = t.playable();
+            if (src != null) prepareAutomixFor(src, aOutStartMs);
+            else amInFlight = false;
+        } else if (t.source == Track.Source.NETEASE) {
+            String cached = t.neteaseId != 0 ? diskCache.getAudio(t.neteaseId) : null;
+            if (cached != null) {
+                prepareAutomixFor(cached, aOutStartMs);
+            } else if (t.streamUrl != null) {
+                cacheAudioAsync(t);
+                prepareAutomixFor(t.playable(), aOutStartMs);
+            } else {
+                final long songId = t.neteaseId;
+                // Dedicated thread, not the shared worker: the automix lead window is
+                // ~16s and the shared worker can be blocked for many seconds by
+                // playlist/cover/cache jobs, which would arm B after A already ended.
+                Thread resolveT = new Thread(() -> {
+                    String url = null;
+                    try {
+                        NeteaseClient.UrlInfo info = netease.songUrlInfo(songId, playLevel);
+                        url = (info != null && !info.trial) ? info.url : null;
+                        if (url == null && info != null && info.trial && info.url != null) {
+                            url = info.url;
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                    if (url == null || url.trim().isEmpty()) {
+                        onMain(() -> { if (amInFlight) amInFlight = false; });
+                        return;
+                    }
+                    Track tt = (amNextIdx >= 0 && amNextIdx < queue.size())
+                            ? queue.get(amNextIdx) : null;
+                    if (tt != null) {
+                        tt.streamUrl = url;
+                        cacheAudioAsync(tt);
+                    }
+                    // Briefly wait for the pre-download so the arm reads a local file
+                    // (fast seek) instead of re-streaming through the intro.
+                    String cachedNow = tt != null && tt.neteaseId != 0
+                            ? diskCache.getAudio(tt.neteaseId) : null;
+                    long deadline = System.currentTimeMillis() + 2500L;
+                    while (cachedNow == null && System.currentTimeMillis() < deadline) {
+                        try { Thread.sleep(120L); } catch (InterruptedException e) { break; }
+                        cachedNow = tt != null && tt.neteaseId != 0
+                                ? diskCache.getAudio(tt.neteaseId) : null;
+                    }
+                    final String armUrl = cachedNow != null ? cachedNow : url;
+                    onMain(() -> {
+                        if (!amInFlight) return;
+                        prepareAutomixFor(armUrl, aOutStartMs);
+                    });
+                }, "automix-resolve");
+                resolveT.setDaemon(true);
+                resolveT.start();
+            }
+        } else if (t.source == Track.Source.PLUGIN) {
+            beginPluginAutomix(t, nextIdx, aOutStartMs);
+        } else if (t.source == Track.Source.CUSTOM_API) {
+            if (t.streamUrl != null) {
+                prepareAutomixFor(t.playable(), aOutStartMs);
+            } else {
+                amInFlight = false;
+            }
+        } else {
+            amInFlight = false;
+        }
+    }
+
+    private void prepareAutomixFor(String urlB, long aOutStartMs) {
+        boolean glide = automixSettings == null || automixSettings.bool("automixGlideCompat");
+        boolean stem = automixSettings == null || automixSettings.bool("automixStemSplit");
+        boolean accepted = backend.prepareAutomix(urlB, 0L, aOutStartMs, -1L, -1L, glide, stem, 0f);
+        if (!accepted) amInFlight = false;
+    }
+
+    private void beginPluginAutomix(Track track, int expectedIndex, long aOutStartMs) {
+        final String mediaId = track.canonicalId();
+        String cached = diskCache.getAudio(mediaId);
+        if (cached != null) {
+            prepareAutomixFor(cached, aOutStartMs);
+            return;
+        }
+        if (hasFreshPluginStream(track)) {
+            cachePluginAudioAsync(track, false,
+                    () -> finishPluginAutomix(track, expectedIndex, aOutStartMs));
+            return;
+        }
+        final MediaId id;
+        try {
+            id = MediaId.parse(mediaId).requireKind(
+                    dev.t1m3.qplayer.media.MediaKind.SONG);
+        } catch (IllegalArgumentException error) {
+            amInFlight = false;
+            return;
+        }
+        pluginProviders.resolveStream(id, playLevel).whenComplete((stream, error) -> onMain(() -> {
+            if (!amInFlight || amNextIdx != expectedIndex) return;
+            if (error != null || stream == null || stream.url == null || stream.url.isEmpty()) {
+                amInFlight = false;
+                return;
+            }
+            track.streamUrl = stream.url;
+            track.streamHeaders.clear();
+            track.streamHeaders.putAll(stream.headers);
+            track.streamExpiresAtMs = stream.expiresAtMs;
+            track.renditionId = stream.renditionId;
+            track.trial = stream.trial;
+            track.streamCacheable = stream.cacheable;
+            cachePluginAudioAsync(track, false,
+                    () -> finishPluginAutomix(track, expectedIndex, aOutStartMs));
+        }));
+    }
+
+    private void finishPluginAutomix(Track track, int expectedIndex, long aOutStartMs) {
+        if (!amInFlight || amNextIdx != expectedIndex) return;
+        String cached = diskCache.getAudio(track.canonicalId());
+        if (cached != null) {
+            prepareAutomixFor(cached, aOutStartMs);
+        } else if (track.streamHeaders.isEmpty() && hasFreshPluginStream(track)) {
+            prepareAutomixFor(track.streamUrl, aOutStartMs);
+        } else {
+            // The current backend automix API cannot attach provider-specific HTTP
+            // headers, so a non-cacheable protected stream must use normal advance.
+            amInFlight = false;
+        }
+    }
+
+    /** Fired by the backend when the blend hands over to B. Switch the UI state to
+     *  the next track; the backend already plays B (content time re-baselined to 0). */
+    private void onAutomixFired() {
+        int nextIdx = amNextIdx;
+        amInFlight = false;
+        amNextIdx = -1;
+        if (nextIdx < 0 || nextIdx >= queue.size()) return;
+        Track t = queue.get(nextIdx);
+        if (t == null) return;
+        pendingNaturalEnd = false;
+        needsReplay = false;
+        scrobbleOutgoingTrack(true);
+        playIndex = nextIdx;
+        backend.setExpectedDuration(t.durationMs);
+        automixBase = Math.max(0L, backend.position());
+        final long rev = coverRevision.incrementAndGet();
+        final int idx = nextIdx;
+        post(() -> {
+            loading.set(false);
+            applyLyrics(java.util.Collections.emptyList());
+            applyCover(null, rev);
+            coverPath.set("");
+            applyTrackLyricOffset(t);
+            index.set(idx);
+            currentFilePath.set("");
+            title.set(orEmpty(t.title));
+            artist.set(orEmpty(t.artist));
+            playingArtistId.set(t.artistId);
+            album.set(orEmpty(t.album));
+            coverUrl.set(orEmpty(trackCoverUrl(t, "512")));
+            durationMs.set(Math.max(0L, backend.duration() - automixBase));
+            positionMs.set(0L);
+            String canonical = t.canonicalId();
+            boolean pluginLikeable = t.source == Track.Source.PLUGIN
+                    && providerForMediaHas(canonical, ProviderCapability.LIKE);
+            currentLiked.set(pluginLikeable ? pluginLikedSet.contains(canonical)
+                    : t.neteaseId != 0 && likedSet.contains(t.neteaseId));
+            currentLikeable.set(pluginLikeable || t.neteaseId != 0);
+            playing.set(true);
+        });
+        updateCover(t, idx, rev);
+        if (t.source == Track.Source.LOCAL) {
+            loadLocalLyrics(t);
+        } else if (t.source == Track.Source.NETEASE) {
+            loadNeteaseLyrics(t, idx);
+            cacheAudioAsync(t);
+        } else if (t.source == Track.Source.PLUGIN) {
+            loadPluginLyrics(t, idx);
+            cachePluginAudioAsync(t, false, null);
+        }
+        playingIntent = true;
+        notifyPlayback();
+        worker.submit(this::saveQueue);
+    }
+
     private void autoAdvance() {
         if (queue.isEmpty()) return;
         pendingNaturalEnd = true;
@@ -3920,11 +4151,12 @@ public final class PlayerController {
 
     public void seek(long ms) {
         final long t = Math.max(0L, ms);
+        final long abs = t + automixBase;
         onMain(() -> {
             resetNaturalEndFadeAfterSeek();
             seekRevision.incrementAndGet();
-            stoppedLyricPositionMs = t;
-            backend.seek(t);
+            stoppedLyricPositionMs = abs;
+            backend.seek(abs);
             post(() -> positionMs.set(t));
             notifyPlayback();
         });
@@ -3934,10 +4166,11 @@ public final class PlayerController {
      *  bypasses the main-thread Handler to avoid OEM background throttling. */
     public void mediaSeek(long ms) {
         final long t = Math.max(0L, ms);
+        final long abs = t + automixBase;
         resetNaturalEndFadeAfterSeek();
         seekRevision.incrementAndGet();
-        stoppedLyricPositionMs = t;
-        backend.seek(t);
+        stoppedLyricPositionMs = abs;
+        backend.seek(abs);
         post(() -> positionMs.set(t));
         notifyPlayback();
     }
@@ -3958,6 +4191,11 @@ public final class PlayerController {
 
     public long position() {
         return backend.position();
+    }
+
+    /** Absolute position where the current song's UI clock starts (automix anchor). */
+    public long automixBaseMs() {
+        return automixBase;
     }
 
     /** True only while song time should advance visually. Unlike {@link #isPlaying()},
@@ -4618,7 +4856,7 @@ public final class PlayerController {
             // refreshes from pump() (render thread, paused while backgrounded/during
             // shutdown), so it can be stale exactly when this matters most — the
             // final save on app exit.
-            long pos = playIndex >= 0 ? Math.max(0L, backend.position()) : 0L;
+            long pos = playIndex >= 0 ? Math.max(0L, backend.position() - automixBase) : 0L;
             StringBuilder sb = new StringBuilder();
             sb.append("{\"schemaVersion\":2,\"playIndex\":").append(playIndex)
               .append(",\"positionMs\":").append(pos)
@@ -6028,12 +6266,32 @@ public final class PlayerController {
         playlistSubscribed.set(false);
         playlistOwned.set(false);
         playlistDeletable.set(false);
+        // ── 缓存优先(红心 1000+ 秒开):有缓存曲目先立即显示,后台网络刷新后替换 ──
+        final PlaylistCacheIndex.Cached cached = playlistCacheIndex.get(playlistId);
+        final boolean showedCache = cached != null && !cached.songs.isEmpty();
+        if (showedCache) {
+            List<NeteaseSong> fromCache = new ArrayList<>(cached.songs.size());
+            for (NeteaseSong cs : cached.songs) fromCache.add(withLocalThumb(cs));
+            String cover = cached.coverUrl != null
+                    ? diskCache.getThumb64(thumbUrl(cached.coverUrl, gridCoverSize())) : null;
+            final String cachedName = cached.name;
+            final String cachedCover = cover != null ? cover
+                    : (cached.coverUrl != null ? cached.coverUrl : "");
+            post(() -> {
+                if (currentPlaylistId != playlistId) return;
+                playlistTitle.set(cachedName == null ? "" : cachedName);
+                playlistCoverPath.set(cachedCover);
+                playlistTracks.set(fromCache);
+                playlistLoading.set(false);
+            });
+        }
         worker.submit(() -> {
             try {
                 fetchAndPublishPlaylist(playlistId);
             } catch (Throwable e) {
                 Logger.warn("open playlist {} failed: {}", playlistId, e.getMessage());
-                offlinePlaylistFallback(playlistId);
+                // 缓存已在显示:静默保留(不重复 toast);否则走离线兜底
+                if (!showedCache) offlinePlaylistFallback(playlistId);
             }
         });
     }
@@ -6046,7 +6304,8 @@ public final class PlayerController {
      *  until a real update actually lands, no loading-spinner flash every retry). */
     private void fetchAndPublishPlaylist(long playlistId) throws Exception {
         NeteasePlaylist detail = netease.playlistDetail(playlistId);
-        List<NeteaseSong> songs = netease.playlistTracks(playlistId, 200);
+        // 大歌单(红心 1000+)要完整加载:limit 只截断 trackIds 遍历,给足上限。
+        List<NeteaseSong> songs = netease.playlistTracks(playlistId, 5000);
         fillMissingCovers(songs);
         buildSongThumbs(songs, "128");
         // Thumbnails are keyed by coverUrl, not by playlist, so a track already

@@ -1,5 +1,6 @@
 package dev.t1m3.qplayer.desktop.resources;
 
+import dev.t1m3.qplayer.resources.DiskCompiledSceneCache;
 import io.github.timer_err.qml4j.compiler.CompiledScene;
 import org.junit.Rule;
 import org.junit.Test;

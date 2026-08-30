@@ -1,6 +1,7 @@
 package dev.t1m3.qplayer.desktop.window;
 
 import dev.t1m3.qplayer.lyric.LyricTimeline;
+import dev.t1m3.qplayer.lyric.skia.LyricSprings;
 import io.github.timer_err.qml4j.engine.QObject;
 import io.github.timer_err.qml4j.engine.binding.Property;
 
@@ -35,9 +36,15 @@ public final class DesktopLyricState extends QObject {
     void update(DesktopLyricSnapshot snapshot, long nowNanos) {
         boolean active = snapshot.playing;
         positionMs = active ? snapshot.predictedPosition(nowNanos) : 0L;
-        this.frame = active ? LyricTimeline.frameAt(snapshot.timeline, positionMs) : null;
+        // 歌词提前跳转（LyricBlossom 逆向，仅 melodifyMotion 模式）：提前
+        // ANTICIPATION_S 秒切到下一主行；原版模式用真实播放位置。
+        long frameProbe = Boolean.TRUE.equals(
+                dev.t1m3.qplayer.lyric.skia.LyricConfig.instance.melodifyMotion.getValue())
+                ? positionMs + (long) (LyricSprings.ANTICIPATION_S * 1000.0)
+                : positionMs;
+        this.frame = active ? LyricTimeline.frameAt(snapshot.timeline, frameProbe) : null;
         fallbackText = fallback(snapshot);
-        fontSize = Math.max(18, Math.min(38, snapshot.fontSize));
+        fontSize = Math.max(18, Math.min(64, snapshot.fontSize));
         fontWeight = Math.max(0, Math.min(3, snapshot.fontWeight));
         shadow = snapshot.shadow;
         palette = snapshot.palette;

@@ -1,6 +1,7 @@
 uniform float2 resolution;
 uniform float time;
 uniform float bend;
+uniform float beat;
 uniform shader cover;
 uniform float4 angles;
 
@@ -65,5 +66,7 @@ float3 sampleCurrent(float2 coord) {
 }
 
 half4 main(float2 fragCoord) {
-    return half4(sampleCurrent(sCurve(fragCoord)), 1.0);
+    float zoom = 1.0 - 0.09 * beat;
+    float2 uv = (sCurve(fragCoord) - 0.5) * zoom + 0.5;
+    return half4(sampleCurrent(uv), 1.0);
 }
