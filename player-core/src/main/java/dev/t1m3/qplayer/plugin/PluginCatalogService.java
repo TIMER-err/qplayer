@@ -28,7 +28,7 @@ import java.util.Locale;
 public final class PluginCatalogService {
     private static final String RESOURCE = "/plugin-catalog-v1.json";
     private static final String CATALOG_PUBLIC_KEY =
-            "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEKyOXV3MiaASii+l/T3SphzRRocTcSV593jEEHupkal9ps+fTaRQwZbKzoFgvyxlzHHQ0DNOn0FYWFM5KxiP1+A==";
+            "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE4Ihxr2JTSXh9h3Bzh9EvKN0TYQsWreamrUqtHfuo+UQ1C7tIT08W/DTGhsh7nSxXiWRy4ysj/hRpCefkg+nUkQ==";
     private static final int MAX_CATALOG_BYTES = 2 * 1024 * 1024;
     private static final long MAX_PLUGIN_BYTES = 64L * 1024L * 1024L;
     private final Gson gson = new Gson();

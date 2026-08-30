@@ -14,7 +14,7 @@ public class PluginCatalogServiceTest {
         assertFalse(entries.isEmpty());
         PluginCatalogEntry entry = entries.get(0);
         assertEquals("netease", entry.id);
-        assertEquals("0.1.0", entry.version);
+        assertEquals("0.2.0", entry.version);
         assertFalse(entry.publisherKey.isEmpty());
     }
 }
