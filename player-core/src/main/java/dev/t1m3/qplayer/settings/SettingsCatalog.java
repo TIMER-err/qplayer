@@ -218,12 +218,6 @@ public final class SettingsCatalog {
                 .onlyOn(DESKTOP)
                 .build());
 
-        // ---- 插件 -----------------------------------------------------------
-        out.add(SettingSpec.action("managePlugins", PLUGINS, "插件管理", "查看插件")
-                .buttonType("filledTonal")
-                .desc("查看已安装和可用插件；每个插件拥有独立的设置页面")
-                .build());
-
         // ---- 关于 -----------------------------------------------------------
         out.add(SettingSpec.action("openRepo", ABOUT, "QPlayer", "")
                 .icon("link")
