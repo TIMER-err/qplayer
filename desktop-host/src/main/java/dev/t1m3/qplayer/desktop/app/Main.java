@@ -5,7 +5,7 @@ import io.github.timer_err.qml4j.engine.QmlEngine;
 import dev.t1m3.qplayer.audio.AudioBackend;
 import dev.t1m3.qplayer.audio.MetadataReader;
 import dev.t1m3.qplayer.bridge.PlayerController;
-import dev.t1m3.qplayer.desktop.audio.DesktopAudioBackend;
+import dev.t1m3.qplayer.desktop.audio.DesktopMixer;
 import dev.t1m3.qplayer.desktop.graphics.DesktopColorExtractor;
 import dev.t1m3.qplayer.desktop.library.DesktopMetadataReader;
 import dev.t1m3.qplayer.desktop.library.LibraryWatcher;
@@ -116,7 +116,7 @@ public final class Main {
 
         // Platform backends (the desktop impls already exist).
         SettingsCore settings = new SettingsCore();
-        AudioBackend audio = new DesktopAudioBackend();
+        AudioBackend audio = new DesktopMixer(settings);
         MetadataReader reader = new DesktopMetadataReader();
 
         PlayerController controller = new PlayerController(audio, reader);
