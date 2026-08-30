@@ -20,6 +20,11 @@ public interface AudioBackend {
      */
     void play(String source, long startMs);
 
+    /** Network rendition variant with provider-required request headers. */
+    default void play(String source, java.util.Map<String, String> headers, long startMs) {
+        play(source, startMs);
+    }
+
     /** Pause without releasing the source. */
     void pause();
 

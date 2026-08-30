@@ -4,7 +4,7 @@ import md3.Core
 import "."
 import "../components"
 
-// 最近: netease listen history (signed in).
+// 最近: the active source plugin's listening history (signed in).
 Item {
     id: page
     signal requestLogin()
@@ -15,7 +15,8 @@ Item {
         visible: player.loggedIn
         // Same guard as LocalPage/QueuePage: this page is always in the tree, so a
         // bare bind keeps a SongRow per history entry alive while 最近 is hidden.
-        list: page.visible ? player.recentSongs : null
+        list: page.visible ? (player.sourceContentActive
+                              ? player.sourceRecentSongs : player.recentSongs) : null
         onActivated: player.playRecentSong(recent.activatedIndex)
     }
 

@@ -14,12 +14,12 @@ Item {
     Dialog {
         id: dialog
         icon: "group"
-        title: "网易云一起听"
+        title: player.loginProviderName + "一起听"
         text: player.listenTogetherInRoom
               ? player.listenTogetherStatusText
               : (player.loggedIn
-                 ? "创建房间，或粘贴网易云一起听邀请链接加入。"
-                 : "登录网易云账号后才能使用一起听。")
+                 ? "创建房间，或粘贴一起听邀请信息加入。"
+                 : ("登录" + player.loginProviderName + "账号后才能使用一起听。"))
         showAcceptButton: false
         rejectText: "关闭"
 

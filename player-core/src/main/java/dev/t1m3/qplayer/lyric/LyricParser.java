@@ -1,5 +1,6 @@
 package dev.t1m3.qplayer.lyric;
 
+import dev.t1m3.qplayer.media.LyricsPayload;
 import dev.t1m3.qplayer.util.Logger;
 
 import java.io.IOException;
@@ -50,6 +51,69 @@ public final class LyricParser {
         if (tlyric != null && !tlyric.isEmpty()) attachSidecarContent(base, tlyric, true);
         if (romalrc != null && !romalrc.isEmpty()) attachSidecarContent(base, romalrc, false);
         return base;
+    }
+
+    /** Parse the source-neutral lyric assets returned by a plugin. The plugin only
+     * supplies text and format metadata; parsing, timing objects and rendering stay
+     * entirely host-owned. */
+    public static List<LyricLine> fromPluginAssets(LyricsPayload payload) {
+        if (payload == null || payload.assets == null || payload.assets.isEmpty()) {
+            return Collections.emptyList();
+        }
+        LyricsPayload.Asset original = null;
+        LyricsPayload.Asset translation = null;
+        LyricsPayload.Asset romanization = null;
+        for (LyricsPayload.Asset asset : payload.assets) {
+            if (asset == null || asset.text == null || asset.text.isEmpty()) continue;
+            String role = asset.role != null ? asset.role.toLowerCase(Locale.ROOT) : "original";
+            if (("translation".equals(role) || "translated".equals(role)) && translation == null) {
+                translation = asset;
+            } else if (("romanization".equals(role) || "romaji".equals(role)) && romanization == null) {
+                romanization = asset;
+            } else if (original == null) {
+                original = asset;
+            }
+        }
+        if (original == null) return Collections.emptyList();
+        List<LyricLine> lines = parseContent(original.format, original.text);
+        if (lines.isEmpty()) return lines;
+        if (translation != null) attachParsedSidecar(lines,
+                parseContent(translation.format, translation.text), true);
+        if (romanization != null) attachParsedSidecar(lines,
+                parseContent(romanization.format, romanization.text), false);
+        return lines;
+    }
+
+    private static List<LyricLine> parseContent(String format, String content) {
+        String lower = format != null ? format.toLowerCase(Locale.ROOT) : "lrc";
+        if ("ttml".equals(lower)) return TtmlParser.parse(content);
+        if ("qrc".equals(lower)) return QrcParser.parse(content);
+        if ("yrc".equals(lower)) return YrcParser.parse(content);
+        if ("eslrc".equals(lower)) return EsLrcParser.parse(content);
+        if ("word-time-lrc".equals(lower) || "wordtimelrc".equals(lower)) {
+            return WordTimeLrcParser.parse(content);
+        }
+        if (WordTimeLrcParser.looksLikeWordTimeLrc(content)) {
+            return WordTimeLrcParser.parse(content);
+        }
+        return LrcParser.parse(content);
+    }
+
+    private static void attachParsedSidecar(List<LyricLine> mainLines,
+                                             List<LyricLine> sidecar,
+                                             boolean isTranslation) {
+        if (sidecar == null || sidecar.isEmpty()) return;
+        int j = 0;
+        for (LyricLine line : sidecar) {
+            long start = line.startMs();
+            while (j + 1 < mainLines.size()
+                    && Math.abs(mainLines.get(j + 1).startMs() - start)
+                    < Math.abs(mainLines.get(j).startMs() - start)) {
+                j++;
+            }
+            if (isTranslation) mainLines.get(j).translation = line.text();
+            else mainLines.get(j).romaji = line.text();
+        }
     }
 
     /** Same logic as {@link #attachSidecar} but from a raw content string. */

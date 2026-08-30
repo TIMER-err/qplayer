@@ -29,10 +29,11 @@ public final class SettingsCatalog {
     public static final String PLAYBACK = "播放";
     public static final String LYRIC = "歌词";
     public static final String LOCAL = "本地";
+    public static final String PLUGINS = "插件";
     public static final String ABOUT = "关于";
 
     public static final List<String> CATEGORIES = Collections.unmodifiableList(
-            Arrays.asList(APPEARANCE, PLAYBACK, LYRIC, LOCAL, ABOUT));
+            Arrays.asList(APPEARANCE, PLAYBACK, LYRIC, LOCAL, PLUGINS, ABOUT));
 
     /** Fluid-background mode, 0 dynamic / 1 static. Stored under a new key
      *  because the same setting used to be a boolean ("lyricBgStatic") and a
@@ -98,9 +99,6 @@ public final class SettingsCatalog {
                 .build());
 
         // ---- 播放 -----------------------------------------------------------
-        out.add(SettingSpec.toggle("unblock", PLAYBACK, "音源解锁", true)
-                .desc("灰色/VIP/试听歌曲自动尝试其他音源")
-                .build());
         // Default follows the UI locale: the mirror only helps from mainland China.
         out.add(SettingSpec.toggle("mirror", PLAYBACK, "下载加速镜像", isSimplifiedChinese())
                 .desc("通过 gh-proxy 镜像下载应用更新")
@@ -111,13 +109,6 @@ public final class SettingsCatalog {
         out.add(SettingSpec.toggle("highQuality", PLAYBACK, "高音质播放", true)
                 .desc("关闭后使用低音质播放以节省流量")
                 .build());
-
-        // Custom API source: one card, the switch plus the field block it gates.
-        out.add(SettingSpec.toggle("customApiEnabled", PLAYBACK, "启用自定义 API 源", false)
-                .desc("使用第三方接口搜索/播放，独立于内置网易云音源")
-                .group("customApi")
-                .build());
-        addCustomApiFields(out);
 
         // ---- 歌词 -----------------------------------------------------------
         // One card per control, like every other tab: no group() here, so each
@@ -173,7 +164,7 @@ public final class SettingsCatalog {
                 .group("cache")
                 .build());
         out.add(SettingSpec.path("cacheFolder", LOCAL, "缓存目录", "")
-                .desc("本地音乐库封面/歌词缓存与网易云缓存都存在这里；修改后不会自动搬运旧文件，会重新扫描并在新目录下重建缓存")
+                .desc("本地音乐库与音源插件缓存都存在这里；修改后不会自动搬运旧文件，会重新扫描并在新目录下重建缓存")
                 .hint("目录路径")
                 .group("cache")
                 .onlyOn(DESKTOP)
@@ -184,12 +175,18 @@ public final class SettingsCatalog {
                 .onlyOn(DESKTOP)
                 .build());
 
+        // ---- 插件 -----------------------------------------------------------
+        out.add(SettingSpec.action("importPlugin", PLUGINS, "导入音源插件", "选择 .qplug")
+                .icon("extension")
+                .desc("插件包含可执行 JavaScript/QML；安装前将显示来源、权限和安全警告")
+                .build());
+
         // ---- 关于 -----------------------------------------------------------
         out.add(SettingSpec.action("openRepo", ABOUT, "QPlayer", "")
                 .icon("link")
                 .provider("version").inlineProvider()
                 // Hard-coded breaks: qml4j's auto-wrap mis-measures this width.
-                .desc("网易云音乐第三方客户端\nMaterial You 风格 · Apple Music 风逐字歌词\n"
+                .desc("跨平台、可扩展的本地与在线音乐播放器\nMaterial You 风格 · Apple Music 风逐字歌词\n"
                         + "由自研 qml4j 引擎强力驱动 · Skia 渲染后端")
                 .build());
         out.add(SettingSpec.action("checkUpdate", ABOUT, "检查更新", "")
@@ -197,33 +194,6 @@ public final class SettingsCatalog {
                 .build());
 
         return out;
-    }
-
-    /** The custom-API adapter's field block — all in its card, all gated on the
-     *  switch above them. */
-    private static void addCustomApiFields(List<SettingSpec> out) {
-        addApiField(out, "customApiSearchUrl", "搜索接口 URL 模板", "https://host/search?key={keyword}");
-        addApiField(out, "customApiSearchListPath", "搜索结果列表路径", "如 data.list");
-        addApiField(out, "customApiIdPath", "id 字段路径", "如 id");
-        addApiField(out, "customApiNamePath", "歌名字段路径", "如 name");
-        addApiField(out, "customApiArtistPath", "歌手字段路径（可选）", "如 artists[].name");
-        addApiField(out, "customApiAlbumPath", "专辑字段路径（可选）", "如 album.name");
-        addApiField(out, "customApiCoverPath", "封面字段路径（可选）", "如 pic");
-        addApiField(out, "customApiDurationPath", "时长字段路径（可选，单位：秒）", "如 duration");
-        addApiField(out, "customApiUrlUrl", "播放地址 URL 模板", "https://host/url?id={id}");
-        addApiField(out, "customApiUrlResultPath", "播放地址结果路径", "如 data.url");
-        addApiField(out, "customApiLyricUrl", "歌词接口 URL 模板（可选）", "https://host/lyric?id={id}");
-        addApiField(out, "customApiLyricResultPath", "歌词结果路径（可选，纯 LRC 文本）", "如 data.lyric");
-        addApiField(out, "customApiHeaders", "请求头（可选，多个用 ; 分隔）",
-                "如 Authorization: Bearer xxx; X-Custom: 1");
-    }
-
-    private static void addApiField(List<SettingSpec> out, String key, String title, String hint) {
-        out.add(SettingSpec.text(key, PLAYBACK, title, "")
-                .hint(hint)
-                .dependsOn("customApiEnabled")
-                .group("customApi")
-                .build());
     }
 
     /** Mainland-Chinese UI locale (zh, not Traditional, not TW/HK/MO) — the one

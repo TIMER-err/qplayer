@@ -22,6 +22,14 @@
             <artifactId>qml4j-core</artifactId>
         </dependency>
 
+        <!-- Declared explicitly because the source-plugin runtime is a public
+             player-core subsystem rather than an incidental qml4j transitive. -->
+        <dependency>
+            <groupId>org.mozilla</groupId>
+            <artifactId>rhino</artifactId>
+            <version>1.9.1</version>
+        </dependency>
+
         <!-- Skija (platform-neutral classes) for the fluid lyric backdrop + the
              per-syllable renderer. The native lib is provided by each shell
              (skija-android-arm64 / skija-linux-x64 / …). -->

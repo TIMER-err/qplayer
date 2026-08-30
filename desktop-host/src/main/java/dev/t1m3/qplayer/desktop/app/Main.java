@@ -21,6 +21,7 @@ import dev.t1m3.qplayer.desktop.settings.DesktopThemeMonitor;
 import dev.t1m3.qplayer.desktop.settings.JsonSettingsStore;
 import dev.t1m3.qplayer.desktop.tray.TrayController;
 import dev.t1m3.qplayer.desktop.window.DesktopWindow;
+import dev.t1m3.qplayer.desktop.window.PluginQmlWindows;
 import dev.t1m3.qplayer.library.LibraryScanner;
 import dev.t1m3.qplayer.lyric.skia.Fonts;
 import dev.t1m3.qplayer.resources.CompressedResources;
@@ -121,7 +122,8 @@ public final class Main {
         PlayerController controller = new PlayerController(audio, reader);
         controller.setColorExtractor(new DesktopColorExtractor());
         controller.setCurrentVersion(currentVersion);
-        controller.setWebLoginLauncher(() -> DesktopWebLogin.open(
+        controller.setWebLoginLauncher((loginUrl, cookieUrl, credentialCookieName, providerName) ->
+                DesktopWebLogin.open(loginUrl, cookieUrl, credentialCookieName, providerName,
                 controller::completeWebLogin,
                 controller::failWebLogin,
                 controller::cancelWebLogin));
@@ -140,6 +142,7 @@ public final class Main {
         settings.registerAction("clearCache", controller::clearDiskCache);
         settings.registerAction("checkUpdate", controller::checkForUpdateManual);
         settings.registerAction("openRepo", () -> openUrl("https://github.com/TIMER-err/qplayer"));
+        settings.registerAction("importPlugin", controller::requestPluginImport);
         settings.registerInfo("version", () -> "v" + controller.appVersion.peek());
         settings.registerInfo("cacheUsage", () -> controller.cacheSizeMB.peek() + " MB");
         JsonSettingsStore desktopStore = new JsonSettingsStore();
@@ -162,6 +165,10 @@ public final class Main {
         QmlEngine engine = new QmlEngine();
         DesktopWindow window = new DesktopWindow(engine, qml, resources, controller, settings,
                 qmlCompilationCache);
+        PluginQmlWindows pluginWindows = new PluginQmlWindows(controller);
+        window.setPluginQmlWindows(pluginWindows);
+        controller.setPluginUiLauncher((pluginId, contributionId) ->
+                window.postMainTask(() -> pluginWindows.open(pluginId, contributionId)));
         settings.onChange("darkMode", ignored -> {
             DesktopFilePicker.setDarkTheme(settings.resolvedDarkValue());
             window.refreshSystemChromeTheme();
@@ -229,6 +236,8 @@ public final class Main {
         controller.setCoverPicker(playlistId ->
                 DesktopFilePicker.pickImage(selected -> window.postRenderTask(() ->
                         controller.setPlaylistCover(playlistId, selected))));
+        controller.setPluginPicker(() -> DesktopFilePicker.pickPlugin(
+                controller::inspectPluginPackage));
 
         // A second launch now surfaces this window instead of starting a new process.
         onActivate.set(() -> window.postMainTask(window::restoreFromTray));

@@ -37,8 +37,12 @@ Rectangle {
         : 10 + (bioExpanded ? bioFullProbe.contentHeight : bioCappedProbe.contentHeight)
               + (bioOverflows ? 28 : 0)
     property real profileH: avatarSize + descReserve
-    property int albumCount: player.artistAlbums ? player.artistAlbums.length : 0
-    property int songCount: player.artistSongs ? player.artistSongs.length : 0
+    property var visibleAlbums: player.openSourceArtistId !== ""
+                                ? player.sourceArtistAlbums : player.artistAlbums
+    property var visibleSongs: player.openSourceArtistId !== ""
+                               ? player.sourceArtistSongs : player.artistSongs
+    property int albumCount: visibleAlbums ? visibleAlbums.length : 0
+    property int songCount: visibleSongs ? visibleSongs.length : 0
     property real minAlbumTile: 130
     property int albumCols: Math.max(2, Math.floor((width - 2 * pad + gap) / (minAlbumTile + gap)))
     property real albumTile: (width - 2 * pad - (albumCols - 1) * gap) / albumCols
@@ -212,7 +216,7 @@ Rectangle {
                     }
 
                     Repeater {
-                        model: player.artistAlbums
+                        model: page.visibleAlbums
                         AlbumCard {
                             albumId: modelData.id
                             tile: page.albumTile
@@ -222,7 +226,7 @@ Rectangle {
                             count: modelData.trackCount
                             coverUrl: modelData.coverUrl
                             coverThumbPath: modelData.coverThumbPath || ""
-                            onClicked: player.openAlbum(modelData.id)
+                            onClicked: player.openMediaAlbum("" + modelData.id)
                         }
                     }
 
@@ -236,13 +240,13 @@ Rectangle {
                     }
 
                     Repeater {
-                        model: player.artistSongs
+                        model: page.visibleSongs
                         SongRow {
                             width: scroller.width
                             y: page.songsTop + index * page.rowH
                             rowTitle: modelData.name
                             rowArtist: modelData.artist
-                            rowArtistId: modelData.artistId || 0
+                            rowArtistId: modelData.artistMediaId || modelData.artistId || 0
                             rowArtistIdsCsv: modelData.artistIdsCsv || ""
                             rowArtistNamesCsv: modelData.artistNamesCsv || ""
                             coverThumbPath: modelData.coverThumbPath || ""

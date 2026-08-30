@@ -13,7 +13,7 @@ import "../components"
 // highlightByFilePath) rather than by row index, since this list is always the
 // full library regardless of what's actually queued/playing — an index match
 // alone would coincidentally light up an unrelated row whenever something
-// else (a netease playlist, search results, ...) happens to be playing at the
+// else (an online playlist, search results, ...) happens to be playing at the
 // same position. Comparing by filePath also means it stays correct under any
 // sort/filter, not just the default view.
 //

@@ -27,7 +27,7 @@ Menu {
     }
 
     function _playAction(pid) {
-        return function() { player.playPlaylist(pid) }
+        return function() { player.playMediaPlaylist("" + pid) }
     }
 
     function _openAction() {
@@ -35,6 +35,9 @@ Menu {
     }
 
     function _copyAction(pid) {
-        return function() { player.copyPlaylistLink(pid) }
+        return function() {
+            if (("" + pid).indexOf(":") >= 0) player.shareMedia("" + pid)
+            else player.copyPlaylistLink(pid)
+        }
     }
 }

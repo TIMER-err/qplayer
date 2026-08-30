@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <b>A cross-platform NetEase Cloud Music player with a QML-rendered UI</b><br>
+  <b>An extensible cross-platform music player with a QML-rendered UI</b><br>
   Powered by <a href="https://github.com/TIMER-err/qml4j">qml4j</a>
 </p>
 
@@ -48,12 +48,10 @@ The UI uses no native Views. Every control is described in QML and rendered by q
 
 ## Features
 
-- End-to-end playback over the NetEase Cloud Music API: recommendations, search, user playlists, recent, and local files.
-- QR login, like and unlike, a play queue, three play modes (list-loop, shuffle, repeat-one).
-- NetEase Listen Together: create a room, join through an invitation link, or restore an active room; synchronizes both listeners' queue, track, play/pause state, and position, with notifications for remote track, seek, and playback changes.
-- Heart Mode recommendations: build a recommendation queue from the user's Liked Songs and the current seed track, directly from a playlist page.
-- Source switching: greyed-out, VIP, and trial-only tracks are matched by title and artist against an alternate source and replaced before playback (toggleable).
-- Lyric page: drawn directly through Skija by the host. Per-syllable scrolling (AMLL TTML first, NetEase as a fallback), a cover-tinted fluid backdrop, romaji and translation, and a Material wavy progress bar; it can be dragged to scroll, flung with inertia, and tapped on a line to seek there.
+- Source plugins: QPlayer itself only provides player capabilities and neither embeds nor distributes online sources. JavaScript plugins may add recommendations, aggregate search, playlists, login, likes, recent playback, recommendation modes, and synchronized listening; the native pages adapt to each plugin's capabilities.
+- Local playback, a shared queue, and three play modes (list loop, shuffle, repeat one). Online entities use collision-free `provider:kind:id` identifiers.
+- Plugin security: signed `.qplug` packages, a signed catalog, permission confirmation, isolated Rhino realms, network-domain grants, namespaced credential storage, and separately sandboxed custom-QML sessions.
+- Lyric page: drawn directly through Skija by the host, with per-syllable scrolling, cover-tinted fluid backdrops, romaji and translation, and a Material wavy progress bar. Lyrics come from the active source plugin or local files.
 - Material 3 UI: the whole interface is QML (`md3.Core`) running on the qml4j engine.
 - Dynamic color (Monet): the theme is reseeded from the current cover (toggleable); dark, light, and follow-system modes.
 - System media controls and background playback: a foreground `MediaSession` service drives the lockscreen, notification, and bluetooth transport, with auto-advance, position sync, pause-on-call, and ducking on transient focus loss.
@@ -62,7 +60,7 @@ The UI uses no native Views. Every control is described in QML and rendered by q
 
 ## Credential storage and security boundary
 
-QPlayer encrypts NetEase login cookies with authenticated AES-GCM and, whenever available, protects the random data key with Android Keystore, macOS Keychain, Windows DPAPI, or Linux Secret Service/KWallet. If the system credential store is unavailable, the user may explicitly fall back to a local key restricted to the current user.
+QPlayer encrypts each plugin's login credentials with authenticated AES-GCM in a plugin-specific namespace and, whenever available, protects the random data key with Android Keystore, macOS Keychain, Windows DPAPI, or Linux Secret Service/KWallet. If the system credential store is unavailable, the user may explicitly fall back to a local key restricted to the current user.
 
 This feature provides **data-at-rest protection**, not protection against malware already running locally. It reduces the risk of restoring a login from copied credential files, configuration directories, backups, or old drives, and prevents other unprivileged operating-system accounts from directly reading the credentials.
 
@@ -73,13 +71,15 @@ This feature provides **data-at-rest protection**, not protection against malwar
 
 | Module | Description |
 |---|---|
-| `player-core/` | Platform-neutral core (Maven, `dev.t1m3.qplayer`): the QML-facing `PlayerController`, NetEase API, lyric parsers (LRC / YRC / TTML), audio and metadata abstractions, plus the host-drawn lyric page (fluid SkSL backdrop + per-syllable renderer + the `LyricCompositor`). Shared by the Android shell and the desktop host so both draw identical lyrics. |
+| `player-core/` | Platform-neutral core (Maven, `dev.t1m3.qplayer`): the QML-facing `PlayerController`, JavaScript plugin ABI and sandbox, lyric parsers (LRC / YRC / TTML), audio/metadata abstractions, and the host-drawn lyric page. It contains no online-source endpoints or protocol implementation. |
 | `shared-qml/` | Shared QML: `Main.qml` + the pages + components, the vendored `md3.Core` library, and bundled fonts (PingFang / Material Symbols). At the repo root; Android and desktop load the same copy (so the responsive layout applies to both). |
 | `android-shell/` | Android app (Gradle, `applicationId dev.t1m3.qplayer`, minSdk 26). Host integration in `…/android/`; the UI and lyrics come from the two shared modules above. |
 | `desktop-host/` | Desktop host (Maven): an LWJGL3 + GLFW window rendered with Skija, a switchable `GraphicsBackend` (`GLBackend` / `VulkanBackend`), a disposable render thread, a system tray, and desktop audio (javax.sound + SPI decoders). |
 | [qml4j](https://github.com/TIMER-err/qml4j) | The QML engine. A published dependency, **not** part of this repo. |
 
 `qml4j-core` is resolved from Maven Central; the in-repo `player-core` / `desktop-host` modules are built locally.
+
+See the [plugin authoring guide](docs/plugins.md) and [plugin security model](docs/plugin-security.md) for the ABI, permissions, package signing, media IDs, and migration rules.
 
 ## Build
 
@@ -147,12 +147,10 @@ Commit, then tag and push `v<versionName>` (e.g. `v0.8.4`) to trigger `release.y
 - [material-components-qml](https://github.com/sudoevolve/material-components-qml) — the Material 3 QML component library (`md3.Core`) the UI is built from (vendored, engine-adapted).
 - [SPlayer](https://github.com/imsyy/SPlayer) — visual and implementation reference for the fluid lyrics backdrop.
 - [AMLL](https://github.com/amll-dev/amll-player) — design reference for Apple Music-style lyrics and fluid backdrops.
-- [AMLL TTML DB](https://github.com/Steve-xmh/amll-ttml-db) — syllable-level lyrics.
-- [NeteaseCloudMusicApiEnhanced](https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced) — reference for the NetEase request-encryption schemes (weapi/eapi/xeapi).
 - [swingwebview](https://github.com/webliteca/swingwebview) — uses the system WebView for website login on desktop.
 - Icons are Material Symbols Rounded.
 
-> Personal/educational project. NetEase Cloud Music is a trademark of its respective owner; this app is an unofficial client and is not affiliated with NetEase.
+> QPlayer provides no online source or copyrighted media. Plugin authors and users are responsible for service terms and local law.
 
 ## License
 

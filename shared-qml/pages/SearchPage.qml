@@ -20,7 +20,7 @@ Item {
     property real cardTile: (width - 2 * gridPad - (gridCols - 1) * gridGap) / gridCols
     property real cardH: cardTile + 56
 
-    // Coalesce rapid IME edits into one network/local/custom search. Previously
+    // Coalesce rapid IME edits into one network/local search. Previously
     // every individual composition update synchronously filtered the full local
     // library and also queued two network searches, which could stall the render
     // thread and retain many obsolete result/cover generations after repeated use.
@@ -41,7 +41,6 @@ Item {
         } else {
             player.search(text)
             player.searchLocal(text)
-            player.searchCustom(text)
         }
         if (addHistory) player.addSearchHistory(text)
     }
@@ -619,17 +618,15 @@ Item {
         }
 
         // --- Search results (shown when input is not empty) ---
-        // Song mode keeps the unified list (network+local+custom); album/artist
-        // mode are their own card grids (playlist-cover style) straight off
-        // player.searchAlbumResults/searchArtistResults -- those entities only
-        // exist on netease, so there's no second/third source to merge in.
+        // Song mode keeps the unified list (enabled providers + local library);
+        // album/artist mode use their own playlist-cover-style card grids.
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             visible: query.text.length > 0
 
-            // One unified, always-scrollable list (网易云 first, then 本地, then
-            // 自定义源 — player.searchRows is built in that order by
+            // One unified, always-scrollable list (providers first, then local;
+            // player.searchRows is built in that order by
             // PlayerController.rebuildSearchRows()) instead of three independently
             // height-managed VirtualSongLists: those fought each other for space in
             // qml4j's ColumnLayout (which hands a fillHeight child whatever room is
@@ -637,8 +634,8 @@ Item {
             // every sibling like real Qt does), squeezing whichever section came
             // after the fillHeight one down to nothing under a short window.
             //
-            // SearchRow carries a source-specific menu identity (netease id, local path,
-            // or custom-api id), so the same right-click/long-press interaction remains
+            // SearchRow carries a canonical provider id or local path, so the same
+            // right-click/long-press interaction remains
             // available even though all three sources share one visual list.
             VirtualSongList {
                 id: unifiedResults
@@ -658,7 +655,9 @@ Item {
                 visible: player.searchMode === "album"
                 clip: true
                 contentWidth: width
-                property int count: player.searchAlbumResults ? player.searchAlbumResults.length : 0
+                property var results: player.sourceContentActive
+                                      ? player.sourceSearchAlbumResults : player.searchAlbumResults
+                property int count: results ? results.length : 0
                 contentHeight: Math.ceil(count / page.gridCols) * (page.cardH + page.gridGap) + page.gridGap
 
                 Item {
@@ -667,7 +666,7 @@ Item {
                     cachedLayout: true
 
                     Repeater {
-                        model: player.searchMode === "album" ? player.searchAlbumResults : null
+                        model: player.searchMode === "album" ? albumGrid.results : null
                         AlbumCard {
                             albumId: modelData.id
                             tile: page.cardTile
@@ -677,7 +676,7 @@ Item {
                             count: modelData.trackCount
                             coverUrl: modelData.coverUrl
                             coverThumbPath: modelData.coverThumbPath || ""
-                            onClicked: player.openAlbum(modelData.id)
+                            onClicked: player.openMediaAlbum("" + modelData.id)
                         }
                     }
                 }
@@ -689,7 +688,9 @@ Item {
                 visible: player.searchMode === "artist"
                 clip: true
                 contentWidth: width
-                property int count: player.searchArtistResults ? player.searchArtistResults.length : 0
+                property var results: player.sourceContentActive
+                                      ? player.sourceSearchArtistResults : player.searchArtistResults
+                property int count: results ? results.length : 0
                 contentHeight: Math.ceil(count / page.gridCols) * (page.cardH + page.gridGap) + page.gridGap
 
                 Item {
@@ -698,7 +699,7 @@ Item {
                     cachedLayout: true
 
                     Repeater {
-                        model: player.searchMode === "artist" ? player.searchArtistResults : null
+                        model: player.searchMode === "artist" ? artistGrid.results : null
                         ArtistCard {
                             artistId: modelData.id
                             tile: page.cardTile
@@ -708,7 +709,7 @@ Item {
                             count: modelData.musicSize
                             coverUrl: modelData.coverUrl
                             coverThumbPath: modelData.coverThumbPath || ""
-                            onClicked: player.openArtist(modelData.id)
+                            onClicked: player.openMediaArtist("" + modelData.id)
                         }
                     }
                 }

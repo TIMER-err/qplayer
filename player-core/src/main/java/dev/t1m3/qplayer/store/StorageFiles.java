@@ -37,6 +37,13 @@ public final class StorageFiles {
         writeBytesAtomic(target, content, false);
     }
 
+    /** Atomic write for encrypted credentials and key material. The pending and
+     * final files are both restricted before they become observable. */
+    public static synchronized void writeCredentialBytesAtomic(Path target, byte[] content)
+            throws IOException {
+        writeBytesAtomic(target, content, true);
+    }
+
     static synchronized void writeBytesAtomic(Path target, byte[] content, boolean ownerOnly)
             throws IOException {
         Path parent = target.getParent();

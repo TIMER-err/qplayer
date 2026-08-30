@@ -8,6 +8,9 @@ import java.io.InputStream;
 import java.io.RandomAccessFile;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * {@link SeekableByteSource} over an {@code http(s)} URL. A background thread
@@ -32,8 +35,16 @@ final class HttpByteSource implements SeekableByteSource {
     private volatile IOException error;
 
     private long pos = 0L;
+    private final Map<String, String> headers;
 
     HttpByteSource(String url) throws IOException {
+        this(url, Collections.emptyMap());
+    }
+
+    HttpByteSource(String url, Map<String, String> headers) throws IOException {
+        this.headers = headers == null || headers.isEmpty()
+                ? Collections.emptyMap()
+                : Collections.unmodifiableMap(new LinkedHashMap<>(headers));
         this.tempFile = File.createTempFile("qplayer-audio", ".tmp");
         this.tempFile.deleteOnExit();
         this.reader = new RandomAccessFile(tempFile, "r");
@@ -65,6 +76,12 @@ final class HttpByteSource implements SeekableByteSource {
             conn.setConnectTimeout(10_000);
             conn.setReadTimeout(20_000);
             conn.setRequestProperty("User-Agent", "qplayer");
+            for (Map.Entry<String, String> header : headers.entrySet()) {
+                if ("Host".equalsIgnoreCase(header.getKey())
+                        || "Content-Length".equalsIgnoreCase(header.getKey())
+                        || "Connection".equalsIgnoreCase(header.getKey())) continue;
+                conn.setRequestProperty(header.getKey(), header.getValue());
+            }
             conn.setInstanceFollowRedirects(true);
             conn.connect();
             long len = conn.getContentLengthLong();

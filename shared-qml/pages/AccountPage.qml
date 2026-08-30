@@ -111,7 +111,7 @@ Rectangle {
 
                             Text {
                                 Layout.fillWidth: true
-                                text: player.userName.length > 0 ? player.userName : "网易云用户"
+                                text: player.userName.length > 0 ? player.userName : "音源用户"
                                 color: Theme.color.onSurfaceColor
                                 font.family: Theme.typography.titleMedium.family
                                 font.pixelSize: Theme.typography.titleMedium.size

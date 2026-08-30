@@ -63,6 +63,7 @@ public final class DesktopWindow {
     /** Desktop lyrics floating window (issue #25) -- null until {@link
      *  #setLyricSettingsStore} is called (before {@link #init}). */
     private DesktopLyricWindow lyricWindow;
+    private PluginQmlWindows pluginQmlWindows;
     /** One clipboard bridge shared by QML text editing and controller actions
      *  such as "复制链接" / "复制一起听邀请". */
     private final GlfwClipboard clipboard = new GlfwClipboard(this);
@@ -195,6 +196,10 @@ public final class DesktopWindow {
         this.firstFrameListener = r;
     }
 
+    public void setPluginQmlWindows(PluginQmlWindows windows) {
+        this.pluginQmlWindows = windows;
+    }
+
     /**
      * Post a task to run on the render thread (input events).
      */
@@ -263,7 +268,10 @@ public final class DesktopWindow {
         // first frame; LyricCompositor uses the same cache for settled lyric chrome.
         v.renderer().setPictureCache(true);
         v.setClipboard(clipboard);
-        if (controller != null) v.context("player", controller);
+        if (controller != null) {
+            v.context("player", controller);
+            v.networkPolicy(controller::allowRemoteQmlResource);
+        }
         if (settings != null) v.context("settings", settings);
         // hostWindow must always be registered, even on mac/Linux where there's no
         // custom title bar -- qml4j's compiler rejects an undeclared top-level
@@ -959,6 +967,7 @@ public final class DesktopWindow {
                 }
             }
             if (lyricWindow != null) lyricWindow.updateMousePassthroughRegion();
+            if (pluginQmlWindows != null) pluginQmlWindows.pump();
             publishDesktopLyricsWithoutMainRenderer();
         }
     }
@@ -984,6 +993,9 @@ public final class DesktopWindow {
         stopRenderThread();
         if (lyricWindow != null) {
             try { lyricWindow.shutdown(); } catch (Throwable ignored) {}
+        }
+        if (pluginQmlWindows != null) {
+            try { pluginQmlWindows.close(); } catch (Throwable ignored) {}
         }
         if (view != null) {
             try {

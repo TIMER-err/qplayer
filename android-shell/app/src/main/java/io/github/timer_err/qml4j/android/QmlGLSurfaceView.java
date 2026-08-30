@@ -35,6 +35,7 @@ import dev.t1m3.qplayer.settings.SettingsCore;
 import dev.t1m3.qplayer.lyric.skia.LyricCompositor;
 import dev.t1m3.qplayer.lyric.skia.LyricConfig;
 import dev.t1m3.qplayer.resources.CompressedResources;
+import dev.t1m3.qplayer.plugin.PluginUiSession;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -49,6 +50,8 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     private final String qmlSource;
     private final QmlEngine engine;
     private final ResourceLoader resources;
+    private final PluginSessionFactory pluginSessionFactory;
+    private PluginUiSession pluginSession;
     private QmlView view;
     private SkijaGlSurface surface;
     private PlayerController controller;
@@ -105,6 +108,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         this.engine = engine;
         this.qmlSource = qmlSource;
         this.resources = resources;
+        this.pluginSessionFactory = null;
         this.uiScale = uiScale > 0 ? uiScale : 1f;
         setEGLContextClientVersion(2);
         setEGLConfigChooser(8, 8, 8, 8, 0, 8);
@@ -112,6 +116,27 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         // context alive cost ~75 MB on the test device and made this foreground-media
         // process an OEM low-memory-killer target. onPause() explicitly invalidates
         // Canvas/fluid GPU caches first, so they rebuild cleanly on resume.
+        setPreserveEGLContextOnPause(false);
+        setRenderer(new GlRenderer());
+        setRenderMode(RENDERMODE_CONTINUOUSLY);
+        setFocusable(true);
+        setFocusableInTouchMode(true);
+    }
+
+    @FunctionalInterface
+    public interface PluginSessionFactory { PluginUiSession create() throws Exception; }
+
+    /** Isolated custom-UI mode. The factory runs on the GL thread, so QML realm,
+     * scene construction and rendering all have one owner. */
+    public QmlGLSurfaceView(Context ctx, PluginSessionFactory factory, float uiScale) {
+        super(ctx);
+        this.engine = null;
+        this.qmlSource = null;
+        this.resources = null;
+        this.pluginSessionFactory = factory;
+        this.uiScale = uiScale > 0 ? uiScale : 1f;
+        setEGLContextClientVersion(2);
+        setEGLConfigChooser(8, 8, 8, 8, 0, 8);
         setPreserveEGLContextOnPause(false);
         setRenderer(new GlRenderer());
         setRenderMode(RENDERMODE_CONTINUOUSLY);
@@ -165,6 +190,10 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
             if (view != null) {
                 view.dispose();
                 view = null;
+            }
+            if (pluginSession != null) {
+                pluginSession.close();
+                pluginSession = null;
             }
             compositor.dispose();
             if (surface != null) {
@@ -228,6 +257,22 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         final int action = ev.getActionMasked();
         final float x = ev.getX() / uiScale;
         final float y = ev.getY() / uiScale;
+        if (pluginSessionFactory != null) {
+            if (action == MotionEvent.ACTION_DOWN) {
+                requestFocus();
+                queueEvent(() -> {
+                    if (view == null) return;
+                    boolean editable = view.pickTextEditable(x, y) != null;
+                    view.dispatchPointerDown(x, y);
+                    if (editable) showImeOnUiThread();
+                });
+            } else if (action == MotionEvent.ACTION_MOVE) {
+                queueEvent(() -> { if (view != null) view.dispatchPointerMove(x, y); });
+            } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                queueEvent(() -> { if (view != null) view.dispatchPointerUp(x, y); });
+            }
+            return true;
+        }
         switch (action) {
             case MotionEvent.ACTION_DOWN:
                 requestFocus();
@@ -499,6 +544,13 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
             surface.resize(width, height);
             try {
                 if (view == null) {
+                    if (pluginSessionFactory != null) {
+                        pluginSession = pluginSessionFactory.create();
+                        view = pluginSession.view();
+                        if (pluginSession.clipboardAllowed()) {
+                            view.setClipboard(new AndroidClipboard(getContext()));
+                        }
+                    } else {
                     view = QmlView.withStockTypes(engine).resources(resources);
                     // Cache stable top-level QML subtrees as SkPictures. This must be
                     // enabled before load() so every constructed Item participates in
@@ -511,7 +563,10 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                             hideImeOnUiThread();
                         }
                     });
-                    if (controller != null) view.context("player", controller);
+                    if (controller != null) {
+                        view.context("player", controller);
+                        view.networkPolicy(controller::allowRemoteQmlResource);
+                    }
                     if (settings != null) view.context("settings", settings);
                     // hostWindow (the desktop-only custom title bar bridge) must still
                     // resolve to something here: qml4j's compiler rejects an undeclared
@@ -532,6 +587,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                     byte[] iconFont = resources.load("fonts/MaterialSymbolsRounded.ttf");
                     if (iconFont != null) view.iconTypeface(iconFont);
                     view.load(qmlSource);
+                    }
                 }
                 if (view.root() != null) {
                     view.root().width.set(width / uiScale);
@@ -551,6 +607,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 long t0 = System.nanoTime();
                 long v0 = Property.changeVersion();
                 if (controller != null) controller.pump();
+                if (pluginSession != null) pluginSession.pump();
                 view.tickAnimations(System.nanoTime());
                 dq.flush();
                 profBumpTick += Property.changeVersion() - v0;
@@ -561,9 +618,17 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 // The QML main scene, the host lyric overlay (fluid backdrop + per-syllable
                 // column) and the QML lyric chrome subtree are composited by the shared
                 // LyricCompositor — the same code path the desktop LWJGL host runs.
-                compositor.composite(canvas, renderer, view, controller, settings,
-                        surface.recordingContext(), uiScale, surface.width(), surface.height());
-                if (compositor.skippedLayout()) profSkips++;
+                if (pluginSession != null) {
+                    int save = canvas.save();
+                    try {
+                        canvas.scale(uiScale, uiScale);
+                        renderer.render(canvas, view.root(), false);
+                    } finally { canvas.restoreToCount(save); }
+                } else {
+                    compositor.composite(canvas, renderer, view, controller, settings,
+                            surface.recordingContext(), uiScale, surface.width(), surface.height());
+                    if (compositor.skippedLayout()) profSkips++;
+                }
                 long t1b = System.nanoTime();
                 surface.present();
                 profileFrame(t0, t1, t1b, System.nanoTime());

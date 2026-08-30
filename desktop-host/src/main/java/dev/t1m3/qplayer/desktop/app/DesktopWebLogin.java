@@ -25,13 +25,11 @@ import java.util.function.Consumer;
 
 /**
  * In-process official-site login using the OS browser engine supplied by
- * swingwebview. The native cookie store is queried directly so HttpOnly
- * MUSIC_U is available; no second JVM, local HTTP callback, or credential log
- * is involved.
+ * swingwebview. The native cookie store is queried directly so the
+ * provider-declared HttpOnly credential cookie is available; no second JVM,
+ * local HTTP callback, or credential log is involved.
  */
 final class DesktopWebLogin {
-    private static final String LOGIN_URL = "https://music.163.com/#/login";
-    private static final String COOKIE_URL = "https://music.163.com/";
     private static final String WEBVIEW2_DATA_ENV = "WEBVIEW2_USER_DATA_FOLDER";
     private static final int CLEANUP_ATTEMPTS = 20;
     private static final ScheduledExecutorService DATA_CLEANER =
@@ -45,20 +43,38 @@ final class DesktopWebLogin {
 
     private DesktopWebLogin() {}
 
-    static void open(Consumer<String> onCookie, Consumer<String> onFailure,
+    static void open(String loginUrl, String cookieUrl, String credentialCookieName,
+            String providerName, Consumer<String> onCookie, Consumer<String> onFailure,
             Runnable onCancel) {
+        if (!validHttpsUrl(loginUrl) || !validHttpsUrl(cookieUrl)
+                || credentialCookieName == null
+                || !credentialCookieName.matches("[A-Za-z0-9_.-]{1,64}")) {
+            onFailure.accept("音源插件提供了无效的网页登录配置");
+            return;
+        }
         SwingUtilities.invokeLater(() -> {
             if (activeFrame != null && activeFrame.isDisplayable()) {
                 DesktopSwingFocus.requestForeground(activeFrame);
                 return;
             }
             try {
-                createWindow(onCookie, onFailure, onCancel);
+                createWindow(loginUrl, cookieUrl, credentialCookieName, providerName,
+                        onCookie, onFailure, onCancel);
             } catch (Throwable error) {
                 activeFrame = null;
                 onFailure.accept(friendlyError(error));
             }
         });
+    }
+
+    private static boolean validHttpsUrl(String value) {
+        if (value == null || value.isEmpty()) return false;
+        try {
+            java.net.URI uri = java.net.URI.create(value);
+            return "https".equalsIgnoreCase(uri.getScheme()) && uri.getHost() != null;
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
     }
 
     /** Close an in-flight login before the desktop host exits. JFrame disposal
@@ -80,20 +96,21 @@ final class DesktopWebLogin {
         }
     }
 
-    private static void createWindow(Consumer<String> onCookie,
+    private static void createWindow(String loginUrl, String cookieUrl,
+            String credentialCookieName, String providerName, Consumer<String> onCookie,
             Consumer<String> onFailure, Runnable onCancel) {
         WebView2SessionData sessionData = WebView2SessionData.create();
         WebViewComponent webView;
         try {
             webView = WebViewComponent.create();
-            webView.setUrl(LOGIN_URL);
+            webView.setUrl(loginUrl);
             webView.setPreferredSize(new Dimension(900, 700));
         } catch (Throwable error) {
             sessionData.close();
             throw error;
         }
 
-        JFrame frame = new JFrame("登录网易云音乐");
+        JFrame frame = new JFrame("登录" + providerName);
         activeFrame = frame;
         frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         frame.setLayout(new BorderLayout());
@@ -110,7 +127,7 @@ final class DesktopWebLogin {
         Timer cookiePoll = new Timer(650, event -> {
             if (queryInFlight[0] || !frame.isDisplayable()) return;
             queryInFlight[0] = true;
-            webView.getCookies(COOKIE_URL).whenComplete((header, error) -> {
+            webView.getCookies(cookieUrl).whenComplete((header, error) -> {
                 queryInFlight[0] = false;
                 if (!frame.isDisplayable() || submitted[0]) return;
                 if (error != null) {
@@ -127,7 +144,7 @@ final class DesktopWebLogin {
                     return;
                 }
                 consecutiveFailures[0] = 0;
-                if (!containsLoginCredential(header)) return;
+                if (!containsLoginCredential(header, credentialCookieName)) return;
                 submitted[0] = true;
                 ((Timer) event.getSource()).stop();
                 frame.dispose();
@@ -255,11 +272,12 @@ final class DesktopWebLogin {
         });
     }
 
-    private static boolean containsLoginCredential(String header) {
+    private static boolean containsLoginCredential(String header, String cookieName) {
         if (header == null || header.isEmpty()) return false;
+        String prefix = cookieName + "=";
         for (String part : header.split(";")) {
             String pair = part.trim();
-            if (pair.startsWith("MUSIC_U=") && pair.length() > "MUSIC_U=".length()) {
+            if (pair.startsWith(prefix) && pair.length() > prefix.length()) {
                 return true;
             }
         }

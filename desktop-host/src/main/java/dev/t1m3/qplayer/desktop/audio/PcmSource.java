@@ -1,6 +1,8 @@
 package dev.t1m3.qplayer.desktop.audio;
 
 import java.io.IOException;
+import java.util.Collections;
+import java.util.Map;
 
 /**
  * A decoded-audio stream: pulls 16-bit signed little-endian interleaved PCM out
@@ -35,7 +37,11 @@ public interface PcmSource extends AutoCloseable {
     /** Open the right decoder for {@code src}, sniffing the container by magic
      *  bytes (URLs often lack a usable extension). */
     static PcmSource open(String src) throws IOException {
-        SeekableByteSource bytes = SeekableByteSource.open(src);
+        return open(src, Collections.emptyMap());
+    }
+
+    static PcmSource open(String src, Map<String, String> headers) throws IOException {
+        SeekableByteSource bytes = SeekableByteSource.open(src, headers);
         try {
             switch (sniff(bytes)) {
                 case OGG:  return new OggPcmSource(bytes);

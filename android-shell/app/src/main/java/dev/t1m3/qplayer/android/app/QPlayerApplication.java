@@ -27,7 +27,7 @@ public final class QPlayerApplication extends Application {
     public void onCreate() {
         super.onCreate();
         // Install credential protection at process start, before an Activity or a
-        // restarted service can initialize NeteaseClient's singleton cookie jar.
+        // restarted service can initialize the delayed credential-migration reader.
         AppDirs.setBase(getFilesDir().getAbsolutePath());
         AppDirs.migrateLegacyLayout();
         CredentialKeyProtection.install(new AndroidKeystoreKeyProtector());

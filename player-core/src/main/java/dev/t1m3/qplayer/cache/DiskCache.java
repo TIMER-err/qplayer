@@ -7,6 +7,7 @@ import dev.t1m3.qplayer.util.Logger;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.file.Files;
@@ -16,6 +17,9 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+import java.security.MessageDigest;
+import java.security.GeneralSecurityException;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Unified disk cache for audio files, lyrics and cover images.
@@ -63,7 +67,7 @@ public final class DiskCache {
      *  Persisted as one id per line in {@code <baseDir>/actively-cached.txt}
      *  — colocated with the cache it protects (not a fixed AppDirs path) so
      *  it follows the desktop "custom cache location" setting's repointing. */
-    private final Set<Long> activelyCachedIds = Collections.synchronizedSet(new HashSet<>());
+    private final Set<String> activelyCachedIds = Collections.synchronizedSet(new HashSet<>());
     private volatile boolean activelyCachedDirty = false;
 
     public DiskCache(long maxSizeMB) {
@@ -99,6 +103,13 @@ public final class DiskCache {
         return baseDir + "/" + AUDIO + "/" + neteaseId + ".cache";
     }
 
+    /** Provider-neutral audio path. Canonical ids are hashed so percent-encoded
+     * native ids can never become filesystem syntax and filenames stay bounded. */
+    public String audioPath(String mediaId) {
+        if (mediaId == null || mediaId.isEmpty()) return null;
+        return baseDir + "/" + AUDIO + "/" + audioKey(mediaId) + ".cache";
+    }
+
     /** Resolve cache file for AMLL TTML lyrics keyed by song id. */
     public String lyricPath(long songId) {
         if (songId <= 0) return null;
@@ -132,6 +143,8 @@ public final class DiskCache {
         return p != null && new File(p).exists();
     }
 
+    public boolean hasAudio(String mediaId) { return getAudioWithoutTouch(mediaId) != null; }
+
     /** Delete a single cached audio file (cached-songs list right-click menu). */
     public boolean deleteAudio(long neteaseId) {
         String p = audioPath(neteaseId);
@@ -139,6 +152,14 @@ public final class DiskCache {
         File f = new File(p);
         boolean deleted = f.exists() && f.delete();
         if (deleted) unmarkActivelyCached(neteaseId);
+        return deleted;
+    }
+
+    public boolean deleteAudio(String mediaId) {
+        String path = getAudioWithoutTouch(mediaId);
+        if (path == null) return false;
+        boolean deleted = new File(path).delete();
+        if (deleted) unmarkActivelyCachedKey(fileStem(path));
         return deleted;
     }
 
@@ -156,14 +177,11 @@ public final class DiskCache {
             Path p = Paths.get(activelyCachedPath());
             if (!Files.isRegularFile(p)) return;
             String text = StorageFiles.readUtf8(p);
-            Set<Long> ids = new HashSet<>();
+            Set<String> ids = new HashSet<>();
             for (String line : text.split("\\R")) {
                 line = line.trim();
                 if (line.isEmpty()) continue;
-                try {
-                    ids.add(Long.parseLong(line));
-                } catch (NumberFormatException ignored) {
-                }
+                if (line.matches("[A-Za-z0-9._-]{1,128}")) ids.add(line);
             }
             activelyCachedIds.addAll(ids);
         } catch (Throwable e) {
@@ -172,20 +190,35 @@ public final class DiskCache {
     }
 
     public boolean isActivelyCached(long neteaseId) {
-        return activelyCachedIds.contains(neteaseId);
+        return activelyCachedIds.contains(Long.toString(neteaseId));
+    }
+
+
+    public boolean isActivelyCached(String mediaId) {
+        return activelyCachedIds.contains(audioKey(mediaId));
     }
 
     /** Mark a song as user-actively-cached (protects it from {@link #evictIfNeeded}).
      *  Call only after {@link #cacheAudio} actually succeeded — marking a song whose
      *  download failed would protect a file that doesn't exist. */
     public void markActivelyCached(long neteaseId) {
-        if (neteaseId == 0 || !activelyCachedIds.add(neteaseId)) return;
+        if (neteaseId == 0 || !activelyCachedIds.add(Long.toString(neteaseId))) return;
+        activelyCachedDirty = true;
+        saveActivelyCached();
+    }
+
+    public void markActivelyCached(String mediaId) {
+        if (mediaId == null || mediaId.isEmpty() || !activelyCachedIds.add(audioKey(mediaId))) return;
         activelyCachedDirty = true;
         saveActivelyCached();
     }
 
     private void unmarkActivelyCached(long neteaseId) {
-        if (activelyCachedIds.remove(neteaseId)) {
+        unmarkActivelyCachedKey(Long.toString(neteaseId));
+    }
+
+    private void unmarkActivelyCachedKey(String key) {
+        if (activelyCachedIds.remove(key)) {
             activelyCachedDirty = true;
             saveActivelyCached();
         }
@@ -196,7 +229,7 @@ public final class DiskCache {
         try {
             StringBuilder sb = new StringBuilder();
             synchronized (activelyCachedIds) {
-                for (Long id : activelyCachedIds) sb.append(id).append('\n');
+                for (String id : activelyCachedIds) sb.append(id).append('\n');
             }
             StorageFiles.writeUtf8Atomic(Paths.get(activelyCachedPath()), sb.toString());
             activelyCachedDirty = false;
@@ -229,6 +262,10 @@ public final class DiskCache {
     public String getAudio(long neteaseId) {
         String p = audioPath(neteaseId);
         return touch(p);
+    }
+
+    public String getAudio(String mediaId) {
+        return touch(getAudioWithoutTouch(mediaId));
     }
 
     /** Return the cached AMLL TTML lyric file path, or null. */
@@ -265,6 +302,13 @@ public final class DiskCache {
         String path = audioPath(neteaseId);
         downloadToFile(url, path);
     }
+
+    public void cacheAudio(String url, String mediaId) {
+        downloadToFile(url, audioPath(mediaId));
+    }
+
+    /** Called after a policy-aware host download atomically populated audioPath. */
+    public void finishExternalWrite() { evictIfNeeded(); }
 
     /** Write raw bytes to the AMLL TTML lyric cache file. */
     public void cacheLyric(byte[] data, long songId) {
@@ -397,7 +441,7 @@ public final class DiskCache {
             File[] children = dir.listFiles();
             if (children == null) continue;
             for (File f : children) {
-                if (dir == audioDir && isActivelyCached(parseAudioId(f))) continue; // protected
+                if (dir == audioDir && activelyCachedIds.contains(fileStem(f.getPath()))) continue; // protected
                 files.add(f);
             }
         }
@@ -423,14 +467,53 @@ public final class DiskCache {
     /** Parses the netease id back out of an audio cache filename ("{id}.cache"), or
      *  0 if it doesn't look like one (defensively -- a stray non-cache file should
      *  never match a real id and get treated as protected). */
-    private static long parseAudioId(File f) {
-        String n = f.getName();
-        if (!n.endsWith(".cache")) return 0L;
+    private String getAudioWithoutTouch(String mediaId) {
+        String generic = audioPath(mediaId);
+        if (generic != null && new File(generic).isFile()) return generic;
+        // Delayed migration for the old numeric NetEase filename. Never remove it
+        // until the canonical target was moved successfully.
         try {
-            return Long.parseLong(n.substring(0, n.length() - ".cache".length()));
-        } catch (NumberFormatException e) {
-            return 0L;
+            dev.t1m3.qplayer.media.MediaId id = dev.t1m3.qplayer.media.MediaId.parse(mediaId)
+                    .requireKind(dev.t1m3.qplayer.media.MediaKind.SONG);
+            if ("netease".equals(id.provider()) && id.nativeId().matches("[1-9][0-9]*")) {
+                String legacy = audioPath(Long.parseLong(id.nativeId()));
+                if (legacy != null && new File(legacy).isFile()) {
+                    Path source = Paths.get(legacy);
+                    Path target = Paths.get(generic);
+                    try {
+                        Files.createDirectories(target.getParent());
+                        Files.move(source, target);
+                        if (activelyCachedIds.remove(id.nativeId())) {
+                            activelyCachedIds.add(audioKey(mediaId));
+                            activelyCachedDirty = true;
+                            saveActivelyCached();
+                        }
+                        return generic;
+                    } catch (IOException ignored) {
+                        return legacy;
+                    }
+                }
+            }
+        } catch (IllegalArgumentException ignored) {
         }
+        return null;
+    }
+
+    private static String audioKey(String mediaId) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(mediaId.getBytes(StandardCharsets.UTF_8));
+            StringBuilder out = new StringBuilder("v2-");
+            for (byte value : digest) out.append(String.format(java.util.Locale.ROOT, "%02x", value & 0xff));
+            return out.toString();
+        } catch (GeneralSecurityException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    private static String fileStem(String path) {
+        String name = new File(path).getName();
+        return name.endsWith(".cache") ? name.substring(0, name.length() - 6) : name;
     }
 
     /** Count (not byte-size) cap on {@link #THUMB64}: delete the oldest files

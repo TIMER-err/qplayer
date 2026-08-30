@@ -38,15 +38,24 @@ final class DesktopFilePicker {
     }
 
     static void pickDirectory(String initialPath, Consumer<String> onPicked) {
-        show("选择目录", initialDirectory(initialPath), true, onPicked);
+        show("选择目录", initialDirectory(initialPath), true, null, null, onPicked);
     }
 
     static void pickImage(Consumer<String> onPicked) {
         File pictures = new File(System.getProperty("user.home", "."), "Pictures");
-        show("选择歌单封面", initialDirectory(pictures.getAbsolutePath()), false, onPicked);
+        show("选择歌单封面", initialDirectory(pictures.getAbsolutePath()), false,
+                "图片文件 (*.png, *.jpg, *.webp, *.gif, *.bmp)",
+                new String[]{"png", "jpg", "jpeg", "webp", "gif", "bmp"}, onPicked);
+    }
+
+    static void pickPlugin(Consumer<String> onPicked) {
+        File downloads = new File(System.getProperty("user.home", "."), "Downloads");
+        show("导入音源插件", initialDirectory(downloads.getAbsolutePath()), false,
+                "QPlayer 插件 (*.qplug)", new String[]{"qplug"}, onPicked);
     }
 
     private static void show(String title, File initialDirectory, boolean directoryOnly,
+                             String filterDescription, String[] extensions,
                              Consumer<String> onPicked) {
         if (!OPEN.compareAndSet(false, true)) return;
         SwingUtilities.invokeLater(() -> {
@@ -61,9 +70,10 @@ final class DesktopFilePicker {
                 } else {
                     chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
                     chooser.setAcceptAllFileFilterUsed(false);
-                    chooser.setFileFilter(new FileNameExtensionFilter(
-                            "图片文件 (*.png, *.jpg, *.webp, *.gif, *.bmp)",
-                            "png", "jpg", "jpeg", "webp", "gif", "bmp"));
+                    if (filterDescription != null && extensions != null) {
+                        chooser.setFileFilter(new FileNameExtensionFilter(
+                                filterDescription, extensions));
+                    }
                 }
 
                 // The GLFW main window cannot be passed as an AWT owner. Bring

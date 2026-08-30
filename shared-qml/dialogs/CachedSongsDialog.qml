@@ -3,7 +3,7 @@ import QtQuick.Layouts
 import md3.Core
 import "../components"
 
-// Offline-cached netease songs (cache/audio/*.cache). Opened by the top-bar
+// Offline-cached online songs (cache/audio/*.cache). Opened by the top-bar
 // download icon, which calls player.refreshCachedSongs() right before opening,
 // so player.cachedSongs is a fresh snapshot of what's actually on disk. Same
 // shape as the queue overlay: full-screen surface with a back button + title,

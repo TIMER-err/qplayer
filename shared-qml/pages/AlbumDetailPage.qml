@@ -73,7 +73,7 @@ Rectangle {
                 anchors.top: cover.top
                 anchors.topMargin: 6
                 text: player.albumArtistName
-                color: (player.albumArtistId !== 0 && artistArea.containsMouse)
+                color: (artistArea.enabled && artistArea.containsMouse)
                        ? Theme.color.primary : Theme.color.onSurfaceVariantColor
                 fontSize: 14
                 elide: Text.ElideRight
@@ -84,10 +84,12 @@ Rectangle {
                 anchors.right: artistLine.right
                 anchors.top: artistLine.top
                 anchors.bottom: artistLine.bottom
-                enabled: player.albumArtistId !== 0
+                enabled: player.albumArtistMediaId !== "" || player.albumArtistId !== 0
                 hoverEnabled: enabled
                 cursorShape: Qt.PointingHandCursor
-                onClicked: player.openArtist(player.albumArtistId)
+                onClicked: player.openMediaArtist(player.albumArtistMediaId !== ""
+                                                  ? player.albumArtistMediaId
+                                                  : ("" + player.albumArtistId))
             }
 
             Text {
@@ -96,10 +98,10 @@ Rectangle {
                 anchors.top: artistLine.bottom
                 anchors.topMargin: 8
                 text: player.albumPublishYear !== ""
-                      ? (player.albumPublishYear + ((player.albumTracks && player.albumTracks.length > 0)
-                             ? (" · " + player.albumTracks.length + " 首歌曲") : ""))
-                      : ((player.albumTracks && player.albumTracks.length > 0)
-                             ? (player.albumTracks.length + " 首歌曲") : "")
+                      ? (player.albumPublishYear + ((tracks.list && tracks.list.length > 0)
+                             ? (" · " + tracks.list.length + " 首歌曲") : ""))
+                      : ((tracks.list && tracks.list.length > 0)
+                             ? (tracks.list.length + " 首歌曲") : "")
                 color: Theme.color.onSurfaceVariantColor
                 fontSize: 12
             }
@@ -116,7 +118,8 @@ Rectangle {
                 // Drop the row delegates when the detail page is closed (see
                 // QueuePage): an invisible detail otherwise keeps the whole
                 // album's SongRows alive after you return.
-                list: page.visible ? player.albumTracks : null
+                list: page.visible ? (player.openSourceAlbumId !== ""
+                                      ? player.sourceAlbumTracks : player.albumTracks) : null
                 onActivated: player.playAlbumTrack(tracks.activatedIndex)
             }
 

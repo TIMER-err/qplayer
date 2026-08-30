@@ -24,10 +24,11 @@ Rectangle {
     onActiveChanged: {
         if (active) {
             player.clearWebLoginError();
-            loginMode = 0;
+            loginMode = player.pluginLoginActive && !player.pluginQrLoginAvailable
+                        ? (player.webLoginAvailable ? 1 : 2) : 0;
             cookieText = "";
             ready = false;
-            player.startQrLogin();
+            if (player.pluginLoginActive) player.startQrLogin();
             revealTimer.restart();
         }
     }
@@ -46,7 +47,7 @@ Rectangle {
         if (code === 802) return "已扫码，请在手机上确认";
         if (code === 803) return "登录成功";
         if (code === 800) return "二维码已过期，正在刷新…";
-        return "请用网易云音乐 App 扫码";
+        return "请使用 " + player.loginProviderName + " 扫码";
     }
 
     Timer {
@@ -64,7 +65,7 @@ Rectangle {
     Timer {
         interval: 800
         repeat: true
-        running: dialog.active && dialog.loginMode === 0
+        running: dialog.active && player.pluginLoginActive && dialog.loginMode === 0
         onTriggered: player.pollQrLogin()
     }
 
@@ -85,20 +86,35 @@ Rectangle {
 
             Text {
                 Layout.alignment: Qt.AlignHCenter
-                text: "登录网易云音乐"
+                text: "登录" + player.loginProviderName
                 color: Theme.color.onSurfaceColor
                 fontSize: 20
             }
 
+            Text {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: !player.pluginLoginActive
+                text: "当前主音源没有提供登录功能。请先在设置的插件页面导入并启用支持登录的音源插件。"
+                wrapMode: Text.WordWrap
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                color: Theme.color.onSurfaceVariantColor
+                fontSize: 14
+            }
+
             SegmentedButton {
+                visible: player.pluginLoginActive
                 Layout.fillWidth: true
                 Layout.preferredHeight: 40
                 selectedIndex: dialog.loginMode
                 buttons: [
-                    { text: "扫码", selected: dialog.loginMode === 0 },
+                    { text: "扫码", selected: dialog.loginMode === 0,
+                      enabled: !player.pluginLoginActive || player.pluginQrLoginAvailable },
                     { text: "网页登录", selected: dialog.loginMode === 1,
                       enabled: player.webLoginAvailable },
-                    { text: "Cookie", selected: dialog.loginMode === 2 }
+                    { text: "Cookie", selected: dialog.loginMode === 2,
+                      enabled: !player.pluginLoginActive || player.pluginCredentialLoginAvailable }
                 ]
                 onClicked: (index) => dialog.loginMode = index
             }
@@ -106,7 +122,7 @@ Rectangle {
             Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                visible: dialog.loginMode === 0
+                visible: player.pluginLoginActive && dialog.loginMode === 0
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -166,7 +182,7 @@ Rectangle {
             Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                visible: dialog.loginMode === 1
+                visible: player.pluginLoginActive && dialog.loginMode === 1
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -174,7 +190,7 @@ Rectangle {
                     Item { Layout.fillHeight: true }
                     Text {
                         Layout.fillWidth: true
-                        text: "将在系统 WebView 中打开网易云官网。登录成功后，QPlayer 会自动读取登录 Cookie、验证账号并加密保存。"
+                        text: player.loginWebInstructions
                         wrapMode: Text.WordWrap
                         horizontalAlignment: Text.AlignHCenter
                         color: Theme.color.onSurfaceVariantColor
@@ -184,7 +200,7 @@ Rectangle {
                         Layout.alignment: Qt.AlignHCenter
                         type: "filled"
                         icon: "open_in_new"
-                        text: player.webLoginBusy ? "正在等待登录…" : "打开网易云官网"
+                        text: player.webLoginBusy ? "正在等待登录…" : "打开官方网站"
                         enabled: !player.webLoginBusy
                         onClicked: player.startWebLogin()
                     }
@@ -204,7 +220,7 @@ Rectangle {
             Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                visible: dialog.loginMode === 2
+                visible: player.pluginLoginActive && dialog.loginMode === 2
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -212,7 +228,7 @@ Rectangle {
                     Item { Layout.fillHeight: true }
                     Text {
                         Layout.fillWidth: true
-                        text: "在 music.163.com 登录后按 F12，复制请求头中的 Cookie 值并粘贴到下方。Cookie 仅用于验证，成功后会按凭据保护设置加密保存。"
+                        text: player.loginCredentialInstructions
                         wrapMode: Text.WordWrap
                         color: Theme.color.onSurfaceVariantColor
                         fontSize: 13
@@ -220,7 +236,7 @@ Rectangle {
                     TextField {
                         Layout.fillWidth: true
                         type: "outlined"
-                        label: "Cookie 请求头"
+                        label: player.loginCredentialLabel
                         isPassword: true
                         text: dialog.cookieText
                         errorText: player.webLoginError

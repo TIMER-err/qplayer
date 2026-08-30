@@ -3,6 +3,8 @@ package dev.t1m3.qplayer.desktop.audio;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.util.Collections;
+import java.util.Map;
 
 /**
  * Random-access view over a compressed audio payload — a local file or a
@@ -44,8 +46,12 @@ interface SeekableByteSource extends AutoCloseable {
     void close();
 
     static SeekableByteSource open(String src) throws IOException {
+        return open(src, Collections.emptyMap());
+    }
+
+    static SeekableByteSource open(String src, Map<String, String> headers) throws IOException {
         if (src.startsWith("http://") || src.startsWith("https://")) {
-            return new HttpByteSource(src);
+            return new HttpByteSource(src, headers);
         }
         return new FileByteSource(src);
     }

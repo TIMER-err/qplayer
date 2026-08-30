@@ -73,6 +73,7 @@ public final class QPlayerActivity extends Activity {
     private static final int REQ_NOTIF = 2;
     private static final int REQ_COVER_PICK = 3;
     private static final int REQ_WEB_LOGIN = 4;
+    private static final int REQ_PLUGIN_PICK = 5;
 
     /** Playlist id awaiting a picked cover image, set right before launching the
      *  gallery picker and consumed in {@link #onActivityResult}. */
@@ -92,6 +93,8 @@ public final class QPlayerActivity extends Activity {
      *  so playback state and the foreground service stay connected across them. */
     private static volatile PlayerController sharedController;
 
+    static PlayerController sharedController() { return sharedController; }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -107,6 +110,8 @@ public final class QPlayerActivity extends Activity {
         long updatesBytes = dirSizeBytes(updatesDir);
         dev.t1m3.qplayer.util.Logger.info("updates cache: {} bytes before sweep", updatesBytes);
         deleteRecursive(updatesDir);
+        deleteRecursive(dev.t1m3.qplayer.store.AppDirs.cacheDir()
+                .resolve("plugin-imports").toFile());
 
         AudioBackend backend = new AndroidAudioBackend(this);
         reader = new AndroidMetadataReader(this);
@@ -146,7 +151,14 @@ public final class QPlayerActivity extends Activity {
         }));
         controller.setInstaller(this::downloadAndInstallUpdate);
         controller.setCoverPicker(this::pickPlaylistCover);
-        controller.setWebLoginLauncher(this::openNeteaseWebLogin);
+        controller.setPluginPicker(this::pickPluginPackage);
+        controller.setPluginUiLauncher((pluginId, contributionId) -> runOnUiThread(() -> {
+            android.content.Intent intent = new android.content.Intent(this, PluginUiActivity.class);
+            intent.putExtra(PluginUiActivity.EXTRA_PLUGIN_ID, pluginId);
+            intent.putExtra(PluginUiActivity.EXTRA_CONTRIBUTION_ID, contributionId);
+            startActivity(intent);
+        }));
+        controller.setWebLoginLauncher(this::openWebLogin);
 
         // Playback control runs on the main thread (alive in the background, unlike
         // the GL render thread); the service mirrors state to the media session and
@@ -186,6 +198,7 @@ public final class QPlayerActivity extends Activity {
         settings.registerAction("checkUpdate", controller::checkForUpdateManual);
         settings.registerAction("openRepo",
                 () -> controller.openExternalUrl("https://github.com/TIMER-err/qplayer"));
+        settings.registerAction("importPlugin", controller::requestPluginImport);
         settings.registerInfo("version", () -> "v" + controller.appVersion.peek());
         settings.registerInfo("cacheUsage", () -> controller.cacheSizeMB.peek() + " MB");
         settings.load(new PrefsSettingsStore(this), SettingsCatalog.ANDROID);
@@ -504,11 +517,32 @@ public final class QPlayerActivity extends Activity {
         }
     }
 
-    private void openNeteaseWebLogin() {
+    private void pickPluginPackage() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/octet-stream");
+        intent.putExtra(Intent.EXTRA_MIME_TYPES,
+                new String[]{"application/octet-stream", "application/zip"});
+        try {
+            startActivityForResult(intent, REQ_PLUGIN_PICK);
+        } catch (Throwable error) {
+            dev.t1m3.qplayer.util.Logger.error(
+                    "no document provider to pick a plugin: {}", error.toString());
+        }
+    }
+
+    private void openWebLogin(String loginUrl, String cookieUrl,
+            String credentialCookieName, String providerName) {
         runOnUiThread(() -> {
             try {
                 startActivityForResult(
-                        new Intent(this, NeteaseWebLoginActivity.class), REQ_WEB_LOGIN);
+                        new Intent(this, SourceWebLoginActivity.class)
+                                .putExtra(SourceWebLoginActivity.EXTRA_LOGIN_URL, loginUrl)
+                                .putExtra(SourceWebLoginActivity.EXTRA_COOKIE_URL, cookieUrl)
+                                .putExtra(SourceWebLoginActivity.EXTRA_CREDENTIAL_COOKIE,
+                                        credentialCookieName)
+                                .putExtra(SourceWebLoginActivity.EXTRA_PROVIDER_NAME, providerName),
+                        REQ_WEB_LOGIN);
             } catch (Throwable e) {
                 controller.failWebLogin("无法打开系统 WebView，请使用粘贴 Cookie 登录");
             }
@@ -521,10 +555,30 @@ public final class QPlayerActivity extends Activity {
         if (requestCode == REQ_WEB_LOGIN) {
             if (resultCode == Activity.RESULT_OK && data != null) {
                 controller.completeWebLogin(data.getStringExtra(
-                        NeteaseWebLoginActivity.EXTRA_COOKIE_HEADER));
+                        SourceWebLoginActivity.EXTRA_COOKIE_HEADER));
             } else {
                 controller.cancelWebLogin();
             }
+            return;
+        }
+        if (requestCode == REQ_PLUGIN_PICK) {
+            if (resultCode != Activity.RESULT_OK || data == null || data.getData() == null) return;
+            android.net.Uri uri = data.getData();
+            new Thread(() -> {
+                try (InputStream input = getContentResolver().openInputStream(uri)) {
+                    if (input == null) return;
+                    java.nio.file.Path imports = dev.t1m3.qplayer.store.AppDirs.cacheDir()
+                            .resolve("plugin-imports");
+                    java.nio.file.Files.createDirectories(imports);
+                    java.nio.file.Path target = imports.resolve(
+                            java.util.UUID.randomUUID().toString() + ".qplug");
+                    java.nio.file.Files.copy(input, target);
+                    controller.inspectTemporaryPluginPackage(target.toString());
+                } catch (Throwable error) {
+                    dev.t1m3.qplayer.util.Logger.warn(
+                            "read picked plugin failed: {}", error.toString());
+                }
+            }, "qplayer-plugin-pick").start();
             return;
         }
         if (requestCode != REQ_COVER_PICK || resultCode != Activity.RESULT_OK || data == null) return;

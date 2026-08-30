@@ -330,8 +330,8 @@ Item {
     // Jump to the artist's page. Main.qml's page stack keeps the lyric route
     // underneath and closes its separately-rendered host layer while the artist
     // route is current; Back therefore returns here instead of losing context.
-    // Disabled (no pointer/tap) for local/custom tracks, which have no
-    // netease artist id to open.
+    // Disabled (no pointer/tap) for local/custom tracks, which have no provider
+    // artist identity to open.
     MouseArea {
         anchors.fill: artistText
         enabled: player.playingArtistId !== 0

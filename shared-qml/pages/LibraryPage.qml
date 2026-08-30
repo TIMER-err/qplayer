@@ -16,7 +16,7 @@ Item {
         id: grid
         anchors.fill: parent
         visible: player.loggedIn
-        list: player.myPlaylists
+        list: player.sourceContentActive ? player.sourceMyPlaylists : player.myPlaylists
         onOpenPlaylist: { page.pendingPlaylist = grid.pendingPlaylist; page.openPlaylist() }
     }
 
@@ -26,7 +26,8 @@ Item {
         anchors.bottom: parent.bottom
         anchors.rightMargin: 16
         anchors.bottomMargin: 16
-        visible: player.loggedIn
+        visible: player.loggedIn && (!player.sourceContentActive
+                                     || player.sourcePlaylistMutationAvailable)
         type: "standard"
         icon: "add"
         onClicked: { nameField.text = ""; createDialog.open() }
@@ -62,7 +63,7 @@ Item {
         }
         Button {
             Layout.alignment: Qt.AlignHCenter
-            type: "filled"; text: "扫码登录"
+            type: "filled"; text: "登录音源账号"
             onClicked: page.requestLogin()
         }
     }

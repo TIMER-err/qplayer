@@ -2,14 +2,13 @@ package dev.t1m3.qplayer.bridge;
 
 /**
  * One row in the unified search-results list (SearchPage.qml): a flattened,
- * uniformly-shaped view over whichever of {@link PlayerController#searchResults}
- * (netease), {@link PlayerController#localSearchResults} or
- * {@link PlayerController#customSearchResults} it was built from. {@code kind}
+ * uniformly-shaped view over provider, built-in compatibility and local results.
+ * {@code kind}
  * + {@code index} let {@link PlayerController#playSearchRow(int)} route a click
  * back to the right source-specific play method without re-deriving identity.
  */
 public final class SearchRow {
-    /** "netease" | "local" | "custom". */
+    /** "plugin" | "netease" | "local" | "custom". */
     public String kind;
     /** Index into the source list named by {@link #kind}. */
     public int index;
@@ -32,8 +31,13 @@ public final class SearchRow {
     public long id;
     public String filePath;
     public String customId;
+    /** Canonical source-qualified id for plugin rows. */
+    public String mediaId = "";
+    public String artistMediaId = "";
+    /** Provider owning {@link #mediaId}; empty for legacy/local rows. */
+    public String providerId = "";
     public boolean menuEnabled;
-    /** Display label for {@link #kind} ("网易云"/"本地"/"自定义源"), shown as a
+    /** Display label for {@link #kind} (provider name or "本地"), shown as a
      *  small per-row tag in SearchPage.qml's unified list — precomputed here so
      *  QML doesn't need its own kind-to-label mapping. */
     public String kindLabel;

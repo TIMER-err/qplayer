@@ -34,10 +34,16 @@
         </activity>
 
         <activity
-            android:name="dev.t1m3.qplayer.android.ui.NeteaseWebLoginActivity"
+            android:name="dev.t1m3.qplayer.android.ui.SourceWebLoginActivity"
             android:exported="false"
             android:excludeFromRecents="true"
             android:theme="@style/AppTheme" />
+
+        <activity
+            android:name="dev.t1m3.qplayer.android.ui.PluginUiActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode" />
 
         <service
             android:name="dev.t1m3.qplayer.android.playback.PlaybackService"

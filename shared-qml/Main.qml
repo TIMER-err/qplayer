@@ -61,9 +61,9 @@ Rectangle {
     onPageNavigationWatchChanged: {
         if (pageNavigationWatch <= 0) return
         if (player.pageNavigationTarget === "artist")
-            app.pushPage("artist", player.openArtistId)
+            app.pushPage("artist", player.pageNavigationEntityId)
         else if (player.pageNavigationTarget === "album")
-            app.pushPage("album", player.openAlbumId)
+            app.pushPage("album", player.pageNavigationEntityId)
     }
     // Host-side closes are uncommon (normal back now pops the stack), but mirror
     // one if it happens so the route cannot remain logically open after its
@@ -223,12 +223,12 @@ Rectangle {
 
     function restoreCurrentPage(route) {
         if (!route) return
-        if (route.type === "artist" && player.openArtistId != route.entityId)
-            player.openArtist(route.entityId)
-        else if (route.type === "album" && player.openAlbumId != route.entityId)
-            player.openAlbum(route.entityId)
-        else if (route.type === "detail" && player.openPlaylistId != route.entityId)
-            player.openPlaylist(route.entityId)
+        if (route.type === "artist")
+            player.openMediaArtist("" + route.entityId)
+        else if (route.type === "album")
+            player.openMediaAlbum("" + route.entityId)
+        else if (route.type === "detail")
+            player.openMediaPlaylist("" + route.entityId)
     }
 
     function popPage() {
@@ -486,7 +486,7 @@ Rectangle {
             // Logged-in users get the listen-together action next to the account
             // entry on both the compact rail (tablets) and the extended rail
             // (desktop). Collapse the extra row entirely while signed out.
-            implicitHeight: player.loggedIn ? 212 : 164
+            implicitHeight: player.loggedIn && player.listenTogetherAvailable ? 212 : 164
 
             Rectangle {
                 x: 12
@@ -497,7 +497,7 @@ Rectangle {
             }
 
             Repeater {
-                model: player.loggedIn
+                model: player.loggedIn && player.listenTogetherAvailable
                     ? [
                         { action: "download", icon: "download", text: "已下载" },
                         { action: "together", icon: "group", text: "一起听" },
@@ -620,7 +620,7 @@ Rectangle {
             }
         }
         IconButton {
-            visible: !app.wide && player.loggedIn
+            visible: !app.wide && player.loggedIn && player.listenTogetherAvailable
             type: "standard"
             icon: "group"
             contentColor: player.listenTogetherInRoom
@@ -675,7 +675,7 @@ Rectangle {
                     anchors.fill: parent
                     visible: app.page === 0
                     onOpenPlaylist: {
-                        player.openPlaylist(home.pendingPlaylist.id)
+                        player.openMediaPlaylist("" + home.pendingPlaylist.id)
                         app.replacePage("detail", home.pendingPlaylist.id)
                     }
                 }
@@ -693,7 +693,7 @@ Rectangle {
                         LibraryPage {
                             id: libraryPage
                             onOpenPlaylist: {
-                                player.openPlaylist(libraryPage.pendingPlaylist.id)
+                                player.openMediaPlaylist("" + libraryPage.pendingPlaylist.id)
                                 app.replacePage("detail", libraryPage.pendingPlaylist.id)
                             }
                             onRequestLogin: app.loginOpen = true

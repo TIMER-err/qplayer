@@ -1,7 +1,6 @@
 package dev.t1m3.qplayer.bridge;
 
 import dev.t1m3.qplayer.audio.AudioBackend;
-import dev.t1m3.qplayer.customapi.CustomSong;
 import dev.t1m3.qplayer.model.Track;
 import dev.t1m3.qplayer.netease.NeteaseClient;
 import dev.t1m3.qplayer.netease.dto.NeteaseSong;
@@ -496,17 +495,12 @@ public class PlayerControllerPlaybackTest {
             Track local = new Track();
             local.title = "local";
             local.filePath = "/music/local.flac";
-            CustomSong custom = new CustomSong();
-            custom.id = "external-7";
-            custom.name = "custom";
-
             controller.searchResults.set(Arrays.asList(netease));
             controller.localSearchResults.set(Arrays.asList(local));
-            controller.customSearchResults.set(Arrays.asList(custom));
             controller.rebuildSearchRows();
 
             java.util.List<SearchRow> rows = controller.searchRows.peek();
-            assertEquals(3, rows.size());
+            assertEquals(2, rows.size());
             assertTrue(rows.get(0).menuEnabled);
             assertEquals(42L, rows.get(0).id);
             assertEquals(7L, rows.get(0).artistId);
@@ -514,15 +508,6 @@ public class PlayerControllerPlaybackTest {
             assertEquals("first\u0001second", rows.get(0).artistNamesCsv);
             assertTrue(rows.get(1).menuEnabled);
             assertEquals("/music/local.flac", rows.get(1).filePath);
-            assertTrue(rows.get(2).menuEnabled);
-            assertEquals("external-7", rows.get(2).customId);
-
-            controller.addCustomApiToCustomPlaylist("external-7");
-            assertTrue(controller.isCustomApiInCustomPlaylist("external-7"));
-            assertEquals(Track.Source.CUSTOM_API,
-                    controller.customPlaylistTracks.peek().get(0).source);
-            controller.removeCustomApiFromCustomPlaylist("external-7");
-            assertFalse(controller.isCustomApiInCustomPlaylist("external-7"));
         } finally {
             if (controller != null) controller.shutdown();
             AppDirs.setBase(oldBase);
@@ -580,19 +565,15 @@ public class PlayerControllerPlaybackTest {
             netease.id = 1L;
             Track local = new Track();
             local.filePath = "/music/old.flac";
-            CustomSong custom = new CustomSong();
-            custom.id = "old-custom";
             controller.searchResults.set(Arrays.asList(netease));
             controller.localSearchResults.set(Arrays.asList(local));
-            controller.customSearchResults.set(Arrays.asList(custom));
             controller.rebuildSearchRows();
-            assertEquals(3, controller.searchRows.peek().size());
+            assertEquals(2, controller.searchRows.peek().size());
 
             controller.prepareSearch("new keyword");
 
             assertTrue(controller.searchResults.peek().isEmpty());
             assertTrue(controller.localSearchResults.peek().isEmpty());
-            assertTrue(controller.customSearchResults.peek().isEmpty());
             assertTrue(controller.searchRows.peek().isEmpty());
             assertEquals(Integer.valueOf(0), controller.resultCount.peek());
         } finally {

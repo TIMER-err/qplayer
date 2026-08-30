@@ -56,13 +56,19 @@ Rectangle {
                 Layout.alignment: Qt.AlignVCenter
                 type: "standard"
                 visible: player.loggedIn && !player.playlistLoading
-                         && player.playlistTracks && player.playlistTracks.length > 0
+                         && tracks.list && tracks.list.length > 0
+                         && (player.openSourcePlaylistId === ""
+                             || player.sourceHeartRecommendationAvailable)
                 enabled: !player.intelligenceLoading
                 icon: "auto_awesome"
                 contentColor: player.intelligenceLoading
                               ? Theme.color.primary
                               : Theme.color.onSurfaceVariantColor
-                onClicked: player.startIntelligenceMode(player.openPlaylistId)
+                onClicked: {
+                    if (player.openSourcePlaylistId !== "")
+                        player.startMediaIntelligenceMode(player.openSourcePlaylistId)
+                    else player.startIntelligenceMode(player.openPlaylistId)
+                }
             }
             // Collect (subscribe) this playlist. Shown only once loaded and only for
             // playlists that aren't the user's own; filled when already collected. The
@@ -71,6 +77,8 @@ Rectangle {
                 Layout.alignment: Qt.AlignVCenter
                 type: "standard"
                 visible: player.loggedIn && !player.playlistLoading && !player.playlistOwned
+                         && (player.openSourcePlaylistId === ""
+                             || player.sourcePlaylistMutationAvailable)
                 icon: player.playlistSubscribed ? "bookmark" : "bookmark_border"
                 contentColor: player.playlistSubscribed ? Theme.color.primary : Theme.color.onSurfaceColor
                 onClicked: player.togglePlaylistSubscribe()
@@ -82,6 +90,7 @@ Rectangle {
                 Layout.alignment: Qt.AlignVCenter
                 type: "standard"
                 visible: player.loggedIn && !player.playlistLoading && player.playlistOwned
+                         && player.openSourcePlaylistId === ""
                 icon: "image"
                 onClicked: player.pickPlaylistCover(player.openPlaylistId)
             }
@@ -107,7 +116,8 @@ Rectangle {
                 // Drop the row delegates when the detail page is closed (see
                 // QueuePage): an invisible detail otherwise keeps the whole
                 // playlist's SongRows alive after you return home.
-                list: page.visible ? player.playlistTracks : null
+                list: page.visible ? (player.openSourcePlaylistId !== ""
+                                     ? player.sourcePlaylistTracks : player.playlistTracks) : null
                 // Long-press a track → add to another playlist, and (in your own
                 // playlist) remove it from this one. Not login-gated: "加入播放列表"
                 // (local list) works signed-out too.
@@ -137,7 +147,9 @@ Rectangle {
         acceptText: "删除"
         rejectText: "取消"
         onAccepted: {
-            player.deletePlaylist(player.openPlaylistId)
+            if (player.openSourcePlaylistId !== "")
+                player.deleteMediaPlaylist(player.openSourcePlaylistId)
+            else player.deletePlaylist(player.openPlaylistId)
             page.back()
         }
     }

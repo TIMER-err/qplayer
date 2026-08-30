@@ -12,6 +12,8 @@ import dev.t1m3.qplayer.audio.AudioBackend;
 import dev.t1m3.qplayer.util.Logger;
 
 import java.io.IOException;
+import java.util.Collections;
+import java.util.Map;
 
 /**
  * {@link AudioBackend} over {@code android.media.MediaPlayer}. MediaPlayer
@@ -52,6 +54,11 @@ public final class AndroidAudioBackend implements AudioBackend {
 
     @Override
     public synchronized void play(String src, long startMs) {
+        play(src, Collections.emptyMap(), startMs);
+    }
+
+    @Override
+    public synchronized void play(String src, Map<String, String> headers, long startMs) {
         if (src == null || src.isEmpty()) return;
         releasePlayer();
         source = src;
@@ -76,7 +83,7 @@ public final class AndroidAudioBackend implements AudioBackend {
         player = mp;
         try {
             Logger.info("MediaPlayer: setDataSource + prepareAsync");
-            setDataSource(mp, src);
+            setDataSource(mp, src, headers);
             mp.prepareAsync();
         } catch (IOException | IllegalStateException e) {
             Logger.error("MediaPlayer setDataSource failed: {}", e.getMessage());
@@ -88,9 +95,12 @@ public final class AndroidAudioBackend implements AudioBackend {
      *  overload — the {@code String} overload has no calling context to resolve it
      *  and prepareAsync then fails async with extra=MEDIA_ERROR_SYSTEM (0x80000000).
      *  http(s) urls and plain file paths take the string overload. */
-    private void setDataSource(MediaPlayer mp, String src) throws IOException {
+    private void setDataSource(MediaPlayer mp, String src, Map<String, String> headers) throws IOException {
         if (src.startsWith("content://")) {
             mp.setDataSource(appContext, Uri.parse(src));
+        } else if ((src.startsWith("http://") || src.startsWith("https://"))
+                && headers != null && !headers.isEmpty()) {
+            mp.setDataSource(appContext, Uri.parse(src), headers);
         } else {
             mp.setDataSource(src);
         }

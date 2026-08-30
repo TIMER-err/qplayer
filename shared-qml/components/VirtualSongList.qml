@@ -112,7 +112,7 @@ Flickable {
                 y: index * view.rowH
                 rowTitle: view.isLocal ? modelData.title : modelData.name
                 rowArtist: modelData.artist
-                rowArtistId: modelData.artistId || 0
+                rowArtistId: modelData.artistMediaId || modelData.artistId || 0
                 rowArtistIdsCsv: modelData.artistIdsCsv || ""
                 rowArtistNamesCsv: modelData.artistNamesCsv || ""
                 coverThumbPath: modelData.coverThumbPath || ""

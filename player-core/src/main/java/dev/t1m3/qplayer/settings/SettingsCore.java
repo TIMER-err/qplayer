@@ -4,7 +4,6 @@ import io.github.timer_err.qml4j.engine.QObject;
 import io.github.timer_err.qml4j.engine.binding.Property;
 
 import dev.t1m3.qplayer.bridge.PlayerController;
-import dev.t1m3.qplayer.customapi.CustomApiConfig;
 import dev.t1m3.qplayer.lyric.skia.Fonts;
 import dev.t1m3.qplayer.lyric.skia.LyricCompositor;
 import dev.t1m3.qplayer.lyric.skia.LyricConfig;
@@ -403,14 +402,11 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
     private void apply(SettingSpec spec, Object v) {
         if (spec.key.startsWith("lyric") && !SettingsCatalog.BG_MODE_KEY.equals(spec.key)) {
             applyLyricConfig();
-        } else if (spec.key.startsWith("customApi")) {
-            pushCustomApi();
         } else if ("darkMode".equals(spec.key)) {
             recomputeDark();
         } else if (controller != null) {
             switch (spec.key) {
                 case "monet": controller.setMonetEnabled(bool("monet")); break;
-                case "unblock": controller.setUnblockEnabled(bool("unblock")); break;
                 case "mirror": controller.setUpdateMirror(bool("mirror")); break;
                 case "fade": controller.setFadeEnabled(bool("fade")); break;
                 case "highQuality": controller.setHighQualityEnabled(bool("highQuality")); break;
@@ -430,32 +426,10 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
     private void pushToController() {
         if (controller == null) return;
         controller.setMonetEnabled(bool("monet"));
-        controller.setUnblockEnabled(bool("unblock"));
         controller.setUpdateMirror(bool("mirror"));
         controller.setFadeEnabled(bool("fade"));
         controller.setHighQualityEnabled(bool("highQuality"));
         controller.setCacheMaxSizeMB(intOf("maxCacheSizeMB"));
-        pushCustomApi();
-    }
-
-    private void pushCustomApi() {
-        if (controller == null) return;
-        CustomApiConfig cfg = new CustomApiConfig();
-        cfg.enabled = bool("customApiEnabled");
-        cfg.searchUrl = str("customApiSearchUrl");
-        cfg.searchListPath = str("customApiSearchListPath");
-        cfg.idPath = str("customApiIdPath");
-        cfg.namePath = str("customApiNamePath");
-        cfg.artistPath = str("customApiArtistPath");
-        cfg.albumPath = str("customApiAlbumPath");
-        cfg.coverPath = str("customApiCoverPath");
-        cfg.durationPath = str("customApiDurationPath");
-        cfg.urlUrl = str("customApiUrlUrl");
-        cfg.urlResultPath = str("customApiUrlResultPath");
-        cfg.lyricUrl = str("customApiLyricUrl");
-        cfg.lyricResultPath = str("customApiLyricResultPath");
-        cfg.extraHeaders = str("customApiHeaders");
-        controller.setCustomApiConfig(cfg);
     }
 
     private void applyLyricConfig() {

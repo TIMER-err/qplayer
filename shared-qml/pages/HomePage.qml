@@ -21,8 +21,12 @@ Item {
     property real tile: (width - 2 * pad - (cols - 1) * gap) / cols
     property real cardH: tile + 72
 
-    property int recCount: player.recommendPlaylists ? player.recommendPlaylists.length : 0
-    property int dailyCount: player.recommendations ? player.recommendations.length : 0
+    property var homePlaylists: player.sourceContentActive
+                                ? player.sourceRecommendPlaylists : player.recommendPlaylists
+    property var homeSongs: player.sourceContentActive
+                            ? player.sourceRecommendations : player.recommendations
+    property int recCount: homePlaylists ? homePlaylists.length : 0
+    property int dailyCount: homeSongs ? homeSongs.length : 0
     property real gridH: Math.ceil(recCount / cols) * (cardH + gap)
     property real dailyHdrY: greetH + gridH + 4
     property real dailyTop: dailyHdrY + (dailyCount > 0 ? 40 : 0)
@@ -70,7 +74,7 @@ Item {
             }
 
             Repeater {
-                model: player.recommendPlaylists
+                model: page.homePlaylists
                 PlaylistCard {
                     playlistId: modelData.id
                     tile: page.tile
@@ -94,13 +98,13 @@ Item {
             }
 
             Repeater {
-                model: player.recommendations
+                model: page.homeSongs
                 SongRow {
                     width: page.width
                     y: page.dailyTop + index * page.rowH
                     rowTitle: modelData.name
                     rowArtist: modelData.artist
-                    rowArtistId: modelData.artistId || 0
+                    rowArtistId: modelData.artistMediaId || modelData.artistId || 0
                     rowArtistIdsCsv: modelData.artistIdsCsv || ""
                     rowArtistNamesCsv: modelData.artistNamesCsv || ""
                     coverThumbPath: modelData.coverThumbPath || ""

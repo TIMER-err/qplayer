@@ -10,6 +10,9 @@ import org.lwjgl.system.MemoryUtil;
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 import java.util.ArrayDeque;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -54,6 +57,7 @@ public final class DesktopAudioBackend implements AudioBackend {
     private final AtomicLong sourceRevision = new AtomicLong();
 
     private volatile String source;
+    private volatile Map<String, String> sourceHeaders = Collections.emptyMap();
     private volatile float volume = 0.8f;
     private volatile Thread audioThread;
     private volatile Runnable onComplete;
@@ -78,9 +82,17 @@ public final class DesktopAudioBackend implements AudioBackend {
 
     @Override
     public void play(String src, long startMs) {
+        play(src, Collections.emptyMap(), startMs);
+    }
+
+    @Override
+    public void play(String src, Map<String, String> headers, long startMs) {
         if (src == null || src.isEmpty()) return;
         long target = Math.max(0L, startMs);
         this.source = src;
+        this.sourceHeaders = headers == null || headers.isEmpty()
+                ? Collections.emptyMap()
+                : Collections.unmodifiableMap(new LinkedHashMap<>(headers));
         sourceRevision.incrementAndGet();
         // Publish the new track's baseline synchronously. Until the audio thread
         // opens/decodes/primes the source it would otherwise keep exposing the old
@@ -211,6 +223,7 @@ public final class DesktopAudioBackend implements AudioBackend {
     private boolean playCurrentSource() throws Exception {
         long openRevision = sourceRevision.get();
         String openSrc = source;
+        Map<String, String> openHeaders = sourceHeaders;
         if (openSrc == null || openRevision != sourceRevision.get()) {
             playing.set(false);
             return false;
@@ -221,7 +234,7 @@ public final class DesktopAudioBackend implements AudioBackend {
         // "switching feels like 3-5s" report. Measured 2-80ms per switch so far
         // (open + prime), nowhere close to accounting for that gap on its own.
         long tOpen0 = System.currentTimeMillis();
-        PcmSource pcm = PcmSource.open(openSrc);
+        PcmSource pcm = PcmSource.open(openSrc, openHeaders);
         Logger.info("audio: timing PcmSource.open() {}ms", System.currentTimeMillis() - tOpen0);
         try {
             sampleRate = pcm.sampleRate();
