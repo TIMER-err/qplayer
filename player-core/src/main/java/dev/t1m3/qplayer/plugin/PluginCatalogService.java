@@ -47,13 +47,19 @@ public final class PluginCatalogService {
 
     public VerifiedPluginPackage downloadAndVerify(PluginCatalogEntry entry)
             throws IOException, GeneralSecurityException {
+        return downloadAndVerify(entry,
+                new String[]{entry == null ? "" : entry.downloadUrl});
+    }
+
+    public VerifiedPluginPackage downloadAndVerify(PluginCatalogEntry entry, String[] candidates)
+            throws IOException, GeneralSecurityException {
         validateEntry(entry);
         Path target = AppDirs.cacheDir().resolve("plugin-downloads")
                 .resolve(entry.id + "-" + entry.version + ".qplug").normalize();
         Files.createDirectories(target.getParent());
         Path pending = StorageFiles.pendingPath(target);
         try {
-            download(entry.downloadUrl, pending, MAX_PLUGIN_BYTES);
+            downloadFirst(candidates, pending, MAX_PLUGIN_BYTES);
             String actual = hex(digestFile(pending));
             if (!actual.equals(entry.sha256.toLowerCase(Locale.ROOT))) {
                 throw new GeneralSecurityException("catalog package digest mismatch");
@@ -69,6 +75,24 @@ public final class PluginCatalogService {
         } finally {
             Files.deleteIfExists(pending);
         }
+    }
+
+    private static void downloadFirst(String[] candidates, Path target, long limit)
+            throws IOException {
+        if (candidates == null || candidates.length == 0) {
+            throw new IOException("plugin download has no URL candidates");
+        }
+        IOException last = null;
+        for (String candidate : candidates) {
+            try {
+                download(candidate, target, limit);
+                return;
+            } catch (IOException error) {
+                last = error;
+                Files.deleteIfExists(target);
+            }
+        }
+        throw last != null ? last : new IOException("plugin download failed");
     }
 
     private List<PluginCatalogEntry> verifyEnvelope(byte[] encoded)

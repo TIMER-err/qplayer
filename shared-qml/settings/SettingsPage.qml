@@ -39,6 +39,7 @@ Rectangle {
     // most of the page empty sideways and very long vertically. Same 600px break
     // Main.qml uses to swap the bottom bar for the rail.
     property bool twoColumn: page.width >= 600
+    property var installedPlugins: player.sourcePlugins || []
 
     // The two columns pack INDEPENDENTLY (each is its own ColumnLayout), rather
     // than sharing grid rows: a grid row is as tall as its tallest card, so a
@@ -190,6 +191,26 @@ Rectangle {
                     }
 
                     Repeater {
+                        model: page.currentCategory === "插件" && !page.twoColumn
+                               ? page.installedPlugins : null
+                        delegate: PluginSettingsEntry {
+                            Layout.fillWidth: true
+                            pluginData: modelData
+                        }
+                    }
+
+                    SettingCard {
+                        Layout.fillWidth: true
+                        visible: page.currentCategory === "插件"
+                                 && page.installedPlugins.length === 0
+
+                        SettingTitle { text: "尚未安装插件" }
+                        SettingDesc {
+                            text: "使用“插件管理”安装音源或功能插件。"
+                        }
+                    }
+
+                    Repeater {
                         model: page.leftGroups
                         delegate: SettingCard {
                             Layout.fillWidth: true
@@ -228,6 +249,15 @@ Rectangle {
                     Layout.alignment: Qt.AlignTop
                     spacing: 14
                     visible: page.twoColumn
+
+                    Repeater {
+                        model: page.currentCategory === "插件"
+                               ? page.installedPlugins : null
+                        delegate: PluginSettingsEntry {
+                            Layout.fillWidth: true
+                            pluginData: modelData
+                        }
+                    }
 
                     Repeater {
                         model: page.rightGroups

@@ -53,6 +53,7 @@ import dev.t1m3.qplayer.netease.dto.NeteaseSong;
 import dev.t1m3.qplayer.netease.dto.NeteaseUser;
 import dev.t1m3.qplayer.store.AppDirs;
 import dev.t1m3.qplayer.store.StorageFiles;
+import dev.t1m3.qplayer.util.GitHubDownloadUrls;
 import dev.t1m3.qplayer.util.Logger;
 import dev.t1m3.qplayer.util.QrMatrix;
 import com.google.gson.Gson;
@@ -1242,7 +1243,8 @@ public final class PlayerController {
         pluginInstallBusy.set(true);
         worker.submit(() -> {
             try {
-                VerifiedPluginPackage verified = pluginCatalog.downloadAndVerify(entry);
+                VerifiedPluginPackage verified = pluginCatalog.downloadAndVerify(
+                        entry, GitHubDownloadUrls.candidates(entry.downloadUrl, updateMirror));
                 pendingPluginPackage = verified;
                 pendingPluginPackageTemporary = true;
                 post(() -> {
@@ -2056,14 +2058,7 @@ public final class PlayerController {
     /** gh-proxy.com prefix — the API check uses it (it's the one mirror that proxies
      *  api.github.com). */
     private static final String MIRROR_PREFIX = "https://gh-proxy.com/";
-    /** Download mirrors for the APK, fastest-first; the host tries them in order and
-     *  falls through to the next (then the direct url) when one is down or refuses.
-     *  Public instances come and go, so resilience matters more than any single one. */
-    private static final String[] DOWNLOAD_MIRRORS = {
-            "https://gh.ddlc.top/", "https://ghfast.top/", "https://gh-proxy.com/"
-    };
-
-    /** When true, the APK download url is routed through {@link #MIRROR_PREFIX}. */
+    /** When true, application and plugin GitHub downloads prefer proxy URLs. */
     private volatile boolean updateMirror = false;
 
     /** Toggle the GitHub download mirror (driven by the settings switch). */
@@ -2157,15 +2152,7 @@ public final class PlayerController {
     /** Build the ordered download urls: mirrors first (when enabled) then the direct
      *  github url, or direct-first when the mirror is off. Duplicates collapsed. */
     private String[] downloadCandidates(String apk) {
-        List<String> urls = new ArrayList<>();
-        if (updateMirror) {
-            for (String m : DOWNLOAD_MIRRORS) urls.add(m + apk);
-            urls.add(apk);
-        } else {
-            urls.add(apk);
-            for (String m : DOWNLOAD_MIRRORS) urls.add(m + apk);
-        }
-        return urls.toArray(new String[0]);
+        return GitHubDownloadUrls.candidates(apk, updateMirror);
     }
 
     /** Host injects the running app version (e.g. "0.5.2") for the update compare. */
