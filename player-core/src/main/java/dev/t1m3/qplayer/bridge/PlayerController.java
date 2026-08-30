@@ -1218,10 +1218,19 @@ public final class PlayerController {
         pluginCatalogLoading.set(true);
         worker.submit(() -> {
             try {
-                List<PluginCatalogEntry> entries = pluginCatalog.loadBundled();
+                List<PluginCatalogEntry> entries;
+                try {
+                    entries = pluginCatalog.loadRemote(GitHubDownloadUrls.candidates(
+                            PluginCatalogService.REMOTE_CATALOG_URL, updateMirror));
+                } catch (Throwable remoteError) {
+                    Logger.warn("remote plugin catalog unavailable; using bundled catalog: {}",
+                            remoteError.getMessage());
+                    entries = pluginCatalog.loadBundled();
+                }
                 markCatalogInstalledState(entries);
+                final List<PluginCatalogEntry> publishedEntries = entries;
                 post(() -> {
-                    pluginCatalogEntries.set(entries);
+                    pluginCatalogEntries.set(publishedEntries);
                     pluginCatalogLoading.set(false);
                 });
             } catch (Throwable error) {

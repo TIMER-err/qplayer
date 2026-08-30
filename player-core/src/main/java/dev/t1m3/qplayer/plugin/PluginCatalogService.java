@@ -26,6 +26,9 @@ import java.util.Locale;
 
 /** Loads a signed catalog and verifies/downloads its independently hosted packages. */
 public final class PluginCatalogService {
+    public static final String REMOTE_CATALOG_URL =
+            "https://raw.githubusercontent.com/TIMER-err/qplayer/"
+                    + "plugin-catalog/player-core/src/main/resources/plugin-catalog-v1.json";
     private static final String RESOURCE = "/plugin-catalog-v1.json";
     private static final String CATALOG_PUBLIC_KEY =
             "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE4Ihxr2JTSXh9h3Bzh9EvKN0TYQsWreamrUqtHfuo+UQ1C7tIT08W/DTGhsh7nSxXiWRy4ysj/hRpCefkg+nUkQ==";
@@ -33,9 +36,16 @@ public final class PluginCatalogService {
     private static final long MAX_PLUGIN_BYTES = 64L * 1024L * 1024L;
     private final Gson gson = new Gson();
     private final PluginPackageVerifier packageVerifier;
+    private final CatalogDownloader catalogDownloader;
 
     public PluginCatalogService(PluginPackageVerifier packageVerifier) {
+        this(packageVerifier, PluginCatalogService::downloadBytes);
+    }
+
+    PluginCatalogService(PluginPackageVerifier packageVerifier,
+                         CatalogDownloader catalogDownloader) {
         this.packageVerifier = packageVerifier;
+        this.catalogDownloader = catalogDownloader;
     }
 
     public List<PluginCatalogEntry> loadBundled() throws IOException, GeneralSecurityException {
@@ -43,6 +53,27 @@ public final class PluginCatalogService {
             if (input == null) throw new IOException("plugin catalog resource is missing");
             return verifyEnvelope(readLimited(input, MAX_CATALOG_BYTES));
         }
+    }
+
+    /** Download and verify the current signed catalog, trying candidates in order. */
+    public List<PluginCatalogEntry> loadRemote(String[] candidates)
+            throws IOException, GeneralSecurityException {
+        if (candidates == null || candidates.length == 0) {
+            throw new IOException("plugin catalog has no remote URL candidates");
+        }
+        Exception last = null;
+        for (String candidate : candidates) {
+            try {
+                return verifyEnvelope(catalogDownloader.download(candidate, MAX_CATALOG_BYTES));
+            } catch (IOException | GeneralSecurityException | RuntimeException error) {
+                last = error;
+            }
+        }
+        if (last instanceof GeneralSecurityException) {
+            throw (GeneralSecurityException) last;
+        }
+        if (last instanceof IOException) throw (IOException) last;
+        throw new IOException("plugin catalog download failed", last);
     }
 
     public VerifiedPluginPackage downloadAndVerify(PluginCatalogEntry entry)
@@ -192,6 +223,46 @@ public final class PluginCatalogService {
         throw new IOException("catalog download failed");
     }
 
+    private static byte[] downloadBytes(String raw, int limit) throws IOException {
+        String current = raw;
+        for (int redirects = 0; redirects <= 5; redirects++) {
+            URL url = new URL(current);
+            if (!"https".equalsIgnoreCase(url.getProtocol())) {
+                throw new IOException("plugin catalog download must use HTTPS");
+            }
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setInstanceFollowRedirects(false);
+            connection.setConnectTimeout(12_000);
+            connection.setReadTimeout(30_000);
+            connection.setRequestProperty("User-Agent", "QPlayer-Plugin-Catalog/1");
+            int status = connection.getResponseCode();
+            if (status >= 300 && status < 400) {
+                String location = connection.getHeaderField("Location");
+                connection.disconnect();
+                if (location == null || redirects == 5) {
+                    throw new IOException("plugin catalog redirect failed");
+                }
+                current = new URL(url, location).toString();
+                continue;
+            }
+            if (status < 200 || status >= 300) {
+                connection.disconnect();
+                throw new IOException("plugin catalog HTTP " + status);
+            }
+            long declared = connection.getContentLengthLong();
+            if (declared > limit) {
+                connection.disconnect();
+                throw new IOException("plugin catalog is too large");
+            }
+            try (InputStream input = connection.getInputStream()) {
+                return readLimited(input, limit);
+            } finally {
+                connection.disconnect();
+            }
+        }
+        throw new IOException("plugin catalog download failed");
+    }
+
     private static byte[] readLimited(InputStream input, int limit) throws IOException {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         byte[] buffer = new byte[8192];
@@ -227,5 +298,9 @@ public final class PluginCatalogService {
         int schemaVersion;
         String generatedAt;
         List<PluginCatalogEntry> entries;
+    }
+
+    interface CatalogDownloader {
+        byte[] download(String url, int limit) throws IOException;
     }
 }

@@ -101,7 +101,7 @@ public final class SettingsCatalog {
         // ---- 播放 -----------------------------------------------------------
         // Default follows the UI locale: the mirror only helps from mainland China.
         out.add(SettingSpec.toggle("mirror", PLAYBACK, "下载加速镜像", isSimplifiedChinese())
-                .desc("通过 GitHub Proxy 加速应用更新以及插件安装和更新")
+                .desc("通过 GitHub Proxy 加速应用更新、插件目录、安装和更新")
                 .build());
         out.add(SettingSpec.toggle("fade", PLAYBACK, "淡入淡出", false)
                 .desc("切歌/播放结束时音量渐变，而不是直接切断")
