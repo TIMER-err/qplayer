@@ -132,7 +132,7 @@ Rectangle {
 
                     SettingTitle { text: "安装插件" }
                     SettingDesc {
-                        text: "插件包将从独立项目下载，并在安装前验证目录摘要和发布者签名。"
+                        text: "插件包将从独立项目的最新发布下载，并在安装前验证发布者签名。"
                     }
                     Button {
                         Layout.alignment: Qt.AlignRight

@@ -32,8 +32,9 @@ META-INF/qplayer.sig
 `qplayer-files.json` maps every executable/resource path to a lowercase SHA-256
 digest. `qplayer.sig` is the Base64 DER ECDSA/SHA-256 signature of the exact bytes
 of that file, using a P-256 publisher key. Manual unsigned packages are supported
-for development, but QPlayer shows a mandatory code-execution warning. Catalog
-packages must match the signed catalog's digest, publisher key, ID, and version.
+for development, but QPlayer shows a mandatory code-execution warning. A package
+offered by a built-in source must carry a signature from that source's pinned
+publisher key and declare that source's plugin ID.
 The staged runtime must implement every advertised capability, and installed files
 are re-hashed before each activation so added or modified modules are not executed.
 
@@ -193,8 +194,16 @@ are atomic. Old credential ciphertext and metadata remain available for one
 rollback-compatible release after a successful plugin handoff; migration never
 deletes the only readable copy first.
 
-The official catalog is merely a signed list of independent projects. QPlayer
-does not bundle or host those projects or their packages.
+QPlayer ships a hardcoded list of known plugin repositories (`PluginCatalogService.SOURCES`),
+each pinned to its GitHub `owner/repo` and its publisher public key. The offered
+version is whatever that repository's latest GitHub release publishes as a
+`.qplug` asset, so a plugin ships updates on its own schedule without a QPlayer
+release. A listed repository must therefore tag `v<manifest version>`, attach
+exactly one `.qplug`, and publish a normal release rather than a draft or
+pre-release. Adding a source is a code change, and the pinned publisher key is
+permanent for practical purposes: rotating it locks the plugin out of every
+already-released QPlayer. QPlayer does not bundle or host those projects or their
+packages.
 
 Installed sources can be enabled, disabled, selected as the primary source, or
 removed from Settings. Removal stops the runtime and deletes executable package

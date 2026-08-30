@@ -1218,15 +1218,7 @@ public final class PlayerController {
         pluginCatalogLoading.set(true);
         worker.submit(() -> {
             try {
-                List<PluginCatalogEntry> entries;
-                try {
-                    entries = pluginCatalog.loadRemote(GitHubDownloadUrls.candidates(
-                            PluginCatalogService.REMOTE_CATALOG_URL, updateMirror));
-                } catch (Throwable remoteError) {
-                    Logger.warn("remote plugin catalog unavailable; using bundled catalog: {}",
-                            remoteError.getMessage());
-                    entries = pluginCatalog.loadBundled();
-                }
+                List<PluginCatalogEntry> entries = pluginCatalog.loadLatest(updateMirror);
                 markCatalogInstalledState(entries);
                 final List<PluginCatalogEntry> publishedEntries = entries;
                 post(() -> {
@@ -1235,8 +1227,8 @@ public final class PlayerController {
                 });
             } catch (Throwable error) {
                 post(() -> pluginCatalogLoading.set(false));
-                Logger.warn("signed plugin catalog failed verification: {}", error.getMessage());
-                showToast("插件目录验证失败");
+                Logger.warn("plugin release lookup failed: {}", error.getMessage());
+                showToast("获取插件列表失败");
             }
         });
     }
@@ -1247,7 +1239,7 @@ public final class PlayerController {
         for (PluginCatalogEntry entry : pluginCatalogEntries.peek()) {
             if (pluginId.equals(entry.id)) { selected = entry; break; }
         }
-        if (selected == null) { showToast("插件目录中不存在该项目"); return; }
+        if (selected == null) { showToast("插件列表中不存在该项目"); return; }
         final PluginCatalogEntry entry = selected;
         pluginInstallBusy.set(true);
         worker.submit(() -> {

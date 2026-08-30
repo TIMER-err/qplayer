@@ -7,7 +7,7 @@ trust and review every requested permission.
 ## Enforced boundaries
 
 - Packages are verified before extraction. Archive paths, size limits, per-file
-  SHA-256 hashes, optional publisher signatures, and catalog digests are checked.
+  SHA-256 hashes and optional publisher signatures are checked.
 - Installation is staged, preflights the exported handler table, and atomically
   activates the version. The registry records the exact package digest and grants;
   every activation re-hashes the extracted file set and disables a modified package.
@@ -35,14 +35,17 @@ trust and review every requested permission.
 ## Trust and signatures
 
 A signature proves that the package bytes were produced by the holder of a
-publisher key; it does not prove that the code is benign. The bundled catalog is
-signed by a separate catalog key and pins the package digest and publisher public
-key. Publisher and catalog private keys must never be stored in this repository.
+publisher key; it does not prove that the code is benign. QPlayer pins each known
+plugin repository together with its publisher public key in its own binary, and a
+package resolved from that repository's latest release must verify against that
+pinned key. This matters because GitHub downloads may be routed through
+third-party mirrors: the signature, not the transport, is what authenticates the
+bytes. Publisher private keys must never be stored in this repository.
 
 Unsigned manual packages remain possible for development and independent
 distribution. Their install prompt explicitly reports that the publisher is
 unverified. QPlayer always asks for the full permission set before activation,
-including for catalog packages.
+including for packages resolved from a built-in source.
 
 ## Credential limits
 

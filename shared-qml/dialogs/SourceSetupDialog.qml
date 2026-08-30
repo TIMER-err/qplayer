@@ -3,8 +3,8 @@ import QtQuick.Layouts
 import md3.Core
 
 // First-run/upgrade source onboarding. QPlayer itself remains source-neutral;
-// this dialog only surfaces the signed external catalog and the generic package
-// picker. Older credentials are handed to the installed plugin by the core's
+// this dialog only surfaces the built-in source repositories and the generic
+// package picker. Older credentials are handed to the installed plugin by the core's
 // delayed migration bridge after that plugin has started successfully.
 Item {
     id: root
@@ -25,7 +25,7 @@ Item {
         rejectText: "暂时只使用本地音乐"
         text: player.legacySourceMigrationAvailable
             ? "检测到旧版在线歌曲或登录凭据。安装对应的音源插件后，播放队列会自动切换到新接口；可读取的登录凭据也会在验证成功后迁移，原始数据暂时保留以便回退。"
-            : "核心不内置在线音源。请选择受信目录中的插件，或从文件导入其他插件；本地音乐无需安装插件即可继续使用。"
+            : "核心不内置在线音源。请选择下方的内置源，或从文件导入其他插件；本地音乐无需安装插件即可继续使用。"
         onRejected: player.dismissSourceSetup()
 
         ColumnLayout {
@@ -51,7 +51,7 @@ Item {
                 }
                 Text {
                     Layout.fillWidth: true
-                    text: "正在验证受信插件目录…"
+                    text: "正在获取插件列表…"
                     color: Theme.color.onSurfaceVariantColor
                     fontSize: 14
                 }
@@ -123,7 +123,7 @@ Item {
                 visible: !player.pluginCatalogLoading
                          && (!player.pluginCatalogEntries
                              || player.pluginCatalogEntries.length === 0)
-                text: "受信插件目录暂时不可用。你仍可导入本地插件包，或稍后重试。"
+                text: "暂时获取不到插件列表。你仍可导入本地插件包，或稍后重试。"
                 color: Theme.color.error
                 fontSize: 13
                 wrapMode: Text.Wrap
@@ -134,7 +134,7 @@ Item {
                 spacing: 8
 
                 Button {
-                    text: "重新验证目录"
+                    text: "重新获取"
                     type: "text"
                     visible: !player.pluginCatalogLoading
                              && (!player.pluginCatalogEntries

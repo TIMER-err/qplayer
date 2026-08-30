@@ -13,6 +13,8 @@ public final class GitHubDownloadUrls {
     private static final String[] MIRRORS = {
             "https://gh.ddlc.top/", "https://ghfast.top/", "https://gh-proxy.com/"
     };
+    /** The one mirror that also proxies api.github.com. */
+    private static final String API_MIRROR = "https://gh-proxy.com/";
 
     private GitHubDownloadUrls() {}
 
@@ -32,6 +34,20 @@ public final class GitHubDownloadUrls {
         if (proxyFirst) ordered.add(rawUrl);
         List<String> result = new ArrayList<>(ordered);
         return result.toArray(new String[0]);
+    }
+
+    /**
+     * Candidate order for an api.github.com request. Only one mirror proxies the
+     * API, so the general {@link #candidates} order would spend two failed
+     * requests before reaching a usable host.
+     */
+    public static String[] apiCandidates(String rawUrl, boolean proxyFirst) {
+        if (rawUrl == null || rawUrl.isEmpty()) return new String[0];
+        if (!isGitHubUrl(rawUrl) || isMirrored(rawUrl)) return new String[]{rawUrl};
+        String mirrored = API_MIRROR + rawUrl;
+        return proxyFirst
+                ? new String[]{mirrored, rawUrl}
+                : new String[]{rawUrl, mirrored};
     }
 
     static boolean isGitHubUrl(String rawUrl) {

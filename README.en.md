@@ -50,7 +50,7 @@ The UI uses no native Views. Every control is described in QML and rendered by q
 
 - Source plugins: QPlayer itself only provides player capabilities and neither embeds nor distributes online sources. JavaScript plugins may add recommendations, aggregate search, playlists, login, likes, recent playback, recommendation modes, and synchronized listening; the native pages adapt to each plugin's capabilities.
 - Local playback, a shared queue, and three play modes (list loop, shuffle, repeat one). Online entities use collision-free `provider:kind:id` identifiers.
-- Plugin security: signed `.qplug` packages, a signed catalog, permission confirmation, isolated Rhino realms, network-domain grants, namespaced credential storage, and separately sandboxed custom-QML sessions.
+- Plugin security: signed `.qplug` packages, built-in sources pinned to a publisher key, permission confirmation, isolated Rhino realms, network-domain grants, namespaced credential storage, and separately sandboxed custom-QML sessions.
 - Lyric page: drawn directly through Skija by the host, with per-syllable scrolling, cover-tinted fluid backdrops, romaji and translation, and a Material wavy progress bar. Lyrics come from the active source plugin or local files.
 - Material 3 UI: the whole interface is QML (`md3.Core`) running on the qml4j engine.
 - Dynamic color (Monet): the theme is reseeded from the current cover (toggleable); dark, light, and follow-system modes.

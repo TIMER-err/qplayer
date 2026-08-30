@@ -203,7 +203,7 @@ Item {
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: "正在验证受信插件目录…"
+                            text: "正在获取插件列表…"
                             color: Theme.color.onSurfaceVariantColor
                             fontSize: 13
                         }
@@ -217,7 +217,7 @@ Item {
                 Button {
                     type: "text"
                     icon: "refresh"
-                    text: "刷新目录"
+                    text: "刷新列表"
                     enabled: !player.pluginCatalogLoading && !player.pluginInstallBusy
                     onClicked: player.refreshPluginCatalog()
                 }
