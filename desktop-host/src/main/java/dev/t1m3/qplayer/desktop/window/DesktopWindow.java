@@ -113,8 +113,8 @@ public final class DesktopWindow {
     private static volatile Boolean windows11OrLater;
 
     public DesktopWindow(QmlEngine engine, String qmlSource, ResourceLoader resources,
-                  PlayerController controller, SettingsCore settings,
-                  DiskCompiledSceneCache qmlCompilationCache) {
+                         PlayerController controller, SettingsCore settings,
+                         DiskCompiledSceneCache qmlCompilationCache) {
         this.engine = engine;
         this.qmlSource = qmlSource;
         this.resources = resources;
@@ -352,10 +352,10 @@ public final class DesktopWindow {
 
     // macOS font locations, in the order CoreText itself searches them.
     private static final String[] MAC_FONT_DIRS = {
-        System.getProperty("user.home", "") + "/Library/Fonts",
-        "/Library/Fonts",
-        "/System/Library/Fonts",
-        "/System/Library/Fonts/Supplemental",
+            System.getProperty("user.home", "") + "/Library/Fonts",
+            "/Library/Fonts",
+            "/System/Library/Fonts",
+            "/System/Library/Fonts/Supplemental",
     };
 
     /** macOS: no registry, and no CLI that reports a family's file path (the closest,
@@ -577,7 +577,7 @@ public final class DesktopWindow {
         Dwmapi I = com.sun.jna.Native.load("dwmapi", Dwmapi.class,
                 com.sun.jna.win32.W32APIOptions.DEFAULT_OPTIONS);
         int DwmSetWindowAttribute(com.sun.jna.Pointer hwnd, int dwAttribute,
-                com.sun.jna.Pointer pvAttribute, int cbAttribute);
+                                  com.sun.jna.Pointer pvAttribute, int cbAttribute);
     }
 
     private static final int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;

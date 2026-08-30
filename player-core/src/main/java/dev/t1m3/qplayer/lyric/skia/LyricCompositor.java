@@ -95,10 +95,6 @@ public final class LyricCompositor {
     private Shader lyFadeShader;
     private final Paint lyMaskPaint = new Paint();
 
-    // Melodify-style 1px divider between the left cover chrome and the lyric column.
-    private int dividerPeakApplied = -1;
-    private Shader dividerShader;
-    private final Paint dividerPaint = new Paint();
 
     // Apple-Music progressive edge blur (opt-in). The column is drawn twice with two
     // COMPLEMENTARY masks that never overlap: a blurred copy kept only at the edges, and a
@@ -171,14 +167,9 @@ public final class LyricCompositor {
             blurFilter.close();
             blurFilter = null;
         }
-        if (dividerShader != null) {
-            dividerShader.close();
-            dividerShader = null;
-        }
         lyMaskPaint.close();
         blurBasePaint.close();
         lyLayerPaint.close();
-        dividerPaint.close();
     }
 
     /** Render-thread recreation resumes at a discontinuous playback position. */
@@ -484,34 +475,6 @@ public final class LyricCompositor {
             canvas.drawRect(colRect, lyMaskPaint);
             lyMaskPaint.setShader(null);
             canvas.restoreToCount(lc);
-        }
-
-        if (landscape && !coverOnly) {
-            float regionW = w * 0.5f;
-            float coverSize = Math.max(120f, Math.min(Math.min(regionW - 96f, h - 248f), 360f));
-            float coverRight = regionW * 0.5f + coverSize * 0.5f;
-            float dividerX = (coverRight + colLeft) * 0.5f;
-            float dividerTop = h * 0.16f;
-            float dividerBot = h * 0.84f;
-            int peak = (int) (ease * lyricShow * 0.06f * 255f);
-            if (peak != dividerPeakApplied) {
-                dividerPeakApplied = peak;
-                if (dividerShader != null) {
-                    dividerShader.close();
-                    dividerShader = null;
-                }
-                if (peak > 0) {
-                    dividerShader = Shader.makeLinearGradient(
-                            dividerX, dividerTop, dividerX, dividerBot,
-                            new int[]{0x00FFFFFF, 0x00FFFFFF | (peak << 24), 0x00FFFFFF},
-                            new float[]{0f, 0.5f, 1f});
-                }
-            }
-            if (dividerShader != null) {
-                dividerPaint.setShader(dividerShader);
-                canvas.drawRect(Rect.makeLTRB(dividerX, dividerTop, dividerX + 1f, dividerBot), dividerPaint);
-                dividerPaint.setShader(null);
-            }
         }
 
         canvas.restoreToCount(sc);

@@ -157,7 +157,7 @@ public final class SettingsCatalog {
                 .scale(100).unit("×").dots()
                 .build());
         out.add(SettingSpec.slider("lyricEmphasisScale", LYRIC, "歌词放大", 114, 100, 130, 1)
-                .scale(100).unit("×").desc("当前行放大的倍率（默认 1.14）")
+                .scale(100).unit("×").dots().desc("当前行放大的倍率（默认 1.14）")
                 .build());
         out.add(SettingSpec.toggle("lyricAutoLineSpacing", LYRIC, "自动行间距", false)
                 .desc("使用 Melodify 行间距公式（开启后行间距滑块无效）")
@@ -172,8 +172,7 @@ public final class SettingsCatalog {
                 .desc("当前行放大、其余行略缩")
                 .build());
         out.add(SettingSpec.toggle("lyricGlow", LYRIC, "单词发光", true)
-                .desc("仅逐字歌词：唱到的单词显示白色辉光和飘带上浮(较耗电)。"
-                        + "歌词阴影开启时仅持续1.5秒以上的单词发光，关闭时所有单词都发光")
+                .desc("仅逐字歌词：唱到的单词显示白色辉光和飘带上浮(较耗电)")
                 .build());
         out.add(SettingSpec.toggle("lyricShadow", LYRIC, "歌词阴影", true)
                 .desc("为歌词、背景声部和翻译添加柔和投影")

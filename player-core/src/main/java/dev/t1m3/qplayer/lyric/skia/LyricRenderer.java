@@ -1309,7 +1309,9 @@ public class LyricRenderer {
                             : (isAnchor ? emphasisScale : DESELECTED_SCALE);
                     if (spring && scaleSpring.length == n) {
                         if (anchorChangedFrame || cascadeRelaunch || clockSeek || explicitSeek) {
-                            scaleSpring[i].setParams(1.0, scrollDamping, scrollStiffness);
+                            // Melodify scaleSpringParams: mass 2 / damping 25 / stiffness 100,
+                            // ζ≈0.88 近临界——缩放不跟行切换弹簧的欠阻尼参数,无过冲回弹。
+                            scaleSpring[i].setParams(2.0, 25.0, 100.0);
                         }
                         if (firstScaleFrame || !scaleWasVisible) {
                             scaleSpring[i].setValue(scaleTarget);

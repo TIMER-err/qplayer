@@ -427,9 +427,18 @@ public final class Fonts {
         FontMgr mgr = FontMgr.getDefault();
         if (mgr == null) return null;
         try {
-            face = make(mgr, bundledLoader.load(weight));
-        } catch (Throwable ignored) {
+            byte[] bytes = bundledLoader.load(weight);
+            face = make(mgr, bytes);
+            if (weight == Weight.BOLD) {
+                dev.t1m3.qplayer.util.Logger.info(
+                        "lyric BOLD font: {} bytes, face={}", bytes == null ? 0 : bytes.length,
+                        face != null ? "ok" : "FAILED(maybe fallback to Regular)");
+            }
+        } catch (Throwable t) {
             face = null;
+            if (weight == Weight.BOLD) {
+                dev.t1m3.qplayer.util.Logger.warn("lyric BOLD font load error: {}", String.valueOf(t));
+            }
         }
         bundledFaces[index] = face;
         return face;
