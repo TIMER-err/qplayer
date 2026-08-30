@@ -30,6 +30,21 @@ Rectangle {
     property bool settingsOpen: currentOverlay === "settings"
     property bool accountOpen: currentOverlay === "account"
     property bool cacheListOpen: currentOverlay === "cachedSongs"
+    // Source-independent destinations (local files, cached songs, queue,
+    // settings and lyrics) remain usable without a plugin. Every online-source
+    // destination shares one setup affordance instead of each page inventing a
+    // different empty/loading state.
+    property bool showSourceSetupPrompt: {
+        if (!player.sourceSetupRequired) return false
+        if (app.currentOverlay !== "") {
+            return app.currentOverlay === "detail"
+                    || app.currentOverlay === "artist"
+                    || app.currentOverlay === "album"
+                    || app.currentOverlay === "account"
+        }
+        // Home already owns the same action alongside its retry state.
+        return app.page === 1 || app.page === 2
+    }
     property bool syncingPageState: false
     // forward: new top page enters over an unchanged previous page.
     // back: only the departing top page exits, revealing an unchanged previous page.
@@ -137,7 +152,8 @@ Rectangle {
         // half-logged-in state with no path to retry or start over.
         if ((credentialNoticeDialog.opened && player.credentialNoticeType === 3)
                 || credentialFallbackConfirmDialog.opened
-                || credentialReloginUnavailableDialog.opened) return;
+                || credentialReloginUnavailableDialog.opened
+                || pluginDialogs.modalOpened) return;
         if (player.songArtistPickerOpen) { player.closeSongArtistPicker(); return; }
         if (app.showLog)            { app.showLog = false; return; }
         if (app.loginOpen)          { app.loginOpen = false; return; }
@@ -801,6 +817,12 @@ Rectangle {
                     }
                 }
             }
+
+            SourceSetupPrompt {
+                anchors.fill: parent
+                visible: app.showSourceSetupPrompt
+                z: 3000
+            }
         }
     }
 
@@ -861,6 +883,10 @@ Rectangle {
     ListenTogetherDialog { id: togetherDialog }
 
     SongArtistsDialog { id: songArtistsDialog }
+
+    // App-wide because onboarding can install a plugin before SettingsPage has
+    // ever been instantiated.
+    PluginDialogs { id: pluginDialogs }
 
     // New-version dialog: the host's startup check sets player.updateAvailable when a
     // newer GitHub release exists; the update button downloads the APK in-app (through

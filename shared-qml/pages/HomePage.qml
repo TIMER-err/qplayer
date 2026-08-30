@@ -36,7 +36,8 @@ Item {
     // too quick to actually read isn't feedback. A genuinely slow real request
     // still keeps showing it past 3s (refreshBusy also watches homeLoading).
     property bool refreshCooling: false
-    property bool refreshBusy: refreshCooling || player.homeLoading
+    property bool refreshBusy: !player.sourceSetupRequired
+                               && (refreshCooling || player.homeLoading)
     Timer {
         id: refreshCoolTimer
         interval: 3000
@@ -115,12 +116,13 @@ Item {
         }
     }
 
-    // Empty either because it's still loading, or because loadHome() tried and
-    // every request failed (offline/API down) -- refreshBusy tells those two
-    // apart, since both otherwise look identical (both lists just empty).
+    // Once a source exists, an empty/loading/failed request keeps the existing
+    // retry affordance and its minimum feedback duration. The no-source case is
+    // rendered by the same shared setup prompt as every other online page below.
     Item {
         anchors.centerIn: parent
-        visible: page.recCount === 0 && page.dailyCount === 0
+        visible: !player.sourceSetupRequired
+                 && page.recCount === 0 && page.dailyCount === 0
         width: emptyRow.width + 40
         height: 44
 
@@ -163,18 +165,25 @@ Item {
                 id: emptyRow
                 anchors.centerIn: parent
                 spacing: 8
-                Text {
-                    id: refreshIcon
+                Item {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "sync"
-                    font.family: Theme.iconFont.name
-                    font.pixelSize: 18
-                    color: page.refreshBusy ? Theme.color.onSurfaceVariantColor : Theme.color.onSecondaryContainerColor
-                    NumberAnimation on rotation {
-                        running: page.refreshBusy
-                        loops: Animation.Infinite
-                        from: 360; to: 0
-                        duration: 700
+                    width: 18
+                    height: 18
+
+                    Text {
+                        id: refreshIcon
+                        anchors.centerIn: parent
+                        text: "sync"
+                        font.family: Theme.iconFont.name
+                        font.pixelSize: 18
+                        color: page.refreshBusy ? Theme.color.onSurfaceVariantColor
+                                                : Theme.color.onSecondaryContainerColor
+                        NumberAnimation on rotation {
+                            running: page.refreshBusy && !player.sourceSetupRequired
+                            loops: Animation.Infinite
+                            from: 360; to: 0
+                            duration: 700
+                        }
                     }
                 }
                 Text {
@@ -185,5 +194,10 @@ Item {
                 }
             }
         }
+    }
+
+    SourceSetupPrompt {
+        anchors.fill: parent
+        visible: player.sourceSetupRequired
     }
 }

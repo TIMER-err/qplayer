@@ -45,6 +45,7 @@ import dev.t1m3.qplayer.plugin.PluginTogetherService;
 import dev.t1m3.qplayer.plugin.PluginRegistry;
 import dev.t1m3.qplayer.plugin.PluginRow;
 import dev.t1m3.qplayer.plugin.PluginManifest;
+import dev.t1m3.qplayer.plugin.PluginSetupState;
 import dev.t1m3.qplayer.plugin.ProviderCapability;
 import dev.t1m3.qplayer.plugin.VerifiedPluginPackage;
 import dev.t1m3.qplayer.netease.NeteaseClient;
@@ -223,6 +224,7 @@ public final class PlayerController {
     private final PluginInstaller pluginInstaller = new PluginInstaller(pluginRegistry);
     private final PluginPackageVerifier pluginVerifier = new PluginPackageVerifier();
     private final PluginCatalogService pluginCatalog = new PluginCatalogService(pluginVerifier);
+    private final PluginSetupState pluginSetupState = new PluginSetupState();
     private volatile PluginPicker pluginPicker;
     private volatile PluginUiLauncher pluginUiLauncher;
     private volatile VerifiedPluginPackage pendingPluginPackage;
@@ -543,6 +545,15 @@ public final class PlayerController {
     public final Property<Boolean> pluginCatalogLoading = new Property<>(false);
     public final Property<List<PluginUiContributionRow>> pluginUiContributions =
             new Property<>(Collections.<PluginUiContributionRow>emptyList());
+    /** No enabled primary provider is available. Home renders a setup action instead
+     * of pretending an online request is still connecting. */
+    public final Property<Boolean> sourceSetupRequired = new Property<>(true);
+    /** Auto-open only until the user installs a source or explicitly chooses local-only. */
+    public final Property<Boolean> sourceSetupPending = new Property<>(false);
+    /** Monotonic event used by Home/Settings to reopen the global setup dialog. */
+    public final Property<Long> sourceSetupRevision = new Property<>(0L);
+    /** Older provider credentials or queued online tracks can be migrated after install. */
+    public final Property<Boolean> legacySourceMigrationAvailable = new Property<>(false);
 
     // --- Netease content (Repeater model: player.xxx; delegate reads modelData) ---
     public final Property<List<NeteaseSong>> searchResults = new Property<>(Collections.<NeteaseSong>emptyList());
@@ -893,6 +904,7 @@ public final class PlayerController {
         pluginManager.startEnabled();
         loadQueue();
         loadCustomPlaylist();
+        legacySourceMigrationAvailable.set(detectLegacySourceMigration());
         publishPlugins();
         refreshPluginCatalog();
         togetherWorker.scheduleAtFixedRate(this::listenTogetherTick,
@@ -923,6 +935,24 @@ public final class PlayerController {
                 post(this::publishPlugins);
             } catch (Throwable error) {
                 showToast("无法切换主音源：" + error.getMessage());
+            }
+        });
+    }
+
+    /** One-step setup action for an already installed but disabled/non-primary
+     * provider. Keeping both registry writes on the worker avoids the enable/primary
+     * race that two independent QML button calls would create. */
+    public void activateSourcePlugin(String pluginId) {
+        if (pluginId == null || pluginId.isEmpty()) return;
+        worker.submit(() -> {
+            try {
+                PluginRegistry.Entry entry = pluginRegistry.get(pluginId);
+                if (entry == null) throw new IllegalArgumentException("音源插件尚未安装");
+                if (!entry.enabled) pluginManager.enable(pluginId);
+                pluginRegistry.setPrimaryProvider(pluginId);
+                post(this::publishPlugins);
+            } catch (Throwable error) {
+                showToast("无法启用音源插件：" + safeMessage(error));
             }
         });
     }
@@ -980,7 +1010,11 @@ public final class PlayerController {
         pluginUiContributions.set(pluginManager.uiContributions());
         publishCatalogInstalledState();
         primarySourcePlugin.set(primary);
-        sourceContentActive.set(primaryProvider() != null);
+        boolean sourceReady = primaryProvider() != null;
+        sourceContentActive.set(sourceReady);
+        sourceSetupRequired.set(!sourceReady);
+        if (sourceReady) pluginSetupState.acknowledge();
+        sourceSetupPending.set(!sourceReady && !pluginSetupState.acknowledged());
         listenTogetherAvailable.set(primaryProviderWith(
                 ProviderCapability.LISTEN_TOGETHER) != null);
         sourcePlaylistMutationAvailable.set(primaryProviderWith(
@@ -992,6 +1026,37 @@ public final class PlayerController {
         routeInstalledPluginTracks();
         refreshPrimaryPluginLoginMetadata();
         if (!primary.isEmpty()) loadHome();
+    }
+
+    /** Open the app-wide source setup flow from Home or any future empty state. */
+    public void requestSourceSetup() {
+        if (pluginCatalogEntries.peek() == null || pluginCatalogEntries.peek().isEmpty()) {
+            refreshPluginCatalog();
+        }
+        sourceSetupRevision.set(sourceSetupRevision.peek() + 1L);
+    }
+
+    /** Remember an explicit local-only choice so onboarding is not forced again on
+     * every launch. Home keeps a persistent setup button for changing that choice. */
+    public void dismissSourceSetup() {
+        pluginSetupState.acknowledge();
+        sourceSetupPending.set(false);
+    }
+
+    private boolean detectLegacySourceMigration() {
+        if (netease.hasStoredLegacyCredentials()) return true;
+        for (Track track : queue) if (isLegacyOnlineTrack(track)) return true;
+        for (Track track : customPlaylist) if (isLegacyOnlineTrack(track)) return true;
+        return false;
+    }
+
+    private static boolean isLegacyOnlineTrack(Track track) {
+        if (track == null || track.source == Track.Source.LOCAL) return false;
+        try {
+            return "netease".equals(MediaId.parse(track.canonicalId()).provider());
+        } catch (IllegalArgumentException ignored) {
+            return track.source == Track.Source.NETEASE;
+        }
     }
 
     private void publishCatalogInstalledState() {

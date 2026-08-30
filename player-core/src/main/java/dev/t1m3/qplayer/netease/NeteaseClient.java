@@ -146,6 +146,13 @@ public final class NeteaseClient {
     public boolean hasCookie(String name) { return cookies.containsKey(name); }
     public boolean isLoggedIn() { return hasLoginCredential(); }
 
+    /** Whether an older QPlayer installation left a credential envelope that a
+     * source plugin can migrate. This deliberately does not reveal its contents
+     * and remains true when the system key store is temporarily locked. */
+    public boolean hasStoredLegacyCredentials() {
+        return Files.isRegularFile(cookieFile) || Files.isRegularFile(legacyCookieFile);
+    }
+
     private boolean hasLoginCredential() {
         String value = cookies.get("MUSIC_U");
         return value != null && !value.isEmpty();

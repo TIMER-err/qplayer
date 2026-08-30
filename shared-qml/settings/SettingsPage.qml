@@ -39,14 +39,6 @@ Rectangle {
     // most of the page empty sideways and very long vertically. Same 600px break
     // Main.qml uses to swap the bottom bar for the rail.
     property bool twoColumn: page.width >= 600
-    property int pluginPromptRevision: player.pluginInstallPromptRevision
-    onPluginPromptRevisionChanged: {
-        if (page.pluginPromptRevision > 0) pluginWarningDialog.open()
-    }
-    property int pluginRemovalRevision: player.pluginRemovalPromptRevision
-    onPluginRemovalRevisionChanged: {
-        if (page.pluginRemovalRevision > 0) pluginRemovalDialog.open()
-    }
 
     // The two columns pack INDEPENDENTLY (each is its own ColumnLayout), rather
     // than sharing grid rows: a grid row is as tall as its tallest card, so a
@@ -273,50 +265,9 @@ Rectangle {
                         }
                     }
 
-                    SettingCard {
+                    PluginCatalogCard {
                         Layout.fillWidth: true
-                        visible: page.currentCategory === "插件"
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            SettingTitle { Layout.fillWidth: true; text: "受信插件目录" }
-                            Button {
-                                type: "text"
-                                icon: "refresh"
-                                text: player.pluginCatalogLoading ? "正在验证…" : "重新验证"
-                                enabled: !player.pluginCatalogLoading && !player.pluginInstallBusy
-                                onClicked: player.refreshPluginCatalog()
-                            }
-                        }
-                        SettingDesc {
-                            text: "目录由 QPlayer 签名验证；插件包由各自发布者签名并托管在独立项目中。QPlayer 不捆绑或托管任何音源。"
-                        }
-                        Repeater {
-                            model: player.pluginCatalogEntries
-                            delegate: ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 4
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    ColumnLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 1
-                                        SettingTitle { text: modelData.name + "  " + modelData.version }
-                                        SettingDesc { text: modelData.description }
-                                    }
-                                    Button {
-                                        type: modelData.installed && !modelData.updateAvailable
-                                              ? "outlined" : "filledTonal"
-                                        text: modelData.updateAvailable ? "更新"
-                                              : (modelData.installed ? "已安装" : "下载并安装")
-                                        enabled: (!modelData.installed || modelData.updateAvailable)
-                                                 && !player.pluginInstallBusy
-                                        onClicked: player.installCatalogPlugin(modelData.id)
-                                    }
-                                }
-                                SettingDesc { text: "独立项目：" + modelData.homepage }
-                            }
-                        }
+                        visible: page.currentCategory === "插件" && !page.twoColumn
                     }
 
                     Repeater {
@@ -358,6 +309,11 @@ Rectangle {
                     Layout.alignment: Qt.AlignTop
                     spacing: 14
                     visible: page.twoColumn
+
+                    PluginCatalogCard {
+                        Layout.fillWidth: true
+                        visible: page.currentCategory === "插件"
+                    }
 
                     Repeater {
                         model: page.rightGroups
@@ -408,32 +364,4 @@ Rectangle {
         onClosed: settings.fontPickerOpen = false
     }
 
-    Dialog {
-        id: pluginWarningDialog
-        title: player.pendingPluginTrusted ? "安装音源插件" : "安装未验证的插件？"
-        icon: player.pendingPluginTrusted ? "verified_user" : "warning"
-        closeOnScrim: false
-        acceptText: player.pluginInstallBusy ? "正在安装…" : "了解风险并安装"
-        rejectText: "取消"
-        text: player.pendingPluginName + " " + player.pendingPluginVersion
-              + "\n插件 ID：" + player.pendingPluginId
-              + "\n请求权限：" + player.pendingPluginPermissions
-              + (player.pendingPluginTrusted ? "\n\n该插件包已通过受信发布者签名验证。"
-                 : "\n\n该插件的发布者签名未被 QPlayer 信任。插件包含可执行 JavaScript/QML，可能读取获准的数据并代表您操作播放器。仅在信任其来源时继续。")
-        onAccepted: player.confirmPendingPluginInstall()
-        onRejected: player.cancelPendingPluginInstall()
-    }
-
-    Dialog {
-        id: pluginRemovalDialog
-        title: "移除音源插件？"
-        icon: "delete"
-        closeOnScrim: false
-        acceptText: player.pluginInstallBusy ? "正在移除…" : "移除"
-        rejectText: "取消"
-        text: "将移除 " + player.pendingPluginRemovalName
-              + " 的可执行插件文件。加密登录凭据和插件数据会保留，重新安装后可继续使用。"
-        onAccepted: player.confirmSourcePluginRemoval()
-        onRejected: player.cancelSourcePluginRemoval()
-    }
 }
