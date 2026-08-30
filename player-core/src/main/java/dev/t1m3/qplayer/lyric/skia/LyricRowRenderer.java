@@ -37,7 +37,7 @@ final class LyricRowRenderer implements AutoCloseable {
 
     private static final float LIFT_PEAK_PX = 2.0f;
     private static final long LIFT_MIN_DURATION_MS = 1000L;
-    private static final float SWEEP_FADE_PX = 16f;
+    private static final float SWEEP_FADE_PX = 25.6f;
     private static final float DARK_MASK_ALPHA = 0.36f;
     private static final double LIFT_OMEGA0 = 3.7416574;
     private static final double LIFT_ZETA = 0.935414;
@@ -229,7 +229,7 @@ final class LyricRowRenderer implements AutoCloseable {
 
         Arrays.fill(wordLiftUniforms, 0f);
         int wordLiftCount = 0;
-        if (wordGlowSupported && glowOn && shadowOn) {
+        if (wordGlowSupported && glowOn) {
             for (WordSpan word : row.words) {
                 if (wordLiftCount >= MAX_WORD_LIFT_SEGMENTS) break;
                 Syllable first = syllables.get(row.from + word.firstSyllable);
