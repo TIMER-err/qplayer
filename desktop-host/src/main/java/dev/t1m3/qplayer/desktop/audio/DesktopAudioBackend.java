@@ -60,6 +60,9 @@ public final class DesktopAudioBackend implements AudioBackend {
     private volatile Runnable onStarted;
     private volatile Runnable onError;
     private volatile long positionMs = 0L;
+    private volatile float beatPulse = 0f;
+    private float beatBaseline = 0f;
+    private float beatPrevEnergy = 0f;
     private volatile long durationMs = 0L;
 
     // OpenAL handles + current-track format. Audio-thread only.
@@ -328,6 +331,34 @@ public final class DesktopAudioBackend implements AudioBackend {
     }
 
     /** Decode one buffer's worth of PCM into {@code buf}. @return frame count, or 0 at EOF. */
+    @Override
+    public float beatLevel() {
+        return beatPulse;
+    }
+
+    private void updateBeat(byte[] data, int len) {
+        int n = Math.min(len / 2, 4096);
+        double sq = 0.0;
+        for (int i = 0; i < n; i++) {
+            int idx = i * 2;
+            short sample = (short) ((data[idx + 1] << 8) | (data[idx] & 0xFF));
+            float s = sample / 32768.0f;
+            sq += s * s;
+        }
+        float rms = n > 0 ? (float) Math.sqrt(sq / n) : 0f;
+        float baseK = rms > beatBaseline ? 0.04f : 0.10f;
+        beatBaseline += (rms - beatBaseline) * baseK;
+        float excess = rms - beatBaseline * 1.10f;
+        float rising = rms - beatPrevEnergy;
+        beatPrevEnergy = rms;
+        if (excess > 0f && rising > 0f) {
+            float hit = Math.min(1f, excess * 11.0f);
+            if (hit > beatPulse) beatPulse = hit;
+        }
+        beatPulse *= 0.62f;
+        if (beatPulse < 0.002f) beatPulse = 0f;
+    }
+
     private int decodeInto(PcmSource pcm, int buf) throws Exception {
         int frameBytes = channels * 2;
         int want = CHUNK_BYTES - (CHUNK_BYTES % frameBytes);
@@ -339,6 +370,7 @@ public final class DesktopAudioBackend implements AudioBackend {
         }
         got -= got % frameBytes;
         if (got <= 0) return 0;
+        updateBeat(stagingChunk, got);
         nativeChunk.clear();
         nativeChunk.put(stagingChunk, 0, got).flip();
         alBufferData(buf, alFormat, nativeChunk, sampleRate);

@@ -257,7 +257,25 @@ final class LyricTextShaper implements AutoCloseable {
             Font japanese = Fonts.japanese(base);
             if (japanese != null) return japanese;
         }
+        if (needsHan(text)) {
+            Font han = Fonts.han(base);
+            if (han != null) return han;
+        }
         return base;
+    }
+
+    private static boolean needsHan(String text) {
+        if (text == null) return false;
+        for (int i = 0; i < text.length(); i++) {
+            char value = text.charAt(i);
+            if ((value >= 0x4E00 && value <= 0x9FFF)
+                    || (value >= 0x3400 && value <= 0x4DBF)
+                    || (value >= 0x3000 && value <= 0x303F)
+                    || (value >= 0xFF00 && value <= 0xFFEF)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean needsKorean(String text) {

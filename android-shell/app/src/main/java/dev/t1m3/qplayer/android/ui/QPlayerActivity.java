@@ -201,8 +201,11 @@ public final class QPlayerActivity extends Activity {
         // (the lyric face must itself cover CJK + Latin — no automatic fallback).
         FileResourceLoader resources = new FileResourceLoader(getAssets());
         try {
-            dev.t1m3.qplayer.lyric.skia.Fonts.init(weight -> CompressedResources.load(resources,
-                    "fonts/PingFangSC-" + bundledFontWeightName(weight) + ".otf"));
+            dev.t1m3.qplayer.lyric.skia.Fonts.init(weight ->
+                    CompressedResources.load(resources,
+                            weight == dev.t1m3.qplayer.lyric.skia.Fonts.Weight.BOLD
+                                    ? "fonts/" + bundledFontWeightName(weight)
+                                    : "fonts/PingFangSC-" + bundledFontWeightName(weight) + ".otf"));
             // Material Symbols for the host-drawn lyric transport icons (drawn by
             // shaped ligature name, same as the QML scene's icons).
             dev.t1m3.qplayer.lyric.skia.Fonts.initIcon(
@@ -264,6 +267,7 @@ public final class QPlayerActivity extends Activity {
             case THIN: return "Thin";
             case LIGHT: return "Light";
             case MEDIUM: return "Medium";
+            case BOLD: return "SFPro-Bold.ttf";
             case REGULAR:
             default: return "Regular";
         }

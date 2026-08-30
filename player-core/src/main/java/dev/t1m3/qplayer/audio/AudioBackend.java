@@ -72,4 +72,36 @@ public interface AudioBackend {
 
     /** Stop playback and free native resources. */
     void release();
+
+    /**
+     * Current 0..1 loudness pulse for reactive visuals (beat-tracking background).
+     * Computed on the audio thread from decoded PCM; 0 when unavailable.
+     */
+    default float beatLevel() { return 0f; }
+
+    /**
+     * Feed the track's metadata duration (the backend's own decoder may not know it,
+     * e.g. streamed MP3). Drives the end-of-track window / automix scheduling.
+     */
+    default void setExpectedDuration(long ms) { }
+
+    /**
+     * Automix: pre-arm the next track for a beat-matched, tempo-stretched overlap.
+     * Analysis runs in the background; the backend fires the blend on its own clock
+     * and reports via {@link #setOnAutomixFired}. No-op on backends without automix.
+     */
+    default boolean prepareAutomix(String urlB, long bStartMs, long aOutStartMs,
+                                    long introBoundaryMsB, long aLastLyricEndMs,
+                                    boolean glideAllowed, boolean stemSplit, float gainComp) {
+        return false;
+    }
+
+    /** True while a pre-armed automix blend is waiting to fire. */
+    default boolean hasAutomixArmed() { return false; }
+
+    /** Cancel a pending automix arm (manual switch / queue change). */
+    default void cancelAutomix() { }
+
+    /** Callback fired when the automix blend hands over to the next track. */
+    default void setOnAutomixFired(Runnable r) { }
 }

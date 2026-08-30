@@ -9,6 +9,7 @@
 
 uniform float time;
 uniform float alpha;
+uniform float beat;
 uniform shader cover;
 
 const float TEX_SIZE = 32.0;
@@ -24,7 +25,8 @@ half4 main(float2 localCoord) {
     float dither = INV_255 * gradientNoise(localCoord) - HALF_INV_255;
 
     // QPlayer has no spectrum input, so volume uses AMLL's neutral zero value.
-    float2 centeredUV = uv - float2(0.3);
+    float zoom = 1.0 - 0.09 * beat;
+    float2 centeredUV = (uv - float2(0.3)) * zoom;
     float angle = time * 0.2;
     float sinAngle = sin(angle);
     float cosAngle = cos(angle);

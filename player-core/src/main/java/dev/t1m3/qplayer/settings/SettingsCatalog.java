@@ -108,6 +108,39 @@ public final class SettingsCatalog {
         out.add(SettingSpec.toggle("fade", PLAYBACK, "淡入淡出", false)
                 .desc("切歌/播放结束时音量渐变，而不是直接切断")
                 .build());
+        out.add(SettingSpec.toggle("crossfade", PLAYBACK, "交叉淡化", false)
+                .desc("切歌时双声道交叉淡入淡出（约 2.2 秒）")
+                .build());
+        out.add(SettingSpec.toggle("audioTransport", PLAYBACK, "音频传输滑音", false)
+                .desc("交叉淡化时用最优传输频谱插值做频率滑音过渡，需同时开启交叉淡化")
+                .build());
+        out.add(SettingSpec.toggle("automixEnabled", PLAYBACK, "智能混音 Automix", false)
+                .desc("Apple 风格：曲末自动触发 BPM 匹配、节拍对齐的交叉过渡（离线分析）")
+                .build());
+        out.add(SettingSpec.toggle("highpassFade", PLAYBACK, "低音渐变", true)
+                .desc("automix 进入时低音缓入，避免与上一首的低频打架")
+                .build());
+        out.add(SettingSpec.slider("automixMs", PLAYBACK, "混音重叠时长", 4000, 3000, 6000, 100)
+                .unit(" ms").desc("automix 的重叠窗口长度")
+                .build());
+        out.add(SettingSpec.slider("automixIntroOffsetMs", PLAYBACK, "落点前移", 400, 0, 1000, 50)
+                .unit(" ms").desc("B 的混入点向前偏移量，给滑音留准备时间")
+                .build());
+        out.add(SettingSpec.slider("automixRampHoldMs", PLAYBACK, "节拍保持时长", 2600, 1500, 4000, 100)
+                .unit(" ms").desc("变速匹配在重叠期间保持的时长")
+                .build());
+        out.add(SettingSpec.slider("automixRampMs", PLAYBACK, "变速回退时长", 10000, 5000, 15000, 500)
+                .unit(" ms").desc("重叠后 B 从匹配速度平滑回到自身速度的时长")
+                .build());
+        out.add(SettingSpec.toggle("automixGlideCompat", PLAYBACK, "滑音兼容门控", true)
+                .desc("仅当两曲 BPM 匹配且调性和谐时才使用频谱滑音")
+                .build());
+        out.add(SettingSpec.toggle("automixStemSplit", PLAYBACK, "人声抑制入场", true)
+                .desc("重叠期间播放 B 的器乐伴奏（中心声道人声抑制），过渡后恢复人声")
+                .build());
+        out.add(SettingSpec.toggle("automixEnhanced", PLAYBACK, "增强混音预设", false)
+                .desc("切换为调校过的增强参数组（更长的重叠）")
+                .build());
         out.add(SettingSpec.toggle("highQuality", PLAYBACK, "高音质播放", true)
                 .desc("关闭后使用低音质播放以节省流量")
                 .build());
@@ -126,7 +159,8 @@ public final class SettingsCatalog {
                 .unit(" px").dots()
                 .build());
         out.add(SettingSpec.segmented("lyricFontWeight", LYRIC, "字重", 2,
-                        "极细", "细", "常规", "中等")
+                        "极细", "细", "常规", "中等", "粗")
+                .desc("“粗”使用 SF Pro Bold 字体（Apple Music 风格）")
                 .build());
         out.add(SettingSpec.slider("lyricLineSpacing", LYRIC, "行间距", 200, 100, 250, 5)
                 .scale(100).unit("×").dots()

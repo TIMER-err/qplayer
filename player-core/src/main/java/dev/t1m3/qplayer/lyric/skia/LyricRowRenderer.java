@@ -130,6 +130,10 @@ final class LyricRowRenderer implements AutoCloseable {
                 return;
             }
             try {
+                // Melodify: bloom 先画(文字底下,additive),再画文字盖在上面。
+                drawWordGlows(canvas, syllables, row, startX, baselineY, ascent, descent,
+                        positionMs, activeK, glowOn, shadowOn, wordGlowSupported,
+                        liftedShader, sweepX);
                 Paint textPaint = LyricSkia.scratchPaint();
                 setShader(textPaint, liftedShader);
                 try {
@@ -143,8 +147,6 @@ final class LyricRowRenderer implements AutoCloseable {
                     setShader(textPaint, 0L);
                 }
                 applySweepMask(canvas, sweepX, 1f - (1f - DARK_MASK_ALPHA) * activeK);
-                drawWordGlows(canvas, syllables, row, startX, baselineY, ascent, descent,
-                        positionMs, activeK, glowOn, shadowOn, wordGlowSupported, liftedShader);
             } finally {
                 Managed._nInvokeFinalizer(RefCnt._FinalizerHolder.PTR, liftedShader);
             }
@@ -265,7 +267,7 @@ final class LyricRowRenderer implements AutoCloseable {
     private void drawWordGlows(Canvas canvas, List<Syllable> syllables, ShapedRow row,
                                float startX, float baselineY, float ascent, float descent,
                                long positionMs, float activeK, boolean glowOn, boolean shadowOn,
-                               boolean wordGlowSupported, long liftedShader) {
+                               boolean wordGlowSupported, long liftedShader, float sweepX) {
         if (!wordGlowSupported || !glowOn || row.words.length == 0) return;
         boolean layerSaved = false;
         try {
@@ -303,6 +305,15 @@ final class LyricRowRenderer implements AutoCloseable {
                 }
                 float x0 = startX + Math.min(word.x0, word.x1) - 1f;
                 float x1 = startX + Math.max(word.x0, word.x1) + 1f;
+                // Melodify glowWindow: 以扫光头为中心的对称滑动窗口,半宽 = 行平均
+                // 音节宽×0.5,按距离 smoothstep 衰减——已扫过/未扫到的词不发光。
+                float avgSylW = Math.max(1f, row.width / (float) Math.max(1, row.to - row.from));
+                float windowW = avgSylW * 0.5f;
+                float wordCX = (x0 + x1) * 0.5f;
+                float d = Math.abs(wordCX - sweepX) / Math.max(windowW, 0.001f);
+                float window = 1f - d * d * (3f - 2f * Math.min(1f, d));
+                alpha *= window;
+                if (alpha <= 0.01f) continue;
                 canvas.save();
                 try {
                     clipRect(canvas, x0, baselineY + ascent - MAX_SHADER_LIFT_PX,
@@ -476,6 +487,8 @@ final class LyricRowRenderer implements AutoCloseable {
     private static Paint newGlowGlyphPaint() {
         Paint paint = new Paint();
         paint.setAntiAlias(true);
+        // Melodify: additive(ONE,ONE) bloom 画在文字底下。
+        paint.setBlendMode(BlendMode.PLUS);
         return paint;
     }
 

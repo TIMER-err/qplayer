@@ -95,6 +95,11 @@ public final class LyricCompositor {
     private Shader lyFadeShader;
     private final Paint lyMaskPaint = new Paint();
 
+    // Melodify-style 1px divider between the left cover chrome and the lyric column.
+    private int dividerPeakApplied = -1;
+    private Shader dividerShader;
+    private final Paint dividerPaint = new Paint();
+
     // Apple-Music progressive edge blur (opt-in). The column is drawn twice with two
     // COMPLEMENTARY masks that never overlap: a blurred copy kept only at the edges, and a
     // sharp copy kept only across a plateau around the active line. Neither is a solid base
@@ -166,9 +171,14 @@ public final class LyricCompositor {
             blurFilter.close();
             blurFilter = null;
         }
+        if (dividerShader != null) {
+            dividerShader.close();
+            dividerShader = null;
+        }
         lyMaskPaint.close();
         blurBasePaint.close();
         lyLayerPaint.close();
+        dividerPaint.close();
     }
 
     /** Render-thread recreation resumes at a discontinuous playback position. */
@@ -334,7 +344,8 @@ public final class LyricCompositor {
         }
         long predMs = clockRunning ? lyBaseMs + (nowN - lyBaseNanos) / 1_000_000L : lyBaseMs;
         if (durMs > 0 && predMs > durMs) predMs = durMs;
-        controller.lyricProgress.set(durMs > 0 ? Math.min(1.0, predMs / (double) durMs) : 0.0);
+        long relPred = Math.max(0L, predMs - controller.automixBaseMs());
+        controller.lyricProgress.set(durMs > 0 ? Math.min(1.0, relPred / (double) durMs) : 0.0);
 
         // Re-feed the renderer when the track's lyric list changes (identity).
         List<LyricLine> lyObj = controller.lyrics.peek();
@@ -400,8 +411,9 @@ public final class LyricCompositor {
         }
         int bgClip = canvas.save();
         canvas.clipRect(backdropClipRect);
+        float beat = controller != null ? controller.beatLevel() : 0f;
         fluidBg.render(canvas, ctx, uiScale, w, h, cover, lyCoverKey,
-                System.nanoTime(), bgStatic, bgStyle);
+                System.nanoTime(), beat, bgStatic, bgStyle);
         canvas.restoreToCount(bgClip);
 
         // 2) the lyrics column. The title (top band) and transport (bottom band) are
@@ -472,6 +484,34 @@ public final class LyricCompositor {
             canvas.drawRect(colRect, lyMaskPaint);
             lyMaskPaint.setShader(null);
             canvas.restoreToCount(lc);
+        }
+
+        if (landscape && !coverOnly) {
+            float regionW = w * 0.5f;
+            float coverSize = Math.max(120f, Math.min(Math.min(regionW - 96f, h - 248f), 360f));
+            float coverRight = regionW * 0.5f + coverSize * 0.5f;
+            float dividerX = (coverRight + colLeft) * 0.5f;
+            float dividerTop = h * 0.16f;
+            float dividerBot = h * 0.84f;
+            int peak = (int) (ease * lyricShow * 0.06f * 255f);
+            if (peak != dividerPeakApplied) {
+                dividerPeakApplied = peak;
+                if (dividerShader != null) {
+                    dividerShader.close();
+                    dividerShader = null;
+                }
+                if (peak > 0) {
+                    dividerShader = Shader.makeLinearGradient(
+                            dividerX, dividerTop, dividerX, dividerBot,
+                            new int[]{0x00FFFFFF, 0x00FFFFFF | (peak << 24), 0x00FFFFFF},
+                            new float[]{0f, 0.5f, 1f});
+                }
+            }
+            if (dividerShader != null) {
+                dividerPaint.setShader(dividerShader);
+                canvas.drawRect(Rect.makeLTRB(dividerX, dividerTop, dividerX + 1f, dividerBot), dividerPaint);
+                dividerPaint.setShader(null);
+            }
         }
 
         canvas.restoreToCount(sc);

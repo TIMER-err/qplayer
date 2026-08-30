@@ -56,13 +56,9 @@ public class LyricRenderer {
     private static final int VISIBLE_RADIUS = 16;
     /**
      * Minimum gap (ms) between two groups to insert an interlude dot row.
-     * AMLL's reference uses 4000 ms, but that filters out most of the
-     * short verse-to-verse pauses our user-tested songs actually have.
-     * We use 2000 ms + proportional phase scaling in
-     * {@link #renderInterludeDots} so short gaps still show dots with
-     * fade-in/hold/exit windows scaled down to fit.
+     * Apple Music instrumentalBreakVisualizationMinSeconds = 7.0.
      */
-    private static final long INTERLUDE_THRESHOLD_MS = 2000L;
+    private static final long INTERLUDE_THRESHOLD_MS = 7000L;
     /**
      * AMLL trims the effective interlude end by 250 ms so the next
      * line has room to scroll in before it actually starts singing.
@@ -155,11 +151,6 @@ public class LyricRenderer {
     // a jarring half-animate/half-flash mix. Small jumps still spring smoothly.
     private static final int SNAP_JUMP_LINES = 6;
 
-    // ── 歌词动效（LyricBlossom 逆向，自 Melodify 完整搬运）────────────────────────
-    /** 歌词提前跳转：在下一行真正开始前 ANTICIPATION_S 秒就把锚点切到下一行。
-     *  手动滚动时不提前（保持用户正在看的位置）；跳过背景行（group 由主行+跟随
-     *  背景行构成，天然跳过）。值定义在 LyricSprings（与桌面歌词窗共享）。 */
-    private static final double ANTICIPATION_S = LyricSprings.ANTICIPATION_S;
     /** 提前跳转后，锚点已经越过的旧行用 lerp 平滑熄火（DIM_LERP_RATE≈150ms 内灭掉）。 */
     private static final float DIM_LERP_RATE = 12f;
 
@@ -254,6 +245,8 @@ public class LyricRenderer {
     private int prevVisEnd = 0;
     private int springAnchorPrev = Integer.MIN_VALUE;
     private int renderedAnchorPrev = Integer.MIN_VALUE;
+    private double melodifySpringStiffness = 65.0;
+    private double melodifySpringDamping = 11.0;
     /** 原版方向级联用：+1 前进（向上滚），-1 回退（向下滚）。 */
     private int cascadeDir = 1;
     /** Discontinuous position changes move the whole column with a non-spring ease-out. */
@@ -265,12 +258,27 @@ public class LyricRenderer {
     private long seekEaseStartNs = 0L;
     private float seekEaseFrom = 0f;
     private float seekEaseTo = 0f;
+    // Lyric-list switch (automix handover / track change): keep the old viewport so
+    // the new list glides from it to its anchor instead of snapping. Null when there
+    // is no pending start position. Empty-list intermediate states keep it alive.
+    private Float pendingSeekFrom = null;
+    private boolean seekEaseLiveTarget = false;
+    // After a lyric-list switch glide, relaunch the per-line cascade so the fresh
+    // rows float up in sequence instead of sitting where the rigid glide left them.
+    private boolean cascadeRelaunch = false;
+    private static final float CASCADE_DROP_PX = 240f;
     private long springAnchorChangeNs = 0L;
     private long springLastNs = 0L;
     /** 上一帧播放位置（LyricBlossom 逆向 seek 检测：时钟硬跳变 = seek）。 */
     private long lastFramePosMs = -1L;
     /** 提前跳转后旧行快速熄火系数（1=正常亮度，lerp 到 0 熄灭）。 */
     private float[] lineDimK = new float[0];
+    // Anticipation trigger: the passed line's sweep slides from the trigger point
+    // (line end - 710ms) to the line end at FAST_SWEEP speed instead of snapping
+    // the whole row to "read". Wall-clock start per line, -1 when inactive.
+    private long[] fastSweepAnchorMs = new long[0];
+    private long[] fastSweepFromMs = new long[0];
+    private static final float FAST_SWEEP_MS = 250f;
     /** 行级缩放弹簧（照搬 Melodify scaleSpring）：与位置弹簧同步换参、同步级联延迟，
      *  换行时缩放与跳转一起动。 */
     private SpringAnim[] scaleSpring = new SpringAnim[0];
@@ -312,6 +320,8 @@ public class LyricRenderer {
                 return Fonts.Weight.LIGHT;
             case MEDIUM:
                 return Fonts.Weight.MEDIUM;
+            case BOLD:
+                return Fonts.Weight.BOLD;
             default:
                 return Fonts.Weight.REGULAR;
         }
@@ -354,9 +364,12 @@ public class LyricRenderer {
     }
 
     public void setLyrics(List<LyricLine> newLines) {
+        boolean hadOld = this.lines != null && !this.lines.isEmpty();
+        float prevScroll = (float) this.scrollAnim.getValue();
         clearLayoutCache();
         boolean linearPlainLrc = Boolean.TRUE.equals(LyricConfig.instance.linearAnimForPlainLrc.getValue());
         LyricTimeline.Prepared prepared = LyricTimeline.prepare(newLines, linearPlainLrc);
+        if (hadOld) pendingSeekFrom = prevScroll;
         this.lines = prepared.lines;
         this.animatablePerToken = prepared.animatablePerToken;
         this.wordGlowSupported = prepared.perSyllableSource;
@@ -379,6 +392,16 @@ public class LyricRenderer {
         this.scaleSpringInit = false;
         this.scaleCascadeDelayBuf = new double[0];
         userScroll.reset();
+        // A fresh non-empty list after a switch: glide from the previous viewport to
+        // the new anchor (fast quartic ease), instead of snapping to the top.
+        if (!prepared.lines.isEmpty() && pendingSeekFrom != null) {
+            seekEaseActive = true;
+            seekEaseLiveTarget = true;
+            seekEaseStartNs = System.nanoTime();
+            seekEaseFrom = pendingSeekFrom;
+            seekEaseTo = 0f; // live-updated to the anchor each frame until done
+            pendingSeekFrom = null;
+        }
     }
 
     private void clearLayoutCache() {
@@ -453,12 +476,6 @@ public class LyricRenderer {
         float lineGap = 0f;
         Fonts.Weight weight = toFontsWeight(cfg.fontWeight.getValue());
         float rowHeightRatio = cfg.lineSpacing.getValue();
-        if (Boolean.TRUE.equals(cfg.autoLineSpacing.getValue())) {
-            // Melodify 行间距公式:单行占位 = 字高(H) + 10U(行内 pad) + 45U(行间 pad)
-            // + 25(间距),U = 0.82051282051282048。字高按 1.2×字号近似(qplayer 行盒
-            // = fontSize×ratio)。开启后行间距滑块无效。
-            rowHeightRatio = (1.2f * lyricFontSize + 8.205128f + 36.923077f + 25f) / lyricFontSize;
-        }
         float emphasisScale = cfg.emphasisScale.getValue();
         if (!(emphasisScale > 0f) || !(emphasisScale < 3f)) emphasisScale = EMPHASIS_SCALE;
 
@@ -498,12 +515,24 @@ public class LyricRenderer {
         LyricTextShaper.configureForAnimation(subFont);
         LyricTextShaper.configureForAnimation(bgSubFont);
 
-        float rowHeightLyric = lyricFontSize * rowHeightRatio;
-        float rowHeightLyricWrap = lyricFontSize * WRAPPED_ROW_HEIGHT_RATIO;
-        float rowHeightBg = bgFontSize * rowHeightRatio;
-        float rowHeightBgWrap = bgFontSize * WRAPPED_ROW_HEIGHT_RATIO;
-        float subLineHeight = subFontSize * SUB_ROW_HEIGHT_RATIO;
-        float bgSubLineHeight = bgSubFontSize * SUB_ROW_HEIGHT_RATIO;
+        // Melodify 行盒 = 字体实际高度(getHeight) + pad——粗体/大 descent 字形
+        // (g/y 下伸、i 上挑)不会溢出压到下一行。qplayer 用户行距作为下限兜底。
+        float lyricMetricsH = lyricFont.getMetrics().getDescent() - lyricFont.getMetrics().getAscent();
+        float bgMetricsH = bgFont.getMetrics().getDescent() - bgFont.getMetrics().getAscent();
+        float subMetricsH = subFont.getMetrics().getDescent() - subFont.getMetrics().getAscent();
+        float bgSubMetricsH = bgSubFont.getMetrics().getDescent() - bgSubFont.getMetrics().getAscent();
+        if (Boolean.TRUE.equals(cfg.autoLineSpacing.getValue())) {
+            // Melodify 行间距公式:单行占位 = 字高(H) + 10U(行内 pad) + 45U(行间 pad)
+            // + 25(间距),U = 0.82051282051282048。H 用真实字形度量。开启后行距滑块无效。
+            rowHeightRatio = (lyricMetricsH + 8.205128f + 36.923077f + 25f) / lyricFontSize;
+        }
+        float metricPad = 8f;
+        float rowHeightLyric = Math.max(lyricFontSize * rowHeightRatio, lyricMetricsH + metricPad);
+        float rowHeightLyricWrap = Math.max(lyricFontSize * WRAPPED_ROW_HEIGHT_RATIO, lyricMetricsH + metricPad);
+        float rowHeightBg = Math.max(bgFontSize * rowHeightRatio, bgMetricsH + metricPad);
+        float rowHeightBgWrap = Math.max(bgFontSize * WRAPPED_ROW_HEIGHT_RATIO, bgMetricsH + metricPad);
+        float subLineHeight = Math.max(subFontSize * SUB_ROW_HEIGHT_RATIO, subMetricsH + metricPad);
+        float bgSubLineHeight = Math.max(bgSubFontSize * SUB_ROW_HEIGHT_RATIO, bgSubMetricsH + metricPad);
 
         boolean showRomaji = cfg.showRomaji.getValue();
         boolean showTranslation = cfg.showTranslation.getValue();
@@ -688,7 +717,7 @@ public class LyricRenderer {
         // ── 行切换时机 ──
         //    LyricBlossom 模式：① 念完即切——锚点是第一个"结束时间还没到"的组，
         //    当前行 endMs 一过立即切到下一组（空隙也照切）；② 提前跳转——无手动滚动时
-        //    posMs + ANTICIPATION_S ≥ 下一组 startMs 提前切（跳过背景行由 group 结构
+        //    posMs + FAST_SWEEP_MS ≥ 下一组 startMs 提前切（跳过背景行由 group 结构
         //    天然保证）。
         //    原版模式：锚点在下一组进入淡入窗口（fadeInStart = startMs-450ms）时切。
         int anchorGroup = -1;
@@ -708,7 +737,7 @@ public class LyricRenderer {
                 timelineGroupIndex = gi;
             }
             if (!userScroll.isActive() && anchorGroup + 1 < groups.size()
-                    && positionMs + (long) (ANTICIPATION_S * 1000.0)
+                    && positionMs + (long) (LyricSprings.ANTICIPATION_S * 1000.0)
                             >= groups.get(anchorGroup + 1).startMs) {
                 anchorGroup++;
             }
@@ -823,11 +852,6 @@ public class LyricRenderer {
             if (positionMs < effectiveEnd && gap >= INTERLUDE_THRESHOLD_MS) {
                 inInterlude = true;
                 interludeStartMs = gapStart;
-                // Once the next line enters its visual fade-in window, let the lyric
-                // anchor move immediately but keep rendering the dots through their
-                // own exit timeline. Before that handoff, dots remain the scroll target.
-                // （"念完即切"后锚点会提前切到 next——用 fadeInStart 判断 handoff 时机，
-                //   与旧锚点语义等价，间奏点仍会在 next 进入淡入窗口前作为滚动目标。）
                 if (LyricMotion.fadeInStart(nextGroup) > positionMs) {
                     float slotH = interludeBefore[interludeNextGroup];
                     float dotsTop = lineTops[nextGroup.from] - slotH;
@@ -1000,6 +1024,7 @@ public class LyricRenderer {
             // Keep fallback/manual-return state warm for a seamless handoff.
             scrollAnim.setValue(scrollY);
         } else if (seekEaseActive) {
+            if (seekEaseLiveTarget) seekEaseTo = targetScroll;
             float t = Math.min(1f, (nowNs - seekEaseStartNs)
                     / (float) DISCONTINUITY_EASE_DURATION_NS);
             float inv = 1f - t;
@@ -1014,6 +1039,19 @@ public class LyricRenderer {
                 // normal line following picks up any tiny residual continuously.
                 scrollY = seekEaseTo;
                 seekEaseActive = false;
+                if (seekEaseLiveTarget) {
+                    // List-switch glide done: relaunch the per-line cascade so the
+                    // new song's rows float up in sequence from below the anchor.
+                    seekEaseLiveTarget = false;
+                    cascadeRelaunch = true;
+                    springAnchorChangeNs = nowNs;
+                    if (lineCurTop.length == n) {
+                        for (int i = start; i < end; i++) {
+                            lineCurTop[i] = centerY + lineTops[i] - scrollY + CASCADE_DROP_PX;
+                            lineVelTop[i] = 0f;
+                        }
+                    }
+                }
             }
             // Keep the unused fallback spring synchronized so handing control back
             // after the tween cannot reintroduce old velocity.
@@ -1034,31 +1072,35 @@ public class LyricRenderer {
         //    原版模式：动态调参（行间隔越密越硬，间奏稳态），ζ≈0.68。
         double scrollStiffness;
         double scrollDamping;
-        if (inInterlude) {
+        if (melodifyMotion) {
+            if (anchorChangedFrame || cascadeRelaunch || clockSeek || explicitSeek) {
+                if (clockSeek || explicitSeek) {
+                    int prevAnchor = springAnchorPrev;
+                    LyricSprings.Physics p = LyricSprings.seekSpring(
+                            prevAnchor >= 0 ? anchorIdx - prevAnchor : 0, seekDeltaMs / 1000.0);
+                    melodifySpringStiffness = p.stiffness;
+                    melodifySpringDamping = p.damping;
+                } else {
+                    double gap = 0.0;
+                    if (activeGroup != null && activeGroupIndex > 0) {
+                        gap = Math.max(activeGroup.startMs - groups.get(activeGroupIndex - 1).endMs, 0L) / 1000.0;
+                    }
+                    LyricSprings.Physics p = LyricSprings.lineTransitionSpring(animatablePerToken, gap);
+                    boolean continuous = !userScroll.isActive()
+                            && activeGroup != null
+                            && activeGroup.endMs / 1000.0 - posSec - 0.5 < 0.6;
+                    p = LyricSprings.retimeLineSpring(p,
+                            activeGroup != null ? lines.get(activeGroup.from).endMs() / 1000.0 : posSec,
+                            posSec, continuous);
+                    melodifySpringStiffness = p.stiffness;
+                    melodifySpringDamping = p.damping;
+                }
+            }
+            scrollStiffness = melodifySpringStiffness;
+            scrollDamping = melodifySpringDamping;
+        } else if (inInterlude) {
             scrollStiffness = SCROLL_STIFFNESS_INTERLUDE;
             scrollDamping = SCROLL_DAMPING_INTERLUDE;
-        } else if (melodifyMotion) {
-            if (clockSeek || explicitSeek) {
-                int prevAnchor = springAnchorPrev;
-                LyricSprings.Physics p = LyricSprings.seekSpring(
-                        prevAnchor >= 0 ? anchorIdx - prevAnchor : 0, seekDeltaMs / 1000.0);
-                scrollStiffness = p.stiffness;
-                scrollDamping = p.damping;
-            } else {
-                double gap = 0.0;
-                if (activeGroup != null && activeGroupIndex > 0) {
-                    gap = Math.max(activeGroup.startMs - groups.get(activeGroupIndex - 1).endMs, 0L) / 1000.0;
-                }
-                LyricSprings.Physics p = LyricSprings.lineTransitionSpring(animatablePerToken, gap);
-                boolean continuous = !userScroll.isActive()
-                        && activeGroup != null
-                        && activeGroup.endMs / 1000.0 - posSec - 0.5 < 0.6;
-                p = LyricSprings.retimeLineSpring(p,
-                        activeGroup != null ? lines.get(activeGroup.from).endMs() / 1000.0 : posSec,
-                        posSec, continuous);
-                scrollStiffness = p.stiffness;
-                scrollDamping = p.damping;
-            }
         } else {
             LyricTimeline.Group prevG = (activeGroupIndex > 0) ? groups.get(activeGroupIndex - 1) : null;
             double interval = (activeGroup != null && prevG != null)
@@ -1091,19 +1133,21 @@ public class LyricRenderer {
                     break;
                 }
             }
-            for (int i = start; i < end; i++) {
+            // Melodify: 级联延迟对所有行(含视口外)生效——整屏依次浮起,而非只视口内。
+            for (int i = 0; i < n; i++) {
                 int dist = LyricSprings.validLineDistance(lines, cascadeAnchor, i);
                 double sDelay = LyricSprings.cascadeDelay(dist, cascadeDisabled);
                 cascadeDelayBuf[i] = continuousNow ? 0.0 : sDelay;
             }
             if (scaleCascadeDelayBuf.length < n) scaleCascadeDelayBuf = new double[n];
-            if (anchorChangedFrame) {
-                for (int i = start; i < end; i++) {
+            if (anchorChangedFrame || cascadeRelaunch) {
+                for (int i = 0; i < n; i++) {
                     int dist = LyricSprings.validLineDistance(lines, cascadeAnchor, i);
                     scaleCascadeDelayBuf[i] = LyricSprings.cascadeDelay(dist, cascadeDisabled);
                 }
+                cascadeRelaunch = false;
             } else {
-                for (int i = start; i < end; i++) scaleCascadeDelayBuf[i] = 0.0;
+                for (int i = 0; i < n; i++) scaleCascadeDelayBuf[i] = 0.0;
             }
         } else {
             for (int i = start; i < end; i++) cascadeDelayBuf[i] = 0.0;
@@ -1120,6 +1164,27 @@ public class LyricRenderer {
                     cascDelay += cascStep;
                     cascStep /= LINE_DELAY_DECAY;
                     cascadeDelayBuf[i] = cascDelay;
+                }
+            }
+        }
+
+        // Melodify 级联:所有行(含视口外)都走弹簧+级联延迟,新进入视口的行从旧位置
+        // 依次浮起,而不是 snap 到位——这是级联"幅度"的主要来源。
+        if (spring && !rigidMode && springDt > 0.0) {
+            if (!lineSpringInit) {
+                for (int i = 0; i < n; i++) {
+                    if (lineCurTop.length > i) {
+                        lineCurTop[i] = centerY + lineTops[i] - targetScroll;
+                        lineVelTop[i] = 0f;
+                    }
+                }
+            } else {
+                for (int i = 0; i < n; i++) {
+                    if (lineCurTop.length <= i) break;
+                    if (sinceAnchorChange >= cascadeDelayBuf[i]) {
+                        stepLineSpring(i, centerY + lineTops[i] - targetScroll,
+                                springDt, scrollStiffness, scrollDamping);
+                    }
                 }
             }
         }
@@ -1142,6 +1207,9 @@ public class LyricRenderer {
                 if (lineDimK.length != n) {
                     lineDimK = new float[n];
                     java.util.Arrays.fill(lineDimK, 1f);
+                    fastSweepAnchorMs = new long[n];
+                    java.util.Arrays.fill(fastSweepAnchorMs, -1L);
+                    fastSweepFromMs = new long[n];
                 }
                 float dimTarget = (myGroupIdx < activeGroupIndex && !isPartner) ? 0f : 1f;
                 float dimK = Math.min(1f, (float) Math.max(0.0, springDt) * DIM_LERP_RATE);
@@ -1180,15 +1248,6 @@ public class LyricRenderer {
                     lineVelTop[i] = 0f;
                 }
             } else {
-                boolean wasVisible = i >= prevVisStart && i < prevVisEnd;
-                if (!lineSpringInit || !wasVisible) {
-                    lineCurTop[i] = restTop;
-                    lineVelTop[i] = 0f;
-                } else {
-                    if (sinceAnchorChange >= cascadeDelayBuf[i] && springDt > 0.0) {
-                        stepLineSpring(i, restTop, springDt, scrollStiffness, scrollDamping);
-                    }
-                }
                 lineYTop = lineCurTop[i];
             }
 
@@ -1249,7 +1308,7 @@ public class LyricRenderer {
                             ? DESELECTED_SCALE + (emphasisScale - DESELECTED_SCALE) * activeK
                             : (isAnchor ? emphasisScale : DESELECTED_SCALE);
                     if (spring && scaleSpring.length == n) {
-                        if (anchorChangedFrame || clockSeek || explicitSeek) {
+                        if (anchorChangedFrame || cascadeRelaunch || clockSeek || explicitSeek) {
                             scaleSpring[i].setParams(1.0, scrollDamping, scrollStiffness);
                         }
                         if (firstScaleFrame || !scaleWasVisible) {
@@ -1318,9 +1377,32 @@ public class LyricRenderer {
                 // 扫光——传 effPosMs = 行结束+1（sweep 全亮、lift 饱和、glow 关闭），而
                 // 不是 Long.MAX_VALUE（会让 lift 的 cos 巨参溢出成 NaN）。真正的合唱搭档
                 // （duet block）仍在合唱，照常扫。原版模式用真实 positionMs。
-                long effPosMs = (melodifyMotion && myGroupIdx < activeGroupIndex && !isPartner)
-                        ? line.endMs() + 1L
-                        : positionMs;
+                long effPosMs = positionMs;
+                long fastSweepStartMs = line.endMs()
+                        - (long) (LyricSprings.ANTICIPATION_S * 1000.0)
+                        - (long) FAST_SWEEP_MS;
+                boolean preSwitchSweep = myGroupIdx == activeGroupIndex
+                        && positionMs >= fastSweepStartMs && positionMs < line.endMs();
+                boolean postSwitchSweep = myGroupIdx < activeGroupIndex && !isPartner;
+                if (melodifyMotion && (preSwitchSweep || postSwitchSweep)) {
+                    long endMs = line.endMs() + 1L;
+                    long anchor = fastSweepAnchorMs[i];
+                    if (anchor < 0L) {
+                        anchor = nowNs / 1_000_000L;
+                        fastSweepAnchorMs[i] = anchor;
+                        // Start from the sweep position the fast-forward began at
+                        // (continuous with the pre-switch state — no reset/jump back),
+                        // then fast-forward to the line end (fully read) within 260ms —
+                        // well before the 710ms anchor switch, so the row reads as
+                        // "already finished" the moment the switch happens.
+                        fastSweepFromMs[i] = Math.min(positionMs, endMs);
+                    }
+                    float prog = Math.min(1f, (nowNs / 1_000_000L - anchor) / FAST_SWEEP_MS);
+                    effPosMs = fastSweepFromMs[i]
+                            + (long) ((endMs - fastSweepFromMs[i]) * prog);
+                } else {
+                    fastSweepAnchorMs[i] = -1L;
+                }
                 rowRenderer.drawRow(cachedLayoutSyllables.get(i), shapedRow,
                         rowX - lead, rowBaselineY,
                         ascent, descent, effPosMs, baseAlpha, activeK, animatablePerToken, spring,
@@ -1384,11 +1466,6 @@ public class LyricRenderer {
                         ? lineCurTop[nf]
                         : centerY + lineTops[nf]
                         - (spring && !userScroll.isActive() ? targetScroll : scrollY);
-                // Centre the dots between the two LINES OF TEXT, not the slot edges.
-                // The slot top (nextTop - slotH) sits at the previous line's bottom,
-                // but the next line's text starts nextTextOffset below its slot top
-                // (line-height leaves that gap above the glyphs). Without accounting
-                // for it the dots hug the previous line and drift with line spacing.
                 float nextTextOffset = rowHeightLyric + lyricAscent - lyricDescent - 4f;
                 float prevTextBottom = nextTop - slotH;
                 float nextTextTop = nextTop + nextTextOffset;
@@ -1437,12 +1514,6 @@ public class LyricRenderer {
                                      long currentDuration, long interludeDuration) {
         if (currentDuration < 0L || currentDuration > interludeDuration) return;
 
-        // No "invisible delay" window at the start — AMLL's 500 ms blank
-        // before fade-in was the main visible-perceived latency the user
-        // hit. Combined with the 300 ms slot lead and the spring scroll
-        // catching up, the gap could be nearly a second old before any
-        // dot appeared. Start fade-in at 0 so the dots arrive in sync
-        // with the slot expanding.
         long fadeInStartMs = 0L;
         long fadeInEndMs = Math.min(600L, (long) (interludeDuration * 0.20));
         long scaleRampMs = Math.min(1500L, (long) (interludeDuration * 0.35));

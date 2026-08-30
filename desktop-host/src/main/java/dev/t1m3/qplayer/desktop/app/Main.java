@@ -5,7 +5,7 @@ import io.github.timer_err.qml4j.engine.QmlEngine;
 import dev.t1m3.qplayer.audio.AudioBackend;
 import dev.t1m3.qplayer.audio.MetadataReader;
 import dev.t1m3.qplayer.bridge.PlayerController;
-import dev.t1m3.qplayer.desktop.audio.DesktopAudioBackend;
+import dev.t1m3.qplayer.desktop.audio.DesktopMixer;
 import dev.t1m3.qplayer.desktop.graphics.DesktopColorExtractor;
 import dev.t1m3.qplayer.desktop.library.DesktopMetadataReader;
 import dev.t1m3.qplayer.desktop.library.LibraryWatcher;
@@ -115,7 +115,8 @@ public final class Main {
                 classpathResources.qmlFingerprint(currentVersion));
 
         // Platform backends (the desktop impls already exist).
-        AudioBackend audio = new DesktopAudioBackend();
+        SettingsCore settings = new SettingsCore();
+        AudioBackend audio = new DesktopMixer(settings);
         MetadataReader reader = new DesktopMetadataReader();
 
         PlayerController controller = new PlayerController(audio, reader);
@@ -130,7 +131,6 @@ public final class Main {
         // player-core (shared with Android). The host contributes a store, the
         // platform id, the defaults only it knows, and the actions/live text its
         // own rows need.
-        SettingsCore settings = new SettingsCore();
         settings.attach(controller);
         settings.setDefault("musicFolder",
                 new File(System.getProperty("user.home", "."), "Music").getAbsolutePath());
@@ -148,13 +148,19 @@ public final class Main {
 
         // Fonts for the host-drawn lyric renderer (the QML scene fonts are set on the
         // view in DesktopWindow.ensureView).
-        Fonts.init(weight -> CompressedResources.load(resources,
-                "fonts/PingFangSC-" + switch (weight) {
-            case THIN -> "Thin";
-            case LIGHT -> "Light";
-            case REGULAR -> "Regular";
-            case MEDIUM -> "Medium";
-        } + ".otf"));
+        Fonts.init(weight -> {
+            if (weight == dev.t1m3.qplayer.lyric.skia.Fonts.Weight.BOLD) {
+                return CompressedResources.load(resources, "fonts/SFPro-Bold.ttf");
+            }
+            return CompressedResources.load(resources,
+                    "fonts/PingFangSC-" + switch (weight) {
+                case THIN -> "Thin";
+                case LIGHT -> "Light";
+                case REGULAR -> "Regular";
+                case MEDIUM -> "Medium";
+                default -> "Regular";
+            } + ".otf");
+        });
         byte[] qmlBytes = resources.load("Main.qml");
         if (qmlBytes == null) throw new IllegalStateException("Main.qml not found on classpath");
         String qml = new String(qmlBytes, StandardCharsets.UTF_8);

@@ -27,7 +27,7 @@ public final class Fonts {
     private Fonts() {
     }
 
-    public enum Weight { THIN, LIGHT, REGULAR, MEDIUM }
+    public enum Weight { THIN, LIGHT, REGULAR, MEDIUM, BOLD }
 
     /** {@link #setSelection} sentinel for "whatever the OS reports as its default
      *  UI font". Anything else non-empty is a literal family name; empty/null is
@@ -39,7 +39,7 @@ public final class Fonts {
     /** OpenType weight class for each bundled weight, used to ask FontMgr for the
      *  matching face of a system/custom family (and to set a variable font's
      *  {@code wght} axis). PingFang's own four files are Thin/Light/Regular/Medium. */
-    private static final int[] WEIGHT_VALUES = {100, 300, 400, 500};
+    private static final int[] WEIGHT_VALUES = {100, 300, 400, 500, 700};
 
     private static final Typeface[] faces = new Typeface[Weight.values().length];
     // Bundled faces are separate from the active table so switching to a system
@@ -61,6 +61,7 @@ public final class Fonts {
     private static Typeface icon;
     private static final Map<Long, Font> cache = new HashMap<>();
     private static final Map<Long, Font> iconCache = new HashMap<>();
+    private static final Map<Long, Font> hanFonts = new HashMap<>();
 
     @FunctionalInterface
     public interface BundledFontLoader {
@@ -500,6 +501,30 @@ public final class Fonts {
     /** The Thai face for {@code base}'s size/weight, mirroring {@link #korean(Font)}. */
     public static Font thai(Font base) {
         return THAI.fontFor(base);
+    }
+
+    /**
+     * Han fallback for faces without CJK glyphs (e.g. the SF Pro Bold lyric face):
+     * returns a size-matched bundled PingFang Medium when the base face lacks Han,
+     * null when the base already covers it (use it as-is).
+     */
+    public static Font han(Font base) {
+        if (base == null) return null;
+        Typeface bt = base.getTypeface();
+        if (bt != null && covers(bt, '汉')) return null;
+        Typeface tf = bundledFace(Weight.MEDIUM);
+        if (tf == null) return null;
+        long key = ((long) Float.floatToIntBits(base.getSize()) << 16);
+        Font f = hanFonts.get(key);
+        if (f == null) {
+            f = new Font(tf, base.getSize());
+            f.setBaselineSnapped(false);
+            f.setSubpixel(true);
+            f.setHinting(FontHinting.NONE);
+            f.setEdging(FontEdging.SUBPIXEL_ANTI_ALIAS);
+            hanFonts.put(key, f);
+        }
+        return f;
     }
 
     /** The kana face for {@code base}'s size/weight, mirroring {@link #korean(Font)}.

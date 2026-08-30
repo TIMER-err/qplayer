@@ -84,6 +84,7 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
      *  controller sees the persisted values as they're seeded. */
     public void attach(PlayerController controller) {
         this.controller = controller;
+        controller.setAutomixSettings(this);
     }
 
     /** A button row's handler ({@link SettingSpec#action}). */
@@ -461,7 +462,7 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
     private void applyLyricConfig() {
         LyricConfig c = LyricConfig.instance;
         c.lyricFontSize.setValue(intOf("lyricFontSize"));
-        int w = Math.max(0, Math.min(3, intOf("lyricFontWeight")));
+        int w = Math.max(0, Math.min(4, intOf("lyricFontWeight")));
         c.fontWeight.setValue(LyricConfig.FontWeight.values()[w]);
         c.lineSpacing.setValue(intOf("lyricLineSpacing") / 100f);
         c.emphasisScale.setValue(intOf("lyricEmphasisScale") / 100f);
