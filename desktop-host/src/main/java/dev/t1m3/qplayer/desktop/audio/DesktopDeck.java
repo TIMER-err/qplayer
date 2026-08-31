@@ -22,7 +22,7 @@ import java.util.function.LongConsumer;
  */
 public final class DesktopDeck {
 
-    private static final int NUM_BUFFERS = 4;
+    private static final int NUM_BUFFERS = 8;
     private static final int CHUNK_BYTES = 16 * 1024;
 
     private final dev.t1m3.qplayer.settings.SettingsCore settings;
@@ -591,7 +591,7 @@ public final class DesktopDeck {
                     xfadeGain = Math.min(1f, xfadeGain + gdt2 / 1.5f);
                 }
                 publishPosition();
-                Thread.sleep(5L);
+                Thread.sleep(2L);
             }
             armedReady = false;
             // Released: the tempo-ramp clock starts NOW (the audible moment), not at open —
