@@ -8,7 +8,7 @@ public final class LyricConfig {
     public static final LyricConfig instance = new LyricConfig();
 
     /** Lyric font weight, mapped to a bundled PingFang face. */
-    public enum FontWeight { THIN, LIGHT, REGULAR, MEDIUM, BOLD }
+    public enum FontWeight { THIN, LIGHT, REGULAR, MEDIUM, BOLD, HEAVY }
 
     public static final class Val<T> {
         private volatile T value;
@@ -30,7 +30,7 @@ public final class LyricConfig {
      *  距离级联 + 缩放同步 + 已过行秒亮，默认）；false = 原版动效（fade-in 提前锚点 +
      *  k=65 弹簧 + 方向衰减级联 + 中线渐进放大）。 */
     public final Val<Boolean> melodifyMotion = new Val<>(Boolean.TRUE);
-    public final Val<Boolean> showRomaji = new Val<>(Boolean.FALSE);
+    public final Val<Boolean> showRomaji = new Val<>(Boolean.TRUE);
     public final Val<Boolean> showTranslation = new Val<>(Boolean.TRUE);
     /** Apple-style spring physics for scroll + per-syllable lift. When off, the
      *  scroll uses a stiffer near-critically-damped spring and the lift a fixed

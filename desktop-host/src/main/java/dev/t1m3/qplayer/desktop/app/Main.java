@@ -153,6 +153,9 @@ public final class Main {
             if (weight == dev.t1m3.qplayer.lyric.skia.Fonts.Weight.BOLD) {
                 return CompressedResources.load(resources, "fonts/SFPro-Bold.ttf");
             }
+            if (weight == dev.t1m3.qplayer.lyric.skia.Fonts.Weight.HEAVY) {
+                return CompressedResources.load(resources, "fonts/SFPro-Heavy.otf");
+            }
             return CompressedResources.load(resources,
                     "fonts/PingFangSC-" + switch (weight) {
                 case THIN -> "Thin";

@@ -150,8 +150,8 @@ public final class SettingsCatalog {
                 .unit(" px").dots()
                 .build());
         out.add(SettingSpec.segmented("lyricFontWeight", LYRIC, "字重", 2,
-                        "极细", "细", "常规", "中等", "粗")
-                .desc("“粗”使用 SF Pro Bold 字体（Apple Music 风格）")
+                        "极细", "细", "常规", "中等", "粗", "超重")
+                .desc("“粗”使用 SF Pro Bold 字体；“超重”使用 SF Pro Heavy 字体（Apple Music 风格）")
                 .build());
         out.add(SettingSpec.slider("lyricLineSpacing", LYRIC, "行间距", 200, 100, 250, 5)
                 .scale(100).unit("×").dots()

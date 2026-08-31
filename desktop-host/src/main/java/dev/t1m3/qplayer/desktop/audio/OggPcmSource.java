@@ -1,5 +1,7 @@
 package dev.t1m3.qplayer.desktop.audio;
 
+import dev.t1m3.qplayer.audio.decode.PcmSource;
+import dev.t1m3.qplayer.audio.decode.SeekableByteSource;
 import org.lwjgl.stb.STBVorbisInfo;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;

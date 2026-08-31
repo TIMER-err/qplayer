@@ -273,10 +273,12 @@ public final class DesktopLyricRenderer implements AutoCloseable {
     }
 
     private static Fonts.Weight toWeight(int value) {
-        switch (Math.max(0, Math.min(3, value))) {
+        switch (Math.max(0, Math.min(5, value))) {
             case 0: return Fonts.Weight.THIN;
             case 1: return Fonts.Weight.LIGHT;
             case 3: return Fonts.Weight.MEDIUM;
+            case 4: return Fonts.Weight.BOLD;
+            case 5: return Fonts.Weight.HEAVY;
             default: return Fonts.Weight.REGULAR;
         }
     }

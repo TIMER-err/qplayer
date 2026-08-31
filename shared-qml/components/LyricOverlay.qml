@@ -300,6 +300,24 @@ Item {
         }
     }
 
+    // Small cover art at the left of the portrait title band (top of the lyric
+    // page), mirroring the mini player: art + title/artist sit side by side.
+    // Sized to span the full title+artist text block (title top to artist
+    // bottom), square.
+    PlaybackCoverImage {
+        id: topCover
+        visible: !overlay.landscape
+        anchors.top: titleText.top
+        anchors.bottom: artistText.bottom
+        anchors.left: parent.left
+        anchors.leftMargin: 18
+        width: height
+        radius: Math.min(width, height) * 0.12
+        iconSize: Math.max(18, Math.min(30, height * 0.35))
+        fadeIn: true
+        playing: player.playing
+        source: player.coverPath
+    }
     MarqueeText {
         id: titleText
         visible: !overlay.landscape
@@ -307,7 +325,7 @@ Item {
         anchors.topMargin: 2
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.leftMargin: 28
+        anchors.leftMargin: 82
         anchors.rightMargin: 28
         text: player.title
         textColor: "#FFFFFFFF"
@@ -321,7 +339,7 @@ Item {
         anchors.topMargin: 4
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.leftMargin: 28
+        anchors.leftMargin: 82
         anchors.rightMargin: 28
         text: player.artist
         textColor: "#B3FFFFFF"

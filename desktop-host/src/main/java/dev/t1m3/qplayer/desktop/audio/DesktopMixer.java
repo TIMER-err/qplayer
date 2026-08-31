@@ -2,8 +2,8 @@ package dev.t1m3.qplayer.desktop.audio;
 
 import dev.t1m3.qplayer.audio.AudioBackend;
 import dev.t1m3.qplayer.automix.KeyDetector;
-import dev.t1m3.qplayer.desktop.audio.automix.AutomixPlanner;
-import dev.t1m3.qplayer.desktop.audio.automix.StemCache;
+import dev.t1m3.qplayer.automix.AutomixPlanner;
+import dev.t1m3.qplayer.automix.StemCache;
 import dev.t1m3.qplayer.settings.SettingsCore;
 import dev.t1m3.qplayer.util.Logger;
 
@@ -167,15 +167,15 @@ public final class DesktopMixer implements AudioBackend {
 
     private void applyPlan(AutomixPlanner.Plan plan, String urlB, long aOutStartMs,
                            boolean glideAllowedHint, boolean stemSplitHint, float gainCompHint) {
-        float tempo = plan.tempo();
-        long bStartMs = (long) plan.phaseMsB();
+        float tempo = plan.tempo;
+        long bStartMs = (long) plan.phaseMsB;
         float gainComp = gainCompHint;
-        if (gainCompHint <= 0f && plan.rmsA() > 0.001f && plan.rmsB() > 0.001f) {
-            gainComp = Math.max(0.5f, Math.min(2f, plan.rmsA() / plan.rmsB()));
+        if (gainCompHint <= 0f && plan.rmsA > 0.001f && plan.rmsB > 0.001f) {
+            gainComp = Math.max(0.5f, Math.min(2f, plan.rmsA / plan.rmsB));
         }
         boolean glide = glideAllowedHint && tempo != 1f
-                && plan.keyA() != null && plan.keyB() != null
-                && KeyDetector.harmonicDistance(plan.keyA(), plan.keyB()) <= 2;
+                && plan.keyA != null && plan.keyB != null
+                && KeyDetector.harmonicDistance(plan.keyA, plan.keyB) <= 2;
         String stemPath = null;
         if (stemSplitHint) {
             try {
@@ -190,9 +190,9 @@ public final class DesktopMixer implements AudioBackend {
             automixInFlight = false;
             return;
         }
-        if (plan.bpmA() > 1f) {
-            automixBeatPeriodMs = 60_000.0 / plan.bpmA();
-            automixBeatPhaseMs = aOutStartMs + plan.phaseMsA();
+        if (plan.bpmA > 1f) {
+            automixBeatPeriodMs = 60_000.0 / plan.bpmA;
+            automixBeatPhaseMs = aOutStartMs + plan.phaseMsA;
         } else {
             automixBeatPeriodMs = 0.0;
         }

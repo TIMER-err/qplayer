@@ -1,10 +1,13 @@
 package dev.t1m3.qplayer.desktop.audio;
 
-import dev.t1m3.qplayer.desktop.audio.automix.AudioTransportPcmSource;
-import dev.t1m3.qplayer.desktop.audio.automix.RawPcmSource;
-import dev.t1m3.qplayer.desktop.audio.automix.HighpassFadePcmSource;
-import dev.t1m3.qplayer.desktop.audio.automix.VocalFadePcmSource;
-import dev.t1m3.qplayer.desktop.audio.automix.WsolaPcmSource;
+import dev.t1m3.qplayer.audio.decode.Decoders;
+import dev.t1m3.qplayer.audio.decode.PcmSource;
+import dev.t1m3.qplayer.audio.decode.SeekableByteSource;
+import dev.t1m3.qplayer.automix.AudioTransportPcmSource;
+import dev.t1m3.qplayer.automix.RawPcmSource;
+import dev.t1m3.qplayer.automix.HighpassFadePcmSource;
+import dev.t1m3.qplayer.automix.VocalFadePcmSource;
+import dev.t1m3.qplayer.automix.WsolaPcmSource;
 import dev.t1m3.qplayer.util.Logger;
 import org.lwjgl.openal.AL10;
 
@@ -767,7 +770,15 @@ public final class DesktopDeck {
     private static PcmSource openPcm(String url) throws java.io.IOException {
         String src0 = url;
         if (src0.startsWith("file:")) src0 = src0.substring("file:".length());
+        // Desktop builds register the ogg/stb_vorbis decoder; the factory is
+        // null on platforms without it (Android falls back to the bundled
+        // mp3/flac/wav decoders).
+        Decoders.setOggFactory(DesktopDeck::newOgg);
         return PcmSource.open(src0);
+    }
+
+    private static PcmSource newOgg(SeekableByteSource bytes) throws java.io.IOException {
+        return new OggPcmSource(bytes);
     }
 
     private boolean primeBuffers(PcmSource pcm) throws Exception {

@@ -45,7 +45,7 @@ public final class DesktopLyricState extends QObject {
         this.frame = active ? LyricTimeline.frameAt(snapshot.timeline, frameProbe) : null;
         fallbackText = fallback(snapshot);
         fontSize = Math.max(18, Math.min(64, snapshot.fontSize));
-        fontWeight = Math.max(0, Math.min(3, snapshot.fontWeight));
+        fontWeight = Math.max(0, Math.min(5, snapshot.fontWeight));
         shadow = snapshot.shadow;
         palette = snapshot.palette;
         playing.set(snapshot.playing);

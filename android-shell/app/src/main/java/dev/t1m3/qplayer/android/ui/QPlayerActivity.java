@@ -3,7 +3,6 @@ package dev.t1m3.qplayer.android.ui;
 import dev.t1m3.qplayer.android.graphics.AndroidColorExtractor;
 import dev.t1m3.qplayer.android.library.AndroidLibraryScanner;
 import dev.t1m3.qplayer.android.library.AndroidMetadataReader;
-import dev.t1m3.qplayer.android.playback.AndroidAudioBackend;
 import dev.t1m3.qplayer.android.playback.PlaybackService;
 import dev.t1m3.qplayer.android.resources.FileResourceLoader;
 import dev.t1m3.qplayer.android.settings.PrefsSettingsStore;
@@ -24,6 +23,7 @@ import io.github.timer_err.qml4j.android.QmlGLSurfaceView;
 import io.github.timer_err.qml4j.engine.QmlEngine;
 
 import dev.t1m3.qplayer.audio.AudioBackend;
+import dev.t1m3.qplayer.android.playback.AndroidAudioTrackBackend;
 import dev.t1m3.qplayer.audio.MetadataReader;
 import dev.t1m3.qplayer.bridge.PlayerController;
 import dev.t1m3.qplayer.model.Track;
@@ -113,7 +113,7 @@ public final class QPlayerActivity extends Activity {
         deleteRecursive(dev.t1m3.qplayer.store.AppDirs.cacheDir()
                 .resolve("plugin-imports").toFile());
 
-        AudioBackend backend = new AndroidAudioBackend(this);
+        AudioBackend backend = new AndroidAudioTrackBackend(this);
         reader = new AndroidMetadataReader(this);
 
         // Reuse the existing controller across Activity recreations (PiP, config
@@ -195,6 +195,11 @@ public final class QPlayerActivity extends Activity {
         settings.registerInfo("version", () -> "v" + controller.appVersion.peek());
         settings.registerInfo("cacheUsage", () -> controller.cacheSizeMB.peek() + " MB");
         settings.load(new PrefsSettingsStore(this), SettingsCatalog.ANDROID);
+        // Feed the automix overlap length into the audio backend (defaults to 8s).
+        if (backend instanceof dev.t1m3.qplayer.android.playback.AndroidAudioTrackBackend) {
+            ((dev.t1m3.qplayer.android.playback.AndroidAudioTrackBackend) backend)
+                    .setAutomixMs(settings.intOf("automixMs"));
+        }
 
         String qml;
         try {
@@ -210,6 +215,7 @@ public final class QPlayerActivity extends Activity {
             dev.t1m3.qplayer.lyric.skia.Fonts.init(weight ->
                     CompressedResources.load(resources,
                             weight == dev.t1m3.qplayer.lyric.skia.Fonts.Weight.BOLD
+                                    || weight == dev.t1m3.qplayer.lyric.skia.Fonts.Weight.HEAVY
                                     ? "fonts/" + bundledFontWeightName(weight)
                                     : "fonts/PingFangSC-" + bundledFontWeightName(weight) + ".otf"));
             // Material Symbols for the host-drawn lyric transport icons (drawn by
@@ -274,6 +280,7 @@ public final class QPlayerActivity extends Activity {
             case LIGHT: return "Light";
             case MEDIUM: return "Medium";
             case BOLD: return "SFPro-Bold.ttf";
+            case HEAVY: return "SFPro-Heavy.otf";
             case REGULAR:
             default: return "Regular";
         }

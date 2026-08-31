@@ -27,7 +27,7 @@ public final class Fonts {
     private Fonts() {
     }
 
-    public enum Weight { THIN, LIGHT, REGULAR, MEDIUM, BOLD }
+    public enum Weight { THIN, LIGHT, REGULAR, MEDIUM, BOLD, HEAVY }
 
     /** {@link #setSelection} sentinel for "whatever the OS reports as its default
      *  UI font". Anything else non-empty is a literal family name; empty/null is
@@ -39,7 +39,7 @@ public final class Fonts {
     /** OpenType weight class for each bundled weight, used to ask FontMgr for the
      *  matching face of a system/custom family (and to set a variable font's
      *  {@code wght} axis). PingFang's own four files are Thin/Light/Regular/Medium. */
-    private static final int[] WEIGHT_VALUES = {100, 300, 400, 500, 700};
+    private static final int[] WEIGHT_VALUES = {100, 300, 400, 500, 700, 900};
 
     private static final Typeface[] faces = new Typeface[Weight.values().length];
     // Bundled faces are separate from the active table so switching to a system

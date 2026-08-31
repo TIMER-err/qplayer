@@ -436,7 +436,7 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
     private void applyLyricConfig() {
         LyricConfig c = LyricConfig.instance;
         c.lyricFontSize.setValue(intOf("lyricFontSize"));
-        int w = Math.max(0, Math.min(4, intOf("lyricFontWeight")));
+        int w = Math.max(0, Math.min(5, intOf("lyricFontWeight")));
         c.fontWeight.setValue(LyricConfig.FontWeight.values()[w]);
         c.lineSpacing.setValue(intOf("lyricLineSpacing") / 100f);
         c.emphasisScale.setValue(intOf("lyricEmphasisScale") / 100f);

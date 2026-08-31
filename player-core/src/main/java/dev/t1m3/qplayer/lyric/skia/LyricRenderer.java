@@ -326,6 +326,8 @@ public class LyricRenderer {
                 return Fonts.Weight.MEDIUM;
             case BOLD:
                 return Fonts.Weight.BOLD;
+            case HEAVY:
+                return Fonts.Weight.HEAVY;
             default:
                 return Fonts.Weight.REGULAR;
         }
@@ -1476,9 +1478,9 @@ public class LyricRenderer {
             float subY = mainBottom - subAscentForLine + 6f
                     + (subRowCount > 1 ? WRAP_SUB_GAP : 0f);
             subY = drawSubline(leftX, lineSubHeight, showRomaji, i, alignRight,
-                    baseAlpha, maxRowRightX, subY, cachedRomajiRows, shadowOn);
+                    baseAlpha * 0.30f, maxRowRightX, subY, cachedRomajiRows, shadowOn);
             subY = drawSubline(leftX, lineSubHeight, showTranslation, i, alignRight,
-                    baseAlpha, maxRowRightX, subY, cachedTranslationRows, shadowOn);
+                    baseAlpha * 0.30f, maxRowRightX, subY, cachedTranslationRows, shadowOn);
 
             canvas.restore();
         }
@@ -1538,7 +1540,7 @@ public class LyricRenderer {
         if (romajiRows != null && showRomaji) {
             for (ShapedText romajiRow : romajiRows) {
                 rowRenderer.drawSubLine(romajiRow, leftX, maxRowRightX, subY,
-                        baseAlpha * 0.30f, alignRight, shadowOn);
+                        baseAlpha, alignRight, shadowOn);
                 subY += subLineHeight;
             }
         }

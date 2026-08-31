@@ -106,9 +106,10 @@ final class LyricScrollController {
     }
 
     void pointerUp() {
-        // Melodify: 无 fling 惯性,抬手即停。
         if (!dragging) return;
         dragging = false;
+        flingVelocity = computeFlingVelocity();
+        flinging = Math.abs(flingVelocity) >= MIN_FLING_VELOCITY;
         lastStepNs = System.nanoTime();
         lastInteractionNs = lastStepNs;
     }
@@ -127,6 +128,20 @@ final class LyricScrollController {
         if (dragging) {
             holdAnchor = anchorIndex;
             lastStepNs = nowNs;
+            return offset;
+        }
+        if (flinging) {
+            float dt = Math.min(0.05f, (nowNs - lastStepNs) / 1_000_000_000f);
+            lastStepNs = nowNs;
+            float before = offset;
+            offset = clamp(offset + flingVelocity * dt);
+            if (offset != before) {
+                flinging = false;
+            } else {
+                flingVelocity = decayVelocity(flingVelocity, dt);
+                if (Math.abs(flingVelocity) < 30f) flinging = false;
+            }
+            lastInteractionNs = nowNs;
             return offset;
         }
         if (returning) {

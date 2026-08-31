@@ -281,6 +281,16 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
         if (!methods.contains(method)) throw new SecurityException("HTTP method is not declared: " + method);
         int timeout = number(args.get("timeoutMs"), 10_000);
         timeout = Math.max(1_000, Math.min(30_000, timeout));
+        // 某些登录流程(ptlogin2 check_sig / QQ Connect authorize)必须读取 3xx
+        // 响应自身的 Set-Cookie / Location,自动跟随会把这些中间跳信息丢掉。
+        // 显式传 followRedirects=false 时把 3xx 原样返回给插件(默认仍跟随)。
+        boolean followRedirects = true;
+        Object followArg = args.get("followRedirects");
+        if (followArg instanceof Boolean) {
+            followRedirects = (Boolean) followArg;
+        } else if (followArg instanceof String) {
+            followRedirects = !"false".equalsIgnoreCase((String) followArg);
+        }
         byte[] body = args.containsKey("body")
                 ? string(args, "body").getBytes(StandardCharsets.UTF_8) : null;
         if (body != null && body.length > MAX_HTTP_BYTES) {
@@ -308,6 +318,12 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
             }
             int status = connection.getResponseCode();
             if (status >= 300 && status < 400) {
+                if (!followRedirects) {
+                    // 原样返回 3xx:Location/Set-Cookie 都在 headers 里,由插件自己处理
+                    Map<String, Object> result = responseResult(current, connection, status);
+                    connection.disconnect();
+                    return result;
+                }
                 String location = connection.getHeaderField("Location");
                 connection.disconnect();
                 if (location == null || redirect == MAX_REDIRECTS) {
@@ -323,29 +339,47 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
                 }
                 continue;
             }
-            InputStream raw = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
-            byte[] response = raw != null ? readLimited(raw, MAX_HTTP_BYTES) : new byte[0];
-            Map<String, Object> result = new LinkedHashMap<>();
-            result.put("status", status);
-            result.put("finalUrl", current);
-            result.put("body", new String(response, StandardCharsets.UTF_8));
-            result.put("bodyBase64", Base64.getEncoder().encodeToString(response));
-            Map<String, String> responseHeaders = new LinkedHashMap<>();
-            List<String> setCookies = new ArrayList<>();
-            for (Map.Entry<String, List<String>> header : connection.getHeaderFields().entrySet()) {
-                if (header.getKey() != null && header.getValue() != null) {
-                    responseHeaders.put(header.getKey(), String.join(", ", header.getValue()));
-                    if ("Set-Cookie".equalsIgnoreCase(header.getKey())) {
-                        setCookies.addAll(header.getValue());
-                    }
-                }
-            }
-            result.put("headers", responseHeaders);
-            result.put("setCookies", setCookies);
+            Map<String, Object> result = responseResult(current, connection, status);
             connection.disconnect();
             return result;
         }
         throw new IOException("HTTP request failed");
+    }
+
+    /** 组装 http.request 的响应(status/finalUrl/body/bodyBase64/headers/setCookies)。 */
+    private static Map<String, Object> responseResult(String current,
+            HttpURLConnection connection, int status) throws IOException {
+        byte[] response = new byte[0];
+        if (status < 400) {
+            try {
+                InputStream raw = connection.getInputStream();
+                if (raw != null) response = readLimited(raw, MAX_HTTP_BYTES);
+            } catch (IOException bodyError) {
+                // 3xx/空 body 的响应可能没有可读流,按空 body 处理
+                response = new byte[0];
+            }
+        } else {
+            InputStream raw = connection.getErrorStream();
+            if (raw != null) response = readLimited(raw, MAX_HTTP_BYTES);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("status", status);
+        result.put("finalUrl", current);
+        result.put("body", new String(response, StandardCharsets.UTF_8));
+        result.put("bodyBase64", Base64.getEncoder().encodeToString(response));
+        Map<String, String> responseHeaders = new LinkedHashMap<>();
+        List<String> setCookies = new ArrayList<>();
+        for (Map.Entry<String, List<String>> header : connection.getHeaderFields().entrySet()) {
+            if (header.getKey() != null && header.getValue() != null) {
+                responseHeaders.put(header.getKey(), String.join(", ", header.getValue()));
+                if ("Set-Cookie".equalsIgnoreCase(header.getKey())) {
+                    setCookies.addAll(header.getValue());
+                }
+            }
+        }
+        result.put("headers", responseHeaders);
+        result.put("setCookies", setCookies);
+        return result;
     }
 
     private byte[] requestBytes(PluginManifest manifest, String initial,

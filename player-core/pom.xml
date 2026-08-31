@@ -59,6 +59,21 @@
             <version>3.5.3</version>
         </dependency>
 
+        <!-- Audio decoders for the PcmSource family (mp3 via JLayer, flac via
+             jflac). Both are pure Java and Android-dexable; the host audio
+             backends (desktop OpenAL, Android AudioTrack) consume 16-bit PCM
+             from these. -->
+        <dependency>
+            <groupId>com.googlecode.soundlibs</groupId>
+            <artifactId>jlayer</artifactId>
+            <version>1.0.1.4</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jflac</groupId>
+            <artifactId>jflac-codec</artifactId>
+            <version>1.5.2</version>
+        </dependency>
+
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
