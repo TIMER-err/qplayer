@@ -81,7 +81,7 @@ final class LyricRowRenderer implements AutoCloseable {
         float x = alignRight ? rightAnchorX - text.width : leftX;
         if (shadowOn) drawTextShadow(text.blob, x, y, alpha);
         Paint paint = LyricSkia.scratchPaint();
-        paint.setColor(0xFFE6E6E6);
+        paint.setColor(0xFFD5DCF2);
         paint.setAlphaf(alpha);
         paint.setAntiAlias(true);
         LyricSkia.getCanvas().drawTextBlob(text.blob, x, y, paint);
@@ -370,7 +370,7 @@ final class LyricRowRenderer implements AutoCloseable {
     private void applySweepMask(Canvas canvas, float sweepX, float maskDark) {
         if (sweepShader == null || sweepShaderDark != maskDark) {
             if (sweepShader != null) sweepShader.close();
-            int dark = ((int) (maskDark * 255f) << 24) | 0x00FFFFFF;
+            int dark = ((int) (maskDark * 255f) << 24) | 0x00D3DAF0;
             sweepColors[0] = 0xFFFFFFFF;
             sweepColors[1] = dark;
             sweepStops[0] = 0f;

@@ -4148,6 +4148,10 @@ public final class PlayerController {
             seekRevision.incrementAndGet();
             stoppedLyricPositionMs = abs;
             backend.seek(abs);
+            if (pendingResumeIndex >= 0) {
+                pendingResumeMs = t;
+                pendingResumeIndex = playIndex;
+            }
             post(() -> positionMs.set(t));
             notifyPlayback();
         });
@@ -4162,6 +4166,10 @@ public final class PlayerController {
         seekRevision.incrementAndGet();
         stoppedLyricPositionMs = abs;
         backend.seek(abs);
+        if (pendingResumeIndex >= 0) {
+            pendingResumeMs = t;
+            pendingResumeIndex = playIndex;
+        }
         post(() -> positionMs.set(t));
         notifyPlayback();
     }
