@@ -3,7 +3,6 @@ import QtQuick.Layouts
 import QtQuick.Effects
 import md3.Core
 import "."
-import "../dialogs"
 
 // QML chrome for the lyric page, composited on top of the host-drawn fluid
 // backdrop + per-syllable lyrics. Transparent everywhere except the title band
@@ -595,10 +594,6 @@ Item {
                 }
             }
         }
-    }
-
-    SongArtistsDialog {
-        active: overlay.visible && player.songArtistPickerOpen
     }
 
     // The lyric page is composited in a separate host pass, above Main.qml's

@@ -5728,6 +5728,9 @@ public final class PlayerController {
             openArtistCredit(refs.get(0));
             return;
         }
+        // The lyric chrome is a separate host pass above Main.qml. A picker
+        // opened while that layer is up is covered, so drop lyrics first.
+        if (Boolean.TRUE.equals(lyricsOpen.peek())) setLyricsOpen(false);
         songArtistPickerList.set(refs);
         songArtistPickerOpen.set(true);
         // A song's own artist credits carry no avatar (id/name only) -- fetch
