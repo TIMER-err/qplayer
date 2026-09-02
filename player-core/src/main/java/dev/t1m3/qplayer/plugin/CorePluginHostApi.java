@@ -329,7 +329,9 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
             result.put("status", status);
             result.put("finalUrl", current);
             result.put("body", new String(response, StandardCharsets.UTF_8));
-            result.put("bodyBase64", Base64.getEncoder().encodeToString(response));
+            if (Boolean.TRUE.equals(args.get("includeBase64"))) {
+                result.put("bodyBase64", Base64.getEncoder().encodeToString(response));
+            }
             Map<String, String> responseHeaders = new LinkedHashMap<>();
             List<String> setCookies = new ArrayList<>();
             for (Map.Entry<String, List<String>> header : connection.getHeaderFields().entrySet()) {

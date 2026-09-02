@@ -415,7 +415,7 @@ public final class PluginProviderService {
                             "playlist.owner.name", false));
         }
         if (object.get("songs") instanceof List) {
-            for (Object item : boundedList(object.get("songs"), "playlist songs", 5000)) {
+            for (Object item : boundedList(object.get("songs"), "playlist songs", 20_000)) {
                 playlist.songs.add(parseSong(provider, map(item, "song")));
             }
         }

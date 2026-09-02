@@ -121,6 +121,31 @@ public class PluginRuntimeTest {
     }
 
     @Test
+    public void acceptsThousandsOfSongLikeResults() throws Exception {
+        Files.write(temporary.getRoot().toPath().resolve("main.js"), (
+                "module.exports = { handlers: {\n"
+                + " songs: function() {\n"
+                + "   var out = [];\n"
+                + "   for (var i = 0; i < 4000; i++) {\n"
+                + "     out.push({id: String(i), title: 't' + i,\n"
+                + "       artists: [{id: '1', name: 'a'}],\n"
+                + "       album: {id: '2', name: 'b'}, durationMs: 1000, playable: true});\n"
+                + "   }\n"
+                + "   return {songs: out};\n"
+                + " }\n"
+                + "} };\n").getBytes(StandardCharsets.UTF_8));
+        try (PluginRuntime runtime = PluginRuntime.start(
+                temporary.getRoot().toPath(), manifest(), noOpHost())) {
+            Map<?, ?> result = (Map<?, ?>) runtime.invoke("songs", Collections.emptyMap())
+                    .get(30, TimeUnit.SECONDS);
+            java.util.List<?> songs = (java.util.List<?>) result.get("songs");
+            assertEquals(4000, songs.size());
+            Map<?, ?> first = (Map<?, ?>) songs.get(0);
+            assertEquals("0", first.get("id"));
+        }
+    }
+
+    @Test
     public void rejectsAdvertisedCapabilitiesWithoutHandlers() throws Exception {
         Files.write(temporary.getRoot().toPath().resolve("main.js"),
                 "module.exports = { handlers: {} };\n".getBytes(StandardCharsets.UTF_8));

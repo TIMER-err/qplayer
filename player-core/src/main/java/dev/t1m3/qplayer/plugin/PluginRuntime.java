@@ -44,11 +44,11 @@ import java.util.concurrent.TimeoutException;
 public final class PluginRuntime implements AutoCloseable {
     private static final long MAX_MODULE_BYTES = 4L * 1024L * 1024L;
     private static final int MAX_RESULT_DEPTH = 32;
-    private static final int MAX_RESULT_NODES = 100_000;
+    private static final int MAX_RESULT_NODES = 500_000;
     private static final long MAX_RESULT_STRING_CHARS = 24L * 1024L * 1024L;
-    /** Covers one provider request plus protocol crypto on slower mobile networks.
-     * Rhino computation is still interrupted by the same deadline. */
-    private static final long DEFAULT_CALL_TIMEOUT_MS = 20_000L;
+    /** Large playlists need several song-detail batches after playlist/detail.
+      * Rhino computation is still interrupted by the same deadline. */
+    private static final long DEFAULT_CALL_TIMEOUT_MS = 90_000L;
     private static final ScheduledExecutorService TIMEOUTS = Executors.newSingleThreadScheduledExecutor(
             daemonFactory("qplayer-plugin-timeouts"));
 
