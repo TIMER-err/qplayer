@@ -909,7 +909,10 @@ Rectangle {
         onClosed: app.loginOpen = false
     }
 
-    SongArtistsDialog { id: songArtistsDialog }
+    SongArtistsDialog {
+        id: songArtistsDialog
+        active: player.songArtistPickerOpen && player.lyricSlide <= 0.001
+    }
 
     // App-wide because onboarding can install a plugin before SettingsPage has
     // ever been instantiated.

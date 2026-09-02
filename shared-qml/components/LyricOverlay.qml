@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import QtQuick.Effects
 import md3.Core
 import "."
+import "../dialogs"
 
 // QML chrome for the lyric page, composited on top of the host-drawn fluid
 // backdrop + per-syllable lyrics. Transparent everywhere except the title band
@@ -334,12 +335,10 @@ Item {
     // artist identity to open.
     MouseArea {
         anchors.fill: artistText
-        enabled: player.playingArtistId !== 0
+        enabled: player.playingArtistIdsCsv !== "" || player.playingArtistId !== 0
         hoverEnabled: enabled
         cursorShape: Qt.PointingHandCursor
-        onClicked: {
-            player.openArtist(player.playingArtistId)
-        }
+        onClicked: player.openPlayingArtist()
     }
 
     // --- bottom: transport (portrait) ---------------------------------
@@ -520,12 +519,10 @@ Item {
             }
             MouseArea {
                 anchors.fill: lArtist
-                enabled: player.playingArtistId !== 0
+                enabled: player.playingArtistIdsCsv !== "" || player.playingArtistId !== 0
                 hoverEnabled: enabled
                 cursorShape: Qt.PointingHandCursor
-                onClicked: {
-                    player.openArtist(player.playingArtistId)
-                }
+                onClicked: player.openPlayingArtist()
             }
             LinearProgress {
                 id: lProgress
@@ -598,6 +595,10 @@ Item {
                 }
             }
         }
+    }
+
+    SongArtistsDialog {
+        active: overlay.visible && player.songArtistPickerOpen
     }
 
     // The lyric page is composited in a separate host pass, above Main.qml's

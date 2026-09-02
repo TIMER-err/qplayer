@@ -39,9 +39,11 @@ Menu {
         var songId = s.mediaId ? s.mediaId : (s.id !== undefined ? s.id : s.neteaseId)
         if (!songId) { menu.model = items; return }
         if (("" + songId).indexOf(":") >= 0) {
-            var mediaArtistId = s.artistMediaId || ""
-            if (mediaArtistId)
-                items.push({ text: "查看歌手", icon: "person", action: menu._openMediaArtistAction(mediaArtistId) })
+            var mediaArtistIds = s.artistIdsCsv || s.artistMediaId || ""
+            var mediaArtistNames = s.artistNamesCsv || s.artist || ""
+            if (mediaArtistIds)
+                items.push({ text: "查看歌手", icon: "person",
+                             action: menu._openArtistPickerAction(mediaArtistIds, mediaArtistNames) })
             if (player.loggedIn && player.sourcePlaylistMutationAvailable) {
                 var sourceLists = player.sourceMyPlaylists
                 var sourceSubs = []

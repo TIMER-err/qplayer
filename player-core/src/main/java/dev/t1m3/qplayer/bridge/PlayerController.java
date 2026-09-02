@@ -440,6 +440,8 @@ public final class PlayerController {
      *  otherwise) -- lets the lyric page's artist name jump straight to that
      *  artist's page. */
     public final Property<Long> playingArtistId = new Property<>(0L);
+    public final Property<String> playingArtistIdsCsv = new Property<>("");
+    public final Property<String> playingArtistNamesCsv = new Property<>("");
     public final Property<String> album = new Property<>("");
     public final Property<String> coverUrl = new Property<>("");
     /** Absolute path to the current track's cover in the disk cache, or "" when not
@@ -3337,7 +3339,7 @@ public final class PlayerController {
             currentFilePath.set(t.source == Track.Source.LOCAL && t.filePath != null ? t.filePath : "");
             title.set(orEmpty(t.title));
             artist.set(orEmpty(t.artist));
-            playingArtistId.set(t.artistId);
+            publishPlayingArtist(t);
             album.set(orEmpty(t.album));
             coverUrl.set(orEmpty(trackCoverUrl(t, "512")));
             durationMs.set(t.durationMs);
@@ -4294,7 +4296,7 @@ public final class PlayerController {
                         if (isTrialOnly) showToast("当前歌曲仅可试听");
                         title.set(orEmpty(t.title));
                         artist.set(orEmpty(t.artist));
-                        playingArtistId.set(t.artistId);
+                        publishPlayingArtist(t);
                         album.set(orEmpty(t.album));
                         coverUrl.set(orEmpty(thumbUrl(t.coverUrl, "512")));
                         durationMs.set(t.durationMs);
@@ -4742,7 +4744,7 @@ public final class PlayerController {
                     currentFilePath.set(cur.source == Track.Source.LOCAL && cur.filePath != null ? cur.filePath : "");
                     title.set(cur.title != null ? cur.title : "");
                     artist.set(cur.artist != null ? cur.artist : "");
-                    playingArtistId.set(cur.artistId);
+                    publishPlayingArtist(cur);
                     album.set(cur.album != null ? cur.album : "");
                     coverUrl.set(trackCoverUrl(cur, "512"));
                     durationMs.set(cur.durationMs);
@@ -5677,6 +5679,19 @@ public final class PlayerController {
         });
     }
 
+    private void publishPlayingArtist(Track t) {
+        playingArtistId.set(t != null ? t.artistId : 0L);
+        String ids = t != null ? orEmpty(t.artistIdsCsv) : "";
+        if (ids.isEmpty() && t != null) ids = orEmpty(t.artistMediaId);
+        playingArtistIdsCsv.set(ids);
+        playingArtistNamesCsv.set(t != null ? orEmpty(t.artistNamesCsv) : "");
+    }
+
+    /** Lyric-page artist tap: picker when several credits, otherwise the one artist. */
+    public void openPlayingArtist() {
+        openSongArtistPicker(playingArtistIdsCsv.peek(), playingArtistNamesCsv.peek());
+    }
+
     /** Opens SongContextMenu's "查看歌手" picker. QML hands over the song's full
      *  artist list as two parallel CSVs (ids comma-joined, names joined on
      *  U+0001 so a name containing a comma can't desync the pairing) rather
@@ -5689,11 +5704,17 @@ public final class PlayerController {
         String[] namesArr = namesCsv != null ? namesCsv.split(String.valueOf((char) 1), -1) : new String[0];
         List<NeteaseSong.ArtistRef> refs = new ArrayList<>();
         for (int i = 0; i < ids.length; i++) {
+            String token = ids[i] != null ? ids[i].trim() : "";
+            if (token.isEmpty()) continue;
             NeteaseSong.ArtistRef ref = new NeteaseSong.ArtistRef();
-            try {
-                ref.id = Long.parseLong(ids[i]);
-            } catch (NumberFormatException e) {
-                continue;
+            if (token.indexOf(':') >= 0) {
+                ref.mediaId = token;
+            } else {
+                try {
+                    ref.id = Long.parseLong(token);
+                } catch (NumberFormatException e) {
+                    continue;
+                }
             }
             ref.name = i < namesArr.length ? namesArr[i] : "";
             refs.add(ref);
@@ -5704,7 +5725,7 @@ public final class PlayerController {
         // its avatar request entirely.
         if (refs.size() == 1) {
             closeSongArtistPicker();
-            openArtist(refs.get(0).id);
+            openArtistCredit(refs.get(0));
             return;
         }
         songArtistPickerList.set(refs);
@@ -5717,18 +5738,20 @@ public final class PlayerController {
         worker.submit(() -> fetchSongArtistAvatars(refs, revision));
     }
 
+    public void openArtistCredit(NeteaseSong.ArtistRef ref) {
+        if (ref == null) return;
+        if (ref.mediaId != null && !ref.mediaId.isEmpty()) openMediaArtist(ref.mediaId);
+        else openArtist(ref.id);
+    }
+
     private void fetchSongArtistAvatars(List<NeteaseSong.ArtistRef> refs, long revision) {
         for (NeteaseSong.ArtistRef ref : refs) {
             if (songArtistPickerRevision != revision) return; // a newer picker open superseded this
-            if (ref.id == 0) continue;
             try {
-                NeteaseClient.ArtistPage page = netease.artistDetail(ref.id);
-                NeteaseArtist artist = page != null ? page.artist : null;
-                if (artist == null || artist.coverUrl == null || artist.coverUrl.isEmpty()) continue;
-                ref.coverUrl = artist.coverUrl;
-                // The picker uses compact 44px circular row avatars; 128px keeps
-                // them sharp at high display scaling without downloading card art.
-                ref.coverThumbPath = thumbUrl(artist.coverUrl, "128");
+                String cover = fetchArtistCreditCover(ref);
+                if (cover == null || cover.isEmpty()) continue;
+                ref.coverUrl = cover;
+                ref.coverThumbPath = cover.startsWith("http") ? thumbUrl(cover, "128") : cover;
                 if (songArtistPickerRevision != revision) return;
                 // Fresh ArtistRef instances, not the same mutated objects re-wrapped in
                 // a new ArrayList: List.equals() compares elements pairwise, and two
@@ -5738,22 +5761,40 @@ public final class PlayerController {
                 // equals the current one (the exact repeat-toast bug from
                 // [[qplayer-2026-07-status]]), so QML would never see this update.
                 List<NeteaseSong.ArtistRef> copy = new ArrayList<>(refs.size());
-                for (NeteaseSong.ArtistRef r : refs) {
-                    NeteaseSong.ArtistRef c = new NeteaseSong.ArtistRef();
-                    c.id = r.id;
-                    c.name = r.name;
-                    c.coverUrl = r.coverUrl;
-                    c.coverThumbPath = r.coverThumbPath;
-                    copy.add(c);
-                }
+                for (NeteaseSong.ArtistRef r : refs) copy.add(copyArtistRef(r));
                 post(() -> {
                     if (songArtistPickerRevision != revision) return;
                     songArtistPickerList.set(copy);
                 });
             } catch (Throwable e) {
-                Logger.warn("song-artist-picker avatar fetch failed for {}: {}", ref.id, e.toString());
+                Logger.warn("song-artist-picker avatar fetch failed for {}: {}",
+                        ref.mediaId != null && !ref.mediaId.isEmpty() ? ref.mediaId : Long.toString(ref.id),
+                        e.toString());
             }
         }
+    }
+
+    private String fetchArtistCreditCover(NeteaseSong.ArtistRef ref) throws Exception {
+        if (ref.mediaId != null && !ref.mediaId.isEmpty()) {
+            Artist artist = pluginProviders.artist(MediaId.parse(ref.mediaId)).get(8, TimeUnit.SECONDS);
+            if (artist == null) return null;
+            if (artist.artworkUrl != null && !artist.artworkUrl.isEmpty()) return artist.artworkUrl;
+            return artist.coverUrl;
+        }
+        if (ref.id == 0L) return null;
+        NeteaseClient.ArtistPage page = netease.artistDetail(ref.id);
+        NeteaseArtist artist = page != null ? page.artist : null;
+        return artist != null ? artist.coverUrl : null;
+    }
+
+    private static NeteaseSong.ArtistRef copyArtistRef(NeteaseSong.ArtistRef r) {
+        NeteaseSong.ArtistRef c = new NeteaseSong.ArtistRef();
+        c.id = r.id;
+        c.mediaId = r.mediaId;
+        c.name = r.name;
+        c.coverUrl = r.coverUrl;
+        c.coverThumbPath = r.coverThumbPath;
+        return c;
     }
 
     public void closeSongArtistPicker() {

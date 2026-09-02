@@ -11,6 +11,9 @@ public class NeteaseSong {
      *  to open. */
     public static class ArtistRef {
         public long id;
+        /** Canonical plugin artist id such as {@code netease:artist:123}. Empty for
+         *  legacy numeric credits. */
+        public String mediaId = "";
         public String name;
         /** Avatar, filled in lazily (a song's own artist list has no picture
          *  data) after {@code PlayerController#openSongArtistPicker} fetches

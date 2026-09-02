@@ -55,7 +55,10 @@ Item {
                         coverThumbPath: modelData.coverThumbPath || ""
                         onActivated: {
                             player.closeSongArtistPicker()
-                            player.openArtist(modelData.id)
+                            if (modelData.mediaId)
+                                player.openMediaArtist(modelData.mediaId)
+                            else
+                                player.openArtist(modelData.id)
                         }
                     }
                 }

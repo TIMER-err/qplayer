@@ -269,10 +269,10 @@ Rectangle {
         hoverEnabled: enabled
         cursorShape: Qt.PointingHandCursor
         onClicked: {
-            if (("" + row.rowArtistId).indexOf(":") >= 0)
-                player.openMediaArtist("" + row.rowArtistId)
-            else if (row.rowArtistIdsCsv !== "")
+            if (row.rowArtistIdsCsv !== "")
                 player.openSongArtistPicker(row.rowArtistIdsCsv, row.rowArtistNamesCsv)
+            else if (("" + row.rowArtistId).indexOf(":") >= 0)
+                player.openMediaArtist("" + row.rowArtistId)
             else
                 player.openArtist(row.rowArtistId)
         }
