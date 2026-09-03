@@ -33,7 +33,7 @@
              check). Local dev default; the release workflow overrides it with the
              git tag (-Dqplayer.app.version=…) so release binaries match the tag
              without a committed bump, like the macOS/Windows packagers. -->
-        <qplayer.app.version>1.4.0</qplayer.app.version>
+        <qplayer.app.version>1.4.1</qplayer.app.version>
         <!-- exec:exec run knobs. Empty gfx means use the persisted in-app setting;
              pass -Dgfx=gl|vulkan only when an explicit development override is
              wanted. -->
