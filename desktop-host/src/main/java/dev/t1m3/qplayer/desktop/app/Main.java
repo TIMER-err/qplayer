@@ -179,6 +179,10 @@ public final class Main {
 
         // Playback control runs on the main event loop (alive even while the render
         // thread is dead); back/exit folds the window to the tray.
+        // qml4j decodes Image.sourceSize in logical pixels; QML has no scale of its
+        // own, so the window's content scale has to reach it for covers to decode at
+        // display resolution instead of being upscaled (blurry) into the framebuffer.
+        window.setScaleListener(controller::setPixelRatio);
         controller.setMainExecutor(window::postMainTask);
         controller.setExitListener(window::onExitRequested);
         // Open external links (the About page) in the system browser. The Android

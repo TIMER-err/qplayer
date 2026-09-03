@@ -59,9 +59,10 @@ Rectangle {
             // downscaled to this 44px avatar every frame with plain (non-
             // mipmap) bilinear sampling -- aliases into visible moiré on
             // detailed source art. sourceSize routes it through the mipmap-
-            // quality decode-time downscale instead.
-            sourceSize.width: width
-            sourceSize.height: height
+            // quality decode-time downscale instead, at the device pixel ratio
+            // so it decodes at display resolution rather than 1x.
+            sourceSize.width: Math.round(width * player.pixelRatio)
+            sourceSize.height: Math.round(height * player.pixelRatio)
         }
     }
 

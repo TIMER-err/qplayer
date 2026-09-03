@@ -264,14 +264,24 @@ Rectangle {
         app.syncPageState(which)
     }
 
+    // Re-open the route we're returning to ONLY when its page no longer holds it.
+    // openMedia* clears the page's model and re-fetches, so calling it for the page
+    // that is already loaded makes every "back" flash and reload what the user just
+    // came from. Both id spaces are checked: provider routes carry a "provider:kind:id"
+    // media id, legacy ones a bare number.
     function restoreCurrentPage(route) {
         if (!route) return
-        if (route.type === "artist")
-            player.openMediaArtist("" + route.entityId)
-        else if (route.type === "album")
-            player.openMediaAlbum("" + route.entityId)
-        else if (route.type === "detail")
-            player.openMediaPlaylist("" + route.entityId)
+        var id = "" + route.entityId
+        if (route.type === "artist") {
+            if (player.openSourceArtistId !== id && ("" + player.openArtistId) !== id)
+                player.openMediaArtist(id)
+        } else if (route.type === "album") {
+            if (player.openSourceAlbumId !== id && ("" + player.openAlbumId) !== id)
+                player.openMediaAlbum(id)
+        } else if (route.type === "detail") {
+            if (player.openSourcePlaylistId !== id && ("" + player.openPlaylistId) !== id)
+                player.openMediaPlaylist(id)
+        }
     }
 
     function popPage() {
@@ -460,15 +470,15 @@ Rectangle {
                 Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
                 visible: rail.showRailBrand
                 source: "app-icon.png"
-                // Decode straight to ~2x the drawn size. Without this the 256px
-                // source is resampled to 32 at draw time with plain bilinear
-                // (SamplingMode.LINEAR), which at an 8:1 ratio aliases the disc's
-                // grooves badly; sourceSize routes it through the loader's
+                // Decode straight to the drawn size in device pixels. Without this
+                // the 256px source is resampled to 32 at draw time with plain
+                // bilinear (SamplingMode.LINEAR), which at an 8:1 ratio aliases the
+                // disc's grooves badly; sourceSize routes it through the loader's
                 // mipmapped downscale instead. The artwork already carries its own
                 // rounded corners, so no radius here — clipping them a second time
                 // just re-aliases the edge.
-                sourceSize.width: 64
-                sourceSize.height: 64
+                sourceSize.width: Math.round(32 * player.pixelRatio)
+                sourceSize.height: Math.round(32 * player.pixelRatio)
             }
             Text {
                 anchors.left: railLogo.right
@@ -505,8 +515,8 @@ Rectangle {
                     x: app.expanded ? 24 : (parent.width - width) / 2
                     Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
                     source: "app-icon.png"
-                    sourceSize.width: 64
-                    sourceSize.height: 64
+                    sourceSize.width: Math.round(32 * player.pixelRatio)
+                    sourceSize.height: Math.round(32 * player.pixelRatio)
                 }
                 Text {
                     anchors.left: actionsLogo.right

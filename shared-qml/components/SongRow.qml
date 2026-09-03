@@ -124,10 +124,12 @@ Rectangle {
             fillMode: Image.PreserveAspectCrop
             // See CoverImage.qml: decode-time downscale (mipmap-quality)
             // instead of a plain bilinear draw-time scale, which aliases
-            // into moiré. Fixed size (the leading box is always 48x48), so
-            // no reuse-staleness risk from VirtualSongList's windowing.
-            sourceSize.width: width
-            sourceSize.height: height
+            // into moiré, scaled by the device pixel ratio so it decodes at
+            // display resolution instead of 1x. Fixed size (the leading box is
+            // always 48x48), so no reuse-staleness risk from VirtualSongList's
+            // windowing.
+            sourceSize.width: Math.round(width * player.pixelRatio)
+            sourceSize.height: Math.round(height * player.pixelRatio)
             // Fade the art in as it loads, like the lyric-page cover. Keyed on source
             // presence (not load status, which would deadlock — opacity 0 skips the
             // paint that advances the decode). A reused row whose source swaps path→path

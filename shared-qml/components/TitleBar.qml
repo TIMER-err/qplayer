@@ -25,8 +25,8 @@ Rectangle {
         anchors.left: parent.left
         anchors.leftMargin: 12
         anchors.verticalCenter: parent.verticalCenter
-        sourceSize.width: 36
-        sourceSize.height: 36
+        sourceSize.width: Math.round(18 * player.pixelRatio)
+        sourceSize.height: Math.round(18 * player.pixelRatio)
     }
     Text {
         anchors.left: appIcon.right

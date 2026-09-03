@@ -664,6 +664,8 @@ public final class PlayerController {
      *  playlist cover's fetch resolution: a phone/narrow window's card grid
      *  doesn't need the same pixels a desktop wide layout displays at. */
     public final Property<Boolean> wideLayout = new Property<>(false);
+    /** See {@link #setPixelRatio(double)}. */
+    public final Property<Double> pixelRatio = new Property<>(1.0);
     public final Property<String> artistName = new Property<>("");
     public final Property<String> artistCoverPath = new Property<>("");
     public final Property<String> artistBriefDesc = new Property<>("");
@@ -2116,6 +2118,15 @@ public final class PlayerController {
 
     public void setWideLayout(boolean wide) {
         wideLayout.set(wide);
+    }
+
+    /** Physical pixels per QML logical pixel, pushed by each shell (GLFW window
+     *  content scale on desktop, display density on Android). QML is authored in
+     *  logical units and qml4j does NOT scale Image.sourceSize by it, so anything
+     *  that decodes to a display size has to multiply by this itself or it decodes
+     *  at 1x and gets upscaled into a blurry draw -- see CoverImage.qml. */
+    public void setPixelRatio(double ratio) {
+        if (ratio > 0 && ratio != pixelRatio.peek()) pixelRatio.set(ratio);
     }
 
     /** Resolution to fetch/cache a grid-card cover at (playlist / album) --

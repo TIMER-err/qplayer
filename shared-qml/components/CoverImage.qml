@@ -54,8 +54,13 @@ Item {
         // showing up as moiré. Setting sourceSize routes the SAME downscale
         // through decodeRaster's mipmap-quality FilterMipmap pass instead, done
         // once at decode time rather than approximated every frame.
-        sourceSize.width: cover.width
-        sourceSize.height: cover.height
+        //
+        // Scale by the device pixel ratio: QML is authored in logical pixels and
+        // qml4j hands sourceSize to decodeRaster verbatim, so a bare cover.width
+        // decodes a 1x image that the renderer then upscales into the framebuffer
+        // -- visibly soft on every display scaled above 100%.
+        sourceSize.width: Math.round(cover.width * player.pixelRatio)
+        sourceSize.height: Math.round(cover.height * player.pixelRatio)
         // Fade the art in on a source change (fadeIn only). Driven by source presence,
         // NOT the Image's load status: a status-gated opacity would deadlock — opacity 0
         // makes the renderer skip painting the node, and the decode that advances status

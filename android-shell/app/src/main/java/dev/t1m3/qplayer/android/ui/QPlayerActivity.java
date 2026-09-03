@@ -223,6 +223,10 @@ public final class QPlayerActivity extends Activity {
         QmlEngine engine = new QmlEngine(
                 new DexClassLoaderBackend(getClass().getClassLoader(), 26, dexCache));
         float density = getResources().getDisplayMetrics().density;
+        // QML is authored in dp and qml4j does not scale Image.sourceSize by the
+        // density, so covers need it to decode at display resolution rather than at
+        // 1x and be upscaled -- see CoverImage.qml.
+        controller.setPixelRatio(density);
         glView = new QmlGLSurfaceView(this, engine, qml, resources, density);
         glView.setController(controller);
         glView.setSettings(settings);
