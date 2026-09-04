@@ -50,6 +50,18 @@ android {
             versionNameSuffix = "-debug"
             manifestPlaceholders["appLabel"] = "QPlayer (debug)"
         }
+        // Release-speed binary with a side-by-side id, signed by the debug
+        // keystore so a local machine without QPLAYER_KEYSTORE can still
+        // install it. Use this to measure frame time; debug is too slow.
+        create("perf") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".perf"
+            versionNameSuffix = "-perf"
+            isDebuggable = false
+            matchingFallbacks += "release"
+            signingConfig = signingConfigs.getByName("debug")
+            manifestPlaceholders["appLabel"] = "QPlayer (perf)"
+        }
     }
 
     packaging {
@@ -85,6 +97,7 @@ tasks.matching { it.name == "preBuild" }.configureEach {
 }
 tasks.matching {
     it.name == "mergeDebugJniLibFolders" || it.name == "mergeReleaseJniLibFolders"
+            || it.name == "mergePerfJniLibFolders"
 }.configureEach {
     dependsOn(extractSkijaSo)
 }
