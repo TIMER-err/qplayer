@@ -102,8 +102,8 @@ Rectangle {
                                 // draw-time scale, which aliases into moiré,
                                 // scaled by the device pixel ratio so it decodes
                                 // at display resolution instead of 1x.
-                                sourceSize.width: Math.round(width * player.pixelRatio)
-                                sourceSize.height: Math.round(height * player.pixelRatio)
+                                sourceSize.width: Math.round(72 * player.pixelRatio)
+                                sourceSize.height: Math.round(72 * player.pixelRatio)
                             }
                         }
 

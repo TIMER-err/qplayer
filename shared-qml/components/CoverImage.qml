@@ -19,6 +19,27 @@ Item {
     // switch): the old art fades out to the placeholder, the new one fades in once
     // decoded. Off by default so list rows / cards keep swapping instantly.
     property bool fadeIn: false
+    // qml4j decodes at the sourceSize present when `source` is first seen and
+    // does not re-decode if sourceSize later changes. Width is 0 before the
+    // first layout, which would decode the full 512–1024px asset onto the Java
+    // heap. Latch the pixel size once laid out so the first decode is already
+    // at display resolution; refresh only on a real resize.
+    property int decodeW: 0
+    property int decodeH: 0
+
+    function latchDecodeSize() {
+        var w = Math.round(width * player.pixelRatio)
+        var h = Math.round(height * player.pixelRatio)
+        if (w <= 0 || h <= 0) return
+        if (decodeW === 0 || Math.abs(w - decodeW) >= 32 || Math.abs(h - decodeH) >= 32) {
+            decodeW = w
+            decodeH = h
+        }
+    }
+
+    onWidthChanged: latchDecodeSize()
+    onHeightChanged: latchDecodeSize()
+    Component.onCompleted: latchDecodeSize()
 
     // Placeholder underneath; the cover image draws over it once decoded.
     Rectangle {
@@ -42,7 +63,7 @@ Item {
     Image {
         id: img
         anchors.fill: parent
-        source: cover.source
+        source: cover.decodeW > 0 ? cover.source : ""
         radius: cover.radius
         fillMode: "PreserveAspectCrop"
         // Without this, qml4j's decoder (ImageLoader.decodeRaster) has no target
@@ -58,9 +79,10 @@ Item {
         // Scale by the device pixel ratio: QML is authored in logical pixels and
         // qml4j hands sourceSize to decodeRaster verbatim, so a bare cover.width
         // decodes a 1x image that the renderer then upscales into the framebuffer
-        // -- visibly soft on every display scaled above 100%.
-        sourceSize.width: Math.round(cover.width * player.pixelRatio)
-        sourceSize.height: Math.round(cover.height * player.pixelRatio)
+        // -- visibly soft on every display scaled above 100%. Latched (see
+        // decodeW) so the first decode is not the full-res asset at width 0.
+        sourceSize.width: cover.decodeW
+        sourceSize.height: cover.decodeH
         // Fade the art in on a source change (fadeIn only). Driven by source presence,
         // NOT the Image's load status: a status-gated opacity would deadlock — opacity 0
         // makes the renderer skip painting the node, and the decode that advances status

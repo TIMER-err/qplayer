@@ -2068,6 +2068,12 @@ public final class PlayerController {
         if (visible) lastLogVersion = -1;
     }
 
+    /** Hosts gate expensive per-frame diagnostics (Android's 120-frame summary)
+     *  on this so a closed overlay never hits logcat / the ring buffer. */
+    public boolean isLogVisible() {
+        return logVisible;
+    }
+
     /** Publish a new lyric list and derive {@link #lyricsCoverOnly}. */
     private void applyLyrics(List<LyricLine> ly) {
         lyrics.set(ly);

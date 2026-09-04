@@ -61,8 +61,8 @@ Rectangle {
             // detailed source art. sourceSize routes it through the mipmap-
             // quality decode-time downscale instead, at the device pixel ratio
             // so it decodes at display resolution rather than 1x.
-            sourceSize.width: Math.round(width * player.pixelRatio)
-            sourceSize.height: Math.round(height * player.pixelRatio)
+            sourceSize.width: Math.round(44 * player.pixelRatio)
+            sourceSize.height: Math.round(44 * player.pixelRatio)
         }
     }
 

@@ -187,6 +187,17 @@ public final class PluginManager implements AutoCloseable {
         return runtime.invoke(handler, arguments);
     }
 
+    private CompletableFuture<Object> invokeDiscardingResult(String pluginId, String handler) {
+        PluginRuntime runtime;
+        synchronized (this) { runtime = runtimes.get(pluginId); }
+        if (runtime == null) {
+            CompletableFuture<Object> failed = new CompletableFuture<>();
+            failed.completeExceptionally(new IllegalStateException("plugin is not enabled: " + pluginId));
+            return failed;
+        }
+        return runtime.invoke(handler, Collections.<String, Object>emptyMap(), true);
+    }
+
     public synchronized List<PluginUiContributionRow> uiContributions() {
         List<PluginUiContributionRow> result = new ArrayList<>();
         for (PluginManifest manifest : enabledProviders()) {
@@ -300,7 +311,7 @@ public final class PluginManager implements AutoCloseable {
     private void tickBackgroundPlugins() {
         for (String pluginId : new ArrayList<>(backgroundHandlers)) {
             if (!backgroundBusy.add(pluginId)) continue;
-            invoke(pluginId, "backgroundTick", Collections.<String, Object>emptyMap())
+            invokeDiscardingResult(pluginId, "backgroundTick")
                     .whenComplete((ignored, error) -> {
                         backgroundBusy.remove(pluginId);
                         if (error != null) Logger.warn("plugin {} background tick failed: {}",

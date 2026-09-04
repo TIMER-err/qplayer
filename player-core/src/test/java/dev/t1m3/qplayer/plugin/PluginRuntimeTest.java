@@ -146,6 +146,28 @@ public class PluginRuntimeTest {
     }
 
     @Test
+    public void discardResultSkipsConvertingReturnedTrees() throws Exception {
+        Files.write(temporary.getRoot().toPath().resolve("main.js"), (
+                "module.exports = { handlers: {\n"
+                + " tick: function() {\n"
+                + "   var body = [];\n"
+                + "   for (var i = 0; i < 32; i++) body.push({type: 'text', text: 'n' + i});\n"
+                + "   return {title: 'x', body: body};\n"
+                + " }\n"
+                + "} };\n").getBytes(StandardCharsets.UTF_8));
+        try (PluginRuntime runtime = PluginRuntime.start(
+                temporary.getRoot().toPath(), manifest(), noOpHost())) {
+            Object discarded = runtime.invoke("tick", Collections.emptyMap(), true)
+                    .get(2, TimeUnit.SECONDS);
+            assertEquals(null, discarded);
+            Map<?, ?> kept = (Map<?, ?>) runtime.invoke("tick", Collections.emptyMap())
+                    .get(2, TimeUnit.SECONDS);
+            assertEquals("x", kept.get("title"));
+            assertEquals(32, ((java.util.List<?>) kept.get("body")).size());
+        }
+    }
+
+    @Test
     public void rejectsAdvertisedCapabilitiesWithoutHandlers() throws Exception {
         Files.write(temporary.getRoot().toPath().resolve("main.js"),
                 "module.exports = { handlers: {} };\n".getBytes(StandardCharsets.UTF_8));

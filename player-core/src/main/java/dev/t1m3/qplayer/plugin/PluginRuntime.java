@@ -97,6 +97,14 @@ public final class PluginRuntime implements AutoCloseable {
     }
 
     public CompletableFuture<Object> invoke(String name, Map<String, Object> arguments) {
+        return invoke(name, arguments, false);
+    }
+
+    /** {@code discardResult} still waits for a returned promise (so background
+     *  work runs) but skips converting the JS value into Java maps — background
+     *  ticks that build a dialog tree must not clone it onto the Java heap. */
+    public CompletableFuture<Object> invoke(String name, Map<String, Object> arguments,
+                                            boolean discardResult) {
         if (name == null || name.isEmpty()) {
             return failed(new IllegalArgumentException("handler name is empty"));
         }
@@ -110,7 +118,7 @@ public final class PluginRuntime implements AutoCloseable {
             try {
                 Object argument = toJs(arguments != null ? arguments : Collections.emptyMap(), scope);
                 Object returned = function.call(cx, scope, handlers, new Object[]{argument});
-                settle(cx, returned, result);
+                settle(cx, returned, result, discardResult);
                 cx.processMicrotasks();
             } finally {
                 contexts.clearDeadline();
@@ -273,19 +281,21 @@ public final class PluginRuntime implements AutoCloseable {
         };
     }
 
-    private void settle(Context cx, Object value, CompletableFuture<Object> target) {
+    private void settle(Context cx, Object value, CompletableFuture<Object> target,
+                        boolean discardResult) {
         if (!(value instanceof Scriptable)) {
-            target.complete(fromJs(value));
+            target.complete(discardResult ? null : fromJs(value));
             return;
         }
         Object then = ScriptableObject.getProperty((Scriptable) value, "then");
         if (!(then instanceof Function)) {
-            target.complete(fromJs(value));
+            target.complete(discardResult ? null : fromJs(value));
             return;
         }
         BaseFunction resolve = new BaseFunction() {
             @Override public Object call(Context ignored, Scriptable s, Scriptable t, Object[] args) {
-                target.complete(fromJs(args.length > 0 ? args[0] : null));
+                target.complete(discardResult ? null
+                        : fromJs(args.length > 0 ? args[0] : null));
                 return Undefined.instance;
             }
         };

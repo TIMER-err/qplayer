@@ -611,15 +611,21 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         }
         profLastFrameNanos = t2;
         if (++profFrames >= 120) {
-            dev.t1m3.qplayer.util.Logger.info(
-                "frame: {}fps tick {}ms render {}ms present {}ms max-gap {}ms skip {}/{} bumps tick {} (per120)",
-                Math.round(1000.0 / (profGapMs / profFrames)),
-                round1(profLayoutMs / profFrames),
-                round1(profRenderMs / profFrames),
-                round1(profPresentMs / profFrames),
-                round1(profMaxGapMs),
-                profSkips, profFrames,
-                profBumpTick);
+            // Logging on the GL thread hits logcat + the in-app ring every ~2s at
+            // 60fps. That itself is a hitch, and the ring used to force a whole-tree
+            // relayout; only emit while the overlay is open (where the summary is
+            // actually read).
+            if (controller != null && controller.isLogVisible()) {
+                dev.t1m3.qplayer.util.Logger.info(
+                    "frame: {}fps tick {}ms render {}ms present {}ms max-gap {}ms skip {}/{} bumps tick {} (per120)",
+                    Math.round(1000.0 / (profGapMs / profFrames)),
+                    round1(profLayoutMs / profFrames),
+                    round1(profRenderMs / profFrames),
+                    round1(profPresentMs / profFrames),
+                    round1(profMaxGapMs),
+                    profSkips, profFrames,
+                    profBumpTick);
+            }
             profFrames = 0;
             profSkips = 0;
             profBumpTick = 0;
