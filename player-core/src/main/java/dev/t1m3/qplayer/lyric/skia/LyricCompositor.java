@@ -334,7 +334,11 @@ public final class LyricCompositor {
         }
         long predMs = clockRunning ? lyBaseMs + (nowN - lyBaseNanos) / 1_000_000L : lyBaseMs;
         if (durMs > 0 && predMs > durMs) predMs = durMs;
-        controller.lyricProgress.set(durMs > 0 ? Math.min(1.0, predMs / (double) durMs) : 0.0);
+        double progress = durMs > 0 ? Math.min(1.0, predMs / (double) durMs) : 0.0;
+        Double lastProgress = controller.lyricProgress.peek();
+        if (lastProgress == null || Math.abs(progress - lastProgress) >= 0.0002) {
+            controller.lyricProgress.set(progress);
+        }
 
         // Re-feed the renderer when the track's lyric list changes (identity).
         List<LyricLine> lyObj = controller.lyrics.peek();

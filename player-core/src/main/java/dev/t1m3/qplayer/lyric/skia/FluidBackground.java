@@ -125,6 +125,13 @@ public final class FluidBackground {
     private int staticW = -1;
     private int staticH = -1;
     private int activeStyle = -1;
+    // Animated path: run SkSL at half device resolution and blit. Full-screen
+    // RuntimeEffect at 1600×900 was ~23ms CPU on the emulator lyric page.
+    private static final float LIVE_SCALE = 0.5f;
+    private Surface liveOff;
+    private int liveOffW = -1;
+    private int liveOffH = -1;
+    private Rect liveOffRect;
 
     public FluidBackground(long startNs) {
         this.startNs = startNs;
@@ -222,7 +229,46 @@ public final class FluidBackground {
             // build failed -> fall through to the live shader this frame
         }
 
-        drawFluid(canvas, fullRect, w, h, time, fadeProgress(nowNs));
+        drawFluidLive(canvas, ctx, uiScale, w, h, time, fadeProgress(nowNs));
+    }
+
+    private void drawFluidLive(Canvas canvas, DirectContext ctx, float uiScale,
+                               float w, float h, float time, float fade) {
+        if (ctx == null) {
+            drawFluid(canvas, fullRect, w, h, time, fade);
+            return;
+        }
+        int dw = Math.max(1, Math.round(w * uiScale * LIVE_SCALE));
+        int dh = Math.max(1, Math.round(h * uiScale * LIVE_SCALE));
+        if (liveOff == null || liveOffW != dw || liveOffH != dh) {
+            closeLiveOff();
+            try {
+                liveOff = Surface.makeRenderTarget(ctx, false, ImageInfo.makeN32Premul(dw, dh));
+                liveOffW = dw;
+                liveOffH = dh;
+                liveOffRect = Rect.makeWH(dw, dh);
+            } catch (Throwable t) {
+                liveOff = null;
+            }
+        }
+        if (liveOff == null) {
+            drawFluid(canvas, fullRect, w, h, time, fade);
+            return;
+        }
+        liveOff.getCanvas().clear(0);
+        drawFluid(liveOff.getCanvas(), liveOffRect, dw, dh, time, fade);
+        try (Image snap = liveOff.makeImageSnapshot()) {
+            canvas.drawImageRect(snap, fullRect);
+        }
+    }
+
+    private void closeLiveOff() {
+        if (liveOff != null) {
+            liveOff.close();
+            liveOff = null;
+        }
+        liveOffW = liveOffH = -1;
+        liveOffRect = null;
     }
 
     // Fade progress 0..1 since the last cover swap; releases the previous cover once done.
@@ -361,6 +407,7 @@ public final class FluidBackground {
      */
     public void invalidateGpuContext() {
         invalidateStatic();
+        closeLiveOff();
     }
 
     public void dispose() {
@@ -384,6 +431,7 @@ public final class FluidBackground {
         }
         releasePrev();
         invalidateStatic();
+        closeLiveOff();
         fluidPaint.close();
         coverKey = null;
     }

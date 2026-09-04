@@ -2219,8 +2219,17 @@ public final class PlayerController {
         if (idx != lyricIndex.peek()) lyricIndex.set(idx);
     }
 
+    private volatile Runnable renderWake;
+
+    /** Android GLSurfaceView uses this to leave WHEN_DIRTY when a host task lands. */
+    public void setRenderWake(Runnable wake) {
+        this.renderWake = wake;
+    }
+
     private void post(Runnable r) {
         uiQueue.add(r);
+        Runnable wake = renderWake;
+        if (wake != null) wake.run();
     }
 
     public void clearLog() {

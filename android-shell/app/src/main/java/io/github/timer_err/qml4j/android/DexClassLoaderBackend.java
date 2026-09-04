@@ -7,6 +7,8 @@ import com.android.tools.r8.DexIndexedConsumer;
 import com.android.tools.r8.DiagnosticsHandler;
 import com.android.tools.r8.origin.Origin;
 
+import android.os.Build;
+
 import dalvik.system.InMemoryDexClassLoader;
 
 import io.github.timer_err.qml4j.engine.classloader.ClassLoaderBackend;
@@ -17,7 +19,9 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -27,6 +31,7 @@ public final class DexClassLoaderBackend implements ClassLoaderBackend {
     private static final int CACHE_FORMAT = 1;
 
     private ClassLoader parent;
+    private InMemoryDexClassLoader combined;
     private final int minApi;
     // On-disk dex cache (D8 dexing is the slow part of QML startup). Null disables it.
     private final File cacheDir;
@@ -44,6 +49,7 @@ public final class DexClassLoaderBackend implements ClassLoaderBackend {
         this.minApi = minApi;
         this.cacheDir = cacheDir;
         if (cacheDir != null) cacheDir.mkdirs();
+        preloadCachedDex();
     }
 
     @Override
@@ -56,6 +62,8 @@ public final class DexClassLoaderBackend implements ClassLoaderBackend {
     @Override
     public Map<String, Class<?>> defineClasses(Map<String, byte[]> classes) {
         if (classes.isEmpty()) return new LinkedHashMap<>();
+        Map<String, Class<?>> fromCache = loadFromCombined(classes);
+        if (fromCache != null) return fromCache;
         byte[] dex = dexAll(classes);
         ByteBuffer buf = ByteBuffer.wrap(dex);
         InMemoryDexClassLoader loader = new InMemoryDexClassLoader(buf, parent);
@@ -69,6 +77,36 @@ public final class DexClassLoaderBackend implements ClassLoaderBackend {
         }
         parent = loader;
         return out;
+    }
+
+    /** Second launch: one classloader for every cached dex instead of an
+     *  80-deep InMemoryDexClassLoader parent chain. API 27+ only. */
+    private void preloadCachedDex() {
+        if (Build.VERSION.SDK_INT < 27 || cacheDir == null) return;
+        File[] files = cacheDir.listFiles((dir, name) -> name.endsWith(".dex"));
+        if (files == null || files.length == 0) return;
+        List<ByteBuffer> buffers = new ArrayList<>(files.length);
+        for (int i = 0; i < files.length; i++) {
+            byte[] data = readFile(files[i]);
+            if (data != null && data.length > 0) buffers.add(ByteBuffer.wrap(data));
+        }
+        if (buffers.isEmpty()) return;
+        combined = new InMemoryDexClassLoader(
+                buffers.toArray(new ByteBuffer[0]), parent);
+        parent = combined;
+    }
+
+    private Map<String, Class<?>> loadFromCombined(Map<String, byte[]> classes) {
+        if (combined == null) return null;
+        Map<String, Class<?>> out = new LinkedHashMap<>();
+        try {
+            for (String name : classes.keySet()) {
+                out.put(name, combined.loadClass(name));
+            }
+            return out;
+        } catch (ClassNotFoundException ignored) {
+            return null;
+        }
     }
 
     // Dex the batch, reading from / writing to the on-disk cache when enabled. The key

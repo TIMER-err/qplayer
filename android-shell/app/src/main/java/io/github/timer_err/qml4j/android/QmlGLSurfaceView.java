@@ -395,6 +395,12 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
      *  set before the GL thread first lays out (i.e. right after construction). */
     public void setController(PlayerController c) {
         this.controller = c;
+        if (c != null) {
+            c.setRenderWake(() -> {
+                setRenderMode(RENDERMODE_CONTINUOUSLY);
+                requestRender();
+            });
+        }
     }
 
     /** Expose app settings to QML as the {@code settings} context global. Set before
@@ -570,6 +576,16 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 long t1b = System.nanoTime();
                 surface.present();
                 profileFrame(t0, t1, t1b, System.nanoTime());
+                boolean needContinuous = controller != null && (
+                        controller.isPlaying()
+                        || Boolean.TRUE.equals(controller.lyricsOpen.peek())
+                        || (controller.lyricSlide.peek() != null
+                            && controller.lyricSlide.peek() > 0.001));
+                if (!needContinuous && compositor.skippedLayout()) {
+                    setRenderMode(RENDERMODE_WHEN_DIRTY);
+                } else {
+                    setRenderMode(RENDERMODE_CONTINUOUSLY);
+                }
                 if (!readyFired) {
                     readyFired = true;
                     SplashListener l = splashListener;
