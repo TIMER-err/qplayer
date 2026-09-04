@@ -106,6 +106,18 @@ Rectangle {
         if (pluginSettingsNavigationWatch > 0)
             app.pushPage("pluginSettings", player.pluginSettingsId)
     }
+    property real debugRouteWatch: player.debugRouteRevision
+    onDebugRouteWatchChanged: {
+        if (debugRouteWatch <= 0) return
+        var kind = player.debugRouteType
+        var id = player.debugRouteId
+        if (kind === "tab") app.switchTo(parseInt(id))
+        else if (kind === "settings") app.replacePage("settings", 0)
+        else if (kind === "lyrics") app.pushPage("lyrics", 0)
+        else if (kind === "detail") app.pushPage("detail", id)
+        else if (kind === "pop") app.popPage()
+        else if (kind === "home") app.goHome()
+    }
     // Host-side closes are uncommon (normal back now pops the stack), but mirror
     // one if it happens so the route cannot remain logically open after its
     // separately-rendered lyric layer has closed.

@@ -10,10 +10,12 @@ import dev.t1m3.qplayer.android.settings.PrefsSettingsStore;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.BroadcastReceiver;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.os.Build;
@@ -88,6 +90,7 @@ public final class QPlayerActivity extends Activity {
      *  insets to re-dispatch after the system bars are hidden/shown. */
     private android.view.View rootView;
     private Consumer<Boolean> lyricsOpenListener;
+    private BroadcastReceiver debugReceiver;
 
     /** Singleton controller — survives Activity recreations (PiP, config changes)
      *  so playback state and the foreground service stay connected across them. */
@@ -258,10 +261,71 @@ public final class QPlayerActivity extends Activity {
         updateImmersive();
 
         controller.loadHome();
+        registerDebugReceiver();
         // The audio-permission dialog is deferred to onSceneReady: requesting it
         // here pops a system dialog during the QML compile, and the resulting
         // pause/resume + the concurrent MediaStore scan racing the dex compile
         // crashes on first launch. Once the scene has rendered, it's safe.
+    }
+
+    /** {@code adb shell am broadcast -a dev.t1m3.qplayer.DEBUG --es cmd status} */
+    public static final String DEBUG_ACTION = "dev.t1m3.qplayer.DEBUG";
+
+    private void registerDebugReceiver() {
+        if (debugReceiver != null) return;
+        debugReceiver = new BroadcastReceiver() {
+            @Override public void onReceive(Context context, Intent intent) {
+                if (controller == null || intent == null) return;
+                String cmd = intent.getStringExtra("cmd");
+                String arg = intent.getStringExtra("arg");
+                if (cmd == null) cmd = "";
+                if (arg == null) arg = "";
+                android.util.Log.i("qplayer.debug", "cmd=" + cmd + " arg=" + arg);
+                if ("swipe".equalsIgnoreCase(cmd) || "fling".equalsIgnoreCase(cmd)) {
+                    final String dir = arg;
+                    runOnUiThread(() -> debugSwipe(dir));
+                    return;
+                }
+                controller.debugCommand(cmd, arg);
+                if ("status".equalsIgnoreCase(cmd)) {
+                    android.util.Log.i("qplayer.debug", controller.debugStatus());
+                }
+            }
+        };
+        IntentFilter filter = new IntentFilter(DEBUG_ACTION);
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(debugReceiver, filter, Context.RECEIVER_EXPORTED);
+        } else {
+            registerReceiver(debugReceiver, filter);
+        }
+    }
+
+    private void debugSwipe(String dir) {
+        if (glView == null) return;
+        int w = glView.getWidth();
+        int h = glView.getHeight();
+        if (w <= 0 || h <= 0) return;
+        float x = w * 0.62f;
+        float y0;
+        float y1;
+        String d = dir == null ? "" : dir.trim().toLowerCase(java.util.Locale.ROOT);
+        if ("down".equals(d)) {
+            y0 = h * 0.28f;
+            y1 = h * 0.78f;
+        } else {
+            y0 = h * 0.72f;
+            y1 = h * 0.22f;
+        }
+        long down = android.os.SystemClock.uptimeMillis();
+        glView.dispatchTouchEvent(android.view.MotionEvent.obtain(
+                down, down, android.view.MotionEvent.ACTION_DOWN, x, y0, 0));
+        for (int i = 1; i <= 10; i++) {
+            float y = y0 + (y1 - y0) * i / 10f;
+            glView.dispatchTouchEvent(android.view.MotionEvent.obtain(
+                    down, down + i * 16L, android.view.MotionEvent.ACTION_MOVE, x, y, 0));
+        }
+        glView.dispatchTouchEvent(android.view.MotionEvent.obtain(
+                down, down + 180L, android.view.MotionEvent.ACTION_UP, x, y1, 0));
     }
 
     private static String bundledFontWeightName(
@@ -908,6 +972,10 @@ public final class QPlayerActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (debugReceiver != null) {
+            try { unregisterReceiver(debugReceiver); } catch (Throwable ignored) {}
+            debugReceiver = null;
+        }
         if (controller != null && lyricsOpenListener != null) {
             controller.lyricsOpen.removeListener(lyricsOpenListener);
             lyricsOpenListener = null;

@@ -53,7 +53,39 @@ Item {
         return "晚上好";
     }
 
+    property int cardRowH: Math.max(1, Math.round(cardH + gap))
+    property int gridWindowRows: {
+        var rows = Math.ceil(recCount / Math.max(1, cols))
+        var vis = Math.ceil(homeFlick.height / cardRowH) + 3
+        return Math.min(rows, Math.max(0, vis))
+    }
+    property int firstGridRow: {
+        var f = Math.floor((homeFlick.contentY - greetH) / cardRowH) - 1
+        var maxR = Math.max(0, Math.ceil(recCount / Math.max(1, cols)) - gridWindowRows)
+        if (f > maxR) f = maxR
+        if (f < 0) f = 0
+        return f
+    }
+    property int firstCard: firstGridRow * cols
+    property int cardWindow: {
+        var gridBottom = greetH + gridH
+        if (gridBottom < homeFlick.contentY - cardRowH) return 0
+        return gridWindowRows * cols
+    }
+    property int songWindow: {
+        if (dailyTop > homeFlick.contentY + homeFlick.height + 2 * rowH) return 0
+        return Math.min(dailyCount, Math.ceil(homeFlick.height / rowH) + 10)
+    }
+    property int firstSong: {
+        var f = Math.floor((homeFlick.contentY - dailyTop) / rowH) - 4
+        var maxF = dailyCount - songWindow
+        if (f > maxF) f = maxF
+        if (f < 0) f = 0
+        return f
+    }
+
     Flickable {
+        id: homeFlick
         anchors.fill: parent
         clip: true
         contentWidth: width
@@ -76,6 +108,8 @@ Item {
 
             Repeater {
                 model: page.homePlaylists
+                windowStart: page.firstCard
+                windowCount: page.cardWindow
                 PlaylistCard {
                     playlistId: modelData.id
                     tile: page.tile
@@ -100,6 +134,8 @@ Item {
 
             Repeater {
                 model: page.homeSongs
+                windowStart: page.firstSong
+                windowCount: page.songWindow
                 SongRow {
                     width: page.width
                     y: page.dailyTop + index * page.rowH

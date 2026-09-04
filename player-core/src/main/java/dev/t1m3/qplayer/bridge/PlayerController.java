@@ -2074,6 +2074,111 @@ public final class PlayerController {
         return logVisible;
     }
 
+    /** Host debug automation (adb broadcast). QML watches the revision and
+     *  applies {@link #debugRouteType}/{@link #debugRouteId}. */
+    public final Property<String> debugRouteType = new Property<>("");
+    public final Property<String> debugRouteId = new Property<>("");
+    public final Property<Long> debugRouteRevision = new Property<>(0L);
+
+    /** Drive navigation/playback from a host debug channel without tapping QML. */
+    public void debugCommand(String command, String arg) {
+        if (command == null || command.isEmpty()) return;
+        String cmd = command.trim().toLowerCase(java.util.Locale.ROOT);
+        final String a = arg != null ? arg : "";
+        switch (cmd) {
+            case "status":
+                Logger.info("debug {}", debugStatus());
+                break;
+            case "toggle":
+                toggle();
+                break;
+            case "next":
+                next();
+                break;
+            case "prev":
+                prev();
+                break;
+            case "play":
+                onMain(() -> playRecommendation(0));
+                break;
+            case "home":
+                loadHome();
+                pushDebugRoute("tab", "0");
+                break;
+            case "search":
+                if (!a.isEmpty()) search(a);
+                pushDebugRoute("tab", "1");
+                break;
+            case "library":
+                loadMyPlaylists();
+                pushDebugRoute("tab", "2");
+                break;
+            case "local":
+                pushDebugRoute("tab", "3");
+                break;
+            case "settings":
+                pushDebugRoute("settings", "");
+                break;
+            case "lyrics":
+                post(() -> setLyricsOpen(true));
+                pushDebugRoute("lyrics", "");
+                break;
+            case "lyrics-close":
+            case "close-lyrics":
+                post(() -> setLyricsOpen(false));
+                pushDebugRoute("pop", "");
+                break;
+            case "playlist":
+                openDebugPlaylist(a);
+                break;
+            case "back":
+                pressBack();
+                break;
+            default:
+                Logger.warn("unknown debug command {}", cmd);
+        }
+    }
+
+    public String debugStatus() {
+        List<Song> recs = sourceRecommendations.peek();
+        List<Playlist> playlists = sourceRecommendPlaylists.peek();
+        return "playing=" + playing.peek()
+                + " loggedIn=" + loggedIn.peek()
+                + " setup=" + sourceSetupRequired.peek()
+                + " title=" + title.peek()
+                + " queue=" + queue.size()
+                + " recs=" + (recs == null ? 0 : recs.size())
+                + " playlists=" + (playlists == null ? 0 : playlists.size())
+                + " homeLoading=" + homeLoading.peek()
+                + " lyrics=" + lyricsOpen.peek();
+    }
+
+    private void pushDebugRoute(String type, String id) {
+        post(() -> {
+            debugRouteType.set(type);
+            debugRouteId.set(id);
+            Long rev = debugRouteRevision.peek();
+            debugRouteRevision.set((rev == null ? 0L : rev) + 1L);
+        });
+    }
+
+    private void openDebugPlaylist(String arg) {
+        List<Playlist> playlists = sourceRecommendPlaylists.peek();
+        if (playlists == null || playlists.isEmpty()) {
+            playlists = sourceMyPlaylists.peek();
+        }
+        if (playlists == null || playlists.isEmpty()) {
+            Logger.warn("debug playlist: none loaded");
+            return;
+        }
+        int i = 0;
+        try { if (!arg.isEmpty()) i = Integer.parseInt(arg.trim()); } catch (NumberFormatException ignored) {}
+        if (i < 0 || i >= playlists.size()) i = 0;
+        String id = playlists.get(i).id;
+        openMediaPlaylist(id);
+        pushDebugRoute("detail", id);
+    }
+
     /** Publish a new lyric list and derive {@link #lyricsCoverOnly}. */
     private void applyLyrics(List<LyricLine> ly) {
         lyrics.set(ly);

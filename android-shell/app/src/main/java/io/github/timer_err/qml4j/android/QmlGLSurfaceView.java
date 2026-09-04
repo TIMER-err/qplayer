@@ -611,20 +611,20 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         }
         profLastFrameNanos = t2;
         if (++profFrames >= 120) {
-            // Logging on the GL thread hits logcat + the in-app ring every ~2s at
-            // 60fps. That itself is a hitch, and the ring used to force a whole-tree
-            // relayout; only emit while the overlay is open (where the summary is
-            // actually read).
+            long usedMb = (Runtime.getRuntime().totalMemory()
+                    - Runtime.getRuntime().freeMemory()) / (1024L * 1024L);
+            int fps = (int) Math.round(1000.0 / (profGapMs / profFrames));
+            String line = "frame: " + fps + "fps tick " + round1(profLayoutMs / profFrames)
+                    + "ms render " + round1(profRenderMs / profFrames)
+                    + "ms present " + round1(profPresentMs / profFrames)
+                    + "ms max-gap " + round1(profMaxGapMs) + "ms skip " + profSkips
+                    + "/" + profFrames + " bumps " + profBumpTick
+                    + " heap " + usedMb + "MB (per120)";
+            // logcat is cheap at 0.5 Hz; the in-app ring is not (it used to
+            // relayout the whole tree). Always emit to logcat for adb profiling.
+            android.util.Log.i("qplayer.frame", line);
             if (controller != null && controller.isLogVisible()) {
-                dev.t1m3.qplayer.util.Logger.info(
-                    "frame: {}fps tick {}ms render {}ms present {}ms max-gap {}ms skip {}/{} bumps tick {} (per120)",
-                    Math.round(1000.0 / (profGapMs / profFrames)),
-                    round1(profLayoutMs / profFrames),
-                    round1(profRenderMs / profFrames),
-                    round1(profPresentMs / profFrames),
-                    round1(profMaxGapMs),
-                    profSkips, profFrames,
-                    profBumpTick);
+                dev.t1m3.qplayer.util.Logger.info("{}", line);
             }
             profFrames = 0;
             profSkips = 0;

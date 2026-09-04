@@ -23,6 +23,21 @@ Flickable {
     property int cols: Math.max(2, Math.floor((width - 2 * pad + gap) / (minTile + gap)))
     property real tile: (width - 2 * pad - (cols - 1) * gap) / cols
     property real cardH: tile + 72
+    property int cardRowH: Math.max(1, Math.round(cardH + gap))
+    property int rowWindow: {
+        var rows = Math.ceil(count / Math.max(1, cols))
+        var vis = Math.ceil(height / cardRowH) + 3
+        return Math.min(rows, Math.max(0, vis))
+    }
+    property int firstRow: {
+        var f = Math.floor((contentY - pad) / cardRowH) - 1
+        var maxF = Math.max(0, Math.ceil(count / Math.max(1, cols)) - rowWindow)
+        if (f > maxF) f = maxF
+        if (f < 0) f = 0
+        return f
+    }
+    property int firstCard: firstRow * cols
+    property int cardWindow: rowWindow * cols
 
     clip: true
     contentWidth: width
@@ -37,6 +52,8 @@ Flickable {
 
         Repeater {
             model: grid.list
+            windowStart: grid.firstCard
+            windowCount: grid.cardWindow
             PlaylistCard {
                 playlistId: modelData.id
                 tile: grid.tile
