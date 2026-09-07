@@ -24,6 +24,10 @@ import org.lwjgl.opengl.GL;
  */
 final class GLBackend implements GraphicsBackend {
 
+    /** Windows only: swap-on-minimized-window can wedge with vsync (see init). */
+    private static final boolean IS_WINDOWS =
+            System.getProperty("os.name", "").toLowerCase().contains("win");
+
     private final long window;
     private final boolean transparent;
     private int width;
@@ -54,7 +58,16 @@ final class GLBackend implements GraphicsBackend {
         // calling (render) thread before any GL / Skija call.
         GLFW.glfwMakeContextCurrent(window);
         GL.createCapabilities();
-        boolean vsync = !"false".equals(System.getProperty("qplayer.vsync", "true"));
+        // Windows: never let swapBuffers block on vsync. With vsync on, a swap that
+        // is waiting for the next vblank when the window gets minimized blocks
+        // forever — the DWM stops compositing minimized windows, so the vblank the
+        // swap waits on never comes (and it stays wedged even after restore).
+        // Frame rate is still capped by RenderThread's own pacing (parkNanos to the
+        // monitor refresh), which already covers platforms where swapInterval is
+        // ignored (X11 .desktop launches) — so Windows behaves like that known-good
+        // path instead of freezing on minimize/restore.
+        boolean vsync = !"false".equals(System.getProperty("qplayer.vsync", "true"))
+                && !IS_WINDOWS;
         GLFW.glfwSwapInterval(vsync ? 1 : 0);
         // DirectContext.makeGL() binds to the GL context current on this thread.
         context = DirectContext.makeGL();

@@ -20,6 +20,12 @@ import org.lwjgl.glfw.GLFWVidMode;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
 
+import com.sun.jna.Native;
+import com.sun.jna.Pointer;
+import com.sun.jna.platform.win32.WinDef.HWND;
+import com.sun.jna.win32.StdCallLibrary;
+import com.sun.jna.win32.W32APIOptions;
+
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
@@ -47,6 +53,11 @@ public final class DesktopWindow {
 
     private static final int INITIAL_W = Integer.getInteger("qplayer.width", 1100);
     private static final int INITIAL_H = Integer.getInteger("qplayer.height", 720);
+    /** True on Windows: the only platform where a swap on a minimized window can
+     *  wedge forever, and where User32.IsIconic gives the synchronous ground truth
+     *  the render loop needs. */
+    private static final boolean IS_WINDOWS =
+            System.getProperty("os.name", "").toLowerCase().contains("win");
     // Logical px. Matches IconButton's own implicitWidth/Height (40) so the custom
     // caption buttons need no size override, while staying slimmer than the 64px
     // TopAppBar so it doesn't read as a second toolbar. Windows-only (custom title
@@ -98,6 +109,10 @@ public final class DesktopWindow {
     private volatile RenderThread renderThread;
     private volatile boolean quitRequested;
     private volatile boolean hiddenToTray;
+    /** True while the OS has iconified (minimized) the window. Mirrored from the
+     *  GLFW iconify callback; the render thread gates its present() on this so it
+     *  never swaps buffers on a minimized window (which can wedge on Windows). */
+    private volatile boolean windowIconified;
     private boolean graphicsFallbackAttempted;
     // Whether a system tray actually installed. Without one, hiding the window would
     // make the app vanish with no way back, so the close button quits instead and
@@ -791,6 +806,46 @@ public final class DesktopWindow {
         GLFW.glfwSetWindowFocusCallback(window, (win, foc) -> {
             if (windowChrome != null) postRenderTask(() -> windowChrome.focused.set(foc));
         });
+        // The render thread must never swap buffers on an iconified window (Windows
+        // wglSwapBuffers can block forever waiting on a vsync the DWM never sends a
+        // minimized window) — mirror the OS state here so the loop can gate on it.
+        GLFW.glfwSetWindowIconifyCallback(window, (win, iconified) -> {
+            windowIconified = iconified;
+        });
+    }
+
+    /**
+     * Whether the window can currently be presented to. The render loop skips
+     * frame work (and never calls {@code swapBuffers}) while the window is
+     * minimized or hidden to the tray.
+     */
+    boolean windowVisible() {
+        if (windowIconified || hiddenToTray) return false;
+        // Windows: GLFW learns about an OS minimize only when the main thread
+        // drains events — up to one glfwWaitEventsTimeout wait (~50ms) after the
+        // OS actually minimized the window. A swapBuffers issued inside that gap
+        // blocks forever (wglSwapBuffers on a minimized window waits for a vsync
+        // the DWM never sends), so consult the OS synchronously (User32.IsIconic)
+        // before trusting that the window is presentable.
+        if (IS_WINDOWS) {
+            try {
+                long hwnd = GLFWNativeWin32.glfwGetWin32Window(window);
+                if (hwnd != 0L) {
+                    return !WinUser32.I.IsIconic(new HWND(new Pointer(hwnd)));
+                }
+            } catch (Throwable ignored) {
+                // JNA/User32 unavailable or failed — fall through and treat the
+                // window as visible (best effort; the GLFW flag still gates).
+            }
+        }
+        return true;
+    }
+
+    /** Minimal User32 binding: {@code IsIconic} gives the synchronous minimize
+     *  state the render loop needs (GLFW's own iconify flag lags the OS). */
+    private interface WinUser32 extends StdCallLibrary {
+        WinUser32 I = Native.load("user32", WinUser32.class, W32APIOptions.DEFAULT_OPTIONS);
+        boolean IsIconic(HWND hWnd);
     }
 
     /**

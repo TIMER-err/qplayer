@@ -96,6 +96,15 @@ final class RenderThread extends Thread {
             final long frameNanos = 1_000_000_000L / Math.max(30, win.refreshHz());
 
             while (running) {
+                if (!win.windowVisible()) {
+                    // 窗口被最小化或隐藏到托盘: 此时调用 swapBuffers 可能永久阻塞
+                    // (Windows 上 wglSwapBuffers 对最小化窗口等待 vsync,而 DWM 不会
+                    // 给最小化窗口送 vsync,调用会永远卡住;渲染线程一卡,输入/动画/
+                    // 绘制全部停摆,表现为恢复后界面卡死)。跳过整帧 GPU 工作,原地
+                    // 等窗口恢复,恢复后最多 ~30ms 内重新出帧。
+                    LockSupport.parkNanos(30_000_000L);
+                    continue;
+                }
                 long frameStarted = System.nanoTime();
                 // Re-read uiScale each frame so a DPI change (e.g. moving between
                 // monitors) or a late-fired content-scale callback is picked up before
@@ -138,7 +147,13 @@ final class RenderThread extends Thread {
                 }
 
                 failureStage = FailureStage.BACKEND_FRAME;
-                backend.present();
+                // Re-check right before the swap: the iconify event is processed on
+                // the main thread and can land while this frame was compositing, so
+                // the top-of-loop gate alone still lets a swap start on a window the
+                // OS just minimized. The remaining gap is only the flush+call below.
+                if (win.windowVisible()) {
+                    backend.present();
+                }
                 failureStage = FailureStage.APPLICATION_FRAME;
 
                 if (!firstFrameDone) {
