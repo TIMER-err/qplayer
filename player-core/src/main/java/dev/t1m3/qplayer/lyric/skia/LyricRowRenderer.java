@@ -305,11 +305,15 @@ final class LyricRowRenderer implements AutoCloseable {
                 }
                 float x0 = startX + Math.min(word.x0, word.x1) - 1f;
                 float x1 = startX + Math.max(word.x0, word.x1) + 1f;
-                // Melodify glowWindow: 以扫光头为中心的对称滑动窗口,半宽 = 行平均
-                // 音节宽×0.5,按距离 smoothstep 衰减——已扫过/未扫到的词不发光。
+                // Melodify glowWindow: 正在被扫光头唱到的词发光。窗口半径按该词自身
+                // 几何取（词半宽 + 半个平均音节宽），扫光头进入词内即点亮、唱完离开
+                // 才熄灭，与词的时间包络同步滑动。旧实现半径固定为半个平均音节宽，
+                // 扫光头必须恰好落在词中心附近才亮，导致整句只有零星的瞬间发光、
+                // 平时几乎全灭；按词取半径后同一时刻仍只有扫光头下的词被点亮，词与
+                // 词之间自然过渡，不会有"整行一起亮"或"平时根本不亮"的两极现象。
                 float avgSylW = Math.max(1f, row.width / (float) Math.max(1, row.to - row.from));
-                float windowW = avgSylW * 0.5f;
                 float wordCX = (x0 + x1) * 0.5f;
+                float windowW = Math.max(1f, (x1 - x0) * 0.5f + avgSylW * 0.5f);
                 float d = Math.abs(wordCX - sweepX) / Math.max(windowW, 0.001f);
                 float window = 1f - d * d * (3f - 2f * Math.min(1f, d));
                 alpha *= window;
