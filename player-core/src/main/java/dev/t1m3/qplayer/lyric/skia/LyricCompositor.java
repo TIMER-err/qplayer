@@ -16,6 +16,9 @@ import io.github.timer_err.qml4j.render.items.core.Item;
 
 import dev.t1m3.qplayer.bridge.PlayerController;
 import dev.t1m3.qplayer.lyric.LyricLine;
+import dev.t1m3.qplayer.lyric.tempera.TemperaCompositor;
+import dev.t1m3.qplayer.lyric.tempera.TemperaHostPage;
+import dev.t1m3.qplayer.lyric.tempera.TemperaTuning;
 
 import java.util.List;
 
@@ -43,6 +46,11 @@ public final class LyricCompositor {
         boolean lyricBgStatic();
         /** Fluid renderer selected in settings; see SettingsCatalog.BG_STYLE_* values. */
         int lyricBgStyle();
+        default boolean temperaWholeLine() { return false; }
+        default int temperaGlyphSettleStretch() { return 50; }
+        default boolean temperaImages() { return false; }
+        default int lyricFontSize() { return 28; }
+        default boolean resolvedDarkValue() { return true; }
     }
 
     // Reserved height (logical px) for the lyric-page transport bar at the bottom
@@ -65,6 +73,9 @@ public final class LyricCompositor {
 
     private final LyricRenderer lyricRenderer = new LyricRenderer();
     private final FluidBackground fluidBg = new FluidBackground(System.nanoTime());
+    private final TemperaHostPage temperaPage = new TemperaHostPage();
+    private TemperaTuning temperaTuning;
+    private Item temperaChrome;
 
     private List<LyricLine> lastLyrics;
     private float lyricSlide;
@@ -148,6 +159,7 @@ public final class LyricCompositor {
     /** Release scene-lifetime CPU/native resources. Must run on the owning render
      * thread after GPU-context caches have been invalidated. */
     public void dispose() {
+        temperaPage.dispose();
         fluidBg.dispose();
         lyricRenderer.dispose();
         if (lyFadeShader != null) {
@@ -229,6 +241,44 @@ public final class LyricCompositor {
     public void composite(Canvas canvas, Renderer renderer, QmlView view,
                           PlayerController controller, SettingsBridge settings,
                           DirectContext ctx, float uiScale, int fbW, int fbH) {
+        temperaPage.advanceFade(controller, System.nanoTime());
+        view.dirtyQueue().flush();
+        if (temperaVisible(controller)) {
+            configureTempera(settings);
+            if (temperaChrome == null) temperaChrome = view.findByObjectName("temperaChrome");
+            TemperaCompositor.composite(canvas, renderer, temperaChrome, temperaPage, controller,
+                    uiScale, fbW, fbH, settings == null || settings.resolvedDarkValue(),
+                    () -> compositeLyrics(canvas, renderer, view, controller, settings, ctx, uiScale, fbW, fbH));
+            skippedLayout = false;
+        } else {
+            temperaPage.releaseResources();
+            compositeLyrics(canvas, renderer, view, controller, settings, ctx, uiScale, fbW, fbH);
+        }
+    }
+
+    public boolean temperaVisible(PlayerController controller) {
+        return temperaPage.wantsFrame(controller);
+    }
+
+    private void configureTempera(SettingsBridge settings) {
+        int stretch = settings == null ? 50 : settings.temperaGlyphSettleStretch();
+        float settle = Math.max(0f, Math.min(1f, stretch / 100f));
+        boolean wholeLine = settings != null && settings.temperaWholeLine();
+        boolean images = settings != null && settings.temperaImages();
+        if (temperaTuning == null || temperaTuning.glyphSettleStretch != settle
+                || temperaTuning.wholeLineLyrics != wholeLine || temperaTuning.layerImagesEnabled != images) {
+            temperaTuning = new TemperaTuning();
+            temperaTuning.glyphSettleStretch = settle;
+            temperaTuning.wholeLineLyrics = wholeLine;
+            temperaTuning.layerImagesEnabled = images;
+        }
+        temperaPage.configure(temperaTuning, settings == null ? 1f : settings.lyricFontSize() / 28f,
+                settings != null && settings.lyricBgStatic());
+    }
+
+    private void compositeLyrics(Canvas canvas, Renderer renderer, QmlView view,
+                                 PlayerController controller, SettingsBridge settings,
+                                 DirectContext ctx, float uiScale, int fbW, int fbH) {
         float lw = fbW / uiScale, lh = fbH / uiScale;
         if (lyricChrome == null) lyricChrome = view.findByObjectName("lyricChrome");
 
@@ -590,12 +640,14 @@ public final class LyricCompositor {
 
     /** Drop the cached chrome lookup so it re-resolves against a freshly loaded scene. */
     public void onSceneReloaded() {
+        temperaChrome = null;
         lyricChrome = null;
         renderedVersion = -1;
     }
 
     /** Release context-bound caches before the host destroys its GPU context. */
     public void invalidateGpuContext() {
+        temperaPage.releaseResources();
         fluidBg.invalidateGpuContext();
     }
 }

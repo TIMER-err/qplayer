@@ -6,8 +6,6 @@ import io.github.timer_err.qml4j.render.ResourceLoader;
 import io.github.timer_err.qml4j.render.items.core.Item;
 
 import dev.t1m3.qplayer.bridge.PlayerController;
-import dev.t1m3.qplayer.desktop.lyric.tempera.TemperaHostPage;
-import dev.t1m3.qplayer.desktop.lyric.tempera.TemperaTuning;
 import dev.t1m3.qplayer.desktop.resources.DiskCompiledSceneCache;
 import dev.t1m3.qplayer.lyric.skia.Fonts;
 import dev.t1m3.qplayer.resources.CompressedResources;
@@ -63,15 +61,6 @@ public final class DesktopWindow {
     private final SettingsCore settings;
     private final DiskCompiledSceneCache qmlCompilationCache;
     private final LyricCompositor compositor = new LyricCompositor();
-    /** Desktop-only alternative for the full-page lyric renderer. */
-    private final TemperaHostPage temperaPage = new TemperaHostPage();
-    /** 「凝彩」调参（由设置页三项驱动）；引用变化即代表需要重建场景。 */
-    private volatile TemperaTuning temperaTuning;
-    private int temperaStretchSetting = Integer.MIN_VALUE;
-    private boolean temperaWholeLineSetting;
-    private boolean temperaImagesSetting;
-    /** 「凝彩」歌词页自己的 QML 控件子树（右下角胶囊），只在凝彩模式下渲染。 */
-    private Item temperaChrome;
     /** Desktop lyrics floating window (issue #25) -- null until {@link
      *  #setLyricSettingsStore} is called (before {@link #init}). */
     private DesktopLyricWindow lyricWindow;
@@ -179,44 +168,8 @@ public final class DesktopWindow {
         return compositor;
     }
 
-    /** 宿主侧的「凝彩」全屏页渲染器。 */
-    TemperaHostPage temperaPage() {
-        return temperaPage;
-    }
-
-    /**
-     * 「凝彩」的调参。设置页只把三项暴露给用户，其余保持 folia 的默认值；读值很便宜，所以
-     * 每帧比较，只在真正变化时换一个新对象（宿主据此重建场景）。
-     */
-    TemperaTuning temperaTuning() {
-        int stretch = settings == null ? 50 : settings.intOf("temperaGlyphSettleStretch");
-        boolean wholeLine = settings != null && settings.bool("temperaWholeLine");
-        boolean images = settings != null && settings.bool("temperaImages");
-        if (temperaTuning == null || stretch != temperaStretchSetting
-                || wholeLine != temperaWholeLineSetting
-                || images != temperaImagesSetting) {
-            temperaStretchSetting = stretch;
-            temperaWholeLineSetting = wholeLine;
-            temperaImagesSetting = images;
-            TemperaTuning next = new TemperaTuning();
-            next.glyphSettleStretch = Math.max(0f, Math.min(1f, stretch / 100f));
-            next.wholeLineLyrics = wholeLine;
-            next.layerImagesEnabled = images;
-            temperaTuning = next;
-        }
-        return temperaTuning;
-    }
-
     boolean temperaPageVisible() {
-        return temperaPage.wantsFrame(controller);
-    }
-
-    /** 「凝彩」页的 QML 控件子树（objectName "temperaChrome"），首次需要时才查。 */
-    Item temperaChrome(QmlView view) {
-        if (temperaChrome == null && view != null) {
-            temperaChrome = view.findByObjectName("temperaChrome");
-        }
-        return temperaChrome;
+        return compositor.temperaVisible(controller);
     }
 
     /** Public: TrayController (a different package) needs this for its
@@ -1064,11 +1017,6 @@ public final class DesktopWindow {
         try {
             compositor.dispose();
         } catch (Throwable ignored) {
-        }
-        try {
-            temperaPage.dispose();
-        } catch (Throwable error) {
-            Logger.warn("Tempera cleanup failed: {}", error.getMessage());
         }
         org.lwjgl.glfw.Callbacks.glfwFreeCallbacks(window);
         GLFW.glfwDestroyWindow(window);

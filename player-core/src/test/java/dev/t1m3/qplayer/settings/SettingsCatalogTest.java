@@ -65,7 +65,7 @@ public class SettingsCatalogTest {
             SettingSpec spec = setting(key);
             assertEquals(SettingsCatalog.LYRIC, spec.category);
             assertTrue(spec.appliesTo(SettingsCatalog.DESKTOP));
-            assertFalse(spec.appliesTo(SettingsCatalog.ANDROID));
+            assertTrue(spec.appliesTo(SettingsCatalog.ANDROID));
         }
     }
 

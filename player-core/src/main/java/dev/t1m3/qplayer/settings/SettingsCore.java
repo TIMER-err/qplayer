@@ -293,6 +293,11 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
 
     // ---- LyricCompositor.SettingsBridge -------------------------------------
 
+    @Override public boolean temperaWholeLine() { return bool("temperaWholeLine"); }
+    @Override public int temperaGlyphSettleStretch() { return intOf("temperaGlyphSettleStretch"); }
+    @Override public boolean temperaImages() { return bool("temperaImages"); }
+    @Override public int lyricFontSize() { return intOf("lyricFontSize"); }
+
     @Override
     public float topInset() {
         Double v = topInset.peek();

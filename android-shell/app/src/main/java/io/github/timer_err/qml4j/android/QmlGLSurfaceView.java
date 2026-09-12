@@ -274,7 +274,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                         // that same region.
                         boolean offsetPanelOpen = controller != null
                                 && Boolean.TRUE.equals(controller.lyricOffsetPanelOpen.peek());
-                        if (!offsetPanelOpen && compositor.lyricsScrollable(x, y, surface.width() / uiScale, surface.height() / uiScale, insetTop())) {
+                        if (!compositor.temperaVisible(controller) && !offsetPanelOpen && compositor.lyricsScrollable(x, y, surface.width() / uiScale, surface.height() / uiScale, insetTop())) {
                             lyGrab = true;
                             lyDownY = y;
                             lyMoved = false;
@@ -621,6 +621,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 profileFrame(t0, t1, t1b, System.nanoTime());
                 boolean needContinuous = controller != null && (
                         controller.isPlaying()
+                        || compositor.temperaVisible(controller)
                         || Boolean.TRUE.equals(controller.lyricsOpen.peek())
                         || (controller.lyricSlide.peek() != null
                             && controller.lyricSlide.peek() > 0.001));

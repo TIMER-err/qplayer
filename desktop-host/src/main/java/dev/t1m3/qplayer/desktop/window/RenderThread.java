@@ -7,8 +7,6 @@ import io.github.timer_err.qml4j.render.QmlView;
 import io.github.timer_err.qml4j.render.Renderer;
 
 import dev.t1m3.qplayer.bridge.PlayerController;
-import dev.t1m3.qplayer.desktop.lyric.tempera.TemperaHostPage;
-import dev.t1m3.qplayer.desktop.lyric.tempera.TemperaCompositor;
 import dev.t1m3.qplayer.lyric.skia.LyricCompositor;
 
 import java.util.concurrent.locks.LockSupport;
@@ -131,15 +129,8 @@ final class RenderThread extends Thread {
                         failureStage = FailureStage.APPLICATION_FRAME;
                         Renderer renderer = view.renderer();
                         renderer.setGpuContext(backend.recordingContext());
-                        win.temperaPage().advanceFade(controller, frameStarted);
-                        dq.flush();
-                        if (win.temperaPageVisible()) {
-                            drawTemperaFrame(canvas, renderer, view, controller, uiScale);
-                        } else {
-                            compositor.composite(canvas, renderer, view, controller, win.settings(),
-                                    backend.recordingContext(), uiScale,
-                                    backend.width(), backend.height());
-                        }
+                        compositor.composite(canvas, renderer, view, controller, win.settings(),
+                                backend.recordingContext(), uiScale, backend.width(), backend.height());
                     } finally {
                         dq.uninstall();
                     }
@@ -204,15 +195,4 @@ final class RenderThread extends Thread {
         view.root().height.set(fbH / uiScale);
     }
 
-    /** Fade the independent visualizer and its controls over the original page. */
-    private void drawTemperaFrame(Canvas canvas, Renderer renderer, QmlView view,
-                                  PlayerController controller, float uiScale) {
-        TemperaHostPage page = win.temperaPage();
-        page.configure(win.temperaTuning(), win.settings().intOf("lyricFontSize") / 28f,
-                win.settings().lyricBgStatic());
-        TemperaCompositor.composite(canvas, renderer, win.temperaChrome(view), page, controller,
-                uiScale, backend.width(), backend.height(), win.settings().resolvedDarkValue(),
-                () -> win.compositor().composite(canvas, renderer, view, controller, win.settings(),
-                        backend.recordingContext(), uiScale, backend.width(), backend.height()));
-    }
 }
