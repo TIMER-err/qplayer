@@ -28,7 +28,7 @@ public class TemperaIntegrationTest {
     @Rule public TemporaryFolder temporary = new TemporaryFolder();
 
     @Test
-    public void independentPageOpensFromHomeAndFadesWithoutChangingLyrics() throws Exception {
+    public void independentPageOpensFromTopBarAndHidesControlsAfterCompositing() throws Exception {
         String oldBase = AppDirs.base();
         String oldCache = AppDirs.cacheBase();
         PlayerController player = null;
@@ -62,6 +62,8 @@ public class TemperaIntegrationTest {
             try {
                 Item entry = view.findByObjectName("openTempera");
                 assertNotNull(entry);
+                assertEquals("auto_awesome", ((io.github.timer_err.qml4j.engine.binding.Property<?>)
+                        entry.getClass().getField("icon").get(entry)).peek());
                 assertFalse(settings.has("temperaEnabled"));
                 assertFalse(player.temperaOpen.peek());
                 assertFalse(page.wantsFrame(player));
@@ -83,7 +85,14 @@ public class TemperaIntegrationTest {
                     queue.flush();
                     assertTrue(entry.visible.peek());
                     assertTrue(entry.width.peekFloat() > 0);
-                    assertTrue(entry.width.peekFloat() <= entry.parent.peek().width.peekFloat());
+                    assertEquals(40f, entry.width.peekFloat(), 0.01f);
+                    float entryX = 0f, entryY = 0f;
+                    for (Item item = entry; item != null; item = item.parent.peek()) {
+                        entryX += item.x.peekFloat();
+                        entryY += item.y.peekFloat();
+                    }
+                    assertTrue("Entry fits window", entryX >= 0 && entryX + 40 <= width);
+                    assertTrue("Entry is in top bar", entryY >= 0 && entryY + 40 <= 64);
                     click(view, entry);
                     assertTrue(player.temperaOpen.peek());
                     assertFalse(player.lyricsOpen.peek());
@@ -92,6 +101,8 @@ public class TemperaIntegrationTest {
                     queue.flush();
                     view.renderer().layoutOnly(view.root());
                     assertEquals(0f, chrome.y.peekFloat(), 0.001f);
+                    composite(view, chrome, page, player, width);
+                    assertTrue(chrome.visible.peek());
                     page.advanceFade(player, clock += 125_000_000L);
                     queue.flush();
                     view.renderer().layoutOnly(view.root());
@@ -100,11 +111,7 @@ public class TemperaIntegrationTest {
                     assertFalse(normal.visible.peek());
                     assertEquals(0.0, player.lyricSlide.peek(), 0.001);
                     assertEquals(width, chrome.width.peekFloat(), 0.01f);
-                    try (Surface surface = Surface.makeRasterN32Premul(width, 720)) {
-                        page.render(surface.getCanvas(), player, 1f, width, 720,
-                                System.nanoTime(), false);
-                        view.renderer().renderSubtree(surface.getCanvas(), chrome, width, 720);
-                    }
+                    composite(view, chrome, page, player, width);
                     Item close = view.findByObjectName("temperaClose");
                     assertNotNull(close);
                     assertEquals("close", ((io.github.timer_err.qml4j.engine.binding.Property<?>)
@@ -114,9 +121,17 @@ public class TemperaIntegrationTest {
                     assertTrue(page.wantsFrame(player));
                     page.advanceFade(player, clock += 125_000_000L);
                     assertEquals(0.5f, page.opacity(), 0.001f);
+                    queue.flush();
+                    composite(view, chrome, page, player, width);
                     page.advanceFade(player, clock += 125_000_000L);
                     assertFalse(page.wantsFrame(player));
                     queue.flush();
+                    assertFalse("Controls hidden after fade at width " + width, chrome.visible.peek());
+                    // Repaint the normal scene, then reopen through a real pointer click
+                    // on the next iteration: stale controls must neither draw nor intercept input.
+                    try (Surface surface = Surface.makeRasterN32Premul(width, 720)) {
+                        view.renderer().render(surface.getCanvas(), view.root(), false);
+                    }
                 }
                 // Escape closes only Tempera, preserving the underlying lyric page.
                 player.setLyricsOpen(true);
@@ -143,6 +158,17 @@ public class TemperaIntegrationTest {
             AppDirs.setCacheBase(oldCache);
         }
     }
+    private static void composite(QmlView view, Item chrome, TemperaHostPage page,
+                                  PlayerController player, int width) {
+        try (Surface surface = Surface.makeRasterN32Premul(width, 720)) {
+            TemperaCompositor.composite(surface.getCanvas(), view.renderer(), chrome, page,
+                    player, 1f, width, 720, false, () -> {
+                        assertFalse("Controls excluded from underlay", chrome.visible.peek());
+                        view.renderer().render(surface.getCanvas(), view.root(), false);
+                    });
+        }
+    }
+
     private static void click(QmlView view, Item target) {
         float x = target.width.peekFloat() / 2f;
         float y = target.height.peekFloat() / 2f;

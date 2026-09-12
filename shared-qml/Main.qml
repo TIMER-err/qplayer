@@ -657,6 +657,13 @@ Rectangle {
         showNavigationIcon: false
 
         IconButton {
+            objectName: "openTempera"
+            visible: settings.has("temperaWholeLine")
+            type: "standard"
+            icon: "auto_awesome"
+            onClicked: player.setTemperaOpen(true)
+        }
+        IconButton {
             // This setting only exists on desktop hosts. Its presence, rather than
             // a responsive layout breakpoint, decides whether the action is shown.
             visible: settings.has("desktopLyricEnabled")

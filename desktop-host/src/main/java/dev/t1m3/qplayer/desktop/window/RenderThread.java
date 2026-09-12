@@ -1,16 +1,14 @@
 package dev.t1m3.qplayer.desktop.window;
 
 import io.github.humbleui.skija.Canvas;
-import io.github.humbleui.skija.Paint;
-import io.github.humbleui.types.Rect;
 
 import io.github.timer_err.qml4j.engine.binding.DirtyQueue;
 import io.github.timer_err.qml4j.render.QmlView;
 import io.github.timer_err.qml4j.render.Renderer;
-import io.github.timer_err.qml4j.render.items.core.Item;
 
 import dev.t1m3.qplayer.bridge.PlayerController;
 import dev.t1m3.qplayer.desktop.lyric.tempera.TemperaHostPage;
+import dev.t1m3.qplayer.desktop.lyric.tempera.TemperaCompositor;
 import dev.t1m3.qplayer.lyric.skia.LyricCompositor;
 
 import java.util.concurrent.locks.LockSupport;
@@ -209,44 +207,12 @@ final class RenderThread extends Thread {
     /** Fade the independent visualizer and its controls over the original page. */
     private void drawTemperaFrame(Canvas canvas, Renderer renderer, QmlView view,
                                   PlayerController controller, float uiScale) {
-        float lw = backend.width() / uiScale;
-        float lh = backend.height() / uiScale;
         TemperaHostPage page = win.temperaPage();
-        Item chrome = win.temperaChrome(view);
         page.configure(win.temperaTuning(), win.settings().intOf("lyricFontSize") / 28f,
                 win.settings().lyricBgStatic());
-
-        if (page.opacity() < 0.999f) {
-            // Exclude the controls from the underlying scene; the complete overlay
-            // is rendered once below. Restore visibility before processing any input.
-            Boolean visible = chrome == null ? null : chrome.visible.peek();
-            if (chrome != null) chrome.visible.set(false);
-            try {
-                win.compositor().composite(canvas, renderer, view, controller, win.settings(),
-                        backend.recordingContext(), uiScale, backend.width(), backend.height());
-            } finally {
-                if (chrome != null) chrome.visible.set(visible);
-            }
-        }
-
-        // Once opaque, draw directly instead of allocating a full-window fade layer.
-        try (Paint fadePaint = page.opacity() < 0.999f
-                ? new Paint().setAlphaf(page.opacity()) : null) {
-            int save = fadePaint == null ? canvas.save()
-                    : canvas.saveLayer(Rect.makeWH(backend.width(), backend.height()), fadePaint);
-            try {
-                page.render(canvas, controller, uiScale, lw, lh, System.nanoTime(),
-                        win.settings().resolvedDarkValue());
-                if (chrome != null) {
-                    renderer.layoutOnly(chrome);
-                    int controls = canvas.save();
-                    canvas.scale(uiScale, uiScale);
-                    renderer.renderSubtree(canvas, chrome, lw, lh);
-                    canvas.restoreToCount(controls);
-                }
-            } finally {
-                canvas.restoreToCount(save);
-            }
-        }
+        TemperaCompositor.composite(canvas, renderer, win.temperaChrome(view), page, controller,
+                uiScale, backend.width(), backend.height(), win.settings().resolvedDarkValue(),
+                () -> win.compositor().composite(canvas, renderer, view, controller, win.settings(),
+                        backend.recordingContext(), uiScale, backend.width(), backend.height()));
     }
 }
