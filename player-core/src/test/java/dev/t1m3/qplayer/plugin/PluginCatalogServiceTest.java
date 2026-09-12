@@ -33,7 +33,7 @@ public class PluginCatalogServiceTest {
 
     @Test public void pinnedSourcesCarryAValidIdAndPublisherKey() throws Exception {
         List<PluginCatalogService.Source> sources = PluginCatalogService.loadBundledSources();
-        assertEquals(6, sources.size());
+        assertEquals(7, sources.size());
         Set<String> ids = new HashSet<>();
         for (PluginCatalogService.Source source : sources) {
             dev.t1m3.qplayer.media.MediaId.validateProvider(source.id);
@@ -48,6 +48,7 @@ public class PluginCatalogServiceTest {
         assertTrue(ids.contains("migu"));
         assertTrue(ids.contains("kugou"));
         assertTrue(ids.contains("soda"));
+        assertTrue(ids.contains("apple"));
     }
 
     @Test public void latestReleaseFallsBackToTheNextCandidateAndPicksTheQplugAsset()

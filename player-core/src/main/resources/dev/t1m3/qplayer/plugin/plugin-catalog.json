@@ -40,5 +40,12 @@
     "description": "由独立项目维护的汽水音乐音源插件，提供搜索、播放、歌词、扫码登录与用户歌单。",
     "repo": "MiaM1ku/qplayer-soda-plugin",
     "publisherKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEb20opVRUPIiFEeYdDli4uVbL1ry/+VVg5zHVC9/tN0rGcmcssS/Ko3mHjzairTmZZtIuWngooAvqOtOguaK/mg=="
+  },
+  {
+    "id": "apple",
+    "name": "Apple Music",
+    "description": "由独立项目维护的 Apple Music 音源插件，提供搜索、歌单、歌词与预览播放（完整音轨受 DRM 限制）。",
+    "repo": "MiaM1ku/qplayer-apple-plugin",
+    "publisherKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEb20opVRUPIiFEeYdDli4uVbL1ry/+VVg5zHVC9/tN0rGcmcssS/Ko3mHjzairTmZZtIuWngooAvqOtOguaK/mg=="
   }
 ]
