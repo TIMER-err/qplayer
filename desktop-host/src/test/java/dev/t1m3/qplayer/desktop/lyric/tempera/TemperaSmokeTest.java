@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -299,6 +300,70 @@ public class TemperaSmokeTest {
         preRoll.dispose();
 
         surface.close();
+    }
+
+    @Test
+    public void longPreludeShowsMovingTitleUntilTheFirstLyric() throws Exception {
+        TemperaTuning tuning = new TemperaTuning();
+        tuning.fluidBackdrop = false;
+        tuning.postProcessEnabled = false;
+        TemperaTypes.Program program = TemperaProgram.compile(
+                Collections.singletonList(line("第一句歌词", 20, 24)), "intro", tuning);
+        assertEquals(20.0, program.paragraphs.get(0).shots.get(0).startTime, 0.001);
+        Path outDir = Paths.get("target", "tempera-smoke");
+        Files.createDirectories(outDir);
+        for (String paper : new String[]{"#F2F0E8", "#0B0B10"}) {
+            TemperaPalette.Theme theme = new TemperaPalette.Theme(
+                    paper, "#5A5470", "#3A3550", "#B9B3CC");
+            TemperaPalette.Palette palette = TemperaPalette.resolve(theme, "duo", null);
+            TemperaPageRenderer renderer = new TemperaPageRenderer();
+            renderer.setTuning(tuning);
+            renderer.setProgram(program, theme, null);
+            try (Surface actual = Surface.makeRasterN32Premul(W, H);
+                 Surface expected = Surface.makeRasterN32Premul(W, H)) {
+                byte[] previous = null;
+                byte[] first = null;
+                for (double time : new double[]{0, 5, 19.9, 20}) {
+                    renderer.render(actual.getCanvas(), time, 1, W, H, "Prelude", "Artist");
+                    expected.getCanvas().clear(TemperaColor.withAlpha(palette.paper, 1));
+                    TemperaIdle.paint(expected.getCanvas(), palette, W, H, time,
+                            "Prelude", "Artist", true, tuning.textInversion);
+                    byte[] pixels = pixels(actual);
+                    assertArrayEquals("The first scene must not cover the intro at " + time,
+                            pixels(expected), pixels);
+                    if (previous != null) {
+                        int changed = 0;
+                        for (int i = 0; i < pixels.length; i += 4) {
+                            if (Math.abs((pixels[i] & 255) - (previous[i] & 255))
+                                    + Math.abs((pixels[i + 1] & 255) - (previous[i + 1] & 255))
+                                    + Math.abs((pixels[i + 2] & 255) - (previous[i + 2] & 255)) > 12) changed++;
+                        }
+                        assertTrue("Prelude must keep moving at " + time, changed > W * H / 1000);
+                    }
+                    if (first == null) first = pixels;
+                    previous = pixels;
+                    writePng(actual, outDir.resolve("intro-" + paper.substring(1) + "-" + time + ".png"));
+                }
+                renderer.render(actual.getCanvas(), 21, 1, W, H, "Prelude", "Artist");
+                writePng(actual, outDir.resolve("intro-" + paper.substring(1) + "-21.0.png"));
+                assertTrue("Lyrics take over after intro", !java.util.Arrays.equals(previous, pixels(actual)));
+                renderer.render(actual.getCanvas(), 0, 1, W, H, "Prelude", "Artist");
+                assertArrayEquals("Seeking back restores the intro", first, pixels(actual));
+            } finally {
+                renderer.dispose();
+            }
+        }
+    }
+
+    private static byte[] pixels(Surface surface) {
+        try (Image image = surface.makeImageSnapshot()) {
+            ByteBuffer buffer = image.peekPixels();
+            assertNotNull(buffer);
+            buffer.rewind();
+            byte[] result = new byte[buffer.remaining()];
+            buffer.get(result);
+            return result;
+        }
     }
 
     /** 整帧的 {均值亮度, 亮度方差}；像素读取失败时测试失败。 */

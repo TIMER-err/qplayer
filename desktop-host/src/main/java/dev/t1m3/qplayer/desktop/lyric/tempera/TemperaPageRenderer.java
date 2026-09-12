@@ -164,8 +164,7 @@ public final class TemperaPageRenderer {
      *
      * <p>纸色底<b>永远</b>先铺一层：没有歌词、还没唱到、已经唱完都还在画面里，绝不留黑屏。
      * 在那三段空档里再垫一层会缓慢流动的标题卡（见 {@link TemperaIdle}）；标题卡画在场景
-     * <b>下面</b>，所以开场第一镜滑进来时自然把它盖住，结尾最后一镜淡出时又把它露出来——
-     * 两头都不需要额外的淡入淡出。
+     * <b>下面</b>，开场与第一镜交叉淡入淡出，结尾最后一镜淡出时又把它露出来。
      *
      * @param title  待机卡上的曲名
      * @param artist 待机卡上的歌手
@@ -200,9 +199,20 @@ public final class TemperaPageRenderer {
             return;
         }
 
+        TemperaTypes.Shot first = firstShot();
+        float introAlpha = first == null ? 1f : TemperaMotionEasing.easeInOut(
+                TemperaMotionEasing.clamp01((time - first.startTime) / shotHandoff(first)));
         if (showIdleCard(time)) {
-            TemperaIdle.paint(canvas, palette, w, h, time, title, artist, true,
-                    tuning.textInversion);
+            float cardAlpha = first != null && time < first.startTime + shotHandoff(first)
+                    ? 1f - introAlpha : 1f;
+            // Sparse scenes do not cover the whole title card. Fade it out too,
+            // so its text cannot disappear abruptly at the end of the handoff.
+            try (Paint fade = cardAlpha < 0.999f ? new Paint().setAlphaf(cardAlpha) : null) {
+                int cardSave = fade == null ? canvas.save() : canvas.saveLayer(Rect.makeWH(w, h), fade);
+                TemperaIdle.paint(canvas, palette, w, h, time, title, artist, true,
+                        tuning.textInversion);
+                canvas.restoreToCount(cardSave);
+            }
         }
 
         int paragraphIndex = TemperaProgram.findTemperaParagraphIndexAtTime(program, time);
@@ -237,7 +247,10 @@ public final class TemperaPageRenderer {
             TemperaScene scene = entry.getValue();
             boolean isActive = index == paragraphIndex;
             boolean isIncoming = preRoll && index == paragraphIndex + 1;
-            boolean visible = isActive || isIncoming;
+            // The paragraph lookup returns index 0 even before the song's first
+            // lyric. Keep its frozen opening pose off the animated title card,
+            // then fade the whole scene in during the first shot's handoff.
+            boolean visible = (isActive || isIncoming) && introAlpha > 0f;
             scene.visible = visible;
             // 到达的场景必须叠在它替换的那个之上；缓存的插入顺序说明不了段落顺序。
             scene.zIndex = index;
@@ -299,7 +312,7 @@ public final class TemperaPageRenderer {
             scene.sceneY = h / 2f + transition.y * h;
             scene.sceneScale = transition.scale;
             scene.sceneRotation = transition.rotation;
-            scene.sceneAlpha = transition.alpha;
+            scene.sceneAlpha = transition.alpha * introAlpha;
             scene.paint(canvas, time, tuning, tuning.textInversion);
 
             if (transition.wipe > 0.001f && transition.wipe < 1.999f) {
