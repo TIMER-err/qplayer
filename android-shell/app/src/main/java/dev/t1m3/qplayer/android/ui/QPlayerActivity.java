@@ -6,7 +6,6 @@ import dev.t1m3.qplayer.android.library.AndroidLibraryScanner;
 import dev.t1m3.qplayer.android.library.AndroidMetadataReader;
 import dev.t1m3.qplayer.android.playback.AndroidAudioBackend;
 import dev.t1m3.qplayer.android.playback.PlaybackService;
-import dev.t1m3.qplayer.android.resources.FileResourceLoader;
 import dev.t1m3.qplayer.android.settings.PrefsSettingsStore;
 
 import android.Manifest;
@@ -92,17 +91,20 @@ public final class QPlayerActivity extends Activity {
      *  insets to re-dispatch after the system bars are hidden/shown. */
     private android.view.View rootView;
     private Consumer<Boolean> lyricsOpenListener;
+    private Consumer<Boolean> systemBarsListener;
     private BroadcastReceiver debugReceiver;
 
     /** Singleton controller — survives Activity recreations (PiP, config changes)
      *  so playback state and the foreground service stay connected across them. */
     private static volatile PlayerController sharedController;
+    private static boolean lyricFontsInitialized;
 
     static PlayerController sharedController() { return sharedController; }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        logSceneLifecycle("create");
 
         // A downloaded update APK (see downloadAndInstallUpdate below) has served its
         // purpose once the app relaunches -- it's never deleted right after handing it
@@ -205,8 +207,9 @@ public final class QPlayerActivity extends Activity {
         // own rows need.
         settings = new SettingsCore();
         settings.attach(controller);
-        settings.resolvedDark.addListener(dark ->
-                runOnUiThread(() -> applySystemBars(Boolean.TRUE.equals(dark))));
+        systemBarsListener = dark ->
+                runOnUiThread(() -> applySystemBars(Boolean.TRUE.equals(dark)));
+        settings.resolvedDark.addListener(systemBarsListener);
         settings.setSystemDark(isSystemDark(this));
         settings.registerAction("clearCache", controller::clearDiskCache);
         settings.registerAction("checkUpdate", controller::checkForUpdateManual);
@@ -225,16 +228,18 @@ public final class QPlayerActivity extends Activity {
 
         // Lyric renderer fonts: the bundled PingFang SC weights from shared-qml
         // (the lyric face must itself cover CJK + Latin — no automatic fallback).
-        FileResourceLoader files = new FileResourceLoader(getAssets());
-        DiskDecompressedResourceCache resources = new DiskDecompressedResourceCache(
-                files, new java.io.File(getCacheDir(), "expanded-resources").toPath());
+        DiskDecompressedResourceCache resources =
+                ((dev.t1m3.qplayer.android.app.QPlayerApplication) getApplication()).sceneResources();
         try {
-            dev.t1m3.qplayer.lyric.skia.Fonts.init(weight -> CompressedResources.load(resources,
-                    "fonts/PingFangSC-" + bundledFontWeightName(weight) + ".otf"));
-            // Material Symbols for the host-drawn lyric transport icons (drawn by
-            // shaped ligature name, same as the QML scene's icons).
-            dev.t1m3.qplayer.lyric.skia.Fonts.initIcon(
-                    readAssetBytes("fonts/MaterialSymbolsRounded.ttf"));
+            // These are process-wide native caches. Reinitializing them for every
+            // Activity also re-parses the 13 MiB lyric face on every recreation.
+            if (!lyricFontsInitialized) {
+                dev.t1m3.qplayer.lyric.skia.Fonts.init(weight -> CompressedResources.load(resources,
+                        "fonts/PingFangSC-" + bundledFontWeightName(weight) + ".otf"));
+                dev.t1m3.qplayer.lyric.skia.Fonts.initIcon(
+                        readAssetBytes("fonts/MaterialSymbolsRounded.ttf"));
+                lyricFontsInitialized = true;
+            }
             dev.t1m3.qplayer.lyric.skia.Fonts.warmupFromConfig();
         } catch (IOException ignored) {
         }
@@ -301,6 +306,12 @@ public final class QPlayerActivity extends Activity {
                 if (cmd == null) cmd = "";
                 if (arg == null) arg = "";
                 android.util.Log.i("qplayer.debug", "cmd=" + cmd + " arg=" + arg);
+                if ("recreate".equalsIgnoreCase(cmd)
+                        && (getApplicationInfo().flags
+                        & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+                    recreate();
+                    return;
+                }
                 if ("swipe".equalsIgnoreCase(cmd) || "fling".equalsIgnoreCase(cmd)) {
                     final String dir = arg;
                     runOnUiThread(() -> debugSwipe(dir));
@@ -481,6 +492,7 @@ public final class QPlayerActivity extends Activity {
     /** First painted frame: the QML tree is fully built and rendering. Now hide the
      *  splash and request the audio permission (and scan) — see onCreate. */
     private void onSceneReady() {
+        logSceneLifecycle("ready");
         hideSplash();
         requestAudioPermission();
         requestNotificationPermission();
@@ -992,6 +1004,7 @@ public final class QPlayerActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        logSceneLifecycle("destroy");
         if (debugReceiver != null) {
             try { unregisterReceiver(debugReceiver); } catch (Throwable ignored) {}
             debugReceiver = null;
@@ -1013,8 +1026,32 @@ public final class QPlayerActivity extends Activity {
             glView.dispose();
             glView = null;
         }
+        if (settings != null && systemBarsListener != null) {
+            settings.resolvedDark.removeListener(systemBarsListener);
+            systemBarsListener = null;
+        }
+        // Playback survives this Activity, but its UI launchers must not retain
+        // the destroyed window and scene while the service is playing alone.
+        if (controller != null) {
+            controller.setClipboard(null);
+            controller.setUrlOpener(null);
+            controller.setInstaller(null);
+            controller.setCoverPicker(null);
+            controller.setPluginPicker(null);
+            controller.setWebLoginLauncher(null);
+            controller.setExitListener(null);
+        }
+        rootView = null;
         reader = null;
         super.onDestroy();
+    }
+
+    private void logSceneLifecycle(String event) {
+        Runtime runtime = Runtime.getRuntime();
+        android.util.Log.i("qplayer.lifecycle", event + " activity="
+                + Integer.toHexString(System.identityHashCode(this))
+                + " javaMiB=" + (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024)
+                + " nativeMiB=" + android.os.Debug.getNativeHeapAllocatedSize() / (1024 * 1024));
     }
 
     private String readAsset(String name) throws IOException {

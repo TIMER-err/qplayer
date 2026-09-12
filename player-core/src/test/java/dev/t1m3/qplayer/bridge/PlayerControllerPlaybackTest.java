@@ -27,6 +27,34 @@ public class PlayerControllerPlaybackTest {
     public final TemporaryFolder temporaryFolder = new TemporaryFolder();
 
     @Test
+    public void retiringSceneCannotDetachReplacementWakeCallback() throws Exception {
+        String oldBase = AppDirs.base();
+        String oldCacheBase = AppDirs.cacheBase();
+        PlayerController controller = null;
+        try {
+            Path base = temporaryFolder.newFolder("scene-wake").toPath();
+            AppDirs.setBase(base.toString());
+            AppDirs.setCacheBase(base.resolve("cache").toString());
+            controller = new PlayerController(new FakeAudioBackend(), track -> { }, NeteaseClient.INSTANCE);
+            java.util.concurrent.atomic.AtomicInteger wakes = new java.util.concurrent.atomic.AtomicInteger();
+            Runnable oldWake = () -> { throw new AssertionError("retired scene woke"); };
+            Runnable replacement = wakes::incrementAndGet;
+            controller.setRenderWake(oldWake);
+            controller.setRenderWake(replacement);
+            controller.clearRenderWake(oldWake);
+            controller.pressBack();
+            assertEquals(1, wakes.get());
+            controller.clearRenderWake(replacement);
+            controller.pressBack();
+            assertEquals(1, wakes.get());
+        } finally {
+            if (controller != null) controller.shutdown();
+            AppDirs.setBase(oldBase);
+            AppDirs.setCacheBase(oldCacheBase);
+        }
+    }
+
+    @Test
     public void encryptedCredentialNoticeWaitsForValidatedLogin() throws Exception {
         String oldBase = AppDirs.base();
         String oldCacheBase = AppDirs.cacheBase();

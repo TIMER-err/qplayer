@@ -2456,8 +2456,13 @@ public final class PlayerController {
     private volatile Runnable renderWake;
 
     /** Android GLSurfaceView uses this to leave WHEN_DIRTY when a host task lands. */
-    public void setRenderWake(Runnable wake) {
+    public synchronized void setRenderWake(Runnable wake) {
         this.renderWake = wake;
+    }
+
+    /** A retiring scene must not clear a replacement scene's wake callback. */
+    public synchronized void clearRenderWake(Runnable expected) {
+        if (renderWake == expected) renderWake = null;
     }
 
     private void post(Runnable r) {
