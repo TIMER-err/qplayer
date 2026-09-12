@@ -106,6 +106,7 @@ public final class TemperaTextView {
      * 原生对象继续画，直接崩在 Skia 里。
      */
     private static Paint sharedPaint;
+    private static Paint inversionPaint;
 
     private static Paint paint() {
         if (sharedPaint == null) sharedPaint = new Paint().setAntiAlias(true);
@@ -142,6 +143,10 @@ public final class TemperaTextView {
     public static void dispose() {
         LINES.values().forEach(TextLine::close);
         LINES.clear();
+        if (inversionPaint != null) {
+            inversionPaint.close();
+            inversionPaint = null;
+        }
         if (sharedPaint != null) {
             sharedPaint.close();
             sharedPaint = null;
@@ -178,52 +183,65 @@ public final class TemperaTextView {
     }
 
     /**
-     * 求解并绘制一个镜头的整层文字。
-     *
-     * <p>分层顺序与 folia 一致：{@code textLayer}（影子 + 普通字形，走反色）→
-     * {@code echoLayer}（残影，不反色）→ {@code keywordLayer}（关键字，不反色）。
-     * fragments 与 watermark 由场景层负责，因为它们不在动态文字层里。
-     *
+     * Shadows and echoes go behind every ordinary glyph. Inversion is applied once
+     * to the composed layer, so an opaque letter never inverts its own shadow.
+     * Keywords retain their theme colors above this layer.
      */
     public static void paint(Canvas canvas, List<View> views, double time, float motionAmount,
                              int echoCount, boolean shadowEnabled, boolean inversion) {
-        // 1) 影子与普通字形同层：影子先画（addChildAt(0) 的等价物）。
-        for (View view : views) {
-            if (view.keyword) continue;
-            TemperaMotion.Frame frame = TemperaMotion.resolve(view.motion, time, motionAmount);
-            if (!frame.visible) continue;
-            float x = view.baseX + frame.x;
-            float y = view.baseY + frame.y;
-            if (shadowEnabled) {
-                drawGlyph(canvas, view, x + view.shadowDX, y + view.shadowDY,
-                        frame.rotation, frame.scaleX, frame.scaleY,
-                        frame.alpha * SHADOW_ALPHA,
-                        view.shadowColor, inversion);
-            }
-            drawGlyph(canvas, view, x, y, frame.rotation, frame.scaleX, frame.scaleY,
-                    frame.alpha, view.displayColor, inversion);
+        TemperaMotion.Frame[] frames = new TemperaMotion.Frame[views.size()];
+        for (int i = 0; i < views.size(); i++) {
+            frames[i] = TemperaMotion.resolve(views.get(i).motion, time, motionAmount);
         }
-        // 2) 残影：沿入场矢量越排越远，读起来是一条拖尾而不是一团模糊。
-        if (echoCount > 0) {
-            for (View view : views) {
-                if (view.keyword) continue;
-                TemperaMotion.Frame frame = TemperaMotion.resolve(view.motion, time, motionAmount);
-                if (!frame.visible || frame.echoAlpha <= 0.004f) continue;
-                for (int index = 0; index < echoCount; index++) {
-                    float depth = 1f + index * 0.85f;
-                    drawGlyph(canvas, view,
-                            view.baseX + frame.echoX * depth,
-                            view.baseY + frame.echoY * depth,
+        int layer = -1;
+        if (inversion) {
+            if (inversionPaint == null) inversionPaint = new Paint().setBlendMode(BlendMode.DIFFERENCE);
+            layer = canvas.saveLayer(null, inversionPaint);
+        }
+        try {
+            if (shadowEnabled) {
+                for (int i = 0; i < views.size(); i++) {
+                    View view = views.get(i);
+                    TemperaMotion.Frame frame = frames[i];
+                    if (view.keyword || !frame.visible) continue;
+                    drawGlyph(canvas, view, view.baseX + frame.x + view.shadowDX,
+                            view.baseY + frame.y + view.shadowDY,
                             frame.rotation, frame.scaleX, frame.scaleY,
-                            frame.echoAlpha / (index + 1.4f), view.echoColor, false);
+                            frame.alpha * SHADOW_ALPHA,
+                            inversion ? "#FFFFFF" : view.shadowColor, false);
                 }
             }
+            if (echoCount > 0) {
+                for (int i = 0; i < views.size(); i++) {
+                    View view = views.get(i);
+                    TemperaMotion.Frame frame = frames[i];
+                    if (view.keyword || !frame.visible || frame.echoAlpha <= 0.004f) continue;
+                    for (int index = 0; index < echoCount; index++) {
+                        float depth = 1f + index * 0.85f;
+                        drawGlyph(canvas, view,
+                                view.baseX + frame.echoX * depth,
+                                view.baseY + frame.echoY * depth,
+                                frame.rotation, frame.scaleX, frame.scaleY,
+                                frame.echoAlpha / (index + 1.4f), view.echoColor, false);
+                    }
+                }
+            }
+            // All decorations are already present; opaque bodies cover their overlaps.
+            for (int i = 0; i < views.size(); i++) {
+                View view = views.get(i);
+                TemperaMotion.Frame frame = frames[i];
+                if (view.keyword || !frame.visible) continue;
+                drawGlyph(canvas, view, view.baseX + frame.x, view.baseY + frame.y,
+                        frame.rotation, frame.scaleX, frame.scaleY,
+                        frame.alpha, inversion ? "#FFFFFF" : view.displayColor, false);
+            }
+        } finally {
+            if (layer >= 0) canvas.restoreToCount(layer);
         }
-        // 3) 关键字字形：反色层之上、永不参与反色，主题的色相得以存活。
-        for (View view : views) {
-            if (!view.keyword) continue;
-            TemperaMotion.Frame frame = TemperaMotion.resolve(view.motion, time, motionAmount);
-            if (!frame.visible) continue;
+        for (int i = 0; i < views.size(); i++) {
+            View view = views.get(i);
+            TemperaMotion.Frame frame = frames[i];
+            if (!view.keyword || !frame.visible) continue;
             drawGlyph(canvas, view, view.baseX + frame.x, view.baseY + frame.y,
                     frame.rotation, frame.scaleX, frame.scaleY,
                     frame.alpha, view.displayColor, false);
