@@ -121,8 +121,10 @@ public final class TemperaIdle {
                     palette.tone4, 0.78f, centerX, cursor + subSize, false);
             cursor += subSize * 2.4f;
         }
-        float hintSize = used > 0f ? Math.max(14f, used * 0.2f) : height * 0.03f;
-        TemperaTextView.drawFittedLine(canvas, hasLyrics ? "等待歌词…" : "暂无歌词", 500,
-                hintSize, width * 0.6f, palette.tone4, 0.5f, centerX, cursor + hintSize, false);
+        if (!hasLyrics) {
+            float hintSize = used > 0f ? Math.max(14f, used * 0.2f) : height * 0.03f;
+            TemperaTextView.drawFittedLine(canvas, "暂无歌词", 500,
+                    hintSize, width * 0.6f, palette.tone4, 0.5f, centerX, cursor + hintSize, false);
+        }
     }
 }
