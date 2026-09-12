@@ -142,7 +142,7 @@ final class LyricRowRenderer implements AutoCloseable {
                 }
                 applySweepMask(canvas, sweepX, 1f - (1f - DARK_MASK_ALPHA) * activeK);
                 drawWordGlows(canvas, syllables, row, startX, baselineY, ascent, descent,
-                        positionMs, activeK, glowOn, shadowOn, wordGlowSupported, liftedShader);
+                        positionMs, activeK, glowOn, shadowOn, wordGlowSupported, liftedShader, sweepX);
             } finally {
                 Managed._nInvokeFinalizer(RefCnt._FinalizerHolder.PTR, liftedShader);
             }
@@ -263,7 +263,7 @@ final class LyricRowRenderer implements AutoCloseable {
     private void drawWordGlows(Canvas canvas, List<Syllable> syllables, ShapedRow row,
                                float startX, float baselineY, float ascent, float descent,
                                long positionMs, float activeK, boolean glowOn, boolean shadowOn,
-                               boolean wordGlowSupported, long liftedShader) {
+                               boolean wordGlowSupported, long liftedShader, float sweepX) {
         if (!wordGlowSupported || !glowOn || row.words.length == 0) return;
         boolean layerSaved = false;
         try {
@@ -277,6 +277,10 @@ final class LyricRowRenderer implements AutoCloseable {
                 float progress = (positionMs - first.startMs) / (float) Math.max(1L, wordDuration);
                 float alpha = activeK * smoothstep(0f, 0.18f, progress)
                         * (1f - smoothstep(0.90f, 1f, progress)) * GLOW_ALPHA;
+                float x0 = startX + Math.min(word.x0, word.x1) - 1f;
+                float x1 = startX + Math.max(word.x0, word.x1) + 1f;
+                float averageSyllableWidth = row.width / Math.max(1, row.to - row.from);
+                alpha *= glowWindow(sweepX, x0, x1, averageSyllableWidth);
                 if (alpha <= 0.01f) continue;
                 if (!layerSaved) {
                     canvas.saveLayer(startX - 8f,
@@ -284,8 +288,6 @@ final class LyricRowRenderer implements AutoCloseable {
                             startX + row.width + 8f, baselineY + descent + 8f, glowLayerPaint);
                     layerSaved = true;
                 }
-                float x0 = startX + Math.min(word.x0, word.x1) - 1f;
-                float x1 = startX + Math.max(word.x0, word.x1) + 1f;
                 canvas.save();
                 try {
                     clipRect(canvas, x0, baselineY + ascent - MAX_SHADER_LIFT_PX,
@@ -304,6 +306,15 @@ final class LyricRowRenderer implements AutoCloseable {
         } finally {
             if (layerSaved) canvas.restore();
         }
+    }
+
+    /** Smoothly light only the word under the sweep, using its own measured width. */
+    static float glowWindow(float sweepX, float x0, float x1, float averageSyllableWidth) {
+        float center = (x0 + x1) * 0.5f;
+        float radius = Math.max(1f, Math.abs(x1 - x0) * 0.5f
+                + Math.max(1f, averageSyllableWidth) * 0.5f);
+        float distance = Math.min(1f, Math.abs(center - sweepX) / radius);
+        return 1f - distance * distance * (3f - 2f * distance);
     }
 
     private static float syllableAnimation(Syllable syllable, long positionMs, boolean spring) {

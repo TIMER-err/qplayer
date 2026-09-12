@@ -195,6 +195,23 @@ public final class SettingsCatalog {
                         "settings.lyricBgStyle.classic")
                 .desc("settings.lyricBgStyle.desc")
                 .build());
+        out.add(SettingSpec.toggle("temperaEnabled", LYRIC, "settings.temperaEnabled.title", true)
+                .desc("settings.temperaEnabled.desc")
+                .onlyOn(DESKTOP)
+                .build());
+        out.add(SettingSpec.toggle("temperaWholeLine", LYRIC, "settings.temperaWholeLine.title", false)
+                .desc("settings.temperaWholeLine.desc")
+                .onlyOn(DESKTOP)
+                .build());
+        out.add(SettingSpec.slider("temperaGlyphSettleStretch", LYRIC, "settings.temperaGlyphSettleStretch.title", 50, 0, 100, 5)
+                .unit(" %")
+                .desc("settings.temperaGlyphSettleStretch.desc")
+                .onlyOn(DESKTOP)
+                .build());
+        out.add(SettingSpec.toggle("temperaImages", LYRIC, "settings.temperaImages.title", false)
+                .desc("settings.temperaImages.desc")
+                .onlyOn(DESKTOP)
+                .build());
         // ---- 本地 -----------------------------------------------------------
         out.add(SettingSpec.slider("maxCacheSizeMB", LOCAL, "settings.maxCacheSize.title",
                         200, 50, 1024, 1)

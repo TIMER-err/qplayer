@@ -929,13 +929,15 @@ Rectangle {
         x: settings.leftInset
         width: parent.width - settings.leftInset - settings.rightInset
         height: parent.height
-        visible: player.lyricSlide > 0.001
+        visible: player.lyricSlide > 0.001 && settings.value("temperaEnabled") !== true
         // Desktop hides its custom title bar while the lyric page is open (see the
         // TitleBar below), so the three title buttons sit flush at the very top.
         topPad: hostWindow.available ? 6 : settings.topInset + 6
         onCloseRequested: app.popPage()
         y: (1 - transitionEase) * height
     }
+
+    TemperaLayer { anchors.fill: parent }
 
     LoginDialog {
         active: app.loginOpen
