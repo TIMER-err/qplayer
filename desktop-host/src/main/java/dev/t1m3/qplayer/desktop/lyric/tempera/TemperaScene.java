@@ -469,7 +469,7 @@ public final class TemperaScene {
         // 文字（影子 + 普通字形走反色；残影与关键字在其上、不反色）。
         if (view.paintText) {
             TemperaTextView.paint(canvas, view.glyphs, time, motion, echoCount,
-                    tuning.showDecor, inversion, palette.paper);
+                    tuning.showDecor, inversion);
         }
         // front 插图在文字之上：不参与反色，像贴在玻璃上的照片。退场时也不画，避免抢戏。
         if (view.paintText) drawShotImage(canvas, view.image, true);

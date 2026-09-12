@@ -152,9 +152,8 @@ public final class TemperaTextView {
      * 画一个字素（含影子的调用方自行传偏移）。
      *
      * <p>{@code difference} 为真时用 DIFFERENCE 混合，这是「凝彩」把字从作品里反色出来的那一步。
-     * 关键在于<b>传进来的颜色</b>：差分算的是 {@code |字色 - 背景|}，所以字色必须取<b>纸色</b>，
-     * 结果才会是「浅底上得到深字、深底上得到浅字」——对比度永不塌陷。用墨色去差分恰恰相反：
-     * 浅纸底上会算出接近纸色的浅色，整行字都糊掉。
+     * 差分算的是 {@code |字色 - 背景|}，反色源固定为白色才能得到背景的补色。
+     * 不能使用主题纸色：深色主题的纸色接近黑色，差分几乎保持背景不变，字形就消失了。
      */
     private static void drawGlyph(Canvas canvas, View view, float x, float y,
                                   float rotation, float scaleX, float scaleY,
@@ -171,7 +170,7 @@ public final class TemperaTextView {
         canvas.translate(x, y);
         if (rotation != 0f) canvas.rotate((float) Math.toDegrees(rotation));
         if (scaleX != 1f || scaleY != 1f) canvas.scale(scaleX, scaleY);
-        paint().setColor(TemperaColor.withAlpha(color, 1f));
+        paint().setColor(difference ? 0xFFFFFFFF : TemperaColor.withAlpha(color, 1f));
         paint().setAlphaf(alpha);
         paint().setBlendMode(difference ? BlendMode.DIFFERENCE : BlendMode.SRC_OVER);
         canvas.drawTextLine(line, -width / 2f, baseline, paint());
@@ -185,13 +184,9 @@ public final class TemperaTextView {
      * {@code echoLayer}（残影，不反色）→ {@code keywordLayer}（关键字，不反色）。
      * fragments 与 watermark 由场景层负责，因为它们不在动态文字层里。
      *
-     * <p>{@code paper} 是差分反色要用的字色，见 {@link #drawGlyph}。
      */
     public static void paint(Canvas canvas, List<View> views, double time, float motionAmount,
-                             int echoCount, boolean shadowEnabled, boolean inversion,
-                             String paper) {
-        // 反色时字色取纸色：差分把它翻成「浅底深字 / 深底浅字」；关掉反色时才直接用墨色。
-        String tone = inversion ? paper : null;
+                             int echoCount, boolean shadowEnabled, boolean inversion) {
         // 1) 影子与普通字形同层：影子先画（addChildAt(0) 的等价物）。
         for (View view : views) {
             if (view.keyword) continue;
@@ -203,10 +198,10 @@ public final class TemperaTextView {
                 drawGlyph(canvas, view, x + view.shadowDX, y + view.shadowDY,
                         frame.rotation, frame.scaleX, frame.scaleY,
                         frame.alpha * SHADOW_ALPHA,
-                        tone != null ? tone : view.shadowColor, inversion);
+                        view.shadowColor, inversion);
             }
             drawGlyph(canvas, view, x, y, frame.rotation, frame.scaleX, frame.scaleY,
-                    frame.alpha, tone != null ? tone : view.displayColor, inversion);
+                    frame.alpha, view.displayColor, inversion);
         }
         // 2) 残影：沿入场矢量越排越远，读起来是一条拖尾而不是一团模糊。
         if (echoCount > 0) {
@@ -277,7 +272,7 @@ public final class TemperaTextView {
         int save = canvas.save();
         canvas.translate(fragment.x * width, fragment.y * height);
         if (fragment.rotation != 0f) canvas.rotate((float) Math.toDegrees(fragment.rotation));
-        paint().setColor(TemperaColor.withAlpha(inversion ? palette.paper : palette.ink, 1f));
+        paint().setColor(inversion ? 0xFFFFFFFF : TemperaColor.withAlpha(palette.ink, 1f));
         paint().setAlphaf(0.42f);
         paint().setBlendMode(inversion ? BlendMode.DIFFERENCE : BlendMode.SRC_OVER);
         canvas.drawTextLine(line, -line.getWidth() / 2f, baseline, paint());
@@ -327,7 +322,7 @@ public final class TemperaTextView {
         float baseline = -(metrics.getAscent() + metrics.getDescent()) / 2f;
         int save = canvas.save();
         canvas.translate(centerX, centerY);
-        paint().setColor(TemperaColor.withAlpha(color, 1f));
+        paint().setColor(difference ? 0xFFFFFFFF : TemperaColor.withAlpha(color, 1f));
         paint().setAlphaf(alpha);
         paint().setBlendMode(difference ? BlendMode.DIFFERENCE : BlendMode.SRC_OVER);
         canvas.drawTextLine(line, -line.getWidth() / 2f, baseline, paint());
