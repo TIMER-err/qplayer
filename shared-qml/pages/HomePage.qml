@@ -10,6 +10,9 @@ Item {
     property var pendingPlaylist
     signal openPlaylist()
 
+    property bool temperaAvailable: settings.has("temperaWholeLine")
+    property real actionsHeight: temperaAvailable ? 56 : 0
+
     property real pad: 12
     property real gap: 12
     property real greetH: 64
@@ -145,6 +148,7 @@ Item {
     Flickable {
         id: homeFlick
         anchors.fill: parent
+        anchors.topMargin: page.actionsHeight
         clip: true
         contentWidth: width
         contentHeight: page.contentH
@@ -334,5 +338,16 @@ Item {
     SourceSetupPrompt {
         anchors.fill: parent
         visible: player.sourceSetupRequired
+    }
+    Button {
+        objectName: "openTempera"
+        visible: page.temperaAvailable
+        x: page.pad
+        y: 8
+        width: Math.min(implicitWidth, Math.max(0, page.width - 2 * page.pad))
+        type: "filledTonal"
+        icon: "auto_awesome"
+        text: i18n.t("home.tempera")
+        onClicked: player.setTemperaOpen(true)
     }
 }

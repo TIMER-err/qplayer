@@ -3,8 +3,7 @@ package dev.t1m3.qplayer.desktop.lyric.tempera;
 /**
  * 凝彩的调参，1:1 对应 folia-major 的 {@code TemperaTuning}（{@code types.ts} / {@code tuning.ts}）。
  *
- * <p>宿主只暴露其中三项给设置页（{@code temperaEnabled} / {@code temperaGlyphSettleStretch} /
- * {@code temperaWholeLine}），其余保持 folia 的默认值，这样画面与上游一致。
+ * <p>设置页提供整行模式、入场节奏和插图选项；页面通过首页按钮单独打开。
  */
 public final class TemperaTuning {
     /** 相机幅度倍率。 */

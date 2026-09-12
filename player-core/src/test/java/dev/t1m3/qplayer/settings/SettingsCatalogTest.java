@@ -59,7 +59,8 @@ public class SettingsCatalogTest {
     @Test
     public void temperaUsesTheExistingLyricTabAndDoesNotAddMobileTabs() {
         assertEquals(6, SettingsCatalog.CATEGORIES.size());
-        for (String key : new String[]{"temperaEnabled", "temperaWholeLine",
+        assertFalse(SettingsCatalog.specs().stream().anyMatch(spec -> "temperaEnabled".equals(spec.key)));
+        for (String key : new String[]{"temperaWholeLine",
                 "temperaGlyphSettleStretch", "temperaImages"}) {
             SettingSpec spec = setting(key);
             assertEquals(SettingsCatalog.LYRIC, spec.category);

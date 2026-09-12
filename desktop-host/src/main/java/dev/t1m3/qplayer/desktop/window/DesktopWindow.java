@@ -207,15 +207,8 @@ public final class DesktopWindow {
         return temperaTuning;
     }
 
-    /**
-     * 「凝彩」是否作为歌词页的渲染模式开启。
-     *
-     * <p>凝彩不是独立页面：它和标准歌词共用歌词页这一个入口（迷你播放器的歌词按钮 / 「歌词」
-     * 路由），设置里这一项只决定歌词页由哪套渲染器出画，所以判断条件永远是「歌词页开着 + 开关
-     * 打开」，而不是某个自己的开关状态。
-     */
-    boolean temperaEnabledMode() {
-        return settings != null && settings.bool("temperaEnabled");
+    boolean temperaPageVisible() {
+        return temperaPage.wantsFrame(controller);
     }
 
     /** 「凝彩」页的 QML 控件子树（objectName "temperaChrome"），首次需要时才查。 */

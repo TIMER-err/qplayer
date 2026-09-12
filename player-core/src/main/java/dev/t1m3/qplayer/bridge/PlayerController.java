@@ -497,6 +497,9 @@ public final class PlayerController {
     public final Property<Integer> lyricIndex = new Property<>(-1);
     /** Whether the full-screen lyric page is open (host draws it via Skija). */
     public final Property<Boolean> lyricsOpen = new Property<>(false);
+    /** Independent, session-only visualizer page; never restored from settings. */
+    public final Property<Boolean> temperaOpen = new Property<>(false);
+    public final Property<Double> temperaOpacity = new Property<>(0.0);
     /** Whether the lyric page's QML offset-adjust panel is open. The host-drawn lyric
      *  column has no QML underneath it, so its own tap = seek / drag = scroll gesture
      *  is normally recognized before any QML dispatch; while this is true the input
@@ -2513,6 +2516,10 @@ public final class PlayerController {
         // here) must also drop the offset panel's gesture-suppression flag — otherwise
         // it stays stuck true and the lyric body's tap-to-seek never re-arms next time.
         if (!open) lyricOffsetPanelOpen.set(false);
+    }
+
+    public void setTemperaOpen(boolean open) {
+        temperaOpen.set(open);
     }
 
     public void setLyricOffsetPanelOpen(boolean open) {

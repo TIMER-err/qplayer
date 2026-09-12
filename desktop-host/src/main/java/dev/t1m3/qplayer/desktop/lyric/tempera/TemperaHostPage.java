@@ -23,13 +23,9 @@ public final class TemperaHostPage {
     private final TemperaPageRenderer renderer = new TemperaPageRenderer();
     private TemperaTuning tuning = new TemperaTuning();
 
-    /**
-     * 歌词页的滑入进度（0 关 / 1 完全盖住）。标准歌词页由 {@code LyricCompositor} 推进并发布
-     * 到 {@code controller.lyricSlide}；凝彩接管这一帧时，同一根弹簧必须由这里推进——否则
-     * QML 侧所有依赖 {@code lyricSlide} 的东西（标题栏隐藏、歌词控件层）都会以为页面还没开，
-     * 于是标题栏一直压在画面上把点击全吃掉。
-     */
-    private float slide;
+    private static final double FADE_NANOS = 250_000_000.0;
+    private float fade;
+    private long lastFadeNanos = Long.MIN_VALUE;
 
     private List<LyricLine> lastLyrics;
     private TemperaTypes.Program program;
@@ -50,28 +46,24 @@ public final class TemperaHostPage {
         renderer.dispose();
     }
 
-    /**
-     * 这一帧该不该由凝彩出画：开了凝彩模式，且歌词页正开着（或者还在关闭的滑出动画里）。
-     *
-     * <p>关页的最后几帧仍归凝彩画，否则页面会在滑出的中途被硬切回标准歌词。
-     */
-    public boolean wantsFrame(PlayerController controller, boolean temperaEnabled) {
-        if (controller == null || !temperaEnabled) return false;
-        boolean open = Boolean.TRUE.equals(controller.lyricsOpen.peek());
-        return open || slide > 0.001f;
+    /** Continue rendering through fade-out without changing the ordinary lyric page. */
+    public boolean wantsFrame(PlayerController controller) {
+        return controller != null && (Boolean.TRUE.equals(controller.temperaOpen.peek()) || fade > 0f);
     }
 
-    /** 平滑后的滑入进度，供宿主把整帧从底部推上来。 */
-    public float slideEase() {
-        return slide * slide * (3f - 2f * slide);
+    public float opacity() {
+        return fade * fade * (3f - 2f * fade);
     }
 
-    public void advanceSlide(PlayerController controller) {
-        boolean open = Boolean.TRUE.equals(controller.lyricsOpen.peek());
-        float target = open ? 1f : 0f;
-        slide += (target - slide) * 0.18f;
-        if (Math.abs(target - slide) < 0.002f) slide = target;
-        controller.lyricSlide.set((double) slide);
+    /** Fixed-duration fade, independent of refresh rate and reversible mid-transition. */
+    public void advanceFade(PlayerController controller, long nowNanos) {
+        long elapsed = lastFadeNanos == Long.MIN_VALUE ? 0 : Math.max(0L, nowNanos - lastFadeNanos);
+        lastFadeNanos = nowNanos;
+        if (controller == null) return;
+        float step = (float) (elapsed / FADE_NANOS);
+        fade = Boolean.TRUE.equals(controller.temperaOpen.peek())
+                ? Math.min(1f, fade + step) : Math.max(0f, fade - step);
+        controller.temperaOpacity.set((double) opacity());
     }
 
     /** 用当前设置刷新调参；只有真正影响「场景是什么」的项才触发重建。 */

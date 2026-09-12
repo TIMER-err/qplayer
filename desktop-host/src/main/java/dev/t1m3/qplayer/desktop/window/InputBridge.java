@@ -207,7 +207,7 @@ final class InputBridge {
         float topInset = win.settings() != null ? win.settings().topInset() : 0f;
         float surfaceWLogical = win.framebufferSize()[0] / scale;
         float surfaceHLogical = win.framebufferSize()[1] / scale;
-        boolean overLyric = !win.temperaEnabledMode() && !offsetPanelOpen && c != null
+        boolean overLyric = !win.temperaPageVisible() && !offsetPanelOpen && c != null
                 && c.lyricsScrollable(lx, ly, surfaceWLogical, surfaceHLogical, topInset);
 
         double a = 1.0 - Math.exp(-(overLyric ? LYRIC_EASE : EASE) * dt);
@@ -290,7 +290,7 @@ final class InputBridge {
         // with no QML controls under it: a drag scrolls, a tap seeks. Wait for slop
         // before engaging the scroll so a tap stays a tap. Suppressed while the
         // offset-adjust panel (real QML) is open over that same region.
-        if (!win.temperaEnabledMode() && !offsetPanelOpen && c.lyricsScrollable(lx, ly, surfaceWLogical, surfaceHLogical, topInset)) {
+        if (!win.temperaPageVisible() && !offsetPanelOpen && c.lyricsScrollable(lx, ly, surfaceWLogical, surfaceHLogical, topInset)) {
             lyGrab = true;
             lyDownY = ly;
             lyMoved = false;

@@ -28,7 +28,7 @@ public class TemperaIntegrationTest {
     @Rule public TemporaryFolder temporary = new TemporaryFolder();
 
     @Test
-    public void mainSceneCompilesAndUsesOnlyTheSelectedLyricControls() throws Exception {
+    public void independentPageOpensFromHomeAndFadesWithoutChangingLyrics() throws Exception {
         String oldBase = AppDirs.base();
         String oldCache = AppDirs.cacheBase();
         PlayerController player = null;
@@ -60,42 +60,80 @@ public class TemperaIntegrationTest {
             DirtyQueue queue = view.dirtyQueue();
             queue.install();
             try {
+                Item entry = view.findByObjectName("openTempera");
+                assertNotNull(entry);
+                assertFalse(settings.has("temperaEnabled"));
+                assertFalse(player.temperaOpen.peek());
+                assertFalse(page.wantsFrame(player));
+                // The ordinary lyric page works independently, with no Tempera side effect.
+                player.setLyricsOpen(true);
+                player.lyricSlide.set(1.0);
+                queue.flush();
+                assertTrue(normal.visible.peek());
+                assertFalse(page.wantsFrame(player));
+                player.setLyricsOpen(false);
+                player.lyricSlide.set(0.0);
+                long clock = 1_000_000_000L;
+                page.advanceFade(player, clock);
                 for (int width : new int[]{1100, 320, 240, 800}) {
                     view.root().width.set(width);
                     view.root().height.set(720);
-                    player.setLyricsOpen(true);
-                    for (int i = 0; i < 45; i++) page.advanceSlide(player);
+                    queue.flush();
+                    view.renderer().layoutOnly(view.root());
+                    queue.flush();
+                    assertTrue(entry.visible.peek());
+                    assertTrue(entry.width.peekFloat() > 0);
+                    assertTrue(entry.width.peekFloat() <= entry.parent.peek().width.peekFloat());
+                    click(view, entry);
+                    assertTrue(player.temperaOpen.peek());
+                    assertFalse(player.lyricsOpen.peek());
+                    page.advanceFade(player, clock += 125_000_000L);
+                    assertEquals(0.5f, page.opacity(), 0.001f);
+                    queue.flush();
+                    view.renderer().layoutOnly(view.root());
+                    assertEquals(0f, chrome.y.peekFloat(), 0.001f);
+                    page.advanceFade(player, clock += 125_000_000L);
                     queue.flush();
                     view.renderer().layoutOnly(view.root());
                     queue.flush();
                     assertTrue(chrome.visible.peek());
                     assertFalse(normal.visible.peek());
+                    assertEquals(0.0, player.lyricSlide.peek(), 0.001);
                     assertEquals(width, chrome.width.peekFloat(), 0.01f);
-                    assertTrue(page.wantsFrame(player, true));
                     try (Surface surface = Surface.makeRasterN32Premul(width, 720)) {
                         page.render(surface.getCanvas(), player, 1f, width, 720,
                                 System.nanoTime(), false);
                         view.renderer().renderSubtree(surface.getCanvas(), chrome, width, 720);
                     }
-                    // Close from the actual QML capsule; its anchor must update after resize.
-                    view.dispatchPointerDown(width - 130f, 666f);
-                    view.dispatchPointerUp(width - 130f, 666f);
-                    assertFalse("Close button at width " + width, player.lyricsOpen.peek());
-                    assertTrue(page.wantsFrame(player, true)); // finishes the closing transition
-                    for (int i = 0; i < 45; i++) page.advanceSlide(player);
-                    assertFalse(page.wantsFrame(player, true));
+                    Item close = view.findByObjectName("temperaClose");
+                    assertNotNull(close);
+                    assertEquals("close", ((io.github.timer_err.qml4j.engine.binding.Property<?>)
+                            close.getClass().getField("icon").get(close)).peek());
+                    click(view, close);
+                    assertFalse("Close button at width " + width, player.temperaOpen.peek());
+                    assertTrue(page.wantsFrame(player));
+                    page.advanceFade(player, clock += 125_000_000L);
+                    assertEquals(0.5f, page.opacity(), 0.001f);
+                    page.advanceFade(player, clock += 125_000_000L);
+                    assertFalse(page.wantsFrame(player));
+                    queue.flush();
                 }
-                settings.setValue("temperaEnabled", false);
+                // Escape closes only Tempera, preserving the underlying lyric page.
+                player.setLyricsOpen(true);
                 player.lyricSlide.set(1.0);
+                player.setTemperaOpen(true);
+                player.pressBack();
+                player.pump();
                 queue.flush();
-                assertFalse(chrome.visible.peek());
+                assertFalse(player.temperaOpen.peek());
+                assertTrue(player.lyricsOpen.peek());
                 assertTrue(normal.visible.peek());
             } finally {
                 queue.uninstall();
             }
             SettingsCore android = new SettingsCore();
             android.load(new JsonSettingsStore(), SettingsCatalog.ANDROID);
-            assertFalse(android.has("temperaEnabled"));
+            assertFalse(android.has("temperaWholeLine"));
             assertEquals(6, android.categories().size());
         } finally {
             if (view != null) view.dispose();
@@ -104,5 +142,15 @@ public class TemperaIntegrationTest {
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCache);
         }
+    }
+    private static void click(QmlView view, Item target) {
+        float x = target.width.peekFloat() / 2f;
+        float y = target.height.peekFloat() / 2f;
+        for (Item item = target; item != null; item = item.parent.peek()) {
+            x += item.x.peekFloat();
+            y += item.y.peekFloat();
+        }
+        view.dispatchPointerDown(x, y);
+        view.dispatchPointerUp(x, y);
     }
 }

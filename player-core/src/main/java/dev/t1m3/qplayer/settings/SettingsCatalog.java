@@ -195,10 +195,6 @@ public final class SettingsCatalog {
                         "settings.lyricBgStyle.classic")
                 .desc("settings.lyricBgStyle.desc")
                 .build());
-        out.add(SettingSpec.toggle("temperaEnabled", LYRIC, "settings.temperaEnabled.title", true)
-                .desc("settings.temperaEnabled.desc")
-                .onlyOn(DESKTOP)
-                .build());
         out.add(SettingSpec.toggle("temperaWholeLine", LYRIC, "settings.temperaWholeLine.title", false)
                 .desc("settings.temperaWholeLine.desc")
                 .onlyOn(DESKTOP)

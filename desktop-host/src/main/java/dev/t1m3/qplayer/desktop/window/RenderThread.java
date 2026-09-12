@@ -1,6 +1,8 @@
 package dev.t1m3.qplayer.desktop.window;
 
 import io.github.humbleui.skija.Canvas;
+import io.github.humbleui.skija.Paint;
+import io.github.humbleui.types.Rect;
 
 import io.github.timer_err.qml4j.engine.binding.DirtyQueue;
 import io.github.timer_err.qml4j.render.QmlView;
@@ -131,7 +133,9 @@ final class RenderThread extends Thread {
                         failureStage = FailureStage.APPLICATION_FRAME;
                         Renderer renderer = view.renderer();
                         renderer.setGpuContext(backend.recordingContext());
-                        if (win.temperaPage().wantsFrame(controller, win.temperaEnabledMode())) {
+                        win.temperaPage().advanceFade(controller, frameStarted);
+                        dq.flush();
+                        if (win.temperaPageVisible()) {
                             drawTemperaFrame(canvas, renderer, view, controller, uiScale);
                         } else {
                             compositor.composite(canvas, renderer, view, controller, win.settings(),
@@ -202,46 +206,47 @@ final class RenderThread extends Thread {
         view.root().height.set(fbH / uiScale);
     }
 
-    /**
-     * 「凝彩」歌词页的一帧：宿主用 Skija 画满整屏（构图 + 逐字歌词），再把该页自己的 QML
-     * 控件子树（右下角胶囊）渲染上去——与歌词页的 "lyricChrome" 是同一套子树渲染机制。
-     *
-     * <p>打开／关闭走的是标准歌词页同一条 bottom-sheet：还没盖满时主场景照旧画在下面，
-     * 凝彩整帧按同一条平滑曲线从底部推上来。控件子树由 QML 自己按 {@code player.lyricSlide}
-     * 平移（与 LyricOverlay 一致），所以这里只推画面，避免推两次。
-     */
+    /** Fade the independent visualizer and its controls over the original page. */
     private void drawTemperaFrame(Canvas canvas, Renderer renderer, QmlView view,
                                   PlayerController controller, float uiScale) {
         float lw = backend.width() / uiScale;
         float lh = backend.height() / uiScale;
         TemperaHostPage page = win.temperaPage();
-        float fontScale = win.settings() == null ? 1f
-                : win.settings().intOf("lyricFontSize") / 28f;
-        page.configure(win.temperaTuning(), fontScale,
-                win.settings() != null && win.settings().lyricBgStatic());
+        Item chrome = win.temperaChrome(view);
+        page.configure(win.temperaTuning(), win.settings().intOf("lyricFontSize") / 28f,
+                win.settings().lyricBgStatic());
 
-        page.advanceSlide(controller);
-        view.dirtyQueue().flush();
-        float ease = page.slideEase();
-        if (ease < 0.999f) {
-            int under = canvas.save();
-            canvas.scale(uiScale, uiScale);
-            renderer.render(canvas, view.root(), false);
-            canvas.restoreToCount(under);
+        if (page.opacity() < 0.999f) {
+            // Exclude the controls from the underlying scene; the complete overlay
+            // is rendered once below. Restore visibility before processing any input.
+            Boolean visible = chrome == null ? null : chrome.visible.peek();
+            if (chrome != null) chrome.visible.set(false);
+            try {
+                win.compositor().composite(canvas, renderer, view, controller, win.settings(),
+                        backend.recordingContext(), uiScale, backend.width(), backend.height());
+            } finally {
+                if (chrome != null) chrome.visible.set(visible);
+            }
         }
 
-        int save = canvas.save();
-        canvas.translate(0f, (1f - ease) * lh * uiScale);
-        page.render(canvas, controller, uiScale, lw, lh, System.nanoTime(),
-                win.settings() == null || win.settings().resolvedDarkValue());
-        canvas.restoreToCount(save);
-
-        Item chrome = win.temperaChrome(view);
-        if (chrome == null) return;
-        renderer.layoutOnly(chrome);
-        int chromeSave = canvas.save();
-        canvas.scale(uiScale, uiScale);
-        renderer.renderSubtree(canvas, chrome, lw, lh);
-        canvas.restoreToCount(chromeSave);
+        // Once opaque, draw directly instead of allocating a full-window fade layer.
+        try (Paint fadePaint = page.opacity() < 0.999f
+                ? new Paint().setAlphaf(page.opacity()) : null) {
+            int save = fadePaint == null ? canvas.save()
+                    : canvas.saveLayer(Rect.makeWH(backend.width(), backend.height()), fadePaint);
+            try {
+                page.render(canvas, controller, uiScale, lw, lh, System.nanoTime(),
+                        win.settings().resolvedDarkValue());
+                if (chrome != null) {
+                    renderer.layoutOnly(chrome);
+                    int controls = canvas.save();
+                    canvas.scale(uiScale, uiScale);
+                    renderer.renderSubtree(canvas, chrome, lw, lh);
+                    canvas.restoreToCount(controls);
+                }
+            } finally {
+                canvas.restoreToCount(save);
+            }
+        }
     }
 }

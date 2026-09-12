@@ -186,6 +186,10 @@ Rectangle {
     onBackTickChanged: app.handleBack()
 
     function handleBack() {
+        if (player.temperaOpen || player.temperaOpacity > 0.001) {
+            player.setTemperaOpen(false)
+            return
+        }
         // An unreadable credential envelope requires an explicit decision. Letting
         // outside click / Android back dismiss it would leave the app in an unclear
         // half-logged-in state with no path to retry or start over.
@@ -929,7 +933,7 @@ Rectangle {
         x: settings.leftInset
         width: parent.width - settings.leftInset - settings.rightInset
         height: parent.height
-        visible: player.lyricSlide > 0.001 && settings.value("temperaEnabled") !== true
+        visible: player.lyricSlide > 0.001
         // Desktop hides its custom title bar while the lyric page is open (see the
         // TitleBar below), so the three title buttons sit flush at the very top.
         topPad: hostWindow.available ? 6 : settings.topInset + 6
@@ -1021,6 +1025,7 @@ Rectangle {
         // it's open so LyricOverlay's own three title buttons can sit flush at the
         // top (see LyricOverlay.topPad). Symmetric with LyricOverlay.visible.
         visible: hostWindow.available && !(player.lyricSlide > 0.001)
+                 && !player.temperaOpen && player.temperaOpacity <= 0.001
         height: settings.topInset
         z: 10000
     }
