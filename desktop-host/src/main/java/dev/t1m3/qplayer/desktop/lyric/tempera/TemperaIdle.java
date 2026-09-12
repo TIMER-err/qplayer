@@ -32,7 +32,7 @@ public final class TemperaIdle {
 
     public static void paint(Canvas canvas, TemperaPalette.Palette palette,
                              float width, float height, double time,
-                             String title, String artist, boolean hasLyrics,
+                             String title, String artist,
                              boolean inversion) {
         if (palette == null || width < 1f || height < 1f) return;
         int save = canvas.save();
@@ -44,7 +44,7 @@ public final class TemperaIdle {
 
         paintDriftingPanels(canvas, palette, width, height, time);
         paintDotField(canvas, palette, width, height, time);
-        paintTitle(canvas, palette, width, height, time, title, artist, hasLyrics, inversion);
+        paintTitle(canvas, palette, width, height, time, title, artist, inversion);
 
         canvas.restoreToCount(save);
     }
@@ -94,10 +94,10 @@ public final class TemperaIdle {
         cacheDots.setPosition(offset, -offset * 0.45f).paint(canvas);
     }
 
-    /** 曲名 / 歌手 / 状态提示。曲名与歌词字形一样走差分反色，所以始终读得出来。 */
+    /** 曲名 / 歌手。曲名与歌词字形一样走差分反色，所以始终读得出来。 */
     private static void paintTitle(Canvas canvas, TemperaPalette.Palette palette,
                                    float width, float height, double time,
-                                   String title, String artist, boolean hasLyrics,
+                                   String title, String artist,
                                    boolean inversion) {
         float centerX = width / 2f;
         // 标题略微上下浮动，幅度控制在「看得出在动、但不像在抖」。
@@ -119,12 +119,6 @@ public final class TemperaIdle {
             float subSize = used > 0f ? Math.max(15f, used * 0.24f) : height * 0.035f;
             TemperaTextView.drawFittedLine(canvas, artistText, 500, subSize, width * 0.6f,
                     palette.tone4, 0.78f, centerX, cursor + subSize, false);
-            cursor += subSize * 2.4f;
-        }
-        if (!hasLyrics) {
-            float hintSize = used > 0f ? Math.max(14f, used * 0.2f) : height * 0.03f;
-            TemperaTextView.drawFittedLine(canvas, "暂无歌词", 500,
-                    hintSize, width * 0.6f, palette.tone4, 0.5f, centerX, cursor + hintSize, false);
         }
     }
 }

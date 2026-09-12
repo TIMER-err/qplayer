@@ -193,7 +193,7 @@ public final class TemperaPageRenderer {
 
         boolean hasProgram = program != null && !program.paragraphs.isEmpty();
         if (!hasProgram) {
-            TemperaIdle.paint(canvas, palette, w, h, time, title, artist, false,
+            TemperaIdle.paint(canvas, palette, w, h, time, title, artist,
                     tuning.textInversion);
             canvas.restoreToCount(save);
             return;
@@ -209,7 +209,7 @@ public final class TemperaPageRenderer {
             // so its text cannot disappear abruptly at the end of the handoff.
             try (Paint fade = cardAlpha < 0.999f ? new Paint().setAlphaf(cardAlpha) : null) {
                 int cardSave = fade == null ? canvas.save() : canvas.saveLayer(Rect.makeWH(w, h), fade);
-                TemperaIdle.paint(canvas, palette, w, h, time, title, artist, true,
+                TemperaIdle.paint(canvas, palette, w, h, time, title, artist,
                         tuning.textInversion);
                 canvas.restoreToCount(cardSave);
             }

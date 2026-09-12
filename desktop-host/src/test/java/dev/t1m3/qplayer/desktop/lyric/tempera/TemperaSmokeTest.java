@@ -327,7 +327,7 @@ public class TemperaSmokeTest {
                     renderer.render(actual.getCanvas(), time, 1, W, H, "Prelude", "Artist");
                     expected.getCanvas().clear(TemperaColor.withAlpha(palette.paper, 1));
                     TemperaIdle.paint(expected.getCanvas(), palette, W, H, time,
-                            "Prelude", "Artist", true, tuning.textInversion);
+                            "Prelude", "Artist", tuning.textInversion);
                     byte[] pixels = pixels(actual);
                     assertArrayEquals("The first scene must not cover the intro at " + time,
                             pixels(expected), pixels);
