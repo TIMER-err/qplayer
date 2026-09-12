@@ -196,7 +196,7 @@ Item {
         Item {
             id: animationWrapper
             anchors.centerIn: parent
-            width: Math.min(560, Math.max(280, parent.width - 48))
+            width: Math.min(560, Math.max(0, parent.width - 48))
             height: dialogContainer.height
             
             // Dialog Container
@@ -317,6 +317,7 @@ Item {
 
                     // Actions
                     ColumnLayout {
+                        width: mainColumn.width
                         Layout.fillWidth: true
                         Layout.topMargin: 8
                         spacing: 4
@@ -393,15 +394,31 @@ Item {
                             }
                         }
 
-                        RowLayout {
+                        Item {
+                            id: pairedActions
                             Layout.fillWidth: true
                             visible: !control.showNeutralButton
-                            spacing: 8
-
-                            Item { Layout.fillWidth: true } // Spacer
+                            // Translated labels may need more space than the viewport
+                            // offers. Stack complete, wrapping buttons when they do.
+                            readonly property bool stacked: (control.showRejectButton ? rejectAction.implicitWidth : 0)
+                                                           + (control.showAcceptButton ? acceptAction.implicitWidth : 0)
+                                                           + (control.showRejectButton && control.showAcceptButton ? 8 : 0) > width
+                            implicitHeight: stacked
+                                            ? (control.showRejectButton ? rejectAction.height : 0)
+                                              + (control.showAcceptButton ? acceptAction.height : 0)
+                                              + (control.showRejectButton && control.showAcceptButton ? 8 : 0)
+                                            : Math.max(control.showRejectButton ? rejectAction.height : 0,
+                                                       control.showAcceptButton ? acceptAction.height : 0)
 
                             Button {
+                                id: rejectAction
+                                width: pairedActions.stacked ? pairedActions.width : implicitWidth
+                                height: implicitHeight
+                                x: pairedActions.stacked ? 0 : pairedActions.width - width
+                                   - (control.showAcceptButton ? acceptAction.width + 8 : 0)
                                 visible: control.showRejectButton
+                                wrapText: true
+                                verticalPadding: 8
                                 text: control.rejectText
                                 icon: control.rejectIcon
                                 type: "text"
@@ -412,7 +429,14 @@ Item {
                             }
 
                             Button {
+                                id: acceptAction
+                                width: pairedActions.stacked ? pairedActions.width : implicitWidth
+                                height: implicitHeight
+                                x: pairedActions.width - width
+                                y: pairedActions.stacked && control.showRejectButton ? rejectAction.height + 8 : 0
                                 visible: control.showAcceptButton
+                                wrapText: true
+                                verticalPadding: 8
                                 text: control.acceptText
                                 type: "filled" // Changed to filled as requested
                                 onClicked: {

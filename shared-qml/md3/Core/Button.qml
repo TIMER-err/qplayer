@@ -9,14 +9,17 @@ Item {
     // Types: "elevated", "filled", "filledTonal", "outlined", "text"
     property string type: "filled"
     property bool enabled: true
+    property bool wrapText: false
 
     // Layout configuration
     property real horizontalPadding: type === "text" ? 12 : 24
     property real verticalPadding: 0
     property real spacing: 8
 
-    implicitWidth: Math.max((control.contentItem ? control.contentItem.implicitWidth : contentRow.width) + horizontalPadding * 2, 48)
-    implicitHeight: 40
+    implicitWidth: Math.max((control.contentItem ? control.contentItem.implicitWidth
+                            : contentLabel.implicitWidth + (control.icon !== "" ? iconLabel.implicitWidth + spacing : 0))
+                           + horizontalPadding * 2, 48)
+    implicitHeight: wrapText ? Math.max(40, contentRow.implicitHeight + verticalPadding * 2) : 40
 
     // State
     property bool hovered: enabled && ripple.containsMouse
@@ -178,6 +181,7 @@ Item {
                 
                 // Icon
                 Text {
+                    id: iconLabel
                     text: control.icon
                     font.family: Theme.iconFont.name
                     font.pixelSize: 18
@@ -189,7 +193,14 @@ Item {
                 }
 
                 Text {
+                    id: contentLabel
+                    width: control.wrapText
+                           ? Math.max(1, control.width - control.horizontalPadding * 2
+                                      - (control.icon !== "" ? iconLabel.implicitWidth + control.spacing : 0))
+                           : implicitWidth
                     text: control.text
+                    wrapMode: control.wrapText ? Text.Wrap : Text.NoWrap
+                    horizontalAlignment: Text.AlignHCenter
                     font.family: _typography.labelLarge.family
                     font.pixelSize: _typography.labelLarge.size
                     font.weight: _typography.labelLarge.weight
@@ -202,4 +213,3 @@ Item {
         }
     }
 }
-
