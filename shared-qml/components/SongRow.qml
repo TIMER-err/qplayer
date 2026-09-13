@@ -70,6 +70,7 @@ Rectangle {
     // its opacity fades with hover instead of snapping the colour. The playing row
     // keeps its primary-tinted text/glyph rather than a fill.
     Rectangle {
+        id: rowBackground
         anchors.fill: parent
         anchors.leftMargin: 8
         anchors.rightMargin: 8
@@ -81,11 +82,11 @@ Rectangle {
         Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
     }
 
-    // Cover sits 4px inside the hover pill on every side, and its radius is the
-    // pill's radius minus that 4px gap (12 - 4 = 8) so the two rounded corners are
-    // concentric: leftMargin 8(pill)+4, size 64-2*(4+4) = 48, radius 8.
+    // Cover sits 4px inside the hover background. Subtract that inset from
+    // the outer radius (16 - 4 = 12) so the rounded corners are concentric.
     Item {
         id: leading
+        readonly property real cornerRadius: Math.max(0, rowBackground.radius - 4)
         anchors.left: parent.left
         anchors.leftMargin: 12
         anchors.verticalCenter: parent.verticalCenter
@@ -95,7 +96,7 @@ Rectangle {
         // Placeholder background (shown when no cover)
         Rectangle {
             anchors.fill: parent
-            radius: 8
+            radius: leading.cornerRadius
             color: Theme.color.surfaceContainerHighest
             visible: row.coverThumbPath == ""
             Text {
@@ -125,7 +126,7 @@ Rectangle {
             visible: row.coverThumbPath != "" && (!row.lazyLoad || row._loadTriggered)
             source: (row.coverThumbPath != "" && (!row.lazyLoad || row._loadTriggered))
                    ? row.coverThumbPath : ""
-            radius: 8
+            radius: leading.cornerRadius
             fillMode: Image.PreserveAspectCrop
             // See CoverImage.qml: decode-time downscale (mipmap-quality)
             // instead of a plain bilinear draw-time scale, which aliases
@@ -247,7 +248,7 @@ Rectangle {
         y: 4
         width: row.width - 16
         height: row.height - 8
-        clipRadius: 16
+        clipRadius: rowBackground.radius
         rippleColor: Theme.color.onSurfaceColor
         longPressEnabled: row.menuEnabled && row.song !== null
         onClicked: {
