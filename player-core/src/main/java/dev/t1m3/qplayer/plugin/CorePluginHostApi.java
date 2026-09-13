@@ -281,11 +281,7 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
         if (!methods.contains(method)) throw new SecurityException("HTTP method is not declared: " + method);
         int timeout = number(args.get("timeoutMs"), 10_000);
         timeout = Math.max(1_000, Math.min(30_000, timeout));
-        byte[] body = args.containsKey("body")
-                ? string(args, "body").getBytes(StandardCharsets.UTF_8) : null;
-        if (body != null && body.length > MAX_HTTP_BYTES) {
-            throw new IOException("plugin HTTP request body is too large");
-        }
+        byte[] body = requestBody(args);
         Map<String, String> requestHeaders = stringMap(args.get("headers"));
 
         for (int redirect = 0; redirect <= MAX_REDIRECTS; redirect++) {
@@ -527,6 +523,40 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
         if (!manifest.permissionSet().contains(permission)) {
             throw new SecurityException("plugin permission not declared: " + permission.wireName());
         }
+    }
+
+    /**
+     * The outgoing request body: {@code body} for text, {@code bodyBase64} for
+     * bytes, at most one of them.
+     *
+     * <p>The base64 form exists because a plugin otherwise cannot send a binary
+     * payload at all. Text goes out as UTF-8, and encoding arbitrary bytes that way
+     * replaces every malformed sequence with U+FFFD — a JPEG pushed through
+     * {@code body} arrives corrupt rather than merely re-encoded. The response side
+     * has always offered a {@code bodyBase64} view; this is its counterpart.
+     */
+    static byte[] requestBody(Map<String, Object> args) throws IOException {
+        boolean text = args.containsKey("body");
+        boolean binary = args.containsKey("bodyBase64");
+        if (text && binary) {
+            throw new IllegalArgumentException("pass either body or bodyBase64, not both");
+        }
+        byte[] body;
+        if (binary) {
+            try {
+                body = Base64.getDecoder().decode(string(args, "bodyBase64"));
+            } catch (IllegalArgumentException malformed) {
+                throw new IllegalArgumentException("bodyBase64 is not valid base64", malformed);
+            }
+        } else if (text) {
+            body = string(args, "body").getBytes(StandardCharsets.UTF_8);
+        } else {
+            return null;
+        }
+        if (body.length > MAX_HTTP_BYTES) {
+            throw new IOException("plugin HTTP request body is too large");
+        }
+        return body;
     }
 
     private static String string(Map<String, Object> args, String key) {

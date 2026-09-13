@@ -148,7 +148,7 @@ Calls are asynchronous: `qplayer.call(method, arguments)` returns a Promise.
 |---|---|---|
 | `storage.get/put/delete` | none | 1 MiB, hashed key, plugin namespace |
 | `credentials.get/put/delete` | `credentials` | encrypted, plugin namespace |
-| `http.request` | `network` | HTTPS/domain/method/DNS/redirect policy; bounded body |
+| `http.request` | `network` | HTTPS/domain/method/DNS/redirect policy; bounded body. Send text as `body`, bytes as `bodyBase64` (mutually exclusive); read them back as `body`/`bodyBase64` |
 | `crypto.*` | none | digest, random, AES, HMAC, modular exponentiation, X25519 |
 | `compression.gunzip` | none | bounded decompression |
 | `playback.read` | `playbackRead` | current native song id, provider-owned queue, clock, transition state and revisions |
