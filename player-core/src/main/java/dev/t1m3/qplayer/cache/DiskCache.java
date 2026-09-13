@@ -122,18 +122,34 @@ public final class DiskCache {
         return baseDir + "/" + LYRIC + "/" + songId + ".nlrc";
     }
 
-    /** Resolve cache file for a cover image keyed by url hash. */
+    /** Resolve cache file for a cover image keyed by a digest of its url. */
     public String imagePath(String url) {
         if (url == null || url.isEmpty()) return null;
-        return baseDir + "/" + IMAGE + "/" + Math.abs(url.hashCode()) + ".img";
+        return baseDir + "/" + IMAGE + "/" + hashedKey(url) + ".img";
     }
 
-    /** Resolve cache file for a 64x64 offline-playlist thumbnail, keyed by
-     *  url hash (the url is expected to already carry its own size param,
-     *  e.g. {@code ?param=64y64} — same convention as {@link #imagePath}). */
+    /** Resolve cache file for a 64x64 offline-playlist thumbnail, keyed by a
+     *  digest of its url (the url is expected to already carry its own size
+     *  param, e.g. {@code ?param=64y64} — same convention as {@link #imagePath}). */
     public String thumb64Path(String url) {
         if (url == null || url.isEmpty()) return null;
-        return baseDir + "/" + THUMB64 + "/" + Math.abs(url.hashCode()) + ".img";
+        return baseDir + "/" + THUMB64 + "/" + hashedKey(url) + ".img";
+    }
+
+    /** Adopt a file still stored under the pre-digest 32-bit-hash filename, so an
+     *  existing image/thumbnail cache survives the key change instead of being
+     *  silently re-downloaded in full (and leaving the old files to sit there until
+     *  eviction). Best-effort — a failed move just costs one re-download. */
+    private void adoptLegacyHashedImage(String sub, String url, String target) {
+        if (target == null || new File(target).isFile()) return;
+        File legacy = new File(baseDir + "/" + sub + "/" + Math.abs(url.hashCode()) + ".img");
+        if (!legacy.isFile()) return;
+        try {
+            Path destination = Paths.get(target);
+            Files.createDirectories(destination.getParent());
+            Files.move(legacy.toPath(), destination);
+        } catch (IOException ignored) {
+        }
     }
 
     // ---- existence check -------------------------------------------------
@@ -245,12 +261,16 @@ public final class DiskCache {
 
     public boolean hasImage(String url) {
         String p = imagePath(url);
-        return p != null && new File(p).exists();
+        if (p == null) return false;
+        adoptLegacyHashedImage(IMAGE, url, p);
+        return new File(p).exists();
     }
 
     public boolean hasThumb64(String url) {
         String p = thumb64Path(url);
-        return p != null && new File(p).exists();
+        if (p == null) return false;
+        adoptLegacyHashedImage(THUMB64, url, p);
+        return new File(p).exists();
     }
 
     // ---- read (touches lastModified for LRU) ------------------------------
@@ -283,12 +303,16 @@ public final class DiskCache {
     /** Return the cached image file path, or null. */
     public String getImage(String url) {
         String p = imagePath(url);
+        if (p == null) return null;
+        adoptLegacyHashedImage(IMAGE, url, p);
         return touch(p);
     }
 
     /** Return the cached 64x64 thumbnail file path, or null. */
     public String getThumb64(String url) {
         String p = thumb64Path(url);
+        if (p == null) return null;
+        adoptLegacyHashedImage(THUMB64, url, p);
         return touch(p);
     }
 
@@ -500,11 +524,20 @@ public final class DiskCache {
     }
 
     private static String audioKey(String mediaId) {
+        return hashedKey(mediaId);
+    }
+
+    /** Content-addressed cache filename for an arbitrary key string. Images used to
+     *  key off a 32-bit {@code String.hashCode()}: two different cover urls that
+     *  collided shared one file, so a song showed another song's artwork — and kept
+     *  showing it, since every later read was served the wrong bytes from cache.
+     *  A full digest puts that out of reach. */
+    private static String hashedKey(String value) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(mediaId.getBytes(StandardCharsets.UTF_8));
+                    .digest(value.getBytes(StandardCharsets.UTF_8));
             StringBuilder out = new StringBuilder("v2-");
-            for (byte value : digest) out.append(String.format(java.util.Locale.ROOT, "%02x", value & 0xff));
+            for (byte item : digest) out.append(String.format(java.util.Locale.ROOT, "%02x", item & 0xff));
             return out.toString();
         } catch (GeneralSecurityException e) {
             throw new AssertionError(e);

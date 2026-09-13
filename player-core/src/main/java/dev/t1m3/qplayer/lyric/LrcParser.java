@@ -135,14 +135,28 @@ public final class LrcParser {
         try {
             long min = Long.parseLong(minStr);
             long sec = Long.parseLong(secStr);
-            long frac = 0L;
-            if (fracStr != null) {
-                // 2 digits = centiseconds, 3 = ms — normalise to ms.
-                if (fracStr.length() == 2) frac = Long.parseLong(fracStr) * 10L;
-                else if (fracStr.length() == 3) frac = Long.parseLong(fracStr);
-                else frac = Long.parseLong(fracStr.substring(0, Math.min(3, fracStr.length())));
-            }
-            return min * 60_000L + sec * 1000L + frac;
+            // Sub-second digits are a decimal fraction, so their count is the scale:
+            // 1 digit = tenths, 2 = centiseconds, 3 = ms. The old fallback ran the
+            // 1-digit case through parseLong unscaled, reading "[00:12.5]" as 5ms
+            // instead of 500ms and pulling that line half a second early.
+            return min * 60_000L + sec * 1000L + fractionMs(fracStr);
+        } catch (NumberFormatException e) {
+            return 0L;
+        }
+    }
+
+    /** Sub-second digits of an LRC timestamp, as milliseconds. Shared with
+     *  {@link EsLrcParser}, which accepts the same timestamp grammar. The digits
+     *  are a decimal fraction, so their count is the scale: "5" is a tenth
+     *  (500ms), "05" a hundredth (50ms), "005" a thousandth (5ms). Right-padding
+     *  to three digits handles every length uniformly; longer runs truncate to ms. */
+    static long fractionMs(String fracStr) {
+        if (fracStr == null || fracStr.isEmpty()) return 0L;
+        String digits = fracStr.length() >= 3
+                ? fracStr.substring(0, 3)
+                : (fracStr + "000").substring(0, 3);
+        try {
+            return Long.parseLong(digits);
         } catch (NumberFormatException e) {
             return 0L;
         }

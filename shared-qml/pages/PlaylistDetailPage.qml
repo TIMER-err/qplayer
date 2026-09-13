@@ -105,16 +105,19 @@ Rectangle {
                 contentColor: player.playlistSubscribed ? Theme.color.primary : Theme.color.onSurfaceColor
                 onClicked: player.togglePlaylistSubscribe()
             }
-            // Change cover — own playlists only. Both hosts install the same picker
-            // callback: Android keeps its system gallery picker, while desktop opens
-            // a cross-platform image file chooser.
+            // Change cover — own playlists only, and only when the playlist's own
+            // source can do it (built-in netease, or a plugin that advertises
+            // playlistCover). Both hosts install the same picker callback: Android
+            // keeps its system gallery picker, while desktop opens a cross-platform
+            // image file chooser.
             IconButton {
                 Layout.alignment: Qt.AlignVCenter
                 type: "standard"
                 visible: player.loggedIn && !player.playlistLoading && player.playlistOwned
-                         && player.openSourcePlaylistId === ""
+                         && (player.openSourcePlaylistId === ""
+                             || player.sourcePlaylistCoverAvailable)
                 icon: "image"
-                onClicked: player.pickPlaylistCover(player.openPlaylistId)
+                onClicked: player.pickPlaylistCover()
             }
             // Delete — only your own playlists, and never the default liked-songs
             // (the first playlist, which can't be removed). Confirms first.

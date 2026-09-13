@@ -67,6 +67,7 @@ import com.google.gson.JsonParser;
 import io.github.timer_err.qml4j.engine.binding.Property;
 import io.github.timer_err.qml4j.runtime.color.StyleManager;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -102,8 +103,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Local files and netease lists both feed one {@link #queue} of {@link Track}s.
  * Netease tracks carry their id + metadata but resolve their CDN url lazily on
  * first play (so a whole playlist can be queued without fetching every url).
- * {@code next}/{@code prev} walk the queue; auto-advance wires
- * {@code backend.onComplete -> next}.
+ * {@code next}/{@code prev} walk the queue; in shuffle, {@code prev} pops a
+ * play-history stack so it returns the song that was actually playing rather
+ * than another random slot. Auto-advance wires {@code backend.onComplete -> next}.
  *
  * <h3>Threading</h3>
  * The qml4j renderer is single-threaded, so every {@code Property.set} must run
@@ -249,6 +251,17 @@ public final class PlayerController {
      *  failing to answer only drops its own ids. Main thread only. */
     private final Map<String, Set<String>> pluginLikedBySource = new LinkedHashMap<>();
     private final Random rng = new Random();
+    /** Shuffle-mode back-stack of previously played track identities. {@link #prev}
+     *  pops this instead of calling {@link #randomIndex()}, so "previous" means the
+     *  song that was actually playing a moment ago. Identities rather than queue
+     *  indices: {@link #removeFromQueue} renumbers slots, and a replaced queue can
+     *  drop entries; missing ids are skipped. Not persisted across sessions. */
+    private final ArrayDeque<String> shuffleHistory = new ArrayDeque<>();
+    private static final int MAX_SHUFFLE_HISTORY = 100;
+    /** True while {@link #prev} is replaying a remembered track, so that
+     *  {@link #playAt} does not push the song we are leaving back onto the stack
+     *  (which would make the next prev() bounce between two tracks). */
+    private boolean consumingShuffleHistory;
 
     // Playback control runs on the host's main thread (always alive — unlike the GL
     // render thread, which pauses in the background and would stall auto-advance);
@@ -620,6 +633,12 @@ public final class PlayerController {
     /** Whether the source of the playlist currently open supports heart
      *  recommendations — not the primary one, since 我的 lists several sources. */
     public final Property<Boolean> sourceHeartRecommendationAvailable = new Property<>(false);
+    /** Whether the open playlist's own source can replace its artwork. Scoped to
+     *  that playlist's source for the same reason as the flag above, and kept
+     *  separate from {@link #sourcePlaylistMutationAvailable} because changing a
+     *  cover is its own provider capability: a source may well support adding and
+     *  removing songs without supporting artwork upload. */
+    public final Property<Boolean> sourcePlaylistCoverAvailable = new Property<>(false);
     /** Currently opened playlist. */
     public final Property<List<NeteaseSong>> playlistTracks = new Property<>(Collections.<NeteaseSong>emptyList());
     public final Property<List<Song>> sourcePlaylistTracks =
@@ -803,17 +822,22 @@ public final class PlayerController {
      *  synchronous callback wasn't enough either — the two writes land in the
      *  same render pass and get coalesced into "no net change", so the clear
      *  is pushed out with a genuine delay to land in a separate frame before
-     *  the real message. Safe to call from any thread. */
+     *  the real message. Safe to call from any thread.
+     *
+     *  <p>The delay runs on {@link #fadeWorker}, a scheduler, rather than being a
+     *  {@code Thread.sleep} submitted to {@code worker}: worker is the general
+     *  single-threaded network queue, so a toast used to queue behind whatever
+     *  request was already running and could surface tens of seconds late (a
+     *  15s connect + 30s read timeout is the worst case) — long after whatever
+     *  the user did to trigger it. It also no longer blocks a thread to wait. */
     private void showToast(String msg) {
         post(() -> toast.set(""));
-        worker.submit(() -> {
-            try {
-                Thread.sleep(30);
-            } catch (InterruptedException ignored) {
-                Thread.currentThread().interrupt();
-            }
-            post(() -> toast.set(msg));
-        });
+        try {
+            fadeWorker.schedule(() -> post(() -> toast.set(msg)), 30, TimeUnit.MILLISECONDS);
+        } catch (RejectedExecutionException shuttingDown) {
+            // shutdown() stops fadeWorker; a toast queued past that point has no UI
+            // left to reach anyway.
+        }
     }
 
     public PlayerController(AudioBackend backend, MetadataReader metadataReader) {
@@ -1018,6 +1042,14 @@ public final class PlayerController {
                 ProviderCapability.PLAYLIST_MUTATION) != null);
         sourceHeartRecommendationAvailable.set(primaryProviderWith(
                 ProviderCapability.HEART_RECOMMENDATION) != null);
+        String openCoverPlaylist = openSourcePlaylistId.peek();
+        if (openCoverPlaylist != null && !openCoverPlaylist.isEmpty()) {
+            sourcePlaylistCoverAvailable.set(providerForMediaHas(
+                    openCoverPlaylist, ProviderCapability.PLAYLIST_COVER));
+        } else {
+            sourcePlaylistCoverAvailable.set(primaryProviderWith(
+                    ProviderCapability.PLAYLIST_COVER) != null);
+        }
         routeInstalledPluginTracks();
         refreshPrimaryPluginLoginMetadata();
         // The enabled set may have changed (enable/disable/remove), so 我的 and the
@@ -1285,6 +1317,8 @@ public final class PlayerController {
         }
         if (targetIndex < 0) throw new IllegalArgumentException("target song is not in replacement queue");
         queue.clear();
+        shuffleHistory.clear();
+        playIndex = -1;
         queue.addAll(tracks);
         currentQueuePlaylistId = 0L;
         currentQueueMediaPlaylistId = "";
@@ -2879,6 +2913,7 @@ public final class PlayerController {
         queueTracks.set(new ArrayList<>(queue));
         if (queue.isEmpty()) {
             playIndex = -1;
+            shuffleHistory.clear();
             index.set(-1);
             currentFilePath.set("");
             return;
@@ -3605,6 +3640,8 @@ public final class PlayerController {
         currentQueuePlaylistId = sourcePlaylistId;
         if (sourcePlaylistId != 0L) currentQueueMediaPlaylistId = "";
         queue.clear();
+        shuffleHistory.clear();
+        playIndex = -1;
         queue.addAll(q);
         queueTracks.set(new ArrayList<>(queue));
         onMain(() -> playAt(start));
@@ -3671,6 +3708,7 @@ public final class PlayerController {
         needsReplay = false;
         scrobbleOutgoingTrack(pendingNaturalEnd);
         pendingNaturalEnd = false;
+        rememberShufflePredecessor(i);
         playIndex = i;
         final long currentCoverRevision = coverRevision.incrementAndGet();
         // Consumed unconditionally on every call (see field comment), so a saved
@@ -3722,7 +3760,7 @@ public final class PlayerController {
                     : t.neteaseId != 0 && likedSet.contains(t.neteaseId));
             currentLikeable.set(pluginLikeable || t.neteaseId != 0);
         });
-        updateCover(t, i, currentCoverRevision);
+        updateCover(t, currentCoverRevision);
 
         if (t.source == Track.Source.LOCAL) {
             String src = t.playable();
@@ -3755,7 +3793,7 @@ public final class PlayerController {
                 notifyPlayback();
                 // The audio fast-path skips resolveAndPlayNetease, so load the lyrics
                 // (cache-first inside) here too — else a cached song plays wordless.
-                loadNeteaseLyrics(t, i);
+                loadNeteaseLyrics(t);
                 // Same reason: cacheAudioAsync (which downloads the 64x64 offline-
                 // playlist thumbnail) never runs on this path either, so a track
                 // cached before that thumbnail existed — or just replayed a second
@@ -3768,7 +3806,7 @@ public final class PlayerController {
                 playingIntent = true;
                 post(() -> playing.set(true));
                 notifyPlayback();
-                loadNeteaseLyrics(t, i);
+                loadNeteaseLyrics(t);
                 // Populate the disk cache so the next play is local (skip trial clips).
                 cacheAudioAsync(t);
             } else {
@@ -3784,14 +3822,14 @@ public final class PlayerController {
                 playingIntent = true;
                 post(() -> playing.set(true));
                 notifyPlayback();
-                loadPluginLyrics(t, i);
+                loadPluginLyrics(t);
             } else if (hasFreshPluginStream(t)) {
                 Logger.info("play plugin {} (cached url): {}", providerOf(t), t.title);
                 playBackend(t.playable(), t.streamHeaders, resumeMs);
                 playingIntent = true;
                 post(() -> playing.set(true));
                 notifyPlayback();
-                loadPluginLyrics(t, i);
+                loadPluginLyrics(t);
                 cachePluginAudioAfterStart(t);
             } else {
                 t.streamUrl = null;
@@ -3804,13 +3842,14 @@ public final class PlayerController {
     }
 
     /** Feed coverBytes for the fluid backdrop: local tracks carry embedded
-     *  bytes; NETEASE tracks download lazily off-thread, keyed by queue index
-     *  so a stale fetch for a skipped-past track is dropped. */
-    private void updateCover(Track t, int expectedIndex, long revision) {
+     *  bytes; NETEASE tracks download lazily off-thread, keyed by the caller's
+     *  {@link #coverRevision} so a stale fetch for a skipped-past track is dropped
+     *  (see {@link #applyCoverAndPath} for why the queue index cannot do that job). */
+    private void updateCover(Track t, long revision) {
         if (t.coverBytes != null) {   // present (embedded, or preloaded by preloadTrack)
             final byte[] cb = t.coverBytes;
             final String path = coverDiskPath(t);   // local file for the QML cover image
-            post(() -> { if (playIndex == expectedIndex) { applyCover(cb, revision); coverPath.set(path); } });
+            post(() -> applyCoverAndPath(cb, path, revision));
             notifyPlayback();
             return;
         }
@@ -3835,12 +3874,7 @@ public final class PlayerController {
                 // backgrounded, so a background track-switch would otherwise show stale art.
                 t.coverBytes = data;
                 final String path = localCover;
-                post(() -> {
-                    if (playIndex == expectedIndex) {
-                        applyCover(data, revision);
-                        coverPath.set(path);
-                    }
-                });
+                post(() -> applyCoverAndPath(data, path, revision));
                 notifyPlayback();
                 return;
             }
@@ -3849,12 +3883,7 @@ public final class PlayerController {
         // usually arrives well before the 1024px lyric/background copy below.
         // Its lower-quality seed is replaced (never overwritten) by the full one.
         scheduleFastMonet(t, revision);
-        post(() -> {
-            if (playIndex == expectedIndex) {
-                applyCover(null, revision);
-                coverPath.set("");
-            }
-        });
+        post(() -> applyCoverAndPath(null, "", revision));
         if (t.coverUrl == null || t.coverUrl.isEmpty()) return;
         // The original (netease covers are commonly 1000-3000px+) was being fetched
         // uncapped for the fluid lyric backdrop -- on a slow connection that routinely
@@ -3872,7 +3901,7 @@ public final class PlayerController {
             if (data != null && data.length > 0) {
                 t.coverBytes = data;
                 final String path = cachedImg;
-                post(() -> { if (playIndex == expectedIndex) { applyCover(data, revision); coverPath.set(path); } });
+                post(() -> applyCoverAndPath(data, path, revision));
                 notifyPlayback();
                 return;
             }
@@ -3890,12 +3919,7 @@ public final class PlayerController {
                 t.coverBytes = data;
                 String imgPath = diskCache.imagePath(url);
                 if (imgPath != null) writeBytesToFile(data, imgPath);
-                post(() -> {
-                    if (playIndex == expectedIndex) {
-                        applyCover(data, revision);
-                        if (imgPath != null) coverPath.set(imgPath);
-                    }
-                });
+                post(() -> applyCoverAndPath(data, imgPath, revision));
                 notifyPlayback();
             });
             return;
@@ -3909,14 +3933,32 @@ public final class PlayerController {
             String imgPath = diskCache.imagePath(url);
             if (imgPath != null) writeBytesToFile(data, imgPath);
             final String path = imgPath;
-            post(() -> {
-                if (playIndex == expectedIndex) {
-                    applyCover(data, revision);
-                    if (path != null) coverPath.set(path);
-                }
-            });
+            post(() -> applyCoverAndPath(data, path, revision));
             notifyPlayback(); // refresh the media-notification artwork
         });
+    }
+
+    /** Commit one track switch's cover bytes AND its on-disk path together, on the
+     *  render thread.
+     *
+     *  <p>{@link #coverRevision} is the guard, not the queue index these callbacks
+     *  used to compare. An index does not identify a track from either direction:
+     *  two consecutive selections can land on the SAME slot (playlist A's row 3 ->
+     *  playlist B's row 3), letting a superseded download through, while
+     *  {@link #removeFromQueue} renumbers the CURRENT track's slot without any track
+     *  change at all, so an index check would throw away artwork that is still
+     *  wanted. The revision is bumped once per {@link #playAt}, which is exactly the
+     *  "is this still the selection I was loaded for" question.
+     *
+     *  <p>{@link #applyCover} already carried this check for the bytes, but
+     *  {@link #coverPath} was set outside it — and MiniPlayer.qml / LyricOverlay.qml
+     *  bind the now-playing art to coverPath, so the previous song's cover stayed on
+     *  screen over the new one. A null {@code path} leaves coverPath untouched (the
+     *  caller had no file); pass "" to deliberately clear it. */
+    private void applyCoverAndPath(byte[] data, String path, long revision) {
+        if (coverRevision.get() != revision) return;
+        applyCover(data, revision);
+        if (path != null) coverPath.set(path);
     }
 
     /** Push cover bytes (render thread) and kick off Monet seed extraction on its
@@ -4253,8 +4295,47 @@ public final class PlayerController {
             if (queue.isEmpty()) return;
             int n = queue.size();
             suppressNextFadeIn = true;
+            if (playMode.peek() == 1) {
+                int remembered = popShuffleHistoryIndex();
+                if (remembered >= 0) {
+                    consumingShuffleHistory = true;
+                    try {
+                        playAt(remembered);
+                    } finally {
+                        consumingShuffleHistory = false;
+                    }
+                    return;
+                }
+            }
             playAt(playMode.peek() == 1 ? randomIndex() : (playIndex - 1 + n) % n);
         });
+    }
+
+    /** Record the track we are leaving so shuffle's {@link #prev} can find it.
+     *  No-op when replaying the same slot, when prev() itself is consuming the
+     *  stack, or when the outgoing id is empty/identical to the incoming one. */
+    private void rememberShufflePredecessor(int incomingIndex) {
+        if (consumingShuffleHistory) return;
+        if (playIndex < 0 || playIndex >= queue.size() || playIndex == incomingIndex) return;
+        if (incomingIndex < 0 || incomingIndex >= queue.size()) return;
+        String outgoing = queue.get(playIndex).canonicalId();
+        if (outgoing == null || outgoing.isEmpty()) return;
+        if (outgoing.equals(queue.get(incomingIndex).canonicalId())) return;
+        shuffleHistory.addLast(outgoing);
+        while (shuffleHistory.size() > MAX_SHUFFLE_HISTORY) shuffleHistory.removeFirst();
+    }
+
+    /** Most recent remembered track that is still in the queue and is not the
+     *  one already playing. Skips ids dropped by a queue edit. */
+    private int popShuffleHistoryIndex() {
+        while (!shuffleHistory.isEmpty()) {
+            String id = shuffleHistory.removeLast();
+            if (id == null || id.isEmpty()) continue;
+            for (int i = 0; i < queue.size(); i++) {
+                if (i != playIndex && id.equals(queue.get(i).canonicalId())) return i;
+            }
+        }
+        return -1;
     }
 
     // Track finished on its own: repeat-one replays it, shuffle jumps randomly,
@@ -4269,6 +4350,10 @@ public final class PlayerController {
     }
 
     private void performAutoAdvance() {
+        // autoAdvance() and pluginAppUnavailable() both check this, but the plugin
+        // host's "playback.next" calls straight in — and the list-loop branch below
+        // divides by the queue size.
+        if (queue.isEmpty()) return;
         switch (playMode.peek()) {
             case 2:
                 playAt(playIndex);
@@ -4395,12 +4480,12 @@ public final class PlayerController {
      *  own). tryAmllTtml hits the disk cache first, so a previously-played song shows
      *  its lyrics with no network. Called on every netease play — including the
      *  audio-cache fast path, which bypasses the URL resolve that used to fetch them. */
-    private void loadNeteaseLyrics(Track t, int expectedIndex) {
+    private void loadNeteaseLyrics(Track t) {
         final long songId = t.neteaseId;
         if (songId == 0) return;
         List<LyricLine> mem = lyricMem.get(songId);
         if (mem != null) {   // preloaded / recently played -> apply instantly
-            post(() -> { if (playIndex == expectedIndex) applyLyrics(mem); });
+            post(() -> { if (isCurrentTrack(t)) applyLyrics(mem); });
             return;
         }
         // (Lyrics were already blanked at the track switch in playAt; the async fetch
@@ -4409,16 +4494,16 @@ public final class PlayerController {
         // sitting behind it -- see lyricWorker's field javadoc.
         lyricWorker.submit(() -> {
             List<LyricLine> ly = fetchNeteaseLyrics(songId);
-            post(() -> { if (playIndex == expectedIndex) applyLyrics(ly); });
+            post(() -> { if (isCurrentTrack(t)) applyLyrics(ly); });
         });
     }
 
-    private void loadPluginLyrics(Track track, int expectedIndex) {
+    private void loadPluginLyrics(Track track) {
         final String id = track.canonicalId();
         if (id.isEmpty() || !pluginHasCapability(providerOf(track), ProviderCapability.LYRICS)) return;
         List<LyricLine> cached = pluginLyricMem.get(id);
         if (cached != null) {
-            post(() -> { if (playIndex == expectedIndex) applyLyrics(cached); });
+            post(() -> { if (isCurrentTrack(track)) applyLyrics(cached); });
             return;
         }
         final MediaId mediaId;
@@ -4442,8 +4527,21 @@ public final class PlayerController {
                 return;
             }
             if (!lines.isEmpty()) pluginLyricMem.put(id, lines);
-            post(() -> { if (playIndex == expectedIndex) applyLyrics(lines); });
+            post(() -> { if (isCurrentTrack(track)) applyLyrics(lines); });
         });
+    }
+
+    /** True while {@code t} is still the track a loader fetched data for. Compares
+     *  track identity rather than the queue slot it occupied: two consecutive
+     *  selections can land on the same index (playlist A's row 3 -> playlist B's
+     *  row 3), and a bare index check then lets a superseded fetch publish the
+     *  previous song's lyrics over the new one. Identity also survives an in-place
+     *  retry — onPlaybackError re-resolves the very same track — which a monotonic
+     *  revision counter would wrongly treat as a track change and discard. */
+    private boolean isCurrentTrack(Track t) {
+        if (t == null) return false;
+        Track current = currentTrack();
+        return current != null && current.canonicalId().equals(t.canonicalId());
     }
 
     /** Resolve a song's lyrics (mem cache -> AMLL TTML -> netease), caching non-empty
@@ -4526,18 +4624,45 @@ public final class PlayerController {
     }
 
     private void drainAutoCacheQueue() {
-        while (true) {
-            Track t;
+        // The running flag has to be cleared even on an unexpected throw: leaving it
+        // set makes every later cacheAudioAsync() return at its `if (autoCacheRunning)`
+        // check, silently disabling auto-caching for the rest of the session with no
+        // way back. The layers below all catch their own failures today, so this is
+        // insurance against an Error rather than a live path.
+        try {
+            while (true) {
+                Track t;
+                synchronized (autoCacheLock) {
+                    t = autoCachePending;
+                    autoCachePending = null;
+                    if (t == null) return;
+                }
+                diskCache.cacheAudio(t.streamUrl, t.neteaseId);
+                mediaMetaIndex.save();
+            }
+        } finally {
+            // Clearing the flag is not enough on its own: between the loop's own
+            // `pending == null` check (which releases the lock to return) and this
+            // block, a cacheAudioAsync() can have queued a track and seen
+            // autoCacheRunning still true, so it submitted nothing. Re-check under
+            // the lock and hand the drain off to a fresh task when that happened.
+            boolean requeue;
             synchronized (autoCacheLock) {
-                t = autoCachePending;
-                autoCachePending = null;
-                if (t == null) {
-                    autoCacheRunning = false;
-                    return;
+                requeue = autoCachePending != null;
+                autoCacheRunning = requeue;
+            }
+            if (requeue) {
+                try {
+                    cacheWorker.submit(this::drainAutoCacheQueue);
+                } catch (RejectedExecutionException shuttingDown) {
+                    // shutdown() stopped the pool. Release the flag rather than
+                    // letting this throw out of a finally block and mask whatever
+                    // sent us here; there is no session left to auto-cache for.
+                    synchronized (autoCacheLock) {
+                        autoCacheRunning = false;
+                    }
                 }
             }
-            diskCache.cacheAudio(t.streamUrl, t.neteaseId);
-            mediaMetaIndex.save();
         }
     }
 
@@ -4672,8 +4797,8 @@ public final class PlayerController {
                         coverUrl.set(orEmpty(thumbUrl(t.coverUrl, "512")));
                         durationMs.set(t.durationMs);
                     });
-                    updateCover(t, expectedIndex, expectedCoverRevision);
-                    loadNeteaseLyrics(t, expectedIndex);
+                    updateCover(t, expectedCoverRevision);
+                    loadNeteaseLyrics(t);
                     Logger.info("play netease: {} — {}", t.title, playUrl);
                     playBackend(playUrl, resumeMs);
                     playingIntent = true;
@@ -4725,8 +4850,8 @@ public final class PlayerController {
                 durationMs.set(track.durationMs);
                 if (stream.trial) showToast(I18n.tr("toast.play.trialOnly"));
             });
-            updateCover(track, expectedIndex, expectedCoverRevision);
-            loadPluginLyrics(track, expectedIndex);
+            updateCover(track, expectedCoverRevision);
+            loadPluginLyrics(track);
             Logger.info("play plugin {}: {}", id.provider(), track.title);
             playBackend(stream.url, stream.headers, resumeMs);
             playingIntent = true;
@@ -5179,13 +5304,13 @@ public final class PlayerController {
                 // Load the full cover art + lyrics now (both cache-first internally)
                 // instead of waiting for the user to press play — playAt() normally
                 // does this, but playAt() itself isn't called until then.
-                updateCover(cur, idx, restoredCoverRevision);
+                updateCover(cur, restoredCoverRevision);
                 if (cur.source == Track.Source.LOCAL) {
                     loadLocalLyrics(cur);
                 } else if (cur.source == Track.Source.NETEASE) {
-                    loadNeteaseLyrics(cur, idx);
+                    loadNeteaseLyrics(cur);
                 } else if (cur.source == Track.Source.PLUGIN) {
-                    loadPluginLyrics(cur, idx);
+                    loadPluginLyrics(cur);
                 }
             }
         } catch (Throwable e) {
@@ -6488,6 +6613,8 @@ public final class PlayerController {
         // heart-recommendation button (and vice versa).
         sourceHeartRecommendationAvailable.set(
                 pluginHasCapability(id.provider(), ProviderCapability.HEART_RECOMMENDATION));
+        sourcePlaylistCoverAvailable.set(
+                pluginHasCapability(id.provider(), ProviderCapability.PLAYLIST_COVER));
         playlistLoading.set(true);
         playlistOffline.set(false);
         playlistTracks.set(Collections.<NeteaseSong>emptyList());
@@ -6968,13 +7095,15 @@ public final class PlayerController {
     }
 
     /** Set a playlist's cover to a local image file, then refresh the detail view
-     *  (and 我的, whose cards also show it). Owned-playlist enforcement lives in the
-     *  QML (same as the delete button — {@code playlistOwned}), not here, since the
-     *  server itself rejects a cover change on a playlist you don't own. */
-    public void setPlaylistCover(long playlistId, String localImagePath) {
-        if (uid == 0 || playlistId == 0 || localImagePath == null) return;
+     *  (and 我的, whose cards also show it). {@code playlistKey} is the open
+     *  playlist's canonical media id, or a leftover numeric netease id.
+     *  Owned-playlist enforcement lives in the QML (same as the delete button —
+     *  {@code playlistOwned}), not here. */
+    public void setPlaylistCover(String playlistKey, String localImagePath) {
+        if (playlistKey == null || localImagePath == null) return;
+        final String key = playlistKey.trim();
         final String path = localImagePath.trim();
-        if (path.isEmpty()) return;
+        if (key.isEmpty() || path.isEmpty()) return;
         worker.submit(() -> {
             byte[] data;
             try {
@@ -6984,23 +7113,41 @@ public final class PlayerController {
                 showToast(I18n.tr("toast.cover.readFailed"));
                 return;
             }
-            uploadPlaylistCover(playlistId, data, new java.io.File(path).getName());
+            uploadPlaylistCover(key, data, new java.io.File(path).getName());
         });
     }
 
     /** Set a playlist's cover from raw image bytes — Android's native gallery picker
      *  hands over a {@code content://} URI with no filesystem path to read, so the
      *  host reads it itself and passes the bytes straight through. */
-    public void setPlaylistCoverBytes(long playlistId, byte[] data, String filename) {
-        if (uid == 0 || playlistId == 0 || data == null) return;
-        worker.submit(() -> uploadPlaylistCover(playlistId, data, filename == null ? "cover.jpg" : filename));
+    public void setPlaylistCoverBytes(String playlistKey, byte[] data, String filename) {
+        if (playlistKey == null || data == null) return;
+        final String key = playlistKey.trim();
+        if (key.isEmpty()) return;
+        worker.submit(() -> uploadPlaylistCover(key, data, filename == null ? "cover.jpg" : filename));
     }
 
-    private void uploadPlaylistCover(long playlistId, byte[] data, String filename) {
+    private void uploadPlaylistCover(String playlistKey, byte[] data, String filename) {
         if (data.length == 0) {
             showToast(I18n.tr("toast.cover.empty"));
             return;
         }
+        if (data.length > PluginProviderService.MAX_COVER_IMAGE_BYTES) {
+            showToast(I18n.tr("toast.cover.tooLarge"));
+            return;
+        }
+        if (playlistKey.indexOf(':') >= 0) {
+            uploadPluginPlaylistCover(playlistKey, data, filename);
+            return;
+        }
+        long playlistId;
+        try {
+            playlistId = Long.parseLong(playlistKey);
+        } catch (NumberFormatException ignored) {
+            showToast(I18n.tr("toast.id.playlist"));
+            return;
+        }
+        if (uid == 0 || playlistId == 0) return;
         try {
             long imgId = netease.uploadImage(data, filename);
             boolean ok = imgId != 0 && netease.updatePlaylistCover(playlistId, imgId);
@@ -7019,9 +7166,48 @@ public final class PlayerController {
         }
     }
 
+    private void uploadPluginPlaylistCover(String playlistKey, byte[] data, String filename) {
+        final MediaId id;
+        try {
+            id = MediaId.parse(playlistKey).requireKind(dev.t1m3.qplayer.media.MediaKind.PLAYLIST);
+        } catch (IllegalArgumentException error) {
+            showToast(I18n.tr("toast.id.playlist"));
+            return;
+        }
+        if (!pluginHasCapability(id.provider(), ProviderCapability.PLAYLIST_COVER)) {
+            showToast(I18n.tr("toast.cover.updateFailed"));
+            return;
+        }
+        pluginProviders.setPlaylistCover(id, data, filename, mimeFromFilename(filename))
+                .whenComplete((success, error) -> post(() -> {
+                    if (error == null && Boolean.TRUE.equals(success)) {
+                        showToast(I18n.tr("toast.cover.updated"));
+                        if (id.toString().equals(openSourcePlaylistId.peek())) {
+                            openMediaPlaylist(id.toString());
+                        }
+                        loadMyPlaylists();
+                    } else {
+                        showToast(I18n.tr("toast.cover.updateFailed"));
+                    }
+                }));
+    }
+
+    private static String mimeFromFilename(String filename) {
+        if (filename == null) return "";
+        String lower = filename.toLowerCase(Locale.ROOT);
+        int dot = lower.lastIndexOf('.');
+        String ext = dot >= 0 ? lower.substring(dot + 1) : "";
+        if ("png".equals(ext)) return "image/png";
+        if ("gif".equals(ext)) return "image/gif";
+        if ("webp".equals(ext)) return "image/webp";
+        if ("bmp".equals(ext)) return "image/bmp";
+        if ("jpg".equals(ext) || "jpeg".equals(ext)) return "image/jpeg";
+        return "";
+    }
+
     /** Host hook to launch the platform image picker for a playlist cover. */
     public interface CoverPicker {
-        void pick(long playlistId);
+        void pick(String playlistKey);
     }
 
     private volatile CoverPicker coverPicker;
@@ -7030,12 +7216,23 @@ public final class PlayerController {
         this.coverPicker = p;
     }
 
-    /** QML calls this to launch the platform picker. Android reads the picked image's
-     *  bytes and calls {@link #setPlaylistCoverBytes}; desktop passes the selected
-     *  local path to {@link #setPlaylistCover}. */
-    public void pickPlaylistCover(long playlistId) {
+    /** QML calls this to launch the platform picker for the currently open playlist.
+     *  Android reads the picked image's bytes and calls {@link #setPlaylistCoverBytes};
+     *  desktop passes the selected local path to {@link #setPlaylistCover}. */
+    public void pickPlaylistCover() {
+        String sourceId = openSourcePlaylistId.peek();
+        if (sourceId != null && !sourceId.isEmpty()) {
+            pickPlaylistCover(sourceId);
+            return;
+        }
+        if (currentPlaylistId != 0L) pickPlaylistCover(Long.toString(currentPlaylistId));
+    }
+
+    public void pickPlaylistCover(String playlistKey) {
+        if (playlistKey == null || playlistKey.trim().isEmpty()) return;
+        final String key = playlistKey.trim();
         CoverPicker p = coverPicker;
-        if (p != null) onMain(() -> p.pick(playlistId));
+        if (p != null) onMain(() -> p.pick(key));
     }
 
     /** Delete a playlist owned by the user, then refresh 我的. */

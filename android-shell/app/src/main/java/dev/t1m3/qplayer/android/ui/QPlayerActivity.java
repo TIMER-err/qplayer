@@ -79,9 +79,9 @@ public final class QPlayerActivity extends Activity {
     private static final int REQ_WEB_LOGIN = 4;
     private static final int REQ_PLUGIN_PICK = 5;
 
-    /** Playlist id awaiting a picked cover image, set right before launching the
-     *  gallery picker and consumed in {@link #onActivityResult}. */
-    private long pendingCoverPlaylistId;
+    /** Canonical playlist id awaiting a picked cover image, set right before
+     *  launching the gallery picker and consumed in {@link #onActivityResult}. */
+    private String pendingCoverPlaylistKey;
 
     private PlayerController controller;
     private SettingsCore settings;
@@ -587,8 +587,8 @@ public final class QPlayerActivity extends Activity {
 
     /** Launch the system image picker for a new playlist cover ({@link PlayerController.CoverPicker}
      *  host hook); the result is read and uploaded in {@link #onActivityResult}. */
-    private void pickPlaylistCover(long playlistId) {
-        pendingCoverPlaylistId = playlistId;
+    private void pickPlaylistCover(String playlistKey) {
+        pendingCoverPlaylistKey = playlistKey;
         Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
         intent.setType("image/*");
         try {
@@ -665,7 +665,8 @@ public final class QPlayerActivity extends Activity {
         if (requestCode != REQ_COVER_PICK || resultCode != Activity.RESULT_OK || data == null) return;
         android.net.Uri uri = data.getData();
         if (uri == null) return;
-        final long playlistId = pendingCoverPlaylistId;
+        final String playlistKey = pendingCoverPlaylistKey;
+        if (playlistKey == null || playlistKey.isEmpty()) return;
         new Thread(() -> {
             try (InputStream in = getContentResolver().openInputStream(uri)) {
                 if (in == null) return;
@@ -673,7 +674,7 @@ public final class QPlayerActivity extends Activity {
                 byte[] chunk = new byte[16384];
                 int n;
                 while ((n = in.read(chunk)) > 0) buf.write(chunk, 0, n);
-                controller.setPlaylistCoverBytes(playlistId, buf.toByteArray(), queryDisplayName(uri));
+                controller.setPlaylistCoverBytes(playlistKey, buf.toByteArray(), queryDisplayName(uri));
             } catch (Throwable e) {
                 dev.t1m3.qplayer.util.Logger.warn("read picked cover failed: {}", e.toString());
             }

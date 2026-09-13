@@ -236,9 +236,9 @@ public final class Main {
         settings.setDirectoryPicker((initialPath, onPicked) ->
                 DesktopFilePicker.pickDirectory(initialPath,
                         selected -> window.postRenderTask(() -> onPicked.accept(selected))));
-        controller.setCoverPicker(playlistId ->
+        controller.setCoverPicker(playlistKey ->
                 DesktopFilePicker.pickImage(selected -> window.postRenderTask(() ->
-                        controller.setPlaylistCover(playlistId, selected))));
+                        controller.setPlaylistCover(playlistKey, selected))));
         controller.setPluginPicker(() -> DesktopFilePicker.pickPlugin(
                 controller::inspectPluginPackage));
 

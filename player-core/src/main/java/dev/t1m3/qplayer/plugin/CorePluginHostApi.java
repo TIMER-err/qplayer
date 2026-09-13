@@ -484,6 +484,19 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
             }
         }
         if (!allowed) throw new SecurityException("network domain is not declared: " + host);
+        // Screen the declared host's addresses so a plugin cannot aim a permitted
+        // name at the loopback/LAN services around it.
+        //
+        // Note this is resolve-then-connect: HttpURLConnection performs its own
+        // lookup afterwards, so a hostile DNS server answering with a public address
+        // here and 127.0.0.1 there (classic rebinding) is not excluded by this check
+        // alone. What closes it in practice is TLS — the local service the second
+        // answer points at cannot present a valid certificate for the declared name,
+        // so the handshake fails before any body is read. That leaves plain HTTP as
+        // the only exposed shape, and reaching it already requires the separately
+        // declared, user-visible CLEAR_TEXT_NETWORK permission checked above.
+        // Removing the gap outright needs an HTTP client that can be pinned to an
+        // already-vetted address, which HttpURLConnection does not offer.
         if (!manifest.permissionSet().contains(PluginPermission.LOCAL_NETWORK)) {
             for (InetAddress address : InetAddress.getAllByName(host)) {
                 if (address.isAnyLocalAddress() || address.isLoopbackAddress()

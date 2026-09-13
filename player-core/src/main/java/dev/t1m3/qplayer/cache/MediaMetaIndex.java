@@ -140,14 +140,28 @@ public final class MediaMetaIndex {
         return result;
     }
 
-    public void save() {
-        if (!dirty) return;
+    /** Synchronized because this is called from more than one pool: the search
+     *  workers persist newly-seen results while the cache worker persists tracks it
+     *  just downloaded. Unsynchronized, one writer could snapshot the map, a second
+     *  could upsert (setting dirty), and the first could then clear dirty after its
+     *  own write — making the second's save() return early and drop that entry until
+     *  some later upsert happened to set the flag again. Claiming the flag under the
+     *  lock alongside the snapshot keeps the two in step. */
+    public synchronized void save() {
+        List<Entry> items;
+        synchronized (byId) {
+            if (!dirty) return;
+            items = new ArrayList<>(byId.values());
+            dirty = false;
+        }
         try {
             State state = new State();
-            synchronized (byId) { state.items = new ArrayList<>(byId.values()); }
+            state.items = items;
             StorageFiles.writeUtf8Atomic(file, gson.toJson(state));
-            dirty = false;
         } catch (Throwable error) {
+            // Put the flag back so the next save() retries instead of treating the
+            // failed write as persisted.
+            dirty = true;
             Logger.warn("MediaMetaIndex save failed: {}", error.getMessage());
         }
     }

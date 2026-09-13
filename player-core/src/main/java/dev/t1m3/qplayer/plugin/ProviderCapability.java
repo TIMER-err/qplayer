@@ -9,6 +9,11 @@ public enum ProviderCapability {
     HOME("home"), ACCOUNT("account"), USER_PLAYLISTS("userPlaylists"), RECENT("recent"),
     RESOLVE_STREAM("resolveStream"), LYRICS("lyrics"), SCROBBLE("scrobble"),
     LIKE("like"), PLAYLIST_MUTATION("playlistMutation"),
+    /** Replace a playlist's artwork. Separate from {@link #PLAYLIST_MUTATION}
+     * because it carries an image payload rather than song ids, and because the
+     * host needs to know whether a given source can do it at all — the change-cover
+     * action stays hidden on sources that cannot, instead of failing on tap. */
+    PLAYLIST_COVER("playlistCover"),
     HEART_RECOMMENDATION("heartRecommendation"), SHARE("share"),
     MATCH_SONG("matchSong"), LOGIN("login"),
     /** Manifest-only compatibility for pre-migration packages. The host does not

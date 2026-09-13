@@ -28,6 +28,11 @@ public final class PluginProviderService {
     private static final int MAX_DESCRIPTION_CHARS = 1024 * 1024;
     private static final int MAX_CURSOR_CHARS = 8192;
     private static final int MAX_STREAM_HEADERS = 64;
+    /** Upper bound on a playlist-cover image, before base64. Providers cap artwork
+     *  well below this; the limit exists so a mis-picked file (a RAW photo, a video
+     *  renamed to .jpg) fails with a clear message instead of inflating by 4/3 into
+     *  a multi-megabyte string handed to the plugin actor. */
+    public static final int MAX_COVER_IMAGE_BYTES = 8 * 1024 * 1024;
     private final PluginManager manager;
     private final CorePluginHostApi hostApi;
 
@@ -218,6 +223,38 @@ public final class PluginProviderService {
         arguments.put("songIds", nativeIds);
         return manager.invoke(playlistId.provider(),
                         ProviderCapability.PLAYLIST_MUTATION.wireName(), arguments)
+                .thenApply(PluginProviderService::successValue);
+    }
+
+    /**
+     * Replace a playlist's artwork with a picked image.
+     *
+     * <p>The bytes are base64'd rather than passed through as a byte array because
+     * the plugin boundary is JSON-shaped; a JS handler receives {@code imageBase64}
+     * as a plain string. Whatever provider-specific upload dance produces an image
+     * id — and any cropping or aspect requirement — belongs to the plugin: the host
+     * deliberately forwards the file the user chose, unmodified.
+     *
+     * @param filename the picked file's display name, which some providers use to
+     *                 infer a format; never a path.
+     * @param mimeType best-effort content type, or "" when the host could not tell.
+     */
+    public CompletableFuture<Boolean> setPlaylistCover(MediaId playlistId, byte[] image,
+                                                        String filename, String mimeType) {
+        playlistId.requireKind(MediaKind.PLAYLIST);
+        if (image == null || image.length == 0) {
+            throw new IllegalArgumentException("playlist cover image is empty");
+        }
+        if (image.length > MAX_COVER_IMAGE_BYTES) {
+            throw new IllegalArgumentException("playlist cover image is too large");
+        }
+        Map<String, Object> arguments = new LinkedHashMap<>();
+        arguments.put("playlistId", playlistId.nativeId());
+        arguments.put("imageBase64", java.util.Base64.getEncoder().encodeToString(image));
+        arguments.put("filename", boundedString(filename, MAX_LABEL_CHARS, "cover.filename", false));
+        arguments.put("mimeType", boundedString(mimeType, MAX_LABEL_CHARS, "cover.mimeType", false));
+        return manager.invoke(playlistId.provider(),
+                        ProviderCapability.PLAYLIST_COVER.wireName(), arguments)
                 .thenApply(PluginProviderService::successValue);
     }
 

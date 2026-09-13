@@ -106,9 +106,16 @@ Each advertised capability maps to a same-named handler:
 | `login` | operation `methods`, `begin`, `poll`, `submit`, or `logout` |
 | `like` | operation `list` or `set` |
 | `playlistMutation` | `add`, `remove`, `subscribe`, `unsubscribe`, `delete`, or `create` |
+| `playlistCover` | `{playlistId, imageBase64, filename, mimeType}` → `{success}` |
 | `scrobble` | playback report |
 | `heartRecommendation` | seed song and optional playlist → songs |
 | `share` | canonical entity → share URL/text |
+
+`playlistCover` is separate from `playlistMutation` because it carries an image
+payload rather than song ids, and so the change-cover action can stay hidden on
+sources that cannot upload artwork. The host forwards the picked file unmodified
+(size-capped, as base64) and leaves cropping or provider-specific upload to the
+plugin.
 
 `home` may also return `sections`: up to 6 `{title, playlists}` groups (30
 playlists each) drawn above the plain recommendation grid, for lists a source

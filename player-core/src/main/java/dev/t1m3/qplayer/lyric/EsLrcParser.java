@@ -76,12 +76,6 @@ public final class EsLrcParser {
     private static long parseTime(String minStr, String secStr, String fracStr) {
         long min = Long.parseLong(minStr);
         long sec = Long.parseLong(secStr);
-        long frac = 0L;
-        if (fracStr != null) {
-            if (fracStr.length() == 2) frac = Long.parseLong(fracStr) * 10L;
-            else if (fracStr.length() == 3) frac = Long.parseLong(fracStr);
-            else frac = Long.parseLong(fracStr.substring(0, Math.min(3, fracStr.length())));
-        }
-        return min * 60_000L + sec * 1000L + frac;
+        return min * 60_000L + sec * 1000L + LrcParser.fractionMs(fracStr);
     }
 }

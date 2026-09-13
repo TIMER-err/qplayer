@@ -498,6 +498,78 @@ public class PlayerControllerPlaybackTest {
         }
     }
 
+    @Test
+    public void shufflePrevReturnsTheTrackThatWasActuallyPlaying() throws Exception {
+        String oldBase = AppDirs.base();
+        String oldCacheBase = AppDirs.cacheBase();
+        PlayerController controller = null;
+        try {
+            Path base = temporaryFolder.newFolder("shuffle-prev").toPath();
+            AppDirs.setBase(base.toString());
+            AppDirs.setCacheBase(base.resolve("cache").toString());
+            String queue = "{\"playIndex\":0,\"positionMs\":0,\"playMode\":0,\"tracks\":["
+                    + "{\"source\":\"LOCAL\",\"title\":\"one\",\"durationMs\":120000,\"filePath\":\"one.mp3\"},"
+                    + "{\"source\":\"LOCAL\",\"title\":\"two\",\"durationMs\":120000,\"filePath\":\"two.mp3\"},"
+                    + "{\"source\":\"LOCAL\",\"title\":\"three\",\"durationMs\":120000,\"filePath\":\"three.mp3\"}]}";
+            Files.write(base.resolve("queue.json"), queue.getBytes(StandardCharsets.UTF_8));
+
+            controller = new PlayerController(
+                    new FakeAudioBackend(), track -> { }, NeteaseClient.INSTANCE);
+            controller.setFadeEnabled(false);
+            controller.playQueueIndex(0);
+            controller.setPlayMode(1);
+            controller.next();
+            assertTrue(playIndex(controller) != 0);
+            controller.prev();
+            assertEquals("prev in shuffle must return the song next() just left",
+                    0, playIndex(controller));
+        } finally {
+            if (controller != null) controller.shutdown();
+            AppDirs.setBase(oldBase);
+            AppDirs.setCacheBase(oldCacheBase);
+        }
+    }
+
+    @Test
+    public void shufflePrevWalksPlayHistoryWithoutBouncing() throws Exception {
+        String oldBase = AppDirs.base();
+        String oldCacheBase = AppDirs.cacheBase();
+        PlayerController controller = null;
+        try {
+            Path base = temporaryFolder.newFolder("shuffle-prev-stack").toPath();
+            AppDirs.setBase(base.toString());
+            AppDirs.setCacheBase(base.resolve("cache").toString());
+            String queue = "{\"playIndex\":0,\"positionMs\":0,\"playMode\":0,\"tracks\":["
+                    + "{\"source\":\"LOCAL\",\"title\":\"one\",\"durationMs\":120000,\"filePath\":\"one.mp3\"},"
+                    + "{\"source\":\"LOCAL\",\"title\":\"two\",\"durationMs\":120000,\"filePath\":\"two.mp3\"},"
+                    + "{\"source\":\"LOCAL\",\"title\":\"three\",\"durationMs\":120000,\"filePath\":\"three.mp3\"}]}";
+            Files.write(base.resolve("queue.json"), queue.getBytes(StandardCharsets.UTF_8));
+
+            controller = new PlayerController(
+                    new FakeAudioBackend(), track -> { }, NeteaseClient.INSTANCE);
+            controller.setFadeEnabled(false);
+            controller.playQueueIndex(0);
+            controller.playQueueIndex(1);
+            controller.playQueueIndex(2);
+            controller.setPlayMode(1);
+            controller.prev();
+            assertEquals(1, playIndex(controller));
+            controller.prev();
+            assertEquals("a second prev must not bounce back to the song we just left",
+                    0, playIndex(controller));
+        } finally {
+            if (controller != null) controller.shutdown();
+            AppDirs.setBase(oldBase);
+            AppDirs.setCacheBase(oldCacheBase);
+        }
+    }
+
+    private static int playIndex(PlayerController controller) throws Exception {
+        java.lang.reflect.Field field = PlayerController.class.getDeclaredField("playIndex");
+        field.setAccessible(true);
+        return field.getInt(controller);
+    }
+
     private static final class FakeAudioBackend implements AudioBackend {
         // volatile: written on the fade-tick worker thread, read from the test
         // thread. playCalls/pauseCalls/resumeCalls used to be plain ints -- a
