@@ -7208,8 +7208,13 @@ public final class PlayerController {
                 .whenComplete((success, error) -> post(() -> {
                     if (error == null && Boolean.TRUE.equals(success)) {
                         showToast(I18n.tr("toast.cover.updated"));
+                        // refreshPlaylist(), not openMediaPlaylist(): the user is
+                        // looking at this playlist right now, and a full open clears
+                        // the rows and the in-playlist filter text before refetching,
+                        // so the list blinks out and their filter is lost just to
+                        // pick up one new artwork url.
                         if (id.toString().equals(openSourcePlaylistId.peek())) {
-                            openMediaPlaylist(id.toString());
+                            refreshPlaylist();
                         }
                         loadMyPlaylists();
                     } else {
