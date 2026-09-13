@@ -41,7 +41,7 @@ Item {
         // position dynamically created children the way a Qt positioner does.
         Item {
             id: list
-            width: parent.width
+            width: picker.contentWidth
             height: control.rowsHeight
 
             Repeater {

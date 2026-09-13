@@ -32,7 +32,7 @@ Item {
         rejectText: i18n.t("common.cancel")
         onClosed: control.closed()
         ColumnLayout {
-            width: parent.width
+            width: picker.contentWidth
             spacing: 8
             SuperArrow {
                 Layout.fillWidth: true
@@ -66,7 +66,7 @@ Item {
         rejectText: i18n.t("common.back")
         onClosed: control.familyListOpen = false
         ColumnLayout {
-            width: parent.width
+            width: familyPicker.contentWidth
             spacing: 8
             TextField {
                 id: searchField

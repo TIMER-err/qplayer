@@ -79,7 +79,7 @@ Item {
 
         ColumnLayout {
             id: loginContent
-            width: parent.width
+            width: loginSheet.contentWidth
             spacing: 14
 
 

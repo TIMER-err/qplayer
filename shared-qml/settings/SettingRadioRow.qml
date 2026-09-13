@@ -19,6 +19,8 @@ ColumnLayout {
         Repeater {
             model: row.spec ? row.spec.options : []
             RadioButton {
+                objectName: "settingRadioOption" + index
+                Layout.fillWidth: true
                 text: i18n.t(modelData)
                 checked: settings.value(row.spec.key) === index
                 onClicked: settings.setValue(row.spec.key, index)

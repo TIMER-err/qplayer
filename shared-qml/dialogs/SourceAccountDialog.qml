@@ -37,7 +37,7 @@ Item {
         rejectText: i18n.t("common.cancel")
 
         Item {
-            width: parent.width
+            width: sheet.contentWidth
             height: control.headerHeight + control.actionCount * control.rowHeight
 
             // --- account header ------------------------------------------
