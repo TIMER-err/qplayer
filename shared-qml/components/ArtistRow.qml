@@ -1,5 +1,5 @@
 import QtQuick
-import md3.Core
+import miuix.Core
 
 // Compact horizontal artist entry used by the song-credits picker. It mirrors
 // SongRow's long, narrow interaction shape while using a circular avatar.

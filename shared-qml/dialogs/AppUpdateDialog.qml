@@ -1,5 +1,5 @@
 import QtQuick
-import md3.Core
+import miuix.Core
 
 // The app's own new-version dialog. Kept in its own document because qml4j
 // compiles a whole QML file's construction into one generated constructor and
@@ -18,6 +18,10 @@ Item {
     onUpdateWatchChanged: if (player.updateAvailable) dialog.open()
 
     Dialog {
+
+        topInset: settings.topInset
+
+        bottomInset: settings.bottomInset
         id: dialog
         title: i18n.t("update.app.title")
         icon: "system_update"

@@ -1,5 +1,5 @@
 import QtQuick
-import md3.Core
+import miuix.Core
 import "."
 
 // App-wide plugin onboarding, install consent and removal confirmation. Keeping
@@ -19,6 +19,10 @@ Item {
     SourceSetupDialog { id: sourceSetupDialog }
 
     Dialog {
+
+        topInset: settings.topInset
+
+        bottomInset: settings.bottomInset
         id: pluginWarningDialog
         title: i18n.t(player.pendingPluginTrusted ? "plugin.install.trusted.title"
                       : "plugin.install.untrusted.title")
@@ -39,6 +43,10 @@ Item {
     }
 
     Dialog {
+
+        topInset: settings.topInset
+
+        bottomInset: settings.bottomInset
         id: pluginRemovalDialog
         title: i18n.t("plugin.remove.title")
         icon: "delete"

@@ -3,8 +3,8 @@ package dev.t1m3.qplayer.resources;
 import dev.t1m3.qplayer.util.Logger;
 import io.github.timer_err.qml4j.render.ResourceLoader;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -57,7 +57,7 @@ public final class DiskDecompressedResourceCache implements ResourceLoader {
         Path file = directory.resolve(hex(sha256(compressed)) + ".resource");
         try {
             if (Files.isRegularFile(file)) {
-                byte[] cached = decode(Files.readAllBytes(file));
+                byte[] cached = decode(file);
                 expandedInProcess.put(source, new SoftReference<>(cached));
                 Logger.info("decompressed resource cache hit: {}", source);
                 return cached;
@@ -84,7 +84,7 @@ public final class DiskDecompressedResourceCache implements ResourceLoader {
         try {
             Files.createDirectories(directory);
             temporary = Files.createTempFile(directory, file.getFileName().toString(), ".tmp");
-            Files.write(temporary, encode(payload));
+            encode(temporary, payload);
             try {
                 Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING,
                         StandardCopyOption.ATOMIC_MOVE);
@@ -105,35 +105,38 @@ public final class DiskDecompressedResourceCache implements ResourceLoader {
         }
     }
 
-    private static byte[] encode(byte[] payload) throws IOException {
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream(
-                Integer.BYTES * 3 + payload.length + CHECKSUM_SIZE);
-        try (DataOutputStream output = new DataOutputStream(bytes)) {
+    private static void encode(Path file, byte[] payload) throws IOException {
+        try (DataOutputStream output = new DataOutputStream(
+                new BufferedOutputStream(Files.newOutputStream(file)))) {
             output.writeInt(MAGIC);
             output.writeInt(FORMAT_VERSION);
             output.writeInt(payload.length);
             output.write(payload);
             output.write(sha256(payload));
         }
-        return bytes.toByteArray();
     }
 
-    private static byte[] decode(byte[] encoded) throws IOException {
-        if (encoded.length < Integer.BYTES * 3 + CHECKSUM_SIZE) {
+    private static byte[] decode(Path file) throws IOException {
+        long fileSize = Files.size(file);
+        if (fileSize < Integer.BYTES * 3 + CHECKSUM_SIZE) {
             throw new IOException("truncated cache entry");
         }
-        try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(encoded))) {
+        // A CJK font is about 13 MiB. Read directly into its final array instead
+        // of holding a second, full-file copy while an Activity rebuilds its UI.
+        try (DataInputStream input = new DataInputStream(
+                new BufferedInputStream(Files.newInputStream(file)))) {
             if (input.readInt() != MAGIC) throw new IOException("wrong cache magic");
             if (input.readInt() != FORMAT_VERSION) throw new IOException("wrong cache version");
             int length = input.readInt();
             if (length < 0 || length > MAX_RESOURCE_BYTES
-                    || input.available() != length + CHECKSUM_SIZE) {
+                    || fileSize != (long) Integer.BYTES * 3 + length + CHECKSUM_SIZE) {
                 throw new IOException("invalid resource length " + length);
             }
             byte[] payload = new byte[length];
             input.readFully(payload);
             byte[] checksum = new byte[CHECKSUM_SIZE];
             input.readFully(checksum);
+            if (input.read() != -1) throw new IOException("trailing cache data");
             if (!MessageDigest.isEqual(checksum, sha256(payload))) {
                 throw new IOException("cache checksum mismatch");
             }

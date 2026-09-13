@@ -1,9 +1,9 @@
 import QtQuick
-import md3.Core
+import miuix.Core
 import "../components"
 
 // One source's account settings, opened from that row's gear on AccountPage.
-// Wraps the standard MD3 Dialog (scrim, surface, motion, action area) and fills
+// Wraps the Miuix Dialog (scrim, surface, motion, action area) and fills
 // its content slot with an account header plus tappable action rows, rather
 // than crowding sign-in and sign-out into the dialog's own button row.
 Item {
@@ -23,6 +23,10 @@ Item {
     function open() { sheet.open() }
 
     Dialog {
+
+        topInset: settings.topInset
+
+        bottomInset: settings.bottomInset
         id: sheet
         icon: "manage_accounts"
         // No headline: Dialog's own title is Layout.fillWidth + Text.Wrap, and the
@@ -53,7 +57,7 @@ Item {
                     Rectangle {
                         anchors.fill: parent
                         radius: width / 2
-                        color: Theme.color.surfaceContainerHighest
+                        color: Theme.color.surfaceContainerHigh
                         Text {
                             anchors.centerIn: parent
                             text: "account_circle"

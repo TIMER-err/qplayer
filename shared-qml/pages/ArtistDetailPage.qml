@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import md3.Core
+import miuix.Core
 import "."
 import "../components"
 
@@ -216,7 +216,10 @@ Rectangle {
                     }
 
                     Repeater {
-                        model: page.visibleAlbums
+                        model: page.visible ? page.visibleAlbums : null
+                        windowStart: Math.max(0, Math.min(Math.ceil(page.albumCount / page.albumCols) - Math.ceil(scroller.height / (page.albumCardH + page.gap)) - 3,
+                            Math.floor((scroller.contentY - page.albumsTop) / (page.albumCardH + page.gap)) - 1)) * page.albumCols
+                        windowCount: (Math.ceil(scroller.height / (page.albumCardH + page.gap)) + 3) * page.albumCols
                         AlbumCard {
                             albumId: modelData.id
                             tile: page.albumTile
@@ -240,7 +243,10 @@ Rectangle {
                     }
 
                     Repeater {
-                        model: page.visibleSongs
+                        model: page.visible ? page.visibleSongs : null
+                        windowStart: Math.max(0, Math.min(page.songCount - Math.ceil(scroller.height / page.rowH) - 7,
+                            Math.floor((scroller.contentY - page.songsTop) / page.rowH) - 3))
+                        windowCount: Math.ceil(scroller.height / page.rowH) + 7
                         SongRow {
                             width: scroller.width
                             y: page.songsTop + index * page.rowH
@@ -258,11 +264,10 @@ Rectangle {
             }
 
             LoadingIndicator {
+                objectName: "detailLoadingIndicator"
                 anchors.centerIn: parent
                 visible: player.artistLoading
                 running: player.artistLoading
-                withContainer: true
-                size: 56
             }
         }
     }

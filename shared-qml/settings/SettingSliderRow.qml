@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import md3.Core
+import miuix.Core
 import "."
 
 // SettingSpec.SLIDER — an integer-backed slider. `dots` enables both fixed-step
@@ -10,6 +10,7 @@ ColumnLayout {
     id: row
     property var spec: null
     property int storedValue: row.spec ? settings.value(row.spec.key) : 0
+    onStoredValueChanged: valueSlider.value = storedValue
     spacing: 4
 
     function displayValue(value) {

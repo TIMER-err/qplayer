@@ -61,6 +61,11 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     private volatile boolean gpuPaused;
     private volatile boolean pauseRequested;
     private boolean glThreadPaused;
+    private boolean resourcesReleased;
+    private final Runnable renderWake = () -> {
+        setRenderMode(RENDERMODE_CONTINUOUSLY);
+        requestRender();
+    };
 
     /** Drives a host splash while the QML tree compiles: per-component progress
      *  (on the GL thread) and a one-shot ready signal at the first painted frame. */
@@ -160,22 +165,49 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     public void dispose() {
         if (disposed) return;
         disposed = true;
-        runOnGlThreadAndWait(() -> {
-            failed = true;
+        runOnGlThreadAndWait(this::releaseSceneResources);
+    }
+
+    private void releaseSceneResources() {
+        if (resourcesReleased) return;
+        resourcesReleased = true;
+        failed = true;
+        if (controller != null) controller.clearRenderWake(renderWake);
+        cleanup("QML scene", () -> {
             if (view != null) {
                 view.dispose();
                 view = null;
             }
-            compositor.dispose();
+        });
+        cleanup("QML classes", () -> {
+            if (engine.backend() instanceof DexClassLoaderBackend) {
+                ((DexClassLoaderBackend) engine.backend()).dispose();
+            }
+        });
+        cleanup("lyric compositor", compositor::dispose);
+        compositor.onSceneReloaded();
+        cleanup("Skija surface", () -> {
             if (surface != null) {
                 surface.dispose();
                 surface = null;
             }
-            controller = null;
-            settings = null;
-            errorListener = null;
-            splashListener = null;
         });
+        // Release unused global Skia strike/resource cache entries as well as
+        // this view's handles. Injected font identities are reused separately
+        // by the engine; HarfBuzz's face cache is not covered by this purge.
+        cleanup("Skia caches", io.github.humbleui.skija.Graphics::purgeAllCaches);
+        controller = null;
+        settings = null;
+        errorListener = null;
+        splashListener = null;
+    }
+
+    private static void cleanup(String name, Runnable action) {
+        try {
+            action.run();
+        } catch (Throwable error) {
+            dev.t1m3.qplayer.util.Logger.warn("{} cleanup failed: {}", name, error);
+        }
     }
 
     private void runOnGlThreadAndWait(Runnable action) {
@@ -242,7 +274,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                         // that same region.
                         boolean offsetPanelOpen = controller != null
                                 && Boolean.TRUE.equals(controller.lyricOffsetPanelOpen.peek());
-                        if (!offsetPanelOpen && compositor.lyricsScrollable(x, y, surface.width() / uiScale, surface.height() / uiScale, insetTop())) {
+                        if (!compositor.temperaVisible(controller) && !offsetPanelOpen && compositor.lyricsScrollable(x, y, surface.width() / uiScale, surface.height() / uiScale, insetTop())) {
                             lyGrab = true;
                             lyDownY = y;
                             lyMoved = false;
@@ -409,10 +441,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     public void setController(PlayerController c) {
         this.controller = c;
         if (c != null) {
-            c.setRenderWake(() -> {
-                setRenderMode(RENDERMODE_CONTINUOUSLY);
-                requestRender();
-            });
+            c.setRenderWake(renderWake);
         }
     }
 
@@ -592,6 +621,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 profileFrame(t0, t1, t1b, System.nanoTime());
                 boolean needContinuous = controller != null && (
                         controller.isPlaying()
+                        || compositor.temperaVisible(controller)
                         || Boolean.TRUE.equals(controller.lyricsOpen.peek())
                         || (controller.lyricSlide.peek() != null
                             && controller.lyricSlide.peek() > 0.001));
@@ -671,7 +701,11 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     // dump the trace to a file we can pull, and hand it to the host to display.
     private void reportError(Throwable t) {
         if (failed) return;
-        failed = true;
+        ErrorListener l = errorListener;
+        disposed = true;
+        // showError() detaches this SurfaceView and stops its GL thread. Release
+        // the failed scene here, while that thread/context can still clean up.
+        releaseSceneResources();
         StringWriter sw = new StringWriter();
         t.printStackTrace(new PrintWriter(sw));
         String trace = sw.toString();
@@ -681,7 +715,6 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         // Also try public Downloads (may be denied under scoped storage).
         writeTrace(android.os.Environment.getExternalStoragePublicDirectory(
                 android.os.Environment.DIRECTORY_DOWNLOADS), trace);
-        ErrorListener l = errorListener;
         if (l != null) l.onError(trace);
     }
 

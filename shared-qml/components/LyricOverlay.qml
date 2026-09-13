@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Effects
-import md3.Core
+import miuix.Core
 import "."
 
 // QML chrome for the lyric page, composited on top of the host-drawn fluid
@@ -119,7 +119,7 @@ Item {
 
     // Quick lyric-timing offset adjust: some LRC files don't quite line up with the
     // audio, so this lets the offset be nudged without leaving the lyric page. A
-    // local panel, NOT an md3 Dialog: Dialog.open() reparents to the true QML root,
+    // local panel, NOT a root Dialog: Dialog.open() reparents to the true QML root,
     // but the host only re-renders THIS subtree (objectName "lyricChrome") while the
     // lyric page fully covers the main scene — a reparented overlay would never draw.
     //
@@ -168,7 +168,7 @@ Item {
 
     // Fixed-step slider: one control scales cleanly down to phone width, unlike the
     // previous row of four buttons which could overflow this card.
-    Rectangle {
+    SmoothRectangle {
         id: offsetPanel
         // Keep painting until the exit fade reaches zero; binding visible directly
         // to offsetPanelOpen would cut the zoom-out off on its first frame.
@@ -194,8 +194,8 @@ Item {
         height: 176
         radius: 20
         color: Theme.color.surfaceContainerHigh
-        border.width: 1
-        border.color: Theme.color.outlineVariant
+        borderWidth: 1
+        borderColor: Theme.color.outlineVariant
 
         MouseArea { anchors.fill: parent }
 
@@ -352,13 +352,13 @@ Item {
         anchors.rightMargin: 28
         height: 120
 
-        // progress (md3 wavy) + seek. The wavy phase is an infinite animation gated
+        // progress (optional wave) + seek. The wavy phase is an infinite animation gated
         // on the bar's OWN `visible` (control.visible) — own visibility is not the
         // ancestor-effective one, so when the lyric page is closed (this whole
         // overlay invisible) the bar's own visible stayed true and the animation
         // kept ticking every frame, bumping the change version and defeating the
         // renderer's idle layout-skip. Tie its visibility to the page being shown.
-        LinearProgress {
+        LyricProgress {
             id: progress
             anchors.left: parent.left
             anchors.right: parent.right
@@ -526,7 +526,7 @@ Item {
                 cursorShape: Qt.PointingHandCursor
                 onClicked: player.openPlayingArtist()
             }
-            LinearProgress {
+            LyricProgress {
                 id: lProgress
                 anchors.top: lArtist.bottom
                 anchors.topMargin: 22

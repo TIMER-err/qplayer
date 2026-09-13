@@ -11,9 +11,8 @@ import java.util.List;
  * platforms at once.
  *
  * <p>Rows render in declaration order under the category they name, and
- * consecutive rows sharing a {@code group} share one card. The grouping,
- * wording and widget choice below reproduce the hand-written page this replaced
- * one for one.
+ * consecutive rows sharing a {@code group} share one card. Related preferences share a Miuix section; the UI always renders sections
+ * in one column, with platform-specific rows filtered before layout.
  *
  * <p>A row limited to one host (the desktop-only folder paths) carries
  * {@link SettingSpec.Builder#onlyOn}; the other host never sees it, which
@@ -85,10 +84,12 @@ public final class SettingsCatalog {
         out.add(SettingSpec.dropdown(LANGUAGE_KEY, APPEARANCE, "settings.language.title",
                         LANGUAGE_SYSTEM, "settings.language.system",
                         "settings.language.zhCN", "settings.language.enUS")
+                .group("interface")
                 .build());
         out.add(SettingSpec.segmented("darkMode", APPEARANCE, "settings.darkMode.title", MODE_SYSTEM,
                         "settings.darkMode.system", "settings.darkMode.light",
                         "settings.darkMode.dark")
+                .group("interface")
                 .build());
         out.add(SettingSpec.dropdown(PAGE_TRANSITION_KEY, APPEARANCE,
                         "settings.pageTransition.title", PAGE_TRANSITION_ZOOM,
@@ -96,28 +97,34 @@ public final class SettingsCatalog {
                         "settings.pageTransition.slideH", "settings.pageTransition.slideV",
                         "settings.pageTransition.none")
                 .desc("settings.pageTransition.desc")
+                .group("interface")
                 .build());
         out.add(SettingSpec.toggle("monet", APPEARANCE, "settings.monet.title", true)
                 .desc("settings.monet.desc")
                 .accessory("swatch")
+                .group("interface")
                 .build());
         out.add(SettingSpec.action("pickFont", APPEARANCE, "settings.font.title",
                         "settings.font.button")
                 .provider("fontName")
                 .desc("settings.font.desc")
+                .group("interface")
                 .build());
         out.add(SettingSpec.radio("graphicsBackend", APPEARANCE, "settings.graphicsBackend.title", 0,
                         "settings.graphicsBackend.opengl", "settings.graphicsBackend.vulkan")
                 .desc("settings.graphicsBackend.desc")
                 .onlyOn(DESKTOP)
+                .group("window")
                 .build());
         out.add(SettingSpec.toggle("windowDecorated", APPEARANCE,
                         "settings.windowDecorated.title", false)
                 .desc("settings.windowDecorated.desc")
                 .onlyOn(DESKTOP)
+                .group("window")
                 .build());
         out.add(SettingSpec.toggle("showLocalTab", APPEARANCE, "settings.showLocalTab.title", true)
                 .desc("settings.showLocalTab.desc")
+                .group("home")
                 .build());
         out.add(SettingSpec.toggle(HOME_DAILY_FIRST_KEY, APPEARANCE,
                         "settings.homeDailyFirst.title", true)
@@ -135,65 +142,93 @@ public final class SettingsCatalog {
         out.add(SettingSpec.toggle("mirror", PLAYBACK, "settings.mirror.title",
                         isSimplifiedChinese())
                 .desc("settings.mirror.desc")
+                .group("audio")
                 .build());
         out.add(SettingSpec.toggle("fade", PLAYBACK, "settings.fade.title", false)
                 .desc("settings.fade.desc")
+                .group("audio")
                 .build());
         out.add(SettingSpec.toggle("highQuality", PLAYBACK, "settings.highQuality.title", true)
                 .desc("settings.highQuality.desc")
+                .group("audio")
                 .build());
 
         // ---- 歌词 -----------------------------------------------------------
-        // One card per control, like every other tab: no group() here, so each
-        // row is its own card and the wide-window grid can pair them up.
+        // Group typography, motion, display and background controls separately.
         out.add(SettingSpec.slider("lyricFontSize", LYRIC, "settings.lyricFontSize.title",
                         28, 14, 40, 1)
                 .unit(" px").dots()
+                .group("lyricText")
                 .build());
         out.add(SettingSpec.segmented("lyricFontWeight", LYRIC, "settings.lyricFontWeight.title", 2,
                         "settings.lyricFontWeight.thin", "settings.lyricFontWeight.light",
                         "settings.lyricFontWeight.regular", "settings.lyricFontWeight.medium")
+                .group("lyricText")
                 .build());
         out.add(SettingSpec.slider("lyricLineSpacing", LYRIC, "settings.lyricLineSpacing.title",
                         200, 100, 250, 5)
                 .scale(100).unit("×").dots()
+                .group("lyricText")
                 .build());
         out.add(SettingSpec.toggle("lyricSpring", LYRIC, "settings.lyricSpring.title", true)
                 .desc("settings.lyricSpring.desc")
+                .group("lyricMotion")
                 .build());
         out.add(SettingSpec.toggle("lyricScale", LYRIC, "settings.lyricScale.title", true)
                 .desc("settings.lyricScale.desc")
+                .group("lyricMotion")
                 .build());
         out.add(SettingSpec.toggle("lyricGlow", LYRIC, "settings.lyricGlow.title", true)
                 .desc("settings.lyricGlow.desc")
+                .group("lyricMotion")
                 .build());
         out.add(SettingSpec.toggle("lyricShadow", LYRIC, "settings.lyricShadow.title", true)
                 .desc("settings.lyricShadow.desc")
+                .group("lyricMotion")
                 .build());
         out.add(SettingSpec.toggle("lyricLinearAnim", LYRIC, "settings.lyricLinearAnim.title", false)
                 .desc("settings.lyricLinearAnim.desc")
+                .group("lyricMotion")
                 .build());
         out.add(SettingSpec.toggle("lyricEdgeBlur", LYRIC, "settings.lyricEdgeBlur.title", false)
                 .desc("settings.lyricEdgeBlur.desc")
+                .group("lyricMotion")
                 .build());
         out.add(SettingSpec.toggle("desktopLyricEnabled", LYRIC, "settings.desktopLyric.title", false)
                 .desc("settings.desktopLyric.desc")
                 .onlyOn(DESKTOP)
+                .group("lyricDisplay")
                 .build());
         out.add(SettingSpec.segmented("lyricProgressStyle", LYRIC,
                         "settings.lyricProgressStyle.title", 1,
                         "settings.lyricProgressStyle.wave",
                         "settings.lyricProgressStyle.line")
+                .group("lyricDisplay")
                 .build());
         out.add(SettingSpec.radio(BG_MODE_KEY, LYRIC, "settings.lyricBgMode.title", 0,
                         "settings.lyricBgMode.dynamic", "settings.lyricBgMode.static")
                 .desc("settings.lyricBgMode.desc")
+                .group("background")
                 .build());
         out.add(SettingSpec.dropdown(BG_STYLE_KEY, LYRIC, "settings.lyricBgStyle.title",
                         BG_STYLE_PIXI_RENDERER,
                         "settings.lyricBgStyle.pixi", "settings.lyricBgStyle.mesh",
                         "settings.lyricBgStyle.classic")
                 .desc("settings.lyricBgStyle.desc")
+                .group("background")
+                .build());
+        out.add(SettingSpec.toggle("temperaWholeLine", LYRIC, "settings.temperaWholeLine.title", false)
+                .desc("settings.temperaWholeLine.desc")
+                .group("tempera")
+                .build());
+        out.add(SettingSpec.slider("temperaGlyphSettleStretch", LYRIC, "settings.temperaGlyphSettleStretch.title", 50, 0, 100, 5)
+                .unit(" %")
+                .desc("settings.temperaGlyphSettleStretch.desc")
+                .group("tempera")
+                .build());
+        out.add(SettingSpec.toggle("temperaImages", LYRIC, "settings.temperaImages.title", false)
+                .desc("settings.temperaImages.desc")
+                .group("tempera")
                 .build());
         // ---- 本地 -----------------------------------------------------------
         out.add(SettingSpec.slider("maxCacheSizeMB", LOCAL, "settings.maxCacheSize.title",
@@ -215,17 +250,19 @@ public final class SettingsCatalog {
                 .desc("settings.musicFolder.desc")
                 .hint("settings.folder.hint")
                 .onlyOn(DESKTOP)
+                .group("folders")
                 .build());
 
         // ---- 关于 -----------------------------------------------------------
         out.add(SettingSpec.action("openRepo", ABOUT, "QPlayer", "")
-                .icon("link")
                 .provider("version").inlineProvider()
                 // Hard-coded breaks: qml4j's auto-wrap mis-measures this width.
                 .desc("settings.about.desc")
+                .group("app")
                 .build());
         out.add(SettingSpec.action("checkUpdate", ABOUT, "settings.checkUpdate.title", "")
                 .icon("system_update")
+                .group("app")
                 .build());
 
         return out;

@@ -1,9 +1,9 @@
 import QtQuick
-import md3.Core
+import miuix.Core
 import "../components"
 
 // Multi-artist chooser shared by SongRow clicks and the song context menu.
-// Wrap the standard MD3 Dialog instead of recreating its scrim, surface,
+// Wrap the Miuix Dialog instead of recreating its scrim, surface,
 // typography, motion and action area here. A single credit bypasses this view
 // in PlayerController, so the content always represents a real choice.
 Item {
@@ -21,6 +21,10 @@ Item {
     Component.onCompleted: if (active) picker.open()
 
     Dialog {
+
+        topInset: settings.topInset
+
+        bottomInset: settings.bottomInset
         id: picker
         icon: "group"
         title: i18n.t("song.artists.title")

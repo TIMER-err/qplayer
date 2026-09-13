@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
-import md3.Core
+import miuix.Core
+import "."
 
 // Shared empty state for destinations that cannot work until at least one
 // source plugin is active. It covers the destination beneath it so stale data
@@ -10,23 +11,11 @@ Rectangle {
 
     MouseArea { anchors.fill: parent }
 
-    ColumnLayout {
+    EmptyState {
         anchors.centerIn: parent
-        spacing: 12
-
-        Text {
-            Layout.alignment: Qt.AlignHCenter
-            text: i18n.t("source.prompt.title")
-            color: Theme.color.onSurfaceVariantColor
-            fontSize: 15
-        }
-
-        Button {
-            Layout.alignment: Qt.AlignHCenter
-            type: "filledTonal"
-            icon: "extension"
-            text: i18n.t("source.prompt.button")
-            onClicked: player.requestSourceSetup()
-        }
+        icon: "extension"
+        title: i18n.t("source.prompt.title")
+        actionText: i18n.t("source.prompt.button")
+        onActionRequested: player.requestSourceSetup()
     }
 }

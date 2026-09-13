@@ -63,7 +63,21 @@ Item {
     property bool overflowing: root.width > 0 && probe.implicitWidth > root.width
     property real cycleWidth: Math.max(0, loopProbe.implicitWidth - probe.implicitWidth)
 
-    onOverflowingChanged: if (!overflowing) label.scrollX = 0
+    // A running NumberAnimation snapshots its endpoints. Resizing or changing
+    // the measured line must retire that run, including its child animations,
+    // before starting a fresh pause/cycle with the current geometry.
+    function restartScrolling() {
+        scrollAnimation.stop()
+        label.scrollX = 0
+        if (root.overflowing && root.visible) scrollAnimation.start()
+    }
+
+    onWidthChanged: restartScrolling()
+    onTextChanged: restartScrolling()
+    onCycleWidthChanged: restartScrolling()
+    onOverflowingChanged: restartScrolling()
+    onVisibleChanged: restartScrolling()
+    Component.onCompleted: restartScrolling()
 
     // The common, zero-offscreen-cost path for text that fits. Emptied rather than
     // only hidden while scrolling, so the two paths can never paint at once.
@@ -115,7 +129,7 @@ Item {
             // exact start of the text even if the measured cycle width is a
             // fraction off the shaped one.
             SequentialAnimation {
-                running: root.overflowing && root.visible
+                id: scrollAnimation
                 loops: Animation.Infinite
                 ScriptAction { script: label.scrollX = 0 }
                 PauseAnimation { duration: root.pauseMs }

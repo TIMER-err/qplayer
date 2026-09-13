@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import md3.Core
+import miuix.Core
 import "."
 import "../components"
 
@@ -20,20 +20,13 @@ Item {
         onActivated: player.playRecentSong(recent.activatedIndex)
     }
 
-    ColumnLayout {
+    EmptyState {
         anchors.centerIn: parent
-        spacing: 12
         visible: !player.loggedIn
-        Text {
-            Layout.alignment: Qt.AlignHCenter
-            text: i18n.t("recent.signInPrompt")
-            color: Theme.color.onSurfaceVariantColor
-            fontSize: 15
-        }
-        Button {
-            Layout.alignment: Qt.AlignHCenter
-            type: "filled"; text: i18n.t("recent.signInButton")
-            onClicked: page.requestLogin()
-        }
+        icon: "history"
+        title: i18n.t("nav.recent")
+        message: i18n.t("recent.signInPrompt")
+        actionText: i18n.t("recent.signInButton")
+        onActionRequested: page.requestLogin()
     }
 }

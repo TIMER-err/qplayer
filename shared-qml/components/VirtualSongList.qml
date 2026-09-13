@@ -1,5 +1,5 @@
 import QtQuick
-import md3.Core
+import miuix.Core
 import "."
 
 // Virtualized song list. Only the rows near the viewport are instantiated: the
@@ -19,6 +19,7 @@ import "."
 // item (only the ~window moved rows re-measure; the rest of the tree is cached).
 Flickable {
     id: view
+    objectName: "virtualSongList"
 
     property var list
     property bool isLocal: false
@@ -68,12 +69,17 @@ Flickable {
     // Live-delegate window: viewport height in rows plus a buffer above and below.
     // Constant once `height` settles (it does not depend on contentY), so a scroll
     // that only slides the window keeps the Repeater's in-place update fast path.
-    property int buffer: 6
-    property int window: Math.min(count, Math.ceil(height / rowH) + 2 * buffer + 1)
+    property int buffer: 3
+    // A PullToRefresh can own scrolling while this list only supplies windowed rows.
+    property var scrollViewport: null
+    readonly property real viewportHeight: scrollViewport ? scrollViewport.height : height
+    readonly property real viewportY: scrollViewport ? scrollViewport.scrollOffset : contentY
+    interactive: !scrollViewport
+    property int window: Math.min(count, Math.ceil(Math.max(0, viewportHeight) / Math.max(1, rowH)) + 2 * buffer + 1)
     // Global index of the topmost live row, clamped so the window never runs past
     // either end (and stays full at the tail, pinned to count-window).
     property int first: {
-        var f = Math.floor(contentY / rowH) - buffer;
+        var f = Math.floor(viewportY / rowH) - buffer;
         var maxFirst = count - window;
         if (f > maxFirst) f = maxFirst;
         if (f < 0) f = 0;
@@ -86,12 +92,16 @@ Flickable {
 
     function requestMoreIfNeeded() {
         if (!loadMoreEnabled || contentHeight <= 0) return
-        if (contentY + height >= contentHeight - loadMoreThresholdRows * rowH)
+        if (viewportY + viewportHeight >= contentHeight - loadMoreThresholdRows * rowH)
             loadMoreRequested()
     }
 
     onContentYChanged: requestMoreIfNeeded()
-    onContentHeightChanged: requestMoreIfNeeded()
+    onViewportYChanged: requestMoreIfNeeded()
+    onContentHeightChanged: {
+        contentY = Math.max(0, Math.min(contentY, Math.max(0, contentHeight - height)))
+        requestMoreIfNeeded()
+    }
     onHeightChanged: requestMoreIfNeeded()
 
     Item {
@@ -108,6 +118,8 @@ Flickable {
             windowCount: view.window
             SongRow {
                 // `index` is the GLOBAL row index (the Repeater windows internally).
+                objectName: "virtualSongRow"
+                height: view.rowH
                 width: view.width
                 y: index * view.rowH
                 rowTitle: view.isLocal ? modelData.title : modelData.name
@@ -120,8 +132,8 @@ Flickable {
                 // every other model shape leaves this "" so no tag renders.
                 tag: modelData.kindLabel || ""
                 lazyLoad: true
-                flickContentY: view.contentY
-                flickHeight: view.height
+                flickContentY: view.viewportY
+                flickHeight: view.viewportHeight
                 highlighted: view.isLocal && view.highlightCurrent && (view.highlightByFilePath
                     ? (player.currentFilePath !== "" && modelData.filePath === player.currentFilePath)
                     : index === player.index)

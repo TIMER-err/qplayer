@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import md3.Core
+import miuix.Core
 import "."
 import "../components"
 
@@ -13,13 +13,14 @@ Rectangle {
 
     // Reset the scroll to the top whenever a new playlist starts loading, so the
     // previous playlist's scroll position doesn't carry over.
-    property bool loadingWatch: player.playlistLoading
-    onLoadingWatchChanged: {
-        if (player.playlistLoading) {
-            tracks.contentY = 0
-            page.filterText = ""
-        }
+    property string playlistWatch: String(player.openSourcePlaylistId || player.openPlaylistId)
+    onPlaylistWatchChanged: {
+        playlistRefresh.flickable.contentY = playlistRefresh.maximumPull
+        page.filterText = ""
     }
+    property bool pullRefreshing: false
+    property bool playlistBusy: player.playlistLoading
+    onPlaylistBusyChanged: if (!playlistBusy) page.pullRefreshing = false
 
     property string filterText: ""
     property var filteredTracks: {
@@ -58,21 +59,14 @@ Rectangle {
                 onHome: page.home()
                 onBack: page.back()
             }
-            // Keep the marquee at its text-height and let RowLayout position that
-            // box, rather than stretching an intermediate Item to the whole header.
-            // qml4j did not consistently propagate the stretched wrapper's height
-            // into the nested marquee, which left the glyph run above center.
-            MarqueeText {
+            Text {
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignVCenter
-                text: player.playlistTitle
-                textColor: Theme.color.onSurfaceColor
-                fontFamily: page.width < 600
-                            ? Theme.typography.titleMedium.family
-                            : Theme.typography.titleLarge.family
-                fontSize: page.width < 600
-                          ? Theme.typography.titleMedium.size
-                          : Theme.typography.titleLarge.size
+                text: i18n.t("playlist.title")
+                color: Theme.color.onSurfaceColor
+                font.pixelSize: 24
+                font.weight: Font.DemiBold
+                elide: Text.ElideRight
             }
             IconButton {
                 Layout.alignment: Qt.AlignVCenter
@@ -130,133 +124,119 @@ Rectangle {
             }
         }
 
-        Rectangle {
+        RowLayout {
             Layout.fillWidth: true
-            Layout.preferredHeight: 48
             Layout.leftMargin: 16
             Layout.rightMargin: 16
-            color: "transparent"
+            Layout.topMargin: 8
+            Layout.bottomMargin: 20
             visible: !player.playlistLoading
-
-            Text {
-                id: pfSearchIcon
-                anchors.left: parent.left
-                anchors.leftMargin: 13
-                anchors.verticalCenter: parent.verticalCenter
-                text: "search"
-                font.family: Theme.iconFont.name
-                font.pixelSize: 20
-                color: Theme.color.onSurfaceVariantColor
+            spacing: 16
+            CoverImage {
+                Layout.preferredWidth: page.width >= 600 ? 128 : 96
+                Layout.preferredHeight: width
+                radius: 20
+                source: player.playlistCoverPath
+                icon: "queue_music"
             }
-
-            Item {
-                id: pfInputArea
-                anchors.left: pfSearchIcon.right
-                anchors.leftMargin: 8
-                anchors.right: parent.right
-                anchors.rightMargin: 36
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
-
-                property bool isFloating: pfField.activeFocus || pfField.text.length > 0
-
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 8
                 Text {
-                    id: pfFloatLabel
-                    x: 0
-                    y: pfInputArea.isFloating ? -7 : (pfInputArea.height - height) / 2
-                    text: i18n.t("playlist.searchInside")
-                    color: Theme.color.onSurfaceVariantColor
-                    opacity: pfInputArea.isFloating ? 0.8 : 0.7
-                    font.family: Theme.typography.bodyLarge.family
-                    font.pixelSize: pfInputArea.isFloating ? 11 : 15
-                    Behavior on y { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
-                    Behavior on font.pixelSize { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
-                }
-
-                TextInput {
-                    id: pfField
-                    anchors.fill: parent
-                    verticalAlignment: TextInput.AlignVCenter
+                    Layout.fillWidth: true
+                    text: player.playlistTitle
+                    font.pixelSize: page.width >= 600 ? 28 : 22
+                    font.weight: Font.DemiBold
                     color: Theme.color.onSurfaceColor
-                    font.pixelSize: 15
-                    font.family: Theme.typography.bodyLarge.family
-                    selectionColor: Theme.color.primary
-                    selectedTextColor: Theme.color.onPrimaryColor
-                    clip: true
-                    text: page.filterText
-                    onTextChanged: page.filterText = text
+                    wrapMode: Text.Wrap
+                    maximumLineCount: 2
+                    elide: Text.ElideRight
+                }
+                Text {
+                    text: i18n.t("common.songCount", page.filteredTracks ? page.filteredTracks.length : 0)
+                    font.pixelSize: 14
+                    color: Theme.color.onSurfaceVariantSummary
+                }
+                Button {
+                    text: i18n.t("playlist.playAll")
+                    icon: "play_arrow"
+                    enabled: page.filteredTracks && page.filteredTracks.length > 0
+                    onClicked: {
+                        var first = page.filteredTracks[0]
+                        var all = player.openSourcePlaylistId !== "" ? player.sourcePlaylistTracks : player.playlistTracks
+                        for (var i = 0; i < all.length; i++) {
+                            if (String(all[i].id) === String(first.id)) { player.playPlaylistTrack(i); return }
+                        }
+                    }
                 }
             }
+        }
 
-            OutlinedBorder {
-                anchors.fill: parent
-                cornerRadius: height / 2
-                strokeWidth: 1
-                strokeColor: Theme.color.outline
-                notchVisible: pfInputArea.isFloating
-                notchX: pfInputArea.x - 4
-                notchWidth: pfFloatLabel.width + 8
-            }
-            OutlinedBorder {
-                anchors.fill: parent
-                cornerRadius: height / 2
-                strokeWidth: 2
-                strokeColor: Theme.color.primary
-                notchVisible: pfInputArea.isFloating
-                notchX: pfInputArea.x - 4
-                notchWidth: pfFloatLabel.width + 8
-                opacity: pfField.activeFocus ? 1 : 0
-                Behavior on opacity { NumberAnimation { duration: 150 } }
-            }
-
-            IconButton {
-                visible: pfField.text.length > 0
-                type: "standard"; icon: "close"
-                anchors.right: parent.right
-                anchors.rightMargin: 2
-                anchors.verticalCenter: parent.verticalCenter
-                onClicked: { pfField.text = ""; page.filterText = "" }
-            }
+        TextField {
+            id: pfField
+            Layout.fillWidth: true
+            Layout.leftMargin: 16
+            Layout.rightMargin: 16
+            Layout.bottomMargin: 8
+            visible: !player.playlistLoading
+            label: i18n.t("playlist.searchInside")
+            leadingIcon: "search"
+            text: page.filterText
+            onTextChanged: page.filterText = text
         }
 
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
-            VirtualSongList {
-                id: tracks
+            PullToRefresh {
+                id: playlistRefresh
+                objectName: "playlistPullToRefresh"
                 anchors.fill: parent
-                visible: !player.playlistLoading
-                // Drop the row delegates when the detail page is closed (see
-                // QueuePage): an invisible detail otherwise keeps the whole
-                // playlist's SongRows alive after you return home.
-                list: page.visible ? page.filteredTracks : null
-                // Long-press a track → add to another playlist, and (in your own
-                // playlist) remove it from this one. Not login-gated: adding to the queue
-                // (local list) works signed-out too.
-                songMenu: true
-                ownedPlaylist: player.playlistOwned
-                showOfflineBadge: player.playlistOffline
-                onActivated: {
-                    var selected = tracks.list[tracks.activatedIndex]
-                    var all = player.openSourcePlaylistId !== ""
-                              ? player.sourcePlaylistTracks : player.playlistTracks
-                    if (!selected || !all) return
-                    for (var i = 0; i < all.length; i++) {
-                        if (String(all[i].id) === String(selected.id)) {
-                            player.playPlaylistTrack(i)
-                            return
+                contentHeight: tracks.contentHeight
+                refreshing: page.pullRefreshing && player.playlistLoading
+                refreshTexts: [i18n.t("refresh.pull"), i18n.t("refresh.release"), i18n.t("refresh.loading"), i18n.t("refresh.complete")]
+                onRefreshRequested: {
+                    player.refreshPlaylist()
+                    page.pullRefreshing = player.playlistLoading
+                }
+
+                VirtualSongList {
+                    id: tracks
+                    width: parent.width
+                    height: contentHeight
+                    scrollViewport: playlistRefresh
+                    // Drop the row delegates when the detail page is closed (see
+                    // QueuePage): an invisible detail otherwise keeps the whole
+                    // playlist's SongRows alive after you return home.
+                    list: page.visible ? page.filteredTracks : null
+                    // Long-press a track → add to another playlist, and (in your own
+                    // playlist) remove it from this one. Not login-gated: adding to the queue
+                    // (local list) works signed-out too.
+                    songMenu: true
+                    ownedPlaylist: player.playlistOwned
+                    showOfflineBadge: player.playlistOffline
+                    onActivated: {
+                        var selected = tracks.list[tracks.activatedIndex]
+                        var all = player.openSourcePlaylistId !== ""
+                                  ? player.sourcePlaylistTracks : player.playlistTracks
+                        if (!selected || !all) return
+                        for (var i = 0; i < all.length; i++) {
+                            if (String(all[i].id) === String(selected.id)) {
+                                player.playPlaylistTrack(i)
+                                return
+                            }
                         }
                     }
                 }
+
             }
 
             LoadingIndicator {
+                objectName: "detailLoadingIndicator"
                 anchors.centerIn: parent
-                visible: player.playlistLoading
-                running: player.playlistLoading
-                withContainer: true
-                size: 56
+                visible: player.playlistLoading && (!page.filteredTracks || page.filteredTracks.length === 0)
+                running: visible
             }
 
             Text {
@@ -273,6 +253,8 @@ Rectangle {
     // Delete confirmation. On accept the controller removes it and refreshes the library;
     // we drill back out since this playlist no longer exists.
     Dialog {
+        topInset: settings.topInset
+        bottomInset: settings.bottomInset
         id: deleteDialog
         icon: "delete"
         title: i18n.t("playlist.delete.title")

@@ -11,6 +11,8 @@ import android.os.Process;
 import dev.t1m3.qplayer.util.Logger;
 import dev.t1m3.qplayer.store.AppDirs;
 import dev.t1m3.qplayer.store.CredentialKeyProtection;
+import dev.t1m3.qplayer.android.resources.FileResourceLoader;
+import dev.t1m3.qplayer.resources.DiskDecompressedResourceCache;
 
 /**
  * Installs a process-wide uncaught-exception handler whose only job is to
@@ -22,6 +24,18 @@ import dev.t1m3.qplayer.store.CredentialKeyProtection;
  * status bar until the user force-clears the app.
  */
 public final class QPlayerApplication extends Application {
+
+    private DiskDecompressedResourceCache sceneResources;
+
+    /** Assets and expanded fonts belong to the process, not to a recreated Activity. */
+    public synchronized DiskDecompressedResourceCache sceneResources() {
+        if (sceneResources == null) {
+            sceneResources = new DiskDecompressedResourceCache(
+                    new FileResourceLoader(getAssets()),
+                    new java.io.File(getCacheDir(), "expanded-resources").toPath());
+        }
+        return sceneResources;
+    }
 
     @Override
     public void onCreate() {

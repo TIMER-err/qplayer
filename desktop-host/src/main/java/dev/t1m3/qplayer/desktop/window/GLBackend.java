@@ -31,6 +31,7 @@ final class GLBackend implements GraphicsBackend {
     private DirectContext context;
     private BackendRenderTarget target;
     private Surface surface;
+    private FrameDiagnostics diagnostics;
 
     GLBackend(long window) {
         this(window, false);
@@ -54,11 +55,16 @@ final class GLBackend implements GraphicsBackend {
         // calling (render) thread before any GL / Skija call.
         GLFW.glfwMakeContextCurrent(window);
         GL.createCapabilities();
-        boolean vsync = !"false".equals(System.getProperty("qplayer.vsync", "true"));
+        // A Windows driver waiting for vblank in SwapBuffers can stall after
+        // iconification. Both render loops already pace frames in software,
+        // so avoid that wait on Windows.
+        boolean vsync = !"false".equals(System.getProperty("qplayer.vsync", "true"))
+                && org.lwjgl.system.Platform.get() != org.lwjgl.system.Platform.WINDOWS;
         GLFW.glfwSwapInterval(vsync ? 1 : 0);
         // DirectContext.makeGL() binds to the GL context current on this thread.
         context = DirectContext.makeGL();
         rebuildSurface();
+        diagnostics = FrameDiagnostics.open("gl", window, true);
     }
 
     @Override
@@ -78,11 +84,12 @@ final class GLBackend implements GraphicsBackend {
 
     @Override
     public void present() {
-        // flush() only records the pending work into the GL command stream.
-        // Submit it explicitly before swapping so the compositor never observes
-        // an intermittently late Skia frame (especially through XWayland).
+        if (diagnostics != null) diagnostics.draw(surface);
+        // Submit pending Skia work before handing the back buffer to GLFW.
         context.flushAndSubmit(surface);
+        if (diagnostics != null) diagnostics.readback(surface);
         GLFW.glfwSwapBuffers(window);
+        if (diagnostics != null) diagnostics.presented();
     }
 
     @Override
@@ -106,6 +113,7 @@ final class GLBackend implements GraphicsBackend {
 
     @Override
     public void dispose() {
+        if (diagnostics != null) { diagnostics.close(); diagnostics = null; }
         if (surface != null) { surface.close(); surface = null; }
         if (target != null) { target.close(); target = null; }
         if (context != null) { context.close(); context = null; }

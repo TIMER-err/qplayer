@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import md3.Core
+import miuix.Core
 import "."
 import "../dialogs"
 import "../components"
@@ -25,49 +25,23 @@ Rectangle {
     property var categoryTabModel: {
         var out = []
         for (var i = 0; i < page.categories.length; i++)
-            out.push({ text: i18n.t("settings.category." + page.categories[i]) })
+            out.push(i18n.t("settings.category." + page.categories[i]))
         return out
     }
 
-    // Category switching uses Main.qml's MD3 fade-through verbatim (fade out,
+    // Category switching uses Main.qml's fade-through verbatim (fade out,
     // swap, fade back in while rising), so it reads the same as switching pages.
     property string currentCategory: page.categories.length > 0 ? page.categories[0] : ""
     property string nextCategory: page.currentCategory
     property real panelOpacity: 1
     property real panelShift: 0
     property var groups: settings.groups(page.currentCategory)
-    // A desktop-width window fits two card columns; one card per row there left
-    // most of the page empty sideways and very long vertically. Same 600px break
-    // Main.qml uses to swap the bottom bar for the rail.
-    property bool twoColumn: page.width >= 600 && page.currentCategory !== "plugins"
     property var installedPlugins: player.sourcePlugins || []
     property var availablePlugins: {
         var out = []
         var rows = player.pluginCatalogEntries || []
         for (var i = 0; i < rows.length; i++) {
             if (!rows[i].installed) out.push(rows[i])
-        }
-        return out
-    }
-
-    // The two columns pack INDEPENDENTLY (each is its own ColumnLayout), rather
-    // than sharing grid rows: a grid row is as tall as its tallest card, so a
-    // short card next to a tall one left a hole under it. Cards are dealt out
-    // greedily to whichever column is currently shorter, estimating a card's
-    // height from its row count — close enough to keep the two columns even
-    // without measuring anything, and stable (it doesn't depend on layout).
-    property var leftGroups: page.column(0)
-    property var rightGroups: page.column(1)
-
-    function column(which) {
-        var out = []
-        if (!page.twoColumn) return which === 0 ? page.groups : out
-        var load = [0, 0]
-        for (var i = 0; i < page.groups.length; i++) {
-            var g = page.groups[i]
-            var target = load[0] <= load[1] ? 0 : 1
-            load[target] += g.rows.length
-            if (target === which) out.push(g)
         }
         return out
     }
@@ -103,11 +77,6 @@ Rectangle {
         }
     }
 
-    // Tabs owns currentIndex (its Ripple writes it directly); mirror it into a
-    // plain property so this page has a change handler to hang the transition off.
-    property int tabIndex: categoryTabs.currentIndex
-    onTabIndexChanged: page.selectCategory(page.categories[page.tabIndex])
-
     // Catch-all so taps on empty areas don't fall through to the page beneath.
     MouseArea { anchors.fill: parent }
 
@@ -132,9 +101,11 @@ Rectangle {
                 text: i18n.t("settings.title")
                 color: Theme.color.onSurfaceColor
                 font.family: Theme.typography.titleLarge.family
-                font.pixelSize: Theme.typography.titleLarge.size
+                font.pixelSize: 28
+                font.weight: Font.DemiBold
             }
             IconButton {
+                objectName: "settingsDebugAction"
                 Layout.alignment: Qt.AlignVCenter
                 type: "standard"
                 icon: "bug_report"
@@ -142,14 +113,18 @@ Rectangle {
             }
         }
 
-        Tabs {
+        TabRowWithContour {
             id: categoryTabs
+            objectName: "settingsCategoryTabs"
+            equalWidth: false
             Layout.fillWidth: true
-            Layout.preferredHeight: 48
+            Layout.preferredHeight: 45
             Layout.leftMargin: 12
             Layout.rightMargin: 12
-            type: "secondary"
-            model: page.categoryTabModel
+            tabs: page.categoryTabModel
+            selectedTabIndex: page.categories.indexOf(page.currentCategory)
+            selectOnClick: false
+            onTabSelected: (index) => page.selectCategory(page.categories[index])
         }
 
         Flickable {
@@ -161,20 +136,16 @@ Rectangle {
             Layout.topMargin: 16
             clip: true
             contentWidth: width
-            contentHeight: groupsRow.implicitHeight + 24
+            contentHeight: groupsColumn.implicitHeight + 40
 
-            RowLayout {
-                id: groupsRow
-                x: 12
-                width: settingsFlickable.width - 24
+            ColumnLayout {
+                id: groupsColumn
+                objectName: "settingsSingleColumn"
+                width: Math.min(880, Math.max(0, settingsFlickable.width - 32))
+                x: (settingsFlickable.width - width) / 2
                 y: page.panelShift
                 opacity: page.panelOpacity
-                spacing: 14
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    Layout.alignment: Qt.AlignTop
-                    spacing: 14
+                spacing: 20
 
                     SettingCard {
                         Layout.fillWidth: true
@@ -210,11 +181,18 @@ Rectangle {
                         font.weight: Font.DemiBold
                     }
 
-                    Repeater {
-                        model: page.currentCategory === "plugins" ? page.installedPlugins : null
-                        delegate: PluginSettingsEntry {
-                            Layout.fillWidth: true
-                            pluginData: modelData
+                    Card {
+                        Layout.fillWidth: true
+                        visible: page.currentCategory === "plugins" && page.installedPlugins.length > 0
+                        implicitHeight: pluginRows.implicitHeight
+                        ColumnLayout {
+                            id: pluginRows
+                            width: parent.width
+                            spacing: 0
+                            Repeater {
+                                model: page.currentCategory === "plugins" ? page.installedPlugins : null
+                                PluginSettingsEntry { Layout.fillWidth: true; pluginData: modelData }
+                            }
                         }
                     }
 
@@ -256,7 +234,6 @@ Rectangle {
                             spacing: 10
                             LoadingIndicator {
                                 running: player.pluginCatalogLoading
-                                size: 24
                             }
                             SettingDesc { text: i18n.t("plugin.catalog.loading") }
                         }
@@ -290,86 +267,13 @@ Rectangle {
                         }
                     }
 
-                    Repeater {
-                        model: page.leftGroups
-                        delegate: SettingCard {
-                            Layout.fillWidth: true
-                            property var groupData: modelData
-                            Repeater {
-                                model: groupData.rows
-                                delegate: Loader {
-                                    Layout.fillWidth: true
-
-                                    // A row gated on another setting collapses when
-                                    // its dependency is off.
-                                    visible: modelData.dependsOn.length === 0
-                                             || settings.value(modelData.dependsOn) === true
-
-                                    // Read inside the loaded component, the same
-                                    // way MD3 Menu's delegates reach their data.
-                                    property var rowSpec: modelData
-
-                                    sourceComponent: modelData.type === "switch" ? switchRow
-                                                   : modelData.type === "stepper" ? stepperRow
-                                                   : modelData.type === "slider" ? sliderRow
-                                                   : modelData.type === "segmented" ? segmentedRow
-                                                   : modelData.type === "radio" ? radioRow
-                                                   : modelData.type === "dropdown" ? dropdownRow
-                                                   : modelData.type === "text" ? textRow
-                                                   : modelData.type === "path" ? pathRow
-                                                   : actionRow
-                                }
-                            }
-                        }
+                Repeater {
+                    model: page.groups
+                    SettingGroup {
+                        Layout.fillWidth: true
+                        groupData: modelData
                     }
                 }
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    Layout.alignment: Qt.AlignTop
-                    spacing: 14
-                    visible: page.twoColumn
-
-                    Repeater {
-                        model: page.rightGroups
-                        delegate: SettingCard {
-                            Layout.fillWidth: true
-                            property var groupData: modelData
-                            Repeater {
-                                model: groupData.rows
-                                delegate: Loader {
-                                    Layout.fillWidth: true
-                                    visible: modelData.dependsOn.length === 0
-                                             || settings.value(modelData.dependsOn) === true
-                                    property var rowSpec: modelData
-                                    sourceComponent: modelData.type === "switch" ? switchRow
-                                                   : modelData.type === "stepper" ? stepperRow
-                                                   : modelData.type === "slider" ? sliderRow
-                                                   : modelData.type === "segmented" ? segmentedRow
-                                                   : modelData.type === "radio" ? radioRow
-                                                   : modelData.type === "dropdown" ? dropdownRow
-                                                   : modelData.type === "text" ? textRow
-                                                   : modelData.type === "path" ? pathRow
-                                                   : actionRow
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Components are Items and are NOT visible:false, so they'd take a
-            // slot (plus spacing) inside a layout — keep them under a plain Item.
-            Item {
-                Component { id: switchRow; SettingSwitchRow { spec: rowSpec } }
-                Component { id: stepperRow; SettingStepperRow { spec: rowSpec } }
-                Component { id: sliderRow; SettingSliderRow { spec: rowSpec } }
-                Component { id: segmentedRow; SettingSegmentedRow { spec: rowSpec } }
-                Component { id: radioRow; SettingRadioRow { spec: rowSpec } }
-                Component { id: dropdownRow; SettingDropdownRow { spec: rowSpec } }
-                Component { id: textRow; SettingTextRow { spec: rowSpec } }
-                Component { id: pathRow; SettingPathRow { spec: rowSpec } }
-                Component { id: actionRow; SettingActionRow { spec: rowSpec } }
             }
         }
     }

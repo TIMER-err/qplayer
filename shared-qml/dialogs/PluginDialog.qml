@@ -7,7 +7,7 @@
 import "../components"
 import QtQuick
 import QtQuick.Layouts
-import md3.Core
+import miuix.Core
 
 // Wrap the Dialog instead of deriving from it: qml4j loses user-defined
 // base-type properties (notably Dialog.icon) across that composition boundary.
@@ -87,6 +87,10 @@ Item {
     }
 
     Dialog {
+
+        topInset: settings.topInset
+
+        bottomInset: settings.bottomInset
         id: dialog
 
         icon: control.described("icon", "extension")

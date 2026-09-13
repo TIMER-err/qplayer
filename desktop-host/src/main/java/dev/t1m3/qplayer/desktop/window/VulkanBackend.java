@@ -6,6 +6,8 @@ import io.github.humbleui.skija.ColorType;
 import io.github.humbleui.skija.DirectContext;
 import io.github.humbleui.skija.Surface;
 import io.github.humbleui.skija.SurfaceOrigin;
+import io.github.humbleui.skija.SurfaceProps;
+import io.github.humbleui.skija.PixelGeometry;
 
 import dev.t1m3.qplayer.util.Logger;
 
@@ -30,11 +32,10 @@ import static org.lwjgl.vulkan.VK10.*;
  *
  * <p>humbleui Skija exposes no way to hand swapchain semaphores to its flush, so
  * this uses a deliberately simple, fully-serialized scheme: acquire with a fence,
- * {@code flush + submit(wait=true)}, then layout-transition + present + restore via
- * one-shot command buffers fenced with {@code vkQueueWaitIdle}. Correct and
- * portable; not the fastest. Each swapchain image is kept in
- * {@code COLOR_ATTACHMENT_OPTIMAL} between frames so Skija's tracked layout always
- * matches reality.
+ * {@code flush + submit(wait=true)}, then layout-transition + present via one-shot
+ * command buffers fenced with {@code vkQueueWaitIdle}. An image is restored to
+ * {@code COLOR_ATTACHMENT_OPTIMAL} only after its next acquisition fence signals.
+ * Skija sees that layout whenever it is allowed to access the image.
  */
 final class VulkanBackend implements GraphicsBackend {
 
@@ -67,6 +68,7 @@ final class VulkanBackend implements GraphicsBackend {
     private long commandPool;
     private long acquireFence;
     private int currentIndex = -1;
+    private FrameDiagnostics diagnostics;
 
     VulkanBackend(long window) {
         this.window = window;
@@ -88,6 +90,7 @@ final class VulkanBackend implements GraphicsBackend {
         createSkijaContext();
         createCommandPool();
         createSwapchain();
+        diagnostics = FrameDiagnostics.open("vulkan", window, false);
         Logger.info("Vulkan backend ready: {}x{}, {} swapchain images, format {}",
                 w, h, images.length, vkFormat);
     }
@@ -247,17 +250,6 @@ final class VulkanBackend implements GraphicsBackend {
             surfaces = new Surface[n];
             for (int i = 0; i < n; i++) {
                 images[i] = imgs.get(i);
-                // Prime each image to COLOR_ATTACHMENT_OPTIMAL so Skija's tracked
-                // layout matches when it first renders into it.
-                transitionImageLayout(images[i], VK_IMAGE_LAYOUT_UNDEFINED,
-                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-                //noinspection resource
-                targets[i] = BackendRenderTarget.makeVulkan(width, height, images[i],
-                        VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                        vkFormat, IMAGE_USAGE, 1, 1);
-                surfaces[i] = Surface.wrapBackendRenderTarget(context, targets[i],
-                        SurfaceOrigin.TOP_LEFT, skiaColorType, null,
-                        new io.github.humbleui.skija.SurfaceProps(io.github.humbleui.skija.PixelGeometry.RGB_H));
             }
         }
     }
@@ -289,21 +281,42 @@ final class VulkanBackend implements GraphicsBackend {
 
     @Override
     public Canvas acquireCanvas() {
-        try (MemoryStack s = stackPush()) {
-            IntBuffer pIndex = s.mallocInt(1);
-            vkResetFences(device, acquireFence);
-            int r = vkAcquireNextImageKHR(device, swapchain, Long.MAX_VALUE,
-                    VK_NULL_HANDLE, acquireFence, pIndex);
-            if (r == VK_ERROR_OUT_OF_DATE_KHR) {
-                recreateSwapchain();
-                return acquireCanvas();
+        while (true) {
+            try (MemoryStack s = stackPush()) {
+                IntBuffer pIndex = s.mallocInt(1);
+                check(vkResetFences(device, acquireFence), "vkResetFences");
+                int r = vkAcquireNextImageKHR(device, swapchain, Long.MAX_VALUE,
+                        VK_NULL_HANDLE, acquireFence, pIndex);
+                if (r == VK_ERROR_OUT_OF_DATE_KHR) {
+                    recreateSwapchain();
+                    continue;
+                }
+                if (r != VK_SUBOPTIMAL_KHR) check(r, "vkAcquireNextImageKHR");
+                check(vkWaitForFences(device, acquireFence, true, Long.MAX_VALUE), "vkWaitForFences");
+                currentIndex = pIndex.get(0);
+                break;
             }
-            vkWaitForFences(device, acquireFence, true, Long.MAX_VALUE);
-            currentIndex = pIndex.get(0);
         }
+        prepareAcquiredImage();
         Canvas c = surfaces[currentIndex].getCanvas();
         c.clear(0xFF000000);
         return c;
+    }
+
+    private void prepareAcquiredImage() {
+        boolean firstUse = surfaces[currentIndex] == null;
+        // Present releases acquisition. Even queue-idle does not grant access again;
+        // both first-use initialization and subsequent layout changes belong here.
+        transitionImageLayout(images[currentIndex],
+                firstUse ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        if (firstUse) {
+            targets[currentIndex] = BackendRenderTarget.makeVulkan(width, height, images[currentIndex],
+                    VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                    vkFormat, IMAGE_USAGE, 1, 1);
+            surfaces[currentIndex] = Surface.wrapBackendRenderTarget(context, targets[currentIndex],
+                    SurfaceOrigin.TOP_LEFT, skiaColorType, null, new SurfaceProps(PixelGeometry.RGB_H));
+        }
     }
 
     @Override
@@ -314,8 +327,10 @@ final class VulkanBackend implements GraphicsBackend {
     @Override
     public void present() {
         if (currentIndex < 0) return;
+        if (diagnostics != null) diagnostics.draw(surfaces[currentIndex]);
         // Skija records + submits the draw; wait so the image is fully rendered (it
-        // stays COLOR_ATTACHMENT_OPTIMAL), then transition → present → restore.
+        // stays COLOR_ATTACHMENT_OPTIMAL), then transition → present. No further
+        // access to this image is permitted until a new acquisition completes.
         context.flush();
         context.submit(true);
         long img = images[currentIndex];
@@ -327,15 +342,14 @@ final class VulkanBackend implements GraphicsBackend {
                     .pSwapchains(s.longs(swapchain))
                     .pImageIndices(s.ints(currentIndex));
             int r = vkQueuePresentKHR(queue, pi);
-            vkQueueWaitIdle(queue);
+            check(vkQueueWaitIdle(queue), "vkQueueWaitIdle");
+            if (diagnostics != null) diagnostics.presented();
             if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) {
                 recreateSwapchain();
                 return;
             }
+            check(r, "vkQueuePresentKHR");
         }
-        // Restore for the next time this image is acquired.
-        transitionImageLayout(img, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         currentIndex = -1;
     }
 
@@ -361,6 +375,7 @@ final class VulkanBackend implements GraphicsBackend {
 
     @Override
     public void dispose() {
+        if (diagnostics != null) { diagnostics.close(); diagnostics = null; }
         if (device != null) vkDeviceWaitIdle(device);
         destroySwapchainObjects();
         if (context != null) { context.close(); context = null; }
@@ -372,6 +387,7 @@ final class VulkanBackend implements GraphicsBackend {
     }
 
     private void destroySwapchainObjects() {
+        currentIndex = -1;
         for (Surface su : surfaces) if (su != null) su.close();
         for (BackendRenderTarget t : targets) if (t != null) t.close();
         surfaces = new Surface[0];
@@ -394,8 +410,10 @@ final class VulkanBackend implements GraphicsBackend {
                     .srcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
                     .dstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
                     .image(image)
-                    .srcAccessMask(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT)
-                    .dstAccessMask(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT);
+                    .srcAccessMask(oldLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+                            ? VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT : 0)
+                    .dstAccessMask(newLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+                            ? VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT : 0);
             barrier.subresourceRange()
                     .aspectMask(VK_IMAGE_ASPECT_COLOR_BIT)
                     .baseMipLevel(0).levelCount(1).baseArrayLayer(0).layerCount(1);

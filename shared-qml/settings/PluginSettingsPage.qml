@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import md3.Core
+import miuix.Core
 import "."
 import "../components"
 
@@ -80,8 +80,9 @@ Rectangle {
 
             ColumnLayout {
                 id: content
-                width: parent.width
-                spacing: 14
+                width: Math.min(904, parent.width)
+                x: (parent.width - width) / 2
+                spacing: 16
 
                 SettingCard {
                     Layout.fillWidth: true
@@ -206,25 +207,23 @@ Rectangle {
                     }
                 }
 
-                Repeater {
-                    model: page.settingsContributions
-                    delegate: SettingCard {
-                        Layout.fillWidth: true
-                        Layout.leftMargin: 12
-                        Layout.rightMargin: 12
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            ColumnLayout {
+                Card {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 12
+                    Layout.rightMargin: 12
+                    visible: page.settingsContributions.length > 0
+                    implicitHeight: contributions.implicitHeight
+                    ColumnLayout {
+                        id: contributions
+                        width: parent.width
+                        spacing: 0
+                        Repeater {
+                            model: page.settingsContributions
+                            SuperArrow {
                                 Layout.fillWidth: true
-                                spacing: 2
-                                SettingTitle { text: i18n.t("plugin.page.settings.title") }
-                                SettingDesc { text: modelData.id }
-                            }
-                            Button {
-                                type: "outlined"
-                                icon: "open_in_new"
-                                text: i18n.t("plugin.page.settings.open")
+                                title: i18n.t("plugin.page.settings.title")
+                                summary: modelData.id
+                                rightText: i18n.t("plugin.page.settings.open")
                                 onClicked: player.requestPluginUi(modelData.pluginId, modelData.id)
                             }
                         }

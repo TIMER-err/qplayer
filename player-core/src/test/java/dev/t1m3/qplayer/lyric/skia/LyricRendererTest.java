@@ -21,6 +21,16 @@ import static org.junit.Assert.assertTrue;
 public class LyricRendererTest {
 
     @Test
+    public void glowFollowsTheMeasuredWordAndStaysBoundedOutsideIt() {
+        assertEquals(1f, LyricRowRenderer.glowWindow(100f, 0f, 200f, 20f), 0.001f);
+        assertTrue(LyricRowRenderer.glowWindow(10f, 0f, 200f, 20f) > 0f);
+        assertTrue(LyricRowRenderer.glowWindow(190f, 0f, 200f, 20f) > 0f);
+        assertEquals(0f, LyricRowRenderer.glowWindow(-20f, 0f, 200f, 20f), 0.001f);
+        assertEquals(0f, LyricRowRenderer.glowWindow(300f, 0f, 200f, 20f), 0.001f);
+        assertEquals(1f, LyricRowRenderer.glowWindow(30f, 30f, 30f, 0f), 0.001f);
+    }
+
+    @Test
     public void brokenShaderResourceDisablesOnlyTheLiftEffect() {
         AtomicBoolean compilerCalled = new AtomicBoolean();
 

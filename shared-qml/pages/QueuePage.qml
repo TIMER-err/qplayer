@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import md3.Core
+import miuix.Core
 import "."
 import "../components"
 
@@ -51,16 +51,15 @@ Rectangle {
             }
         }
 
-        SegmentedButton {
+        TabRowWithContour {
             Layout.fillWidth: true
             Layout.leftMargin: 16
             Layout.rightMargin: 16
             Layout.bottomMargin: 8
-            buttons: [
-                { text: i18n.t("queue.tab.queue"), selected: !page.showCustom },
-                { text: i18n.t("queue.tab.custom"), selected: page.showCustom }
-            ]
-            onClicked: page.showCustom = (index === 1)
+            tabs: [i18n.t("queue.tab.queue"), i18n.t("queue.tab.custom")]
+            selectOnClick: false
+            selectedTabIndex: page.showCustom ? 1 : 0
+            onTabSelected: (index) => page.showCustom = (index === 1)
         }
 
         VirtualSongList {
@@ -87,6 +86,13 @@ Rectangle {
                 ? player.removeFromCustomPlaylistIndex(q.removeIndex)
                 : player.removeFromQueue(q.removeIndex)
         }
+    }
+    EmptyState {
+        anchors.centerIn: parent
+        visible: q.count === 0
+        icon: "queue_music"
+        title: i18n.t("queue.empty.title")
+        message: i18n.t("queue.empty.desc")
     }
 
 }

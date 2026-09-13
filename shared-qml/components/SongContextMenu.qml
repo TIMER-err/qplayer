@@ -1,5 +1,5 @@
 import QtQuick
-import md3.Core
+import miuix.Core
 import "."
 
 // Long-press context menu for a song row. "add to playlist" fans the user's own

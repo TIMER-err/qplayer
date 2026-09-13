@@ -1,5 +1,5 @@
 import QtQuick
-import md3.Core
+import miuix.Core
 import "."
 
 // Credential-protection and graphics-fallback modals, plus the timers that
@@ -24,6 +24,10 @@ Item {
     }
 
     Dialog {
+
+        topInset: settings.topInset
+
+        bottomInset: settings.bottomInset
         id: graphicsFallbackDialog
         title: i18n.t("graphics.fallback.title")
         icon: "warning"
@@ -36,6 +40,10 @@ Item {
     }
 
     Dialog {
+
+        topInset: settings.topInset
+
+        bottomInset: settings.bottomInset
         id: credentialNoticeDialog
         title: player.credentialNoticeType === 1
             ? i18n.t("credential.notice.enabled")
@@ -69,6 +77,10 @@ Item {
     }
 
     Dialog {
+
+        topInset: settings.topInset
+
+        bottomInset: settings.bottomInset
         id: credentialReloginUnavailableDialog
         title: i18n.t("credential.keystore.title")
         icon: "warning"
@@ -80,6 +92,10 @@ Item {
     }
 
     Dialog {
+
+        topInset: settings.topInset
+
+        bottomInset: settings.bottomInset
         id: credentialFallbackConfirmDialog
         title: i18n.t("credential.downgrade.title")
         icon: "warning"

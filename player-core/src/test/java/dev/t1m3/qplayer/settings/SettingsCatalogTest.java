@@ -56,6 +56,19 @@ public class SettingsCatalogTest {
         assertTrue(transition.appliesTo(SettingsCatalog.ANDROID));
     }
 
+    @Test
+    public void temperaUsesTheExistingLyricTabAndDoesNotAddMobileTabs() {
+        assertEquals(6, SettingsCatalog.CATEGORIES.size());
+        assertFalse(SettingsCatalog.specs().stream().anyMatch(spec -> "temperaEnabled".equals(spec.key)));
+        for (String key : new String[]{"temperaWholeLine",
+                "temperaGlyphSettleStretch", "temperaImages"}) {
+            SettingSpec spec = setting(key);
+            assertEquals(SettingsCatalog.LYRIC, spec.category);
+            assertTrue(spec.appliesTo(SettingsCatalog.DESKTOP));
+            assertTrue(spec.appliesTo(SettingsCatalog.ANDROID));
+        }
+    }
+
     private static SettingSpec setting(String key) {
         return SettingsCatalog.specs().stream()
                 .filter(candidate -> key.equals(candidate.key))

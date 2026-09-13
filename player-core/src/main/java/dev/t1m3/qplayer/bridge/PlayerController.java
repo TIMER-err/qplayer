@@ -510,6 +510,9 @@ public final class PlayerController {
     public final Property<Integer> lyricIndex = new Property<>(-1);
     /** Whether the full-screen lyric page is open (host draws it via Skija). */
     public final Property<Boolean> lyricsOpen = new Property<>(false);
+    /** Independent, session-only visualizer page; never restored from settings. */
+    public final Property<Boolean> temperaOpen = new Property<>(false);
+    public final Property<Double> temperaOpacity = new Property<>(0.0);
     /** Whether the lyric page's QML offset-adjust panel is open. The host-drawn lyric
      *  column has no QML underneath it, so its own tap = seek / drag = scroll gesture
      *  is normally recognized before any QML dispatch; while this is true the input
@@ -2490,8 +2493,13 @@ public final class PlayerController {
     private volatile Runnable renderWake;
 
     /** Android GLSurfaceView uses this to leave WHEN_DIRTY when a host task lands. */
-    public void setRenderWake(Runnable wake) {
+    public synchronized void setRenderWake(Runnable wake) {
         this.renderWake = wake;
+    }
+
+    /** A retiring scene must not clear a replacement scene's wake callback. */
+    public synchronized void clearRenderWake(Runnable expected) {
+        if (renderWake == expected) renderWake = null;
     }
 
     private void post(Runnable r) {
@@ -2542,6 +2550,10 @@ public final class PlayerController {
         // here) must also drop the offset panel's gesture-suppression flag — otherwise
         // it stays stuck true and the lyric body's tap-to-seek never re-arms next time.
         if (!open) lyricOffsetPanelOpen.set(false);
+    }
+
+    public void setTemperaOpen(boolean open) {
+        temperaOpen.set(open);
     }
 
     public void setLyricOffsetPanelOpen(boolean open) {
@@ -6597,6 +6609,18 @@ public final class PlayerController {
     }
 
     public void openMediaPlaylist(String mediaId) {
+        loadMediaPlaylist(mediaId, false);
+    }
+
+    /** Refresh the current playlist without clearing its rows or filter state. */
+    public void refreshPlaylist() {
+        if (Boolean.TRUE.equals(playlistLoading.peek())) return;
+        String mediaId = openSourcePlaylistId.peek();
+        if (mediaId != null && !mediaId.isEmpty()) loadMediaPlaylist(mediaId, true);
+        else if (currentPlaylistId > 0) openPlaylist(currentPlaylistId);
+    }
+
+    private void loadMediaPlaylist(String mediaId, boolean refreshing) {
         if (mediaId == null || mediaId.isEmpty()) return;
         if (mediaId.indexOf(':') < 0) {
             try { openPlaylist(Long.parseLong(mediaId)); } catch (NumberFormatException ignored) {}
@@ -6617,13 +6641,15 @@ public final class PlayerController {
                 pluginHasCapability(id.provider(), ProviderCapability.PLAYLIST_COVER));
         playlistLoading.set(true);
         playlistOffline.set(false);
-        playlistTracks.set(Collections.<NeteaseSong>emptyList());
-        sourcePlaylistTracks.set(Collections.<Song>emptyList());
-        playlistTitle.set("");
-        playlistCoverPath.set("");
-        playlistSubscribed.set(false);
-        playlistOwned.set(false);
-        playlistDeletable.set(false);
+        if (!refreshing) {
+            playlistTracks.set(Collections.<NeteaseSong>emptyList());
+            sourcePlaylistTracks.set(Collections.<Song>emptyList());
+            playlistTitle.set("");
+            playlistCoverPath.set("");
+            playlistSubscribed.set(false);
+            playlistOwned.set(false);
+            playlistDeletable.set(false);
+        }
         pluginProviders.playlist(id).whenComplete((playlist, error) -> post(() -> {
             if (!id.toString().equals(openSourcePlaylistId.peek())) return;
             playlistLoading.set(false);

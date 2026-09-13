@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import md3.Core
+import miuix.Core
 import "."
 
 // SettingSpec.RADIO — an int index shown as a radio group (background motion:
@@ -12,10 +12,10 @@ ColumnLayout {
 
     SettingTitle { text: row.spec ? i18n.t(row.spec.title) : "" }
     SettingDesc { text: row.spec ? i18n.t(row.spec.desc) : "" }
-    RowLayout {
+    ColumnLayout {
         Layout.fillWidth: true
         Layout.topMargin: 4
-        spacing: 16
+        spacing: 8
         Repeater {
             model: row.spec ? row.spec.options : []
             RadioButton {
@@ -24,6 +24,6 @@ ColumnLayout {
                 onClicked: settings.setValue(row.spec.key, index)
             }
         }
-        Item { Layout.fillWidth: true }
+
     }
 }

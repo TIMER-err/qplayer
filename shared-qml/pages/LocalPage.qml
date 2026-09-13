@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import md3.Core
+import miuix.Core
 import "."
 import "../components"
 
@@ -104,6 +104,7 @@ Item {
                 model: [i18n.t("local.sort.default"), i18n.t("local.sort.title"),
                         i18n.t("local.sort.artist"), i18n.t("local.sort.duration")]
                 Rectangle {
+                    objectName: "localSortChip" + index
                     property bool active: index === page.sortMode
                     implicitWidth: chipText.implicitWidth + 20
                     implicitHeight: 28
@@ -143,6 +144,7 @@ Item {
                 model: [i18n.t("local.group.all"), i18n.t("local.group.artist"),
                         i18n.t("local.group.folder")]
                 Rectangle {
+                    objectName: "localGroupChip" + index
                     property bool active: index === page.groupMode
                     implicitWidth: gChipText.implicitWidth + 20
                     implicitHeight: 28
@@ -162,6 +164,7 @@ Item {
                 }
             }
             Rectangle {
+                objectName: "localGroupValueButton"
                 visible: page.groupMode !== 0
                 Layout.fillWidth: true
                 implicitHeight: 28
@@ -220,134 +223,74 @@ Item {
         }
     }
 
-    Text {
+    EmptyState {
         anchors.centerIn: parent
         visible: player.libraryCount === 0
-        text: i18n.t(settings.has("musicFolder") ? "local.empty.desktop"
-                     : "local.empty.android")
-        horizontalAlignment: Text.AlignHCenter
-        color: Theme.color.onSurfaceVariantColor
-        fontSize: 15
+        icon: "folder_open"
+        title: i18n.t("nav.local")
+        message: i18n.t(settings.has("musicFolder") ? "local.empty.desktop" : "local.empty.android")
     }
 
-    // Value picker for the by-artist/by-folder group modes above — a search box +
-    // explicit-y-positioned list (Repeater has no built-in positioner in this
-    // engine), same shape as FontPickerDialog.qml. Distinct artist/folder counts
-    // are typically small (tens, not hundreds), so this stays un-windowed.
-    Rectangle {
+    onValuePickerOpenChanged: {
+        if (valuePickerOpen) { valueSearchField.text = ""; valueDialog.open() }
+        else if (valueDialog.opened) valueDialog.close()
+    }
+    Dialog {
+        topInset: settings.topInset
+        bottomInset: settings.bottomInset
         id: valueDialog
-        anchors.fill: parent
-        opacity: page.valuePickerOpen ? 1 : 0
-        visible: opacity > 0.01
-        color: "#99000000"
-        Behavior on opacity { NumberAnimation { duration: 150 } }
-
-        MouseArea { anchors.fill: parent; onClicked: page.valuePickerOpen = false }
-
+        title: i18n.t(page.groupMode === 1 ? "local.pick.artist" : "local.pick.folder")
+        showAcceptButton: false
+        rejectText: i18n.t("common.cancel")
+        onClosed: page.valuePickerOpen = false
         property var filtered: {
-            var q = valueSearchField.text.toLowerCase();
-            var out = [];
+            var q = valueSearchField.text.toLowerCase()
+            var out = []
             for (var i = 0; i < page.groupValues.length; i++) {
-                var name = page.groupValues[i];
-                if (q === "" || name.toLowerCase().indexOf(q) >= 0) out.push(name);
+                var name = page.groupValues[i]
+                if (q === "" || name.toLowerCase().indexOf(q) >= 0) out.push(name)
             }
-            return out;
+            return out
         }
-
-        Rectangle {
-            anchors.centerIn: parent
-            width: Math.min(340, parent.width - 32)
-            height: Math.min(420, parent.height - 32)
-            radius: 24
-            color: Theme.color.surfaceContainerHigh
-            scale: page.valuePickerOpen ? 1 : 0.9
-            Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-
-            MouseArea { anchors.fill: parent }
-
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 16
-                spacing: 12
-
-                Text {
-                    Layout.fillWidth: true
-                    text: i18n.t(page.groupMode === 1 ? "local.pick.artist" : "local.pick.folder")
-                    color: Theme.color.onSurfaceColor
-                    fontSize: 18
-                }
-
-                TextField {
-                    id: valueSearchField
-                    Layout.fillWidth: true
-                    type: "outlined"
-                    label: i18n.t("nav.search")
-                }
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    implicitHeight: 40
-                    radius: 8
-                    color: allValuesMa.pressed ? Theme.color.surfaceContainerHighest : "transparent"
-                    Text {
-                        anchors.left: parent.left
-                        anchors.leftMargin: 12
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: i18n.t("local.group.all")
-                        color: Theme.color.onSurfaceVariantColor
-                        fontSize: 14
-                    }
-                    MouseArea {
-                        id: allValuesMa
-                        anchors.fill: parent
-                        onClicked: { page.groupValue = ""; page.valuePickerOpen = false }
-                    }
-                }
-
-                Flickable {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    clip: true
-                    contentWidth: width
-                    contentHeight: valueDialog.filtered.length * 40
-
-                    Item {
-                        width: parent.width
-                        height: valueDialog.filtered.length * 40
-
-                        Repeater {
-                            model: valueDialog.filtered
-                            Rectangle {
-                                width: parent.width
-                                height: 40
-                                y: index * 40
-                                radius: 8
-                                color: valueRowMa.pressed ? Theme.color.surfaceContainerHighest : "transparent"
-                                Text {
-                                    anchors.left: parent.left
-                                    anchors.leftMargin: 12
-                                    anchors.right: parent.right
-                                    anchors.rightMargin: 12
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    elide: Text.ElideRight
-                                    text: modelData || ""
-                                    color: Theme.color.onSurfaceColor
-                                    fontSize: 14
-                                }
-                                MouseArea {
-                                    id: valueRowMa
-                                    anchors.fill: parent
-                                    onClicked: { page.groupValue = modelData; page.valuePickerOpen = false }
-                                }
-                            }
+        ColumnLayout {
+            width: parent.width
+            spacing: 8
+            TextField {
+                id: valueSearchField
+                Layout.fillWidth: true
+                label: i18n.t("nav.search")
+                leadingIcon: "search"
+            }
+            SuperArrow {
+                Layout.fillWidth: true
+                title: i18n.t("local.group.all")
+                onClicked: { page.groupValue = ""; valueDialog.close() }
+            }
+            Flickable {
+                id: valueList
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(280, Math.max(104, page.height - 300))
+                clip: true
+                contentWidth: width
+                contentHeight: valueDialog.filtered.length * 52
+                onContentHeightChanged: contentY = Math.min(contentY, Math.max(0, contentHeight - height))
+                Item {
+                    width: valueList.width
+                    height: valueList.contentHeight
+                    cachedLayout: true
+                    Repeater {
+                        model: page.valuePickerOpen ? valueDialog.filtered : null
+                        windowStart: Math.max(0, Math.floor(valueList.contentY / 52) - 3)
+                        windowCount: Math.ceil(valueList.height / 52) + 7
+                        Button {
+                            width: valueList.width
+                            height: 48
+                            y: index * 52
+                            text: modelData
+                            type: page.groupValue === modelData ? "filledTonal" : "text"
+                            onClicked: { page.groupValue = modelData; valueDialog.close() }
                         }
                     }
-                }
-
-                Button {
-                    Layout.alignment: Qt.AlignHCenter
-                    type: "text"; text: i18n.t("common.cancel")
-                    onClicked: page.valuePickerOpen = false
                 }
             }
         }

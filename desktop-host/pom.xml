@@ -33,7 +33,7 @@
              check). Local dev default; the release workflow overrides it with the
              git tag (-Dqplayer.app.version=…) so release binaries match the tag
              without a committed bump, like the macOS/Windows packagers. -->
-        <qplayer.app.version>1.5.2</qplayer.app.version>
+        <qplayer.app.version>1.6.0</qplayer.app.version>
         <!-- exec:exec run knobs. Empty gfx means use the persisted in-app setting;
              pass -Dgfx=gl|vulkan only when an explicit development override is
              wanted. -->
@@ -42,6 +42,9 @@
         <win.h>720</win.h>
         <!-- Optional isolated profile root, useful for parallel/demo instances. -->
         <data.dir></data.dir>
+        <frame.trace></frame.trace>
+        <frame.readback>false</frame.readback>
+        <gl.context>auto</gl.context>
     </properties>
 
     <build>
@@ -58,7 +61,7 @@
                 <directory>${project.basedir}/src/main/resources-filtered</directory>
                 <filtering>true</filtering>
             </resource>
-            <!-- Mount the shared QML tree (Main.qml + app pages + md3/Core + fonts)
+            <!-- Mount the shared QML tree (Main.qml + app pages + miuix/Core + fonts)
                  onto the classpath so ClasspathResourceLoader serves it exactly like
                  the Android shell's merged assets. -->
             <resource>
@@ -85,6 +88,9 @@
                         <argument>-Dqplayer.width=${win.w}</argument>
                         <argument>-Dqplayer.height=${win.h}</argument>
                         <argument>-Dqplayer.data.dir=${data.dir}</argument>
+                        <argument>-Dqplayer.frameTrace=${frame.trace}</argument>
+                        <argument>-Dqplayer.frameReadback=${frame.readback}</argument>
+                        <argument>-Dqplayer.glContext=${gl.context}</argument>
                         <argument>-classpath</argument>
                         <classpath/>
                         <argument>dev.t1m3.qplayer.desktop.app.Main</argument>

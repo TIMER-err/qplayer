@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import md3.Core
+import miuix.Core
 import "."
 
 // SettingSpec.STEPPER — an int with −/+ buttons. Clamping lives in SettingsCore
@@ -21,8 +21,9 @@ ColumnLayout {
         Layout.fillWidth: true
         spacing: 8
         SettingTitle { text: row.spec ? i18n.t(row.spec.title) : "" }
-        Button {
-            type: "outlined"; text: "−"
+        IconButton {
+            type: "filledTonal"; icon: "remove"
+            enabled: row.spec && row.value > row.spec.min
             onClicked: settings.bump(row.spec.key, -1)
         }
         Text {
@@ -31,8 +32,9 @@ ColumnLayout {
             font.family: Theme.typography.bodyLarge.family
             font.pixelSize: Theme.typography.bodyLarge.size
         }
-        Button {
-            type: "outlined"; text: "+"
+        IconButton {
+            type: "filledTonal"; icon: "add"
+            enabled: row.spec && row.value < row.spec.max
             onClicked: settings.bump(row.spec.key, 1)
         }
     }

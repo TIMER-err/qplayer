@@ -1,5 +1,5 @@
 import QtQuick
-import md3.Core
+import miuix.Core
 import "."
 import "../components"
 
@@ -10,8 +10,8 @@ Item {
     property var pendingPlaylist
     signal openPlaylist()
 
-    property real pad: 12
-    property real gap: 12
+    property real pad: width >= 840 ? 28 : 16
+    property real gap: 16
     property real greetH: 64
     property real rowH: 64
     // Responsive grid: ~200dp min card width → 2 cols on a phone, 3–4 on a wide
@@ -111,14 +111,14 @@ Item {
         return i18n.t("home.greeting.evening");
     }
 
-    property int cardRowH: Math.max(1, Math.round(cardH + gap))
+    property real cardRowH: Math.max(1, cardH + gap)
     property int gridWindowRows: {
         var rows = Math.ceil(recCount / Math.max(1, cols))
         var vis = Math.ceil(homeFlick.height / cardRowH) + 3
         return Math.min(rows, Math.max(0, vis))
     }
     property int firstGridRow: {
-        var f = Math.floor((homeFlick.contentY - gridTop) / cardRowH) - 1
+        var f = Math.floor((homeFlick.scrollOffset - gridTop) / cardRowH) - 1
         var maxR = Math.max(0, Math.ceil(recCount / Math.max(1, cols)) - gridWindowRows)
         if (f > maxR) f = maxR
         if (f < 0) f = 0
@@ -127,27 +127,55 @@ Item {
     property int firstCard: firstGridRow * cols
     property int cardWindow: {
         var gridBottom = gridTop + gridH
-        if (gridBottom < homeFlick.contentY - cardRowH) return 0
+        if (gridBottom < homeFlick.scrollOffset - cardRowH) return 0
         return gridWindowRows * cols
     }
     property int songWindow: {
-        if (dailyTop > homeFlick.contentY + homeFlick.height + 2 * rowH) return 0
+        if (dailyTop > homeFlick.scrollOffset + homeFlick.height + 2 * rowH) return 0
         return Math.min(dailyCount, Math.ceil(homeFlick.height / rowH) + 10)
     }
     property int firstSong: {
-        var f = Math.floor((homeFlick.contentY - dailyTop) / rowH) - 4
+        var f = Math.floor((homeFlick.scrollOffset - dailyTop) / rowH) - 4
         var maxF = dailyCount - songWindow
         if (f > maxF) f = maxF
         if (f < 0) f = 0
         return f
     }
 
-    Flickable {
+    // Section cards are sorted by vertical position. Binary search keeps
+    // viewport updates logarithmic even when a source returns many sections.
+    function lowerCard(y) {
+        var low = 0, high = page.sectionCardCount
+        while (low < high) {
+            var middle = Math.floor((low + high) / 2)
+            if (page.sectionCardY[middle] < y) low = middle + 1
+            else high = middle
+        }
+        return low
+    }
+    // Keep the count stable while scrolling: changing it rebuilds every delegate
+    // and drops decoded covers. Section headers can only reduce card density, so
+    // a dense-grid bound safely covers the viewport plus two rows on either side.
+    property int sectionWindow: Math.min(sectionCardCount,
+        (Math.ceil(homeFlick.height / cardRowH) + 4) * cols)
+    property int firstSectionCard: Math.max(0, Math.min(sectionCardCount - sectionWindow,
+        lowerCard(homeFlick.scrollOffset - cardH - gap)))
+
+    PullToRefresh {
         id: homeFlick
+        objectName: "homePullToRefresh"
         anchors.fill: parent
         clip: true
-        contentWidth: width
         contentHeight: page.contentH
+        enabled: !player.sourceSetupRequired
+        refreshing: page.refreshBusy
+        refreshTexts: [i18n.t("refresh.pull"), i18n.t("refresh.release"), i18n.t("refresh.loading"), i18n.t("refresh.complete")]
+        onRefreshRequested: {
+            if (page.refreshBusy) return
+            page.refreshCooling = true
+            refreshCoolTimer.restart()
+            player.loadHome()
+        }
 
         Item {
             width: page.width
@@ -162,7 +190,8 @@ Item {
                 text: player.loggedIn ? i18n.t("home.greeting.user", page.greeting(), player.userName)
                                       : page.greeting()
                 color: Theme.color.onSurfaceColor
-                fontSize: 26
+                fontSize: 30
+                font.weight: Font.DemiBold
             }
 
             Repeater {
@@ -179,8 +208,11 @@ Item {
             }
 
             Repeater {
-                model: page.sectionCards
+                model: page.visible ? page.sectionCards : null
+                windowStart: page.firstSectionCard
+                windowCount: page.sectionWindow
                 PlaylistCard {
+                    objectName: "homeSectionPlaylistCard"
                     playlistId: modelData.id
                     tile: page.tile
                     x: page.sectionCardX[index]
@@ -204,7 +236,7 @@ Item {
             }
 
             Repeater {
-                model: page.homePlaylists
+                model: page.visible ? page.homePlaylists : null
                 windowStart: page.firstCard
                 windowCount: page.cardWindow
                 PlaylistCard {
@@ -231,7 +263,7 @@ Item {
             }
 
             Repeater {
-                model: page.homeSongs
+                model: page.visible ? page.homeSongs : null
                 windowStart: page.firstSong
                 windowCount: page.songWindow
                 SongRow {
@@ -267,7 +299,7 @@ Item {
             radius: height / 2
             color: Theme.color.surfaceContainerHigh
 
-            // MD3 state layer + Ripple — the same building block Button/
+            // Miuix state layer + Ripple — the same building block Button/
             // IconButton use everywhere else in the app, so it's already
             // proven to animate correctly in qml4j (unlike the `scale`
             // press-bounce tried here first, which never interpolated under

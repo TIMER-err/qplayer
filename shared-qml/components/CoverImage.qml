@@ -1,5 +1,5 @@
 import QtQuick
-import md3.Core
+import miuix.Core
 
 // Rounded album-cover image with a glyph placeholder shown until the cover
 // decodes. `source` accepts a local asset path or an http(s) URL — the engine
