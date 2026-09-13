@@ -1,195 +1,153 @@
 import QtQuick
 import QtQuick.Layouts
-import md3.Core
+import miuix.Core
 
-// The app's one font picker (issue #15): the bundled font, the OS default, or any
-// installed family. The selection lives in SettingsCore (setFontSelection /
-// fontFamily(), "" = bundled, "system" = the OS default, else a family name).
-//
-// Virtualized the same way VirtualSongList.qml is (Repeater windowStart/
-// windowCount over a fixed rowH): the family list can be 100+ entries long and
-// qml4j's Repeater has no built-in positioner, so an un-windowed list either
-// costs one live delegate per family or needs manual x/y bookkeeping anyway —
-// windowing gets both cheap and simple at once.
-Rectangle {
-    id: dialog
-
-    property bool active: false
-    signal closed()
-
+Item {
+    id: control
     anchors.fill: parent
-    opacity: active ? 1 : 0
-    visible: opacity > 0.01
-    color: "#99000000"
-    Behavior on opacity { NumberAnimation { duration: 150 } }
-
-    onActiveChanged: if (active) searchField.text = ""
-
-    MouseArea { anchors.fill: parent; onClicked: dialog.closed() }
-
-    // Installed families, filtered in-place as the user types. The two built-in
-    // sources (bundled / system default) are fixed rows above the list, so they
-    // stay reachable no matter what's typed in the search box.
-    property var filtered: {
-        var q = searchField.text.toLowerCase();
-        var src = (typeof settings.availableFontFamilies !== "undefined" && settings.availableFontFamilies) || [];
-        var out = [];
-        for (var i = 0; i < src.length; i++) {
-            var name = src[i];
-            if (q === "" || name.toLowerCase().indexOf(q) >= 0) out.push(name);
+    property bool active: false
+    property bool familyListOpen: false
+    signal closed()
+    onActiveChanged: {
+        if (active) { searchField.text = ""; picker.open() }
+        else {
+            if (familyPicker.opened) familyPicker.close()
+            if (picker.opened) picker.close()
         }
-        return out;
     }
-
-    Rectangle {
-        anchors.centerIn: parent
-        width: 340
-        height: 480
-        radius: 24
-        color: Theme.color.surfaceContainerHigh
-        scale: dialog.active ? 1 : 0.9
-        Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-
-        // Swallow taps on the card itself so they don't fall through to the
-        // scrim's dialog.closed().
-        MouseArea { anchors.fill: parent }
-
+    property var filtered: {
+        var q = searchField.text.toLowerCase()
+        var source = settings.availableFontFamilies || []
+        var out = []
+        for (var i = 0; i < source.length; i++)
+            if (q === "" || source[i].toLowerCase().indexOf(q) >= 0) out.push(source[i])
+        return out
+    }
+    Dialog {
+        topInset: settings.topInset
+        bottomInset: settings.bottomInset
+        id: picker
+        title: i18n.t("font.picker.title")
+        showAcceptButton: false
+        rejectText: i18n.t("common.cancel")
+        onClosed: control.closed()
         ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: 16
-            spacing: 12
-
-            Text {
+            width: parent.width
+            spacing: 8
+            SuperArrow {
                 Layout.fillWidth: true
-                text: i18n.t("font.picker.title")
-                color: Theme.color.onSurfaceColor
-                fontSize: 18
+                title: i18n.t("font.picker.bundled")
+                indicator: settings.fontFamily() === "" ? "check" : "chevron_right"
+                onClicked: { settings.setFontSelection(""); picker.close() }
             }
-
+            SuperArrow {
+                Layout.fillWidth: true
+                title: i18n.t("font.picker.system")
+                indicator: settings.fontFamily() === "system" ? "check" : "chevron_right"
+                onClicked: { settings.setFontSelection("system"); picker.close() }
+            }
+            SuperArrow {
+                objectName: "openFontFamilyList"
+                Layout.fillWidth: true
+                title: i18n.t("font.picker.installed")
+                summary: settings.fontFamily() !== "" && settings.fontFamily() !== "system"
+                    ? settings.fontFamily() : i18n.t("font.picker.installed.summary")
+                onClicked: { control.familyListOpen = true; familyPicker.open() }
+            }
+        }
+    }
+    Dialog {
+        id: familyPicker
+        objectName: "fontFamilyDialog"
+        topInset: settings.topInset
+        bottomInset: settings.bottomInset
+        title: i18n.t("font.picker.installed")
+        showAcceptButton: false
+        rejectText: i18n.t("common.back")
+        onClosed: control.familyListOpen = false
+        ColumnLayout {
+            width: parent.width
+            spacing: 8
             TextField {
                 id: searchField
                 Layout.fillWidth: true
-                type: "outlined"
                 label: i18n.t("font.picker.search")
+                leadingIcon: "search"
+                onTextChanged: listView.contentY = 0
             }
-
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 44
-                radius: 8
-                color: bundledMa.pressed ? Theme.color.surfaceContainerHighest : "transparent"
-                Text {
-                    anchors.left: parent.left
-                    anchors.leftMargin: 12
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: i18n.t("font.picker.bundled")
-                    color: settings.fontFamily() === "" ? Theme.color.primary : Theme.color.onSurfaceColor
-                    fontSize: 14
-                }
-                MouseArea {
-                    id: bundledMa
-                    anchors.fill: parent
-                    onClicked: { settings.setFontSelection(""); dialog.closed() }
-                }
-            }
-
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 44
-                radius: 8
-                color: systemMa.pressed ? Theme.color.surfaceContainerHighest : "transparent"
-                Text {
-                    anchors.left: parent.left
-                    anchors.leftMargin: 12
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: i18n.t("font.picker.system")
-                    color: settings.fontFamily() === "system" ? Theme.color.primary : Theme.color.onSurfaceColor
-                    fontSize: 14
-                }
-                MouseArea {
-                    id: systemMa
-                    anchors.fill: parent
-                    onClicked: { settings.setFontSelection("system"); dialog.closed() }
-                }
-            }
-
             Item {
                 Layout.fillWidth: true
-                Layout.fillHeight: true
-
+                Layout.preferredHeight: Math.min(360, Math.max(88, control.height - 240))
                 Flickable {
                     id: listView
+                    objectName: "fontFamilyList"
                     anchors.fill: parent
-                    anchors.rightMargin: fontScroll.visible ? 10 : 0
                     clip: true
                     contentWidth: width
-                    contentHeight: dialog.filtered.length * rowH
-
-                    property int rowH: 44
-                    property int buffer: 8
-                    property int count: dialog.filtered.length
-                    property int window: Math.min(count, Math.ceil(height / rowH) + 2 * buffer + 1)
-                    property int first: {
-                        var f = Math.floor(contentY / rowH) - buffer;
-                        var maxFirst = count - window;
-                        if (f > maxFirst) f = maxFirst;
-                        if (f < 0) f = 0;
-                        return f;
-                    }
-
+                    contentHeight: control.filtered.length * rowH
+                    property int rowH: 52
+                    property int liveRows: Math.ceil(height / rowH) + 7
+                    onContentHeightChanged: contentY = Math.min(contentY, Math.max(0, contentHeight - height))
                     Item {
                         width: listView.width
                         height: listView.contentHeight
-
+                        cachedLayout: true
                         Repeater {
-                            model: dialog.filtered
-                            windowStart: listView.first
-                            windowCount: listView.window
-
-                            Rectangle {
+                            model: control.familyListOpen ? control.filtered : null
+                            windowStart: Math.max(0, Math.min(control.filtered.length - listView.liveRows, Math.floor(listView.contentY / listView.rowH) - 3))
+                            windowCount: listView.liveRows
+                            Item {
+                                id: familyRow
+                                objectName: "fontFamilyRow"
+                                property string family: modelData
+                                property bool selected: settings.fontFamily() === family
                                 width: listView.width
-                                height: listView.rowH
+                                height: listView.rowH - 4
                                 y: index * listView.rowH
-                                radius: 8
-                                color: rowMa.pressed ? Theme.color.surfaceContainerHighest : "transparent"
-
-                                Text {
-                                    anchors.left: parent.left
-                                    anchors.leftMargin: 12
-                                    anchors.right: parent.right
-                                    anchors.rightMargin: 12
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: modelData || ""
-                                    elide: Text.ElideRight
-                                    color: settings.fontFamily() === modelData
-                                           ? Theme.color.primary : Theme.color.onSurfaceColor
-                                    fontSize: 14
+                                activeFocusOnTab: true
+                                function choose() { settings.setFontSelection(family); familyPicker.close() }
+                                Keys.onReturnPressed: { choose(); event.accepted = true }
+                                Keys.onSpacePressed: { choose(); event.accepted = true }
+                                Rectangle {
+                                    objectName: "fontFamilyBackground"
+                                    width: parent.width; height: parent.height; radius: 12
+                                    color: familyRow.selected || familyRow.activeFocus
+                                        ? Theme.color.secondaryContainer : "transparent"
                                 }
-
-                                MouseArea {
-                                    id: rowMa
-                                    anchors.fill: parent
-                                    onClicked: { settings.setFontSelection(modelData); dialog.closed() }
+                                Text {
+                                    objectName: "fontFamilyLabel"
+                                    x: 16
+                                    y: (familyRow.height - height) / 2
+                                    width: Math.max(0, parent.width - 64)
+                                    height: implicitHeight
+                                    text: familyRow.family
+                                    horizontalAlignment: Text.AlignLeft
+                                    elide: Text.ElideRight
+                                    font.pixelSize: 16
+                                    color: Theme.color.onSurfaceColor
+                                }
+                                Icon {
+                                    x: parent.width - 40; y: (parent.height - height) / 2
+                                    width: 24; height: 24
+                                    name: "check"
+                                    visible: familyRow.selected
+                                    color: Theme.color.primary
+                                }
+                                Ripple {
+                                    width: parent.width; height: parent.height; clipRadius: 12
+                                    onClicked: familyRow.choose()
                                 }
                             }
                         }
                     }
                 }
-
                 ScrollBar {
-                    id: fontScroll
+                    objectName: "fontFamilyScrollBar"
                     anchors.top: parent.top
-                    anchors.right: parent.right
                     anchors.bottom: parent.bottom
-                    width: implicitWidth
+                    anchors.right: parent.right
                     target: listView
                 }
-            }
-
-            Button {
-                Layout.alignment: Qt.AlignHCenter
-                type: "text"; text: i18n.t("common.cancel")
-                onClicked: dialog.closed()
             }
         }
     }

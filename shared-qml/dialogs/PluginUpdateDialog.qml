@@ -1,5 +1,5 @@
 import QtQuick
-import md3.Core
+import miuix.Core
 
 // Plugin update prompt, kept in its own document on purpose: qml4j compiles a
 // whole QML file's construction into one generated constructor, and Main.qml is
@@ -37,6 +37,10 @@ Item {
     }
 
     Dialog {
+
+        topInset: settings.topInset
+
+        bottomInset: settings.bottomInset
         id: dialog
         title: i18n.t("update.plugin.title")
         icon: "extension"

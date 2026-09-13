@@ -1,5 +1,5 @@
 import QtQuick
-import md3.Core
+import miuix.Core
 import "."
 
 // Windows-only custom title bar (see WinFrameless.java / WindowChrome.java on the

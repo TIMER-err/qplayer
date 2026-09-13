@@ -1,32 +1,15 @@
 import QtQuick
-import QtQuick.Layouts
-import md3.Core
-import "."
+import miuix.Core
 
-// SettingSpec.SWITCH. `spec` is the descriptor handed down by SettingsPage's
-// Loader; the value is read/written by key, so this one file serves every toggle
-// in the catalog. An "swatch" accessory draws the live Monet seed beside the
-// title, as the hand-written Monet card did.
-ColumnLayout {
+SuperSwitch {
     id: row
     property var spec: null
-    spacing: 4
-
-    RowLayout {
-        Layout.fillWidth: true
-        spacing: 12
-        Rectangle {
-            visible: row.spec && row.spec.accessory === "swatch"
-            Layout.preferredWidth: 40
-            Layout.preferredHeight: 40
-            radius: 12
-            color: Theme.color.primary
-        }
-        SettingTitle { text: row.spec ? i18n.t(row.spec.title) : "" }
-        Switch {
-            checked: row.spec ? settings.value(row.spec.key) === true : false
-            onClicked: settings.setValue(row.spec.key, checked)
-        }
-    }
-    SettingDesc { text: row.spec ? i18n.t(row.spec.desc) : "" }
+    objectName: spec ? "setting_" + spec.key : ""
+    title: spec ? i18n.t(spec.title) : ""
+    summary: spec ? i18n.t(spec.desc) : ""
+    // SuperSwitch owns its immediate click state; mirror later host updates too.
+    property bool storedChecked: spec ? settings.value(spec.key) === true : false
+    checked: storedChecked
+    onStoredCheckedChanged: checked = storedChecked
+    onClicked: settings.setValue(spec.key, checked)
 }

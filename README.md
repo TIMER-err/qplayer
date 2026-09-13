@@ -16,7 +16,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Android%2026%2B%20%C2%B7%20Desktop-A4C639" alt="Android 26+ · Desktop">
   <img src="https://img.shields.io/badge/graphics-OpenGL%20%2F%20Vulkan-CC3333" alt="OpenGL / Vulkan">
-  <img src="https://img.shields.io/badge/UI-QML%20%2F%20Material%203-7C6CF0" alt="QML / Material 3">
+  <img src="https://img.shields.io/badge/UI-QML%20%2F%20Miuix-7C6CF0" alt="QML / Miuix">
   <img src="https://img.shields.io/badge/engine-qml4j-465BA6" alt="qml4j">
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0"></a>
 </p>
@@ -71,10 +71,12 @@ QPlayer 本体不包含在线音源，也不分发音源代码。安装 JavaScri
 **歌词页**　由宿主通过 Skija 直接绘制，不经 QML：逐字滚动、基于封面取色的流体背景、
 罗马音与翻译、Material 波浪进度条。歌词内容来自当前音源插件或本地文件。
 
-**界面**　整套 UI 为 QML（`md3.Core`），运行在 qml4j 引擎上。主题色可从当前封面提取
-（莫奈动态取色，可关闭），支持深色 / 浅色 / 跟随系统，以及简体中文与英文。布局由宽度
-驱动（MD3 断点 600 / 840）：窄屏使用底部导航，宽屏切换为左侧 `NavigationRail`，歌单
-栅格列数随宽度增减，因此安卓横屏与平板无需单独适配。
+**界面**　整套 UI 使用 Miuix QML（`miuix.Core`），运行在 qml4j 引擎上，通过内置 `StyleManager` 将封面颜色映射到 Miuix 莫奈配色（可关闭），
+支持深色 / 浅色 / 跟随系统，以及简体中文与英文。布局由宽度
+驱动（断点 600 / 840）：窄屏使用底部导航，宽屏切换为左侧 `NavigationRail`，歌单
+栅格列数随宽度增减，因此安卓横屏与平板无需单独适配。设置页始终使用单列分组，相关设置共用一个卡片；歌曲、歌单、搜索结果和选择器采用窗口化虚拟列表。
+
+界面迁移说明见 [Miuix 界面](docs/miuix-ui.md)。
 
 **桌面端**　同一套 QML 与 `player-core` 运行在 LWJGL3 + GLFW 上，由 Skija 渲染。
 OpenGL 与 Vulkan 后端可在启动时切换；提供任务栏图标与系统托盘，托盘菜单镜像播放控制；
@@ -106,7 +108,7 @@ Service/KWallet 保管。系统密码库不可用时，用户可以明确选择�
 | 模块 | 说明 |
 |---|---|
 | `player-core/` | 跨平台核心（Maven，`dev.t1m3.qplayer`）：面向 QML 的 `PlayerController`、插件 ABI 与沙箱、歌词解析（LRC / YRC / TTML）、音频与元数据抽象，以及宿主绘制的歌词页。**不含任何在线音源端点或协议实现**。 |
-| `shared-qml/` | 共享 QML：`Main.qml` + 各页面 + 组件、vendored 的 `md3.Core` 组件库、内置字体（PingFang / Material Symbols）。放在仓库根目录，两端加载同一份，响应式布局因此天然通用。 |
+| `shared-qml/` | 共享 QML：`Main.qml` + 各页面 + 组件、vendored 的 `miuix.Core` 组件库、内置字体（PingFang / Material Symbols）。放在仓库根目录，两端加载同一份，响应式布局因此天然通用。 |
 | `android-shell/` | 安卓应用（Gradle，`applicationId dev.t1m3.qplayer`，minSdk 26）。宿主集成在 `…/android/`，界面与歌词都来自上面两个模块。 |
 | `desktop-host/` | 桌面宿主（Maven）：LWJGL3 + GLFW 开窗、Skija 渲染、可切换的 `GraphicsBackend`、可销毁重建的渲染线程、系统托盘，以及桌面音频（javax.sound + SPI 解码）。 |
 | [qml4j](https://github.com/TIMER-err/qml4j) | QML 引擎。是一个已发布的依赖，**不在**本仓库内。 |
@@ -187,7 +189,7 @@ bash       desktop-host/dist/package-macos.sh      # macOS   → target/QPlayer.
 
 - [qml4j](https://github.com/TIMER-err/qml4j) —— 运行整个界面的纯 Java QML 引擎。
 - [Skija](https://github.com/HumbleUI/Skija) —— JVM 上的 Skia 绑定；渲染器与宿主绘制的歌词页都通过它输出。
-- [material-components-qml](https://github.com/sudoevolve/material-components-qml) —— UI 用的 Material 3 QML 组件库（`md3.Core`，vendored 后适配引擎）。
+- [miuix-qml](https://github.com/TIMER-err/miuix-qml) —— Miuix QML 组件库（`miuix.Core`），视觉参考 [compose-miuix-ui/miuix](https://github.com/compose-miuix-ui/miuix)。版本与许可见 `shared-qml/miuix/`。
 - [SPlayer](https://github.com/imsyy/SPlayer) —— 流体歌词背景的视觉与实现参考。
 - [AMLL](https://github.com/amll-dev/amll-player) —— Apple Music 风格歌词与流体背景的设计参考。
 - [swingwebview](https://github.com/webliteca/swingwebview) —— 桌面端调用系统 WebView 完成网页登录。

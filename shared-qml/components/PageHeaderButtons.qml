@@ -1,5 +1,5 @@
 import QtQuick
-import md3.Core
+import miuix.Core
 
 // Shared full-screen page navigation. Home is deliberately left of Back: Home
 // clears the complete nested route stack to reveal the current root destination,

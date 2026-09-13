@@ -1,5 +1,5 @@
 import QtQuick
-import md3.Core
+import miuix.Core
 import "."
 
 // Outlined playlist card shared by the home and library grids. Ripple is the
@@ -23,6 +23,10 @@ Item {
     property string sourceName: ""
     property real tile: 160
     property bool _menuArmed: false
+    onPlaylistIdChanged: {
+        card._menuArmed = false
+        if (cardMenu && cardMenu.opened) cardMenu.dismissImmediately()
+    }
     signal clicked()
 
     implicitWidth: tile
@@ -38,18 +42,14 @@ Item {
         return i18n.t("common.songCountEmpty")
     }
 
-    Rectangle {
+    SmoothRectangle {
         id: container
         x: 0
         y: 0
         width: card.width
         height: card.height
-        radius: 18
-        color: Theme.color.surfaceContainerLow
-        border.width: cardRipple.containsMouse ? 1.5 : 1
-        border.color: cardRipple.containsMouse
-                      ? Theme.color.outline
-                      : Theme.color.outlineVariant
+        radius: 20
+        color: cardRipple.containsMouse ? Theme.color.surfaceContainerHigh : Theme.color.surfaceContainer
 
         // A quiet state layer makes the whole tile read as interactive before the
         // press ripple starts, without washing out the cover artwork.
@@ -70,7 +70,7 @@ Item {
         y: 8
         width: card.width - 16
         height: card.width - 16
-        radius: 12
+        radius: 16
         icon: "queue_music"
         iconSize: 44
         fadeIn: true
@@ -88,7 +88,7 @@ Item {
         height: 36
         text: card.name
         textColor: Theme.color.onSurfaceColor
-        fontSize: 14
+        fontSize: 16
         fontWeight: Font.Medium
     }
 
@@ -112,7 +112,7 @@ Item {
         y: 0
         width: card.width
         height: card.height
-        clipRadius: 18
+        clipRadius: 20
         rippleColor: Theme.color.onSurfaceColor
         longPressEnabled: true
         onClicked: {

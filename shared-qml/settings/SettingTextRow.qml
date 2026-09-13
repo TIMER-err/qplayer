@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import md3.Core
+import miuix.Core
 import "."
 
 // SettingSpec.TEXT — a string, committed on Enter or via the apply button (never per

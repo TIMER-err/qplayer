@@ -6484,6 +6484,18 @@ public final class PlayerController {
     }
 
     public void openMediaPlaylist(String mediaId) {
+        loadMediaPlaylist(mediaId, false);
+    }
+
+    /** Refresh the current playlist without clearing its rows or filter state. */
+    public void refreshPlaylist() {
+        if (Boolean.TRUE.equals(playlistLoading.peek())) return;
+        String mediaId = openSourcePlaylistId.peek();
+        if (mediaId != null && !mediaId.isEmpty()) loadMediaPlaylist(mediaId, true);
+        else if (currentPlaylistId > 0) openPlaylist(currentPlaylistId);
+    }
+
+    private void loadMediaPlaylist(String mediaId, boolean refreshing) {
         if (mediaId == null || mediaId.isEmpty()) return;
         if (mediaId.indexOf(':') < 0) {
             try { openPlaylist(Long.parseLong(mediaId)); } catch (NumberFormatException ignored) {}
@@ -6502,13 +6514,15 @@ public final class PlayerController {
                 pluginHasCapability(id.provider(), ProviderCapability.HEART_RECOMMENDATION));
         playlistLoading.set(true);
         playlistOffline.set(false);
-        playlistTracks.set(Collections.<NeteaseSong>emptyList());
-        sourcePlaylistTracks.set(Collections.<Song>emptyList());
-        playlistTitle.set("");
-        playlistCoverPath.set("");
-        playlistSubscribed.set(false);
-        playlistOwned.set(false);
-        playlistDeletable.set(false);
+        if (!refreshing) {
+            playlistTracks.set(Collections.<NeteaseSong>emptyList());
+            sourcePlaylistTracks.set(Collections.<Song>emptyList());
+            playlistTitle.set("");
+            playlistCoverPath.set("");
+            playlistSubscribed.set(false);
+            playlistOwned.set(false);
+            playlistDeletable.set(false);
+        }
         pluginProviders.playlist(id).whenComplete((playlist, error) -> post(() -> {
             if (!id.toString().equals(openSourcePlaylistId.peek())) return;
             playlistLoading.set(false);

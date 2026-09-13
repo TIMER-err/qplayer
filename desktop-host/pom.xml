@@ -61,7 +61,7 @@
                 <directory>${project.basedir}/src/main/resources-filtered</directory>
                 <filtering>true</filtering>
             </resource>
-            <!-- Mount the shared QML tree (Main.qml + app pages + md3/Core + fonts)
+            <!-- Mount the shared QML tree (Main.qml + app pages + miuix/Core + fonts)
                  onto the classpath so ClasspathResourceLoader serves it exactly like
                  the Android shell's merged assets. -->
             <resource>

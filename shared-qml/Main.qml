@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import md3.Core
+import miuix.Core
 import "."
 import "components"
 import "dialogs"
@@ -129,11 +129,6 @@ Rectangle {
         else if (!lyricsOpenWatch && app.topPageType() === "lyrics")
             app.popPage()
     }
-    // Menu.open() registers the one top-level popup currently attached to this
-    // scene. Song rows each own a lazy menu instance, so without a scene-wide
-    // owner repeated right-clicks can leave every row's overlay open at once.
-    property var activeMenu: null
-
     property var titles: [i18n.t("nav.home"), i18n.t("nav.search"),
                           i18n.t("nav.library"), i18n.t("nav.local")]
     property bool showLocalTab: settings.value("showLocalTab")
@@ -141,7 +136,7 @@ Rectangle {
         if (!showLocalTab && app.page === 3) app.switchTo(0)
     }
 
-    // Responsive breakpoints (MD3): compact < 600, medium 600–839, expanded ≥ 840.
+    // Responsive breakpoints: compact < 600, medium 600–839, expanded ≥ 840.
     // The wide layout (a NavigationRail on the left instead of the bottom bar) is
     // driven purely by the available width, so a tablet, a desktop window, or even
     // a phone in landscape adopts it automatically once the width threshold is met.
@@ -175,6 +170,11 @@ Rectangle {
     // isDarkTheme follows the settings policy. seedColor (Monet) is driven from
     // PlayerController in Java -- a QML Binding on StyleManager.seedColor would not
     // re-fire when the cover seed changed.
+    Binding {
+        target: Theme; property: "dynamicColors"
+        value: settings.value("monet") === true
+    }
+
     Binding {
         target: StyleManager; property: "isDarkTheme"
         value: settings.resolvedDark
@@ -438,40 +438,24 @@ Rectangle {
     // Wide-screen navigation rail (left), shown in place of the bottom bar once the
     // window is wide enough; collapses to width 0 (and hides) on compact widths so
     // the content reclaims the full width. Expands to a labelled rail at ≥ 840.
-    NavigationRail {
+    Item {
         id: rail
         anchors.left: parent.left
         anchors.leftMargin: settings.leftInset
         anchors.top: parent.top
         anchors.bottom: parent.bottom
         visible: app.wide
-        extended: app.expanded
-        width: app.wide ? implicitWidth : 0
+        width: app.wide ? (app.expanded ? 216 : 80) : 0
         Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-        currentIndex: app.page
-        model: app.navItems
-        sectionLabel: i18n.t("nav.section")
-        onItemClicked: app.switchTo(index)
-
-        // Rail header: the app mark in the top-left corner, which only the wide
-        // layout has room for (the compact layout's top-left is the TopAppBar's
-        // title). The logo slides from centred (collapsed rail) to left-aligned
-        // beside the name (extended rail) on the same 200ms curve the rail's own
-        // width animates with; the name itself just fades, so the two states
-        // don't fight over the 80px collapsed width.
-        //
-        // The desktop custom title bar (TitleBar.qml, below) already draws this
-        // same icon+"QPlayer" mark once topInset reserves space for it -- showRailBrand
-        // hides the rail's own copy in that case so the two don't stack. Still need
-        // implicitHeight: 64 + settings.topInset unconditionally so the nav items
-        // themselves don't creep up under the title bar.
-        property bool showRailBrand: !hostWindow.available
-
-        header: Item {
+        Rectangle { anchors.fill: parent; color: Theme.color.surface }
+        Item {
+            id: railBrand
+            width: parent.width
+            height: implicitHeight
             // Desktop: the title bar already covers the topInset area, so the
             // header only needs topInset (items start at topInset + 12).
             // Mobile: 64px more for the logo.
-            implicitHeight: rail.showRailBrand ? (64 + settings.topInset) : settings.topInset
+            implicitHeight: (!hostWindow.available) ? (64 + settings.topInset) : settings.topInset
 
             Image {
                 id: railLogo
@@ -483,7 +467,7 @@ Rectangle {
                 y: settings.topInset + (parent.height - settings.topInset - height) / 2
                 x: app.expanded ? 24 : (parent.width - width) / 2
                 Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-                visible: rail.showRailBrand
+                visible: (!hostWindow.available)
                 source: "app-icon.png"
                 // Decode straight to the drawn size in device pixels. Without this
                 // the 256px source is resampled to 32 at draw time with plain
@@ -500,7 +484,7 @@ Rectangle {
                 anchors.leftMargin: 12
                 anchors.verticalCenter: railLogo.verticalCenter
                 text: "QPlayer"
-                opacity: (app.expanded && rail.showRailBrand) ? 1 : 0
+                opacity: (app.expanded && (!hostWindow.available)) ? 1 : 0
                 visible: opacity > 0.01
                 Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
                 color: Theme.color.onSurfaceColor
@@ -508,49 +492,24 @@ Rectangle {
                 font.pixelSize: Theme.typography.titleMedium.size
             }
         }
-
-        // Brand mark below the header strip: the app icon + "QPlayer" wordmark.
-        // On Windows the header strip itself sits behind the custom title bar
-        // (which already draws the same mark), so showRailBrand is false there
-        // and this copy shows instead — the rail still reads as the app. When
-        // showRailBrand is true (mobile/edge-to-edge), the header's own logo
-        // already covers it, so this hides (implicitHeight collapses to 0) to
-        // avoid a second logo.
-        headerActions: Item {
-            implicitHeight: visible ? 56 : 0
-            visible: !rail.showRailBrand
-
-                Image {
-                    id: actionsLogo
-                    width: 32
-                    height: 32
-                    anchors.verticalCenter: parent.verticalCenter
-                    // Same as the rail header logo: left-aligned when expanded,
-                    // centred when collapsed, rather than pinned off-centre.
-                    x: app.expanded ? 24 : (parent.width - width) / 2
-                    Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-                    source: "app-icon.png"
-                    sourceSize.width: Math.round(32 * player.pixelRatio)
-                    sourceSize.height: Math.round(32 * player.pixelRatio)
-                }
-                Text {
-                    anchors.left: actionsLogo.right
-                    anchors.leftMargin: 8
-                    anchors.verticalCenter: actionsLogo.verticalCenter
-                    text: "QPlayer"
-                    opacity: app.expanded ? 1 : 0
-                    visible: opacity > 0.01
-                    Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-                    color: Theme.color.onSurfaceColor
-                    font.family: Theme.typography.titleLarge.family
-                    font.pixelSize: Theme.typography.titleLarge.size
-                }
+        NavigationRail {
+            anchors.top: railBrand.bottom
+            anchors.bottom: railActions.top
+            width: parent.width
+            extended: app.expanded
+            selectOnClick: false
+            showToggle: false
+            expandedWidth: 216
+            currentIndex: app.page
+            model: app.navItems
+            sectionLabel: i18n.t("nav.section")
+            onItemClicked: (index, itemData) => app.switchTo(index)
         }
-
-        // Secondary destinations live at the bottom of the wide rail instead of
-        // competing with page-level actions in the top bar. Labels fade with the
-        // extended rail; the compact rail keeps the same icon targets.
-        footer: Item {
+        Item {
+            id: railActions
+            width: parent.width
+            height: implicitHeight
+            anchors.bottom: parent.bottom
             // Feature actions are contributed by plugins; the host only supplies
             // stable navigation placement and an isolated UI launcher.
             implicitHeight: 20 + app.footerActions().length * 48
@@ -652,7 +611,11 @@ Rectangle {
         anchors.left: rail.right
         anchors.right: parent.right
         anchors.rightMargin: settings.rightInset
-        height: 64
+        visible: app.currentOverlay === ""
+        height: visible ? 64 : 0
+        large: false
+        collapsedHeight: 64
+        titlePadding: 16
         title: app.titles[app.page]
         showNavigationIcon: false
 
@@ -666,7 +629,7 @@ Rectangle {
         IconButton {
             // This setting only exists on desktop hosts. Its presence, rather than
             // a responsive layout breakpoint, decides whether the action is shown.
-            visible: settings.has("desktopLyricEnabled")
+            visible: app.wide && settings.has("desktopLyricEnabled")
             type: "standard"
             icon: "subtitles"
             contentColor: settings.value("desktopLyricEnabled")
@@ -680,36 +643,35 @@ Rectangle {
             onClicked: app.replacePage("queue", 0)
         }
         IconButton {
+            id: overflowAction
+            objectName: "compactOverflowAction"
             visible: !app.wide
-            type: "standard"
-            icon: "download"
-            onClicked: {
-                player.refreshCachedSongs()
-                app.replacePage("cachedSongs", 0)
-            }
-        }
-        Repeater {
-            model: !app.wide ? app.playerPluginActions : []
-            delegate: IconButton {
-                type: "standard"
-                icon: modelData.icon
-                onClicked: player.requestPluginUi(modelData.pluginId, modelData.id)
-            }
-        }
-        IconButton {
-            visible: !app.wide
-            type: "standard"
-            icon: player.loggedIn ? "account_circle" : "login"
-            // Signed out too -- see the rail's account action.
-            onClicked: app.replacePage("account", 0)
-        }
-        IconButton {
-            visible: !app.wide
-            type: "standard"
-            icon: "settings"
-            onClicked: app.replacePage("settings", 0)
+            icon: "more_vert"
+            onClicked: compactMenu.open(overflowAction)
         }
     }
+    Menu {
+        id: compactMenu
+        objectName: "compactOverflowMenu"
+        function pluginAction(pluginId, contributionId) {
+            return function() { player.requestPluginUi(pluginId, contributionId) }
+        }
+        model: {
+            var items = [
+                {text: i18n.t("nav.downloaded"), icon: "download", action: function() { player.refreshCachedSongs(); app.replacePage("cachedSongs", 0) }},
+                {text: i18n.t("nav.account"), icon: "account_circle", action: function() { app.replacePage("account", 0) }},
+                {text: i18n.t("nav.settings"), icon: "settings", action: function() { app.replacePage("settings", 0) }}
+            ]
+            if (settings.has("desktopLyricEnabled")) items.push({text: i18n.t("settings.desktopLyric.title"), icon: "subtitles", action: function() { settings.setValue("desktopLyricEnabled", !settings.value("desktopLyricEnabled")) }})
+            for (var i = 0; i < app.playerPluginActions.length; i++) {
+                var entry = app.playerPluginActions[i]
+                items.push({text: entry.label, icon: entry.icon, action: compactMenu.pluginAction(entry.pluginId, entry.id)})
+            }
+            return items
+        }
+
+    }
+
 
     // Content region. pageWrap clips root/route motion at its edges.
     Item {
@@ -903,9 +865,11 @@ Rectangle {
         id: mini
         anchors.left: rail.right
         anchors.right: parent.right
-        anchors.rightMargin: settings.rightInset
+        anchors.leftMargin: 12
+        anchors.rightMargin: settings.rightInset + 12
         anchors.bottom: bottomNav.top
-        height: 84
+        anchors.bottomMargin: 8
+        height: 80
         onLyricsRequested: app.pushPage("lyrics", 0)
     }
 
@@ -921,7 +885,8 @@ Rectangle {
         visible: !app.wide
         // Nav content sits in the top 76; the extra height is background that fills
         // behind the gesture/navigation bar (edge-to-edge).
-        height: app.wide ? 0 : (76 + settings.bottomInset)
+        height: app.wide ? settings.bottomInset : (65 + settings.bottomInset)
+        bottomInset: settings.bottomInset
         currentIndex: app.page
         items: app.navItems
         onNavigate: app.switchTo(bottomNav.pendingIndex)

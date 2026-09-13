@@ -1,51 +1,45 @@
 import QtQuick
-import QtQuick.Layouts
-import md3.Core
-import "."
+import miuix.Core
 
-// SettingSpec.ACTION — a control with no stored value: an IconButton when the
-// spec names an icon (About's link / system_update), a labelled Button otherwise
-// (choose a font / clear the cache). The handler is registered by the host or by SettingsCore
-// and reached by id, so this row never grows a per-action branch.
-//
-// A `provider` supplies live text — inline beside the title (app version, cache
-// usage) or on its own line below it (the current font).
-ColumnLayout {
+BasicComponent {
     id: row
     property var spec: null
-    property string providerText: (row.spec && row.spec.provider.length > 0)
-                                  ? settings.info(row.spec.provider) : ""
-    spacing: 4
-
-    RowLayout {
-        Layout.fillWidth: true
-        spacing: 8
-        SettingTitle { text: row.spec ? i18n.t(row.spec.title) : "" }
-        Text {
-            visible: row.spec && row.spec.inlineProvider
-            Layout.alignment: Qt.AlignVCenter
-            text: row.providerText
-            color: Theme.color.primary
-            font.family: Theme.typography.labelMedium.family
-            font.pixelSize: Theme.typography.labelMedium.size
-        }
-        IconButton {
-            visible: row.spec && row.spec.icon.length > 0
-            Layout.alignment: Qt.AlignVCenter
-            type: "standard"
-            icon: row.spec ? row.spec.icon : ""
-            onClicked: settings.invoke(row.spec.action)
-        }
-        Button {
-            visible: row.spec && row.spec.icon.length === 0
-            type: row.spec ? row.spec.buttonType : "filledTonal"
-            text: row.spec ? i18n.t(row.spec.button) : ""
-            onClicked: settings.invoke(row.spec.action)
+    property string providerText: spec && spec.provider.length > 0 ? settings.info(spec.provider) : ""
+    title: spec ? i18n.t(spec.title) : ""
+    summary: {
+        if (!row.spec) return ""
+        var desc = i18n.t(row.spec.desc)
+        return !row.spec.inlineProvider && row.providerText.length > 0
+            ? row.providerText + (desc.length > 0 ? "\n" + desc : "") : desc
+    }
+    property string rightText: spec && spec.inlineProvider ? providerText : (spec ? i18n.t(spec.button) : "")
+    startAction: Component {
+        Icon {
+            objectName: "settingActionLeadingIcon"
+            name: row.spec ? row.spec.icon : ""
+            implicitWidth: name.length > 0 ? 24 : 0
+            implicitHeight: implicitWidth
+            width: implicitWidth
+            height: implicitHeight
+            color: Theme.color.onSurfaceVariantColor
         }
     }
-    SettingDesc {
-        visible: text.length > 0 && row.spec && !row.spec.inlineProvider
-        text: row.providerText
+    endAction: Component {
+        Row {
+            spacing: row.rightText.length > 0 ? 8 : 0
+            Text {
+                text: row.rightText
+                font.pixelSize: 14
+                color: Theme.color.onSurfaceVariantActions
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            Icon {
+                name: "chevron_right"
+                width: 10; height: 16
+                anchors.verticalCenter: parent.verticalCenter
+                color: Theme.color.onSurfaceVariantActions
+            }
+        }
     }
-    SettingDesc { text: row.spec ? i18n.t(row.spec.desc) : "" }
+    onClicked: if (spec) settings.invoke(spec.action)
 }

@@ -104,7 +104,7 @@ tasks.matching {
 
 android {
     sourceSets["main"].jniLibs.srcDir(skijaJniDir)
-    // Vendored md3.Core component library + fonts (from the qml4j repo's shared-qml),
+    // Vendored miuix.Core component library + fonts (from QPlayer's shared-qml),
     // at the repo root so desktop-host can share it too. rootDir is android-shell/,
     // so the repo root is one level up. These QML/font assets aren't published in the
     // qml4j-core jar, so the app bundles them to build standalone.

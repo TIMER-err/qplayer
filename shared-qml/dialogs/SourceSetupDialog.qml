@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import md3.Core
+import miuix.Core
 
 // First-run/upgrade source onboarding. QPlayer itself remains source-neutral;
 // this dialog only surfaces the built-in source repositories and the generic
@@ -17,6 +17,10 @@ Item {
     onSourceReadyWatchChanged: if (sourceReadyWatch && setupDialog.opened) setupDialog.close()
 
     Dialog {
+
+        topInset: settings.topInset
+
+        bottomInset: settings.bottomInset
         id: setupDialog
         title: i18n.t(player.legacySourceMigrationAvailable ? "source.setup.migrate.title"
                       : "source.setup.title")
@@ -65,7 +69,7 @@ Item {
                     Layout.fillWidth: true
                     implicitHeight: catalogCardContent.implicitHeight + 24
                     radius: 16
-                    color: Theme.color.surfaceContainerHighest
+                    color: Theme.color.surfaceContainerHigh
 
                     ColumnLayout {
                         id: catalogCardContent

@@ -1,5 +1,5 @@
 import QtQuick
-import md3.Core
+import miuix.Core
 
 // Controls for the independent host-rendered Tempera page. The host fades
 // the artwork and this subtree together, above the unchanged underlying page.

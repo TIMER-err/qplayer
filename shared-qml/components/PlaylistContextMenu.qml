@@ -1,5 +1,5 @@
 import QtQuick
-import md3.Core
+import miuix.Core
 import "."
 
 // Context actions that are valid for playlist cards on both home and library.

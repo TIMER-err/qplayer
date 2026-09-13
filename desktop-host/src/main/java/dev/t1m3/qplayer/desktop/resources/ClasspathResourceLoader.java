@@ -12,9 +12,9 @@ import java.nio.file.Files;
 
 /**
  * Resolves QML, fonts and assets off the classpath. The shared-qml tree
- * (Main.qml, the app pages, md3/Core/*, fonts/*) is mounted as a Maven resource
+ * (Main.qml, the app pages, miuix/Core/*, fonts/*) is mounted as a Maven resource
  * directory, so {@code load("Main.qml")} reads {@code /Main.qml} and
- * {@code import md3.Core} resolves {@code /md3/Core/X.qml} — the same layout the
+ * {@code import miuix.Core} resolves {@code /miuix/Core/X.qml} — the same layout the
  * Android shell sees through its merged assets.
  */
 public final class ClasspathResourceLoader implements ResourceLoader {
@@ -40,7 +40,7 @@ public final class ClasspathResourceLoader implements ResourceLoader {
         // Disk-backed sources — the now-playing cover is cached under the user's
         // cache dir and handed to QML as an ABSOLUTE path (player.coverPath), which
         // isn't on the classpath. Read those from the filesystem; the shared-qml
-        // tree (Main.qml, md3/Core, fonts) is relative and stays on the classpath.
+        // tree (Main.qml, miuix/Core, fonts) is relative and stays on the classpath.
         // http(s) covers never reach here (the engine fetches those off-thread). On
         // Android the engine's loader already handles such paths — this closes the
         // gap on desktop, where otherwise the cover flashes (from coverUrl) then

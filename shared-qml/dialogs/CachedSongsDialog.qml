@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import md3.Core
+import miuix.Core
 import "../components"
 
 // Offline-cached online songs (cache/audio/*.cache). Opened by the top-bar

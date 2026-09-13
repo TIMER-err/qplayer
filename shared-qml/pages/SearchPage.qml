@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import md3.Core
+import miuix.Core
 import "."
 import "../components"
 
@@ -56,229 +56,44 @@ Item {
         anchors.fill: parent
         spacing: 0
 
-        RowLayout {
+        ColumnLayout {
             Layout.fillWidth: true
-            Layout.margins: 12
-            spacing: 4
-
-            // Type selector + search field merged into one rounded bar (same
-            // outlined-pill look as a plugin dialog's invite-link field), instead of a
-            // separate ComboBox and TextField -- neither component exposes a
-            // "no own background/half-rounded" mode, so this is a small custom
-            // composite (bare TextInput, kept as `id: query` so every other
-            // query.text reference in this file needs no change) rather than a
-            // reskin of the shared components everywhere else in the app uses.
-            // Plain anchors, NOT nested RowLayouts -- same reason SongRow.qml gives
-            // for its own layout (a Layout-in-Layout's height propagation isn't
-            // reliable in qml4j; see CLAUDE.md's qml4j-limits section). Every
-            // segment below is positioned off searchBar's own edges instead.
-            Item {
-                id: searchBar
+            Layout.leftMargin: 16
+            Layout.rightMargin: 16
+            Layout.topMargin: 12
+            Layout.bottomMargin: 12
+            spacing: 12
+            TextField {
+                id: query
+                objectName: "searchQuery"
                 Layout.fillWidth: true
-                Layout.preferredHeight: 52
-                Layout.alignment: Qt.AlignVCenter
-
-                property int modeIndex: 0
-                readonly property var modeLabels: [i18n.t("search.mode.songs"),
-                                                   i18n.t("search.mode.albums"),
-                                                   i18n.t("search.mode.artists")]
-                readonly property var modeKeys: ["song", "album", "artist"]
-                // Reserve room for the clear button's own slot on the right,
-                // whether or not it's currently visible -- avoids a reactive
-                // anchor-TARGET switch (input area anchored to parent.right vs.
-                // clearBtn.left depending on visibility), which is untested here.
-                property real clearSlotW: 36
-
-                function selectMode(i) {
-                    searchBar.modeIndex = i
-                    player.setSearchMode(searchBar.modeKeys[i])
-                    if (query.text.length > 0) page.runSearchNow(false)
+                label: i18n.t(searchBar.modeIndex === 1 ? "search.hint.albums"
+                    : searchBar.modeIndex === 2 ? "search.hint.artists" : "search.hint.songs")
+                leadingIcon: "search"
+                onTextChanged: {
+                    player.prepareSearch(text)
+                    if (text.length > 0) searchDebounce.restart()
+                    else { searchDebounce.stop(); page.historyExpandLevel = 0 }
                 }
-
-                // Real MD3 outlined-field border: a notch cut into the top stroke
-                // for the floating label to sit ON (not just "near the top inside"),
-                // same component TextField.qml's own outlined mode uses -- matches
-                // an invite-link field's look exactly (that's a plain
-                // TextField{type:"outlined"}, same OutlinedBorder underneath).
-                OutlinedBorder {
-                    anchors.fill: parent
-                    cornerRadius: height / 2
-                    strokeWidth: 1
-                    strokeColor: Theme.color.outline
-                    notchVisible: inputArea.isFloating
-                    notchX: inputArea.x - 4
-                    notchWidth: floatLabel.width + 8
-                }
-                OutlinedBorder {
-                    anchors.fill: parent
-                    cornerRadius: height / 2
-                    strokeWidth: 2
-                    strokeColor: Theme.color.primary
-                    notchVisible: inputArea.isFloating
-                    notchX: inputArea.x - 4
-                    notchWidth: floatLabel.width + 8
-                    opacity: query.activeFocus ? 1 : 0
-                    Behavior on opacity { NumberAnimation { duration: 150 } }
-                }
-
-                // Type selector segment.
-                Item {
-                    id: typeSeg
-                    anchors.left: parent.left
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    anchors.leftMargin: 4
-                    width: 84
-
-                    Text {
-                        id: typeLabel
-                        anchors.verticalCenter: parent.verticalCenter
-                        x: 16
-                        text: searchBar.modeLabels[searchBar.modeIndex]
-                        color: Theme.color.onSurfaceVariantColor
-                        fontSize: 14
-                    }
-                    Text {
-                        anchors.verticalCenter: parent.verticalCenter
-                        anchors.left: typeLabel.right
-                        anchors.leftMargin: 2
-                        text: "arrow_drop_down"
-                        font.family: Theme.iconFont.name
-                        font.pixelSize: 20
-                        color: Theme.color.onSurfaceVariantColor
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: typeMenu.open(searchBar, 0, searchBar.height)
-                    }
-                }
-
-                Rectangle {
-                    anchors.left: typeSeg.right
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    anchors.topMargin: 10
-                    anchors.bottomMargin: 10
-                    width: 1
-                    color: Theme.color.outlineVariant
-                }
-
-                Text {
-                    id: searchIcon
-                    anchors.left: typeSeg.right
-                    anchors.leftMargin: 13
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: "search"
-                    font.family: Theme.iconFont.name
-                    font.pixelSize: 20
-                    color: Theme.color.onSurfaceVariantColor
-                }
-
-                Item {
-                    id: inputArea
-                    anchors.left: searchIcon.right
-                    anchors.leftMargin: 8
-                    anchors.right: parent.right
-                    anchors.rightMargin: searchBar.clearSlotW
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-
-                    // MD3 floating label: centered like a placeholder while empty
-                    // and unfocused, floats up to sit ON the outline's top stroke
-                    // (through the OutlinedBorder notch above) once tapped/typed
-                    // into -- the old TextField gave this field that behaviour for
-                    // free; reimplemented by hand since the merged bar no longer
-                    // wraps TextField (mirrors TextField.qml's own outlined-style
-                    // label y/font.pixelSize transition and notch mechanism).
-                    property bool isFloating: query.activeFocus || query.text.length > 0
-
-                    Text {
-                        id: floatLabel
-                        x: 0
-                        // Floating: straddle the top border stroke, like a real
-                        // outlined field's label (-7 ~= half this label's own line
-                        // height, so the 1-2px stroke passes through its middle).
-                        y: inputArea.isFloating ? -7 : (inputArea.height - height) / 2
-                        text: i18n.t(searchBar.modeIndex === 1 ? "search.hint.albums"
-                                     : (searchBar.modeIndex === 2 ? "search.hint.artists"
-                                        : "search.hint.songs"))
-                        color: Theme.color.onSurfaceVariantColor
-                        opacity: inputArea.isFloating ? 0.8 : 0.7
-                        font.family: Theme.typography.bodyLarge.family
-                        font.pixelSize: inputArea.isFloating ? 11 : 15
-                        Behavior on y { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
-                        Behavior on font.pixelSize { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
-                    }
-
-                    // Real-time search on every keystroke. searchLocal is a
-                    // synchronous in-memory filter, but large libraries still
-                    // make it expensive enough to debounce together with the
-                    // two network sources.
-                    TextInput {
-                        id: query
-                        anchors.fill: parent
-                        // The floating label lives OUTSIDE this box now (on the
-                        // outline's notch, y < 0 -- see floatLabel above), not
-                        // stacked above the input text inside it like a "filled"
-                        // TextField's label does, so typed text always gets the
-                        // full height centered, in both the floating and resting
-                        // states.
-                        verticalAlignment: TextInput.AlignVCenter
-                        color: Theme.color.onSurfaceColor
-                        font.pixelSize: 15
-                        font.family: Theme.typography.bodyLarge.family
-                        selectionColor: Theme.color.primary
-                        selectedTextColor: Theme.color.onPrimaryColor
-                        clip: true
-                        onTextChanged: {
-                            // Clear the previous query's mixed-source rows
-                            // immediately and invalidate its in-flight requests
-                            // before waiting for debounce.
-                            player.prepareSearch(text)
-                            if (text.length > 0) searchDebounce.restart()
-                            else { searchDebounce.stop(); page.historyExpandLevel = 0 }
-                        }
-                        onAccepted: {
-                            if (query.text.length > 0) page.runSearchNow(true)
-                            Qt.inputMethod.hide()
-                            query.focus = false
-                        }
-                    }
-                }
-
-                IconButton {
-                    visible: query.text.length > 0
-                    type: "standard"; icon: "close"
-                    anchors.right: parent.right
-                    anchors.rightMargin: 2
-                    anchors.verticalCenter: parent.verticalCenter
-                    onClicked: { query.text = ""; query.forceActiveFocus() }
-                }
-
-                Menu {
-                    id: typeMenu
-                    // Small rounded corner (cornerSmall, 8dp) instead of the
-                    // default menu's cornerExtraSmall -- same variant
-                    // PlaylistContextMenu.qml uses for its card-associated popup.
-                    outlined: true
-                    model: [
-                        { text: i18n.t("search.mode.songs"), action: function() { searchBar.selectMode(0) } },
-                        { text: i18n.t("search.mode.albums"), action: function() { searchBar.selectMode(1) } },
-                        { text: i18n.t("search.mode.artists"), action: function() { searchBar.selectMode(2) } }
-                    ]
+                onAccepted: {
+                    if (query.text.length > 0) page.runSearchNow(true)
+                    Qt.inputMethod.hide()
                 }
             }
-
-            IconButton {
-                Layout.alignment: Qt.AlignVCenter
-                type: "filled"; icon: "search"
-                onClicked: {
-                    if (query.text.length > 0) page.runSearchNow(true)
+            TabRowWithContour {
+                equalWidth: false
+                id: searchBar
+                Layout.fillWidth: true
+                Layout.preferredHeight: 42
+                property int modeIndex: selectedTabIndex
+                tabs: [i18n.t("search.mode.songs"), i18n.t("search.mode.albums"), i18n.t("search.mode.artists")]
+                onTabSelected: (index) => {
+                    player.setSearchMode(["song", "album", "artist"][index])
+                    if (query.text.length > 0) page.runSearchNow(false)
                 }
             }
         }
+
 
         // --- History + Hot searches (shown when input is empty) ---
         // Explicit index-positioned rows in a plain Item, NOT a Column positioner:
@@ -291,6 +106,13 @@ Item {
             Layout.fillHeight: true
             visible: query.text.length === 0
 
+            EmptyState {
+                anchors.centerIn: parent
+                visible: hotArea.histCount === 0 && hotArea.hotCount === 0
+                icon: "search"
+                title: i18n.t("nav.search")
+                message: i18n.t("search.empty.desc")
+            }
             property int rowH: 52
             // Staged expansion: 5 (collapsed) -> 30 -> 70 -> 100 (all)
             property int collapsedCount: 5
@@ -656,6 +478,11 @@ Item {
 
             Flickable {
                 id: albumGrid
+                property real stride: page.cardH + page.gridGap
+                property int totalRows: Math.ceil(count / page.gridCols)
+                property int liveRows: Math.min(totalRows, Math.ceil(height / stride) + 3)
+                property int firstRow: Math.max(0, Math.min(totalRows - liveRows, Math.floor(contentY / stride) - 1))
+                onContentHeightChanged: contentY = Math.min(contentY, Math.max(0, contentHeight - height))
                 anchors.fill: parent
                 visible: player.searchMode === "album"
                 clip: true
@@ -671,7 +498,9 @@ Item {
                     cachedLayout: true
 
                     Repeater {
-                        model: player.searchMode === "album" ? albumGrid.results : null
+                        model: page.visible && player.searchMode === "album" ? albumGrid.results : null
+                        windowStart: albumGrid.firstRow * page.gridCols
+                        windowCount: albumGrid.liveRows * page.gridCols
                         AlbumCard {
                             albumId: modelData.id
                             tile: page.cardTile
@@ -689,6 +518,11 @@ Item {
 
             Flickable {
                 id: artistGrid
+                property real stride: page.cardH + page.gridGap
+                property int totalRows: Math.ceil(count / page.gridCols)
+                property int liveRows: Math.min(totalRows, Math.ceil(height / stride) + 3)
+                property int firstRow: Math.max(0, Math.min(totalRows - liveRows, Math.floor(contentY / stride) - 1))
+                onContentHeightChanged: contentY = Math.min(contentY, Math.max(0, contentHeight - height))
                 anchors.fill: parent
                 visible: player.searchMode === "artist"
                 clip: true
@@ -704,7 +538,9 @@ Item {
                     cachedLayout: true
 
                     Repeater {
-                        model: player.searchMode === "artist" ? artistGrid.results : null
+                        model: page.visible && player.searchMode === "artist" ? artistGrid.results : null
+                        windowStart: artistGrid.firstRow * page.gridCols
+                        windowCount: artistGrid.liveRows * page.gridCols
                         ArtistCard {
                             artistId: modelData.id
                             tile: page.cardTile

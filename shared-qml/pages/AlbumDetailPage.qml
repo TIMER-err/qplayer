@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import md3.Core
+import miuix.Core
 import "."
 import "../components"
 
@@ -125,11 +125,10 @@ Rectangle {
             }
 
             LoadingIndicator {
+                objectName: "detailLoadingIndicator"
                 anchors.centerIn: parent
                 visible: player.albumLoading
                 running: player.albumLoading
-                withContainer: true
-                size: 56
             }
         }
     }

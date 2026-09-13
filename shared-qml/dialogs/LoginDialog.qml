@@ -1,11 +1,11 @@
 import QtQuick
 import QtQuick.Layouts
-import md3.Core
+import miuix.Core
 
 // Three login paths share the same transactional Cookie importer in
 // PlayerController: QR, the official site in a system WebView, and a manual
 // Cookie-header fallback. Network and credential persistence stay off-render.
-Rectangle {
+Item {
     id: dialog
 
     property bool active: false
@@ -14,12 +14,6 @@ Rectangle {
     property string cookieText: ""
     property var successRevision: player.webLoginSuccessRevision
     signal closed()
-
-    anchors.fill: parent
-    opacity: active ? 1 : 0
-    visible: opacity > 0.01
-    color: "#99000000"
-    Behavior on opacity { NumberAnimation { duration: 150 } }
 
     onActiveChanged: {
         if (active) {
@@ -30,7 +24,8 @@ Rectangle {
             ready = false;
             if (player.pluginLoginActive) player.startQrLogin();
             revealTimer.restart();
-        }
+            loginSheet.open();
+        } else if (loginSheet.opened) loginSheet.close();
     }
     onLoginModeChanged: {
         player.clearWebLoginError();
@@ -60,7 +55,6 @@ Rectangle {
     property int st: player.qrStatus
     onStChanged: if (st === 803) dialog.closed()
 
-    MouseArea { anchors.fill: parent }
 
     Timer {
         interval: 800
@@ -69,31 +63,29 @@ Rectangle {
         onTriggered: player.pollQrLogin()
     }
 
-    Rectangle {
-        anchors.centerIn: parent
-        width: Math.min(420, parent.width - 32)
-        height: Math.min(480, parent.height - 32)
-        radius: 24
-        color: Theme.color.surfaceContainerHigh
-        clip: true
-        scale: dialog.active ? 1 : 0.9
-        Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+    Dialog {
+
+        topInset: settings.topInset
+
+        bottomInset: settings.bottomInset
+        id: loginSheet
+        title: i18n.t("login.title", player.loginProviderName)
+        showAcceptButton: false
+        showRejectButton: !player.webLoginBusy
+        rejectText: i18n.t("common.cancel")
+        closeOnScrim: false
+        closeOnEscape: !player.webLoginBusy
+        onClosed: { player.cancelWebLogin(); dialog.closed() }
 
         ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: 20
+            id: loginContent
+            width: parent.width
             spacing: 14
 
-            Text {
-                Layout.alignment: Qt.AlignHCenter
-                text: i18n.t("login.title", player.loginProviderName)
-                color: Theme.color.onSurfaceColor
-                fontSize: 20
-            }
+
 
             Text {
                 Layout.fillWidth: true
-                Layout.fillHeight: true
                 visible: !player.pluginLoginActive
                 text: i18n.t("login.unsupported")
                 wrapMode: Text.WordWrap
@@ -103,35 +95,41 @@ Rectangle {
                 fontSize: 14
             }
 
-            SegmentedButton {
+            TabRowWithContour {
                 visible: player.pluginLoginActive
                 Layout.fillWidth: true
-                Layout.preferredHeight: 40
-                selectedIndex: dialog.loginMode
-                buttons: [
-                    { text: i18n.t("login.mode.qr"), selected: dialog.loginMode === 0,
-                      enabled: !player.pluginLoginActive || player.pluginQrLoginAvailable },
-                    { text: i18n.t("login.mode.web"), selected: dialog.loginMode === 1,
-                      enabled: player.webLoginAvailable },
-                    { text: "Cookie", selected: dialog.loginMode === 2,
-                      enabled: !player.pluginLoginActive || player.pluginCredentialLoginAvailable }
-                ]
-                onClicked: (index) => dialog.loginMode = index
+                equalWidth: false
+                selectOnClick: false
+                property var modes: {
+                    var out = []
+                    if (player.pluginQrLoginAvailable) out.push(0)
+                    if (player.webLoginAvailable) out.push(1)
+                    if (player.pluginCredentialLoginAvailable) out.push(2)
+                    return out
+                }
+                tabs: {
+                    var labels = [i18n.t("login.mode.qr"), i18n.t("login.mode.web"), "Cookie"]
+                    var out = []
+                    for (var i = 0; i < modes.length; i++) out.push(labels[modes[i]])
+                    return out
+                }
+                selectedTabIndex: modes.indexOf(dialog.loginMode)
+                onTabSelected: (index) => dialog.loginMode = modes[index]
             }
 
-            Item {
+            Column {
                 Layout.fillWidth: true
-                Layout.fillHeight: true
+                width: parent.width
                 visible: player.pluginLoginActive && dialog.loginMode === 0
 
-                ColumnLayout {
-                    anchors.fill: parent
                     spacing: 12
 
                     Rectangle {
-                        Layout.alignment: Qt.AlignHCenter
-                        width: 220
-                        height: 220
+                        // Give the QR a concrete square before the async matrix arrives.
+                        // A preferred size based on a nested layout's width can collapse to zero.
+                        width: Math.max(0, Math.min(220, loginContent.width))
+                        height: width
+                        x: (parent.width - width) / 2
                         radius: 12
                         color: "#ffffff"
 
@@ -143,14 +141,16 @@ Rectangle {
                         }
                         Canvas {
                             id: qrCanvas
+                            objectName: "loginQrCanvas"
                             anchors.centerIn: parent
-                            width: 200; height: 200
-                            visible: dialog.ready && dialog.qr.length > 0
+                            width: Math.max(0, parent.width - 20); height: width
+                            visible: dialog.ready && dialog.qr && dialog.qr.length > 0 && width > 0
+                            onWidthChanged: requestPaint()
                             onPaint: {
-                                var ctx = getContext("2d");
-                                if (!dialog.ready) return;
+                                if (!dialog.ready || width <= 0 || height <= 0) return;
                                 var matrix = dialog.qr;
                                 if (!matrix || matrix.length <= 0) return;
+                                var ctx = getContext("2d");
                                 ctx.fillStyle = "#ffffff";
                                 ctx.fillRect(0, 0, width, height);
                                 var size = matrix.length;
@@ -169,25 +169,21 @@ Rectangle {
                     }
 
                     Text {
-                        Layout.fillWidth: true
+                        width: parent.width
                         text: dialog.statusText(player.qrStatus)
+                        wrapMode: Text.WordWrap
                         horizontalAlignment: Text.AlignHCenter
                         color: Theme.color.onSurfaceVariantColor
                         fontSize: 14
                     }
-                    Item { Layout.fillHeight: true }
-                }
+
             }
 
-            Item {
+            ColumnLayout {
                 Layout.fillWidth: true
-                Layout.fillHeight: true
                 visible: player.pluginLoginActive && dialog.loginMode === 1
 
-                ColumnLayout {
-                    anchors.fill: parent
                     spacing: 16
-                    Item { Layout.fillHeight: true }
                     Text {
                         Layout.fillWidth: true
                         text: player.loginWebInstructions
@@ -213,19 +209,14 @@ Rectangle {
                         color: Theme.color.error
                         fontSize: 13
                     }
-                    Item { Layout.fillHeight: true }
-                }
+
             }
 
-            Item {
+            ColumnLayout {
                 Layout.fillWidth: true
-                Layout.fillHeight: true
                 visible: player.pluginLoginActive && dialog.loginMode === 2
 
-                ColumnLayout {
-                    anchors.fill: parent
                     spacing: 12
-                    Item { Layout.fillHeight: true }
                     Text {
                         Layout.fillWidth: true
                         text: player.loginCredentialInstructions
@@ -251,20 +242,10 @@ Rectangle {
                         enabled: dialog.cookieText.trim().length > 0 && !player.webLoginBusy
                         onClicked: player.submitCookieLogin(dialog.cookieText)
                     }
-                    Item { Layout.fillHeight: true }
-                }
+
             }
 
-            Button {
-                Layout.alignment: Qt.AlignHCenter
-                type: "text"
-                text: i18n.t("common.cancel")
-                enabled: !player.webLoginBusy
-                onClicked: {
-                    player.cancelWebLogin();
-                    dialog.closed();
-                }
-            }
+
         }
     }
 }

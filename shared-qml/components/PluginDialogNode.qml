@@ -8,7 +8,7 @@
 // this file only has to render known shapes -- it never has to defend itself
 // against arbitrary plugin data.
 import QtQuick
-import md3.Core
+import miuix.Core
 
 Item {
     id: slot
@@ -51,7 +51,7 @@ Item {
         if (nodeType === "input")
             return field.implicitHeight
         if (nodeType === "switch")
-            return 40 + (switchDesc.visible ? switchDesc.implicitHeight + 4 : 0)
+            return toggle.implicitHeight
         if (nodeType === "button" || nodeType === "row")
             return 44
         if (nodeType === "text" || nodeType === "error")
@@ -60,6 +60,7 @@ Item {
     }
     visible: node !== null
     onNodeChanged: {
+        if (slot.nodeType === "switch") toggle.checked = slot.node.checked === true
         if (slot.nodeType === "input" && slot.node.id !== slot.appliedInputId) {
             slot.appliedInputId = slot.node.id;
             field.text = slot.node.value || "";
@@ -102,55 +103,15 @@ Item {
 
     // A settings-style toggle, laid out like the host's own switch rows so a
     // plugin's on/off state never has to be drawn as a pair of buttons.
-    Item {
-        id: switchRow
-
-        anchors.left: parent.left
-        anchors.right: parent.right
-        height: 40
+    SuperSwitch {
+        id: toggle
+        width: parent.width
         visible: slot.nodeType === "switch"
-
-        Text {
-            anchors.left: parent.left
-            anchors.right: toggle.left
-            anchors.rightMargin: 12
-            anchors.verticalCenter: parent.verticalCenter
-            text: slot.node && slot.node.label ? slot.node.label : ""
-            color: Theme.color.onSurfaceColor
-            font.family: Theme.typography.bodyLarge.family
-            font.pixelSize: Theme.typography.bodyLarge.size
-            wrapMode: Text.Wrap
-        }
-
-        Switch {
-            id: toggle
-
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            // The plugin owns this state: every description it returns, including
-            // the one answering a toggle, re-seeds the control.
-            checked: slot.node && slot.node.checked === true
-            enabled: slot.node ? slot.node.enabled !== false && !slot.busy : false
-            onClicked: {
-                if (slot.host)
-                    slot.host.submit(slot.node.id);
-            }
-        }
-    }
-
-    Text {
-        id: switchDesc
-
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: switchRow.bottom
-        anchors.topMargin: 4
-        visible: slot.nodeType === "switch" && text.length > 0
-        text: slot.node && slot.node.desc ? slot.node.desc : ""
-        color: Theme.color.onSurfaceVariantColor
-        font.family: Theme.typography.bodySmall.family
-        font.pixelSize: Theme.typography.bodySmall.size
-        wrapMode: Text.Wrap
+        title: slot.node ? slot.node.label : ""
+        summary: slot.node && slot.node.desc ? slot.node.desc : ""
+        checked: slot.node && slot.node.checked === true
+        enabled: slot.node ? slot.node.enabled !== false && !slot.busy : false
+        onClicked: if (slot.host) slot.host.submit(slot.node.id)
     }
 
     Button {

@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import md3.Core
+import miuix.Core
 import "."
 import "../components"
 import "../dialogs"
@@ -59,8 +59,9 @@ Rectangle {
 
             ColumnLayout {
                 id: content
-                width: parent.width
-                spacing: 14
+                width: Math.min(904, parent.width)
+                x: (parent.width - width) / 2
+                spacing: 16
 
                 // --- profile header ------------------------------------
                 // The primary source's signed-in user. Hidden when there is no
@@ -72,8 +73,8 @@ Rectangle {
                     Layout.rightMargin: 12
                     Layout.topMargin: 6
                     visible: player.loggedIn
-                    radius: 18
-                    color: Theme.color.surfaceContainerHighest
+                    radius: 20
+                    color: Theme.color.surfaceContainer
                     implicitHeight: profileRow.implicitHeight + 32
 
                     RowLayout {
@@ -203,8 +204,8 @@ Rectangle {
                         Layout.fillWidth: true
                         Layout.leftMargin: 12
                         Layout.rightMargin: 12
-                        radius: 18
-                        color: Theme.color.surfaceContainerHighest
+                        radius: 20
+                        color: Theme.color.surfaceContainer
                         implicitHeight: 76
 
                         // Kept anchor-based and flat: nested Layouts here stopped
@@ -314,8 +315,8 @@ Rectangle {
                     Layout.leftMargin: 12
                     Layout.rightMargin: 12
                     visible: player.loggedIn
-                    radius: 18
-                    color: Theme.color.surfaceContainerHighest
+                    radius: 20
+                    color: Theme.color.surfaceContainer
                     implicitHeight: statsRow.implicitHeight + 32
 
                     RowLayout {
@@ -394,6 +395,10 @@ Rectangle {
     }
 
     Dialog {
+
+        topInset: settings.topInset
+
+        bottomInset: settings.bottomInset
         id: sourceLogoutDialog
         title: i18n.t("account.logout")
         text: page.menuRow

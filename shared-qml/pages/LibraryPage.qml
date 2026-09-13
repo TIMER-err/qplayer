@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import md3.Core
+import miuix.Core
 import "."
 import "../components"
 
@@ -39,6 +39,10 @@ Item {
     }
 
     Dialog {
+
+        topInset: settings.topInset
+
+        bottomInset: settings.bottomInset
         id: createDialog
         icon: "playlist_add"
         title: i18n.t("library.create.title")
@@ -56,20 +60,13 @@ Item {
         }
     }
 
-    ColumnLayout {
+    EmptyState {
         anchors.centerIn: parent
-        spacing: 12
         visible: !player.loggedIn && !page.hasPlaylists
-        Text {
-            Layout.alignment: Qt.AlignHCenter
-            text: i18n.t("library.signInPrompt")
-            color: Theme.color.onSurfaceVariantColor
-            fontSize: 15
-        }
-        Button {
-            Layout.alignment: Qt.AlignHCenter
-            type: "filled"; text: i18n.t("library.signInButton")
-            onClicked: page.requestLogin()
-        }
+        icon: "library_music"
+        title: i18n.t("nav.library")
+        message: i18n.t("library.signInPrompt")
+        actionText: i18n.t("library.signInButton")
+        onActionRequested: page.requestLogin()
     }
 }

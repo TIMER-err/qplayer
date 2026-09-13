@@ -1,5 +1,5 @@
 import QtQuick
-import md3.Core
+import miuix.Core
 import "."
 
 // Two-column playlist grid via absolute positioning inside a Flickable — the
@@ -8,10 +8,11 @@ import "."
 // explicit x/y from their index.
 Flickable {
     id: grid
+    objectName: "virtualPlaylistGrid"
 
     property var list
-    property real gap: 12
-    property real pad: 12
+    property real gap: 16
+    property real pad: width >= 840 ? 28 : 16
     property var pendingPlaylist
     signal openPlaylist()
 
@@ -23,7 +24,7 @@ Flickable {
     property int cols: Math.max(2, Math.floor((width - 2 * pad + gap) / (minTile + gap)))
     property real tile: (width - 2 * pad - (cols - 1) * gap) / cols
     property real cardH: tile + 72
-    property int cardRowH: Math.max(1, Math.round(cardH + gap))
+    property real cardRowH: Math.max(1, cardH + gap)
     property int rowWindow: {
         var rows = Math.ceil(count / Math.max(1, cols))
         var vis = Math.ceil(height / cardRowH) + 3
@@ -41,7 +42,8 @@ Flickable {
 
     clip: true
     contentWidth: width
-    contentHeight: Math.ceil(count / cols) * (cardH + gap) + 2 * pad
+    contentHeight: count > 0 ? Math.ceil(count / cols) * cardRowH - gap + 2 * pad : 0
+    onContentHeightChanged: contentY = Math.max(0, Math.min(contentY, Math.max(0, contentHeight - height)))
 
     Item {
         width: grid.width
@@ -55,6 +57,7 @@ Flickable {
             windowStart: grid.firstCard
             windowCount: grid.cardWindow
             PlaylistCard {
+                objectName: "virtualPlaylistCard"
                 playlistId: modelData.id
                 tile: grid.tile
                 x: grid.pad + (index % grid.cols) * (grid.tile + grid.gap)

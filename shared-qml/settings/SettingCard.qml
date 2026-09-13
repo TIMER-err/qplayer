@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import md3.Core
+import miuix.Core
 
 // Shared chrome for one generated settings row (see SettingsPage.qml): a rounded
 // surface card whose height follows its content. Row components fill it with a
@@ -9,13 +9,13 @@ import md3.Core
 // Children land as DIRECT children of the inner ColumnLayout on purpose —
 // Layout.fillWidth only reliably reaches a Layout's immediate child in this
 // engine, so a description one level deeper would overflow instead of wrapping.
-Rectangle {
+Card {
     id: card
 
     default property alias content: col.data
 
-    radius: 18
-    color: Theme.color.surfaceContainerHighest
+    radius: 20
+    color: Theme.color.surfaceContainer
     implicitHeight: col.implicitHeight + 32
 
     ColumnLayout {

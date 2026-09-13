@@ -1,5 +1,5 @@
 import QtQuick
-import md3.Core
+import miuix.Core
 import "."
 
 // Compact album tile for the artist page's album grid. Trimmed-down sibling of
@@ -18,15 +18,11 @@ Item {
     implicitWidth: tile
     implicitHeight: tile + 56
 
-    Rectangle {
+    SmoothRectangle {
         x: 0; y: 0
         width: card.width; height: card.height
-        radius: 14
-        color: Theme.color.surfaceContainerLow
-        border.width: cardRipple.containsMouse ? 1.5 : 1
-        border.color: cardRipple.containsMouse
-                      ? Theme.color.outline
-                      : Theme.color.outlineVariant
+        radius: 20
+        color: cardRipple.containsMouse ? Theme.color.surfaceContainerHigh : Theme.color.surfaceContainer
     }
 
     CoverImage {
@@ -34,7 +30,7 @@ Item {
         x: 6; y: 6
         width: card.width - 12
         height: card.width - 12
-        radius: 10
+        radius: 16
         icon: "album"
         iconSize: 32
         fadeIn: true
@@ -48,7 +44,7 @@ Item {
         height: 32
         text: card.name
         textColor: Theme.color.onSurfaceColor
-        fontSize: 12
+        fontSize: 15
         fontWeight: Font.Medium
     }
 
@@ -60,7 +56,7 @@ Item {
         verticalAlignment: Text.AlignVCenter
         text: card.count > 0 ? i18n.t("common.songCountShort", card.count) : ""
         color: Theme.color.onSurfaceVariantColor
-        fontSize: 11
+        fontSize: 12
         elide: Text.ElideRight
     }
 
@@ -68,7 +64,7 @@ Item {
         id: cardRipple
         x: 0; y: 0
         width: card.width; height: card.height
-        clipRadius: 14
+        clipRadius: 20
         rippleColor: Theme.color.onSurfaceColor
         onClicked: card.clicked()
     }

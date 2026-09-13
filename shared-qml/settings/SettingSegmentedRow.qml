@@ -1,29 +1,29 @@
 import QtQuick
 import QtQuick.Layouts
-import md3.Core
+import miuix.Core
 import "."
 
 // SettingSpec.SEGMENTED — an int index over the spec's own labels.
 ColumnLayout {
     id: row
     property var spec: null
-    property var buttons: {
-        if (!row.spec) return []
-        var current = settings.value(row.spec.key)
+    property var labels: {
         var out = []
-        for (var i = 0; i < row.spec.options.length; i++) {
-            out.push({ text: i18n.t(row.spec.options[i]), selected: i === current })
-        }
+        if (row.spec) for (var i = 0; i < row.spec.options.length; i++)
+            out.push(i18n.t(row.spec.options[i]))
         return out
     }
     spacing: 4
 
     SettingTitle { text: row.spec ? i18n.t(row.spec.title) : "" }
     SettingDesc { text: row.spec ? i18n.t(row.spec.desc) : "" }
-    SegmentedButton {
+    TabRowWithContour {
         Layout.fillWidth: true
         Layout.topMargin: 4
-        buttons: row.buttons
-        onClicked: settings.setValue(row.spec.key, index)
+        tabs: row.labels
+        equalWidth: false
+        selectOnClick: false
+        selectedTabIndex: row.spec ? settings.value(row.spec.key) : 0
+        onTabSelected: (index) => settings.setValue(row.spec.key, index)
     }
 }

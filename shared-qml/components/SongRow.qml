@@ -1,5 +1,5 @@
 import QtQuick
-import md3.Core
+import miuix.Core
 import "."
 
 // One song/track row. Plain anchors — NOT nested RowLayout/ColumnLayout: the
@@ -55,6 +55,11 @@ Rectangle {
     // state — see VirtualSongList.showOfflineBadge — so it stays invisible during
     // normal online browsing instead of cluttering every row with a checkmark.
     property bool offlineReady: false
+    onSongChanged: {
+        row._menuArmed = false
+        if (menuLoader.item && menuLoader.item.opened) menuLoader.item.dismissImmediately()
+    }
+    onCoverThumbPathChanged: row._loadTriggered = row._inViewport
     signal activated()
     signal removeRequested()
 
@@ -70,9 +75,9 @@ Rectangle {
         anchors.rightMargin: 8
         anchors.topMargin: 4
         anchors.bottomMargin: 4
-        radius: 12
-        color: Theme.color.surfaceContainerHigh
-        opacity: ripple.containsMouse ? 1 : 0
+        radius: 16
+        color: row.highlighted ? Theme.color.primaryContainer : Theme.color.surfaceContainerHigh
+        opacity: row.highlighted ? 0.65 : (ripple.containsMouse ? 1 : 0)
         Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
     }
 
@@ -163,35 +168,31 @@ Rectangle {
     // How much room the title/artist lines leave on the right: the remove "×"
     // and the source tag are mutually exclusive in practice (no caller sets
     // both), but sizing for whichever is present keeps text from sliding under it.
-    property int _rightReserve: row.removable ? 52 : (row.tag !== "" ? (tagPill.width + 24) : 16)
+    property real _rightReserve: row.removable ? 68 : (tagPill.visible ? (tagPill.width + 24) : 16)
 
     Text {
-        anchors.left: leading.right
-        anchors.leftMargin: 14
-        anchors.right: parent.right
-        anchors.rightMargin: row._rightReserve
-        anchors.bottom: parent.verticalCenter
-        anchors.bottomMargin: 1
+        id: titleText
+        objectName: "songRowTitle"
+        x: 74
+        y: row.height / 2 - height - 1
+        width: Math.max(0, row.width - x - row._rightReserve)
         text: row.rowTitle
         elide: Text.ElideRight
         color: row.highlighted ? Theme.color.primary : Theme.color.onSurfaceColor
-        fontSize: 15
+        fontSize: 16
     }
 
     Text {
         id: artistText
-        anchors.left: leading.right
-        anchors.leftMargin: 14
-        anchors.right: parent.right
-        anchors.rightMargin: row._rightReserve
-        anchors.top: parent.verticalCenter
-        anchors.topMargin: 2
+        x: titleText.x
+        y: row.height / 2 + 2
+        width: titleText.width
         text: row.rowArtist
         elide: Text.ElideRight
         color: ((row.rowArtistIdsCsv !== "" || row.rowArtistId !== 0)
                 && artistArea.containsMouse)
                ? Theme.color.primary : Theme.color.onSurfaceVariantColor
-        fontSize: 12
+        fontSize: 13
     }
 
     // Unconstrained shaping probe for the real rendered glyph width. The visible
@@ -205,30 +206,27 @@ Rectangle {
         font.pixelSize: artistText.font.pixelSize
     }
 
-    // Small source badge (see `tag` above), pinned to the right edge. Sized off
-    // row.tag's own length rather than tagText.implicitWidth: this row is one of
-    // VirtualSongList's windowed delegates, which get REUSED across different
-    // model rows as the list scrolls (index/modelData rewritten in place, not
-    // recreated) — a recycled Text's implicitWidth didn't reliably recompute when
-    // its text changed afterward, so a delegate that first showed a short tag
-    // (e.g. a short source name) then got recycled for a longer one kept the
-    // old, too-narrow pill width and the label overflowed outside it. `row.tag`
-    // itself already updates correctly on reuse (rowTitle/rowArtist prove that),
-    // so deriving width from the string directly sidesteps the whole thing.
+    // Keep the source badge inside the row and leave at least 100dp for the
+    // title when a badge fits. Reactive geometry also follows recycled tags
+    // under cachedLayout, without waiting for a fresh anchor-layout pass.
     Rectangle {
         id: tagPill
-        visible: row.tag !== ""
-        anchors.right: parent.right
-        anchors.rightMargin: 12
-        anchors.verticalCenter: parent.verticalCenter
+        objectName: "songSourceBadge"
+        visible: row.tag !== "" && !row.removable && width >= 32
+        x: Math.max(0, row.width - width - 12)
+        y: (row.height - height) / 2
         radius: 8
         color: Theme.color.surfaceContainerHighest
-        width: Math.max(36, row.tag.length * 12 + 16)
+        width: Math.min(Math.max(36, row.tag.length * 12 + 16), 112, Math.max(0, row.width - 198))
         height: 20
 
         Text {
             id: tagText
-            anchors.centerIn: parent
+            x: 8
+            width: Math.max(0, parent.width - 16)
+            height: parent.height
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
             text: row.tag
             elide: Text.ElideRight
             fontSize: 11
@@ -249,7 +247,7 @@ Rectangle {
         y: 4
         width: row.width - 16
         height: row.height - 8
-        clipRadius: 12
+        clipRadius: 16
         rippleColor: Theme.color.onSurfaceColor
         longPressEnabled: row.menuEnabled && row.song !== null
         onClicked: {
@@ -301,26 +299,17 @@ Rectangle {
         menuLoader.item.open(ripple, ripple.pressX, ripple.pressY)
     }
 
-    // Lightweight remove control: a glyph + MouseArea with explicit geometry.
-    // The md3 IconButton (internal Ripple + MouseArea) got stuck mispositioned and
-    // untappable when a delegate was rebuilt on a queue removal under cachedLayout;
-    // this single-pass control avoids that and is cheaper per row. Declared last so
-    // it sits above the row tap.
-    MouseArea {
+    // Explicit geometry follows recycled queue rows without a new anchor pass.
+    IconButton {
+        objectName: "queueRemoveButton"
         visible: row.removable
-        width: 48
-        height: parent.height
-        anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
+        width: 40
+        height: 40
+        x: Math.max(0, row.width - width - 16)
+        y: (row.height - height) / 2
+        icon: "close"
+        type: "standard"
         onClicked: row.removeRequested()
-
-        Text {
-            anchors.centerIn: parent
-            text: "close"
-            font.family: Theme.iconFont.name
-            font.pixelSize: 20
-            color: Theme.color.onSurfaceVariantColor
-        }
     }
 
     // Whether this row is within (or near) the Flickable viewport.
