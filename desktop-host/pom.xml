@@ -42,6 +42,9 @@
         <win.h>720</win.h>
         <!-- Optional isolated profile root, useful for parallel/demo instances. -->
         <data.dir></data.dir>
+        <frame.trace></frame.trace>
+        <frame.readback>false</frame.readback>
+        <gl.context>auto</gl.context>
     </properties>
 
     <build>
@@ -85,6 +88,9 @@
                         <argument>-Dqplayer.width=${win.w}</argument>
                         <argument>-Dqplayer.height=${win.h}</argument>
                         <argument>-Dqplayer.data.dir=${data.dir}</argument>
+                        <argument>-Dqplayer.frameTrace=${frame.trace}</argument>
+                        <argument>-Dqplayer.frameReadback=${frame.readback}</argument>
+                        <argument>-Dqplayer.glContext=${gl.context}</argument>
                         <argument>-classpath</argument>
                         <classpath/>
                         <argument>dev.t1m3.qplayer.desktop.app.Main</argument>

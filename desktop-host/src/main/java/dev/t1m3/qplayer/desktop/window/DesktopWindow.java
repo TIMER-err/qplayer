@@ -492,6 +492,7 @@ public final class DesktopWindow {
 
     public void init() {
         mainThread = Thread.currentThread();
+        GlContextPolicy.prepareEnvironment();
         GLFWErrorCallback.createPrint(System.err).set();
         preferStablePlatform();
         if (!GLFW.glfwInit()) throw new IllegalStateException("glfwInit failed");
@@ -520,6 +521,7 @@ public final class DesktopWindow {
             // Vulkan manages its own surface; GLFW must not create a GL context.
             GLFW.glfwWindowHint(GLFW.GLFW_CLIENT_API, GLFW.GLFW_NO_API);
         } else {
+            GlContextPolicy.configureWindow();
             GLFW.glfwWindowHint(GLFW.GLFW_CONTEXT_VERSION_MAJOR, 3);
             GLFW.glfwWindowHint(GLFW.GLFW_CONTEXT_VERSION_MINOR, 2);
             GLFW.glfwWindowHint(GLFW.GLFW_OPENGL_PROFILE, GLFW.GLFW_OPENGL_CORE_PROFILE);
