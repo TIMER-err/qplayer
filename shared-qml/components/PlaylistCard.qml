@@ -21,6 +21,11 @@ Item {
     // Set only where one grid mixes several sources (the library), so a card says which
     // account it came from.
     property string sourceName: ""
+    // Card-menu eligibility, straight from the playlist DTO. The two are mutually
+    // exclusive in practice: you can delete a playlist you own, and un-collect one
+    // you merely follow.
+    property bool deletable: false
+    property bool subscribed: false
     property real tile: 160
     property bool _menuArmed: false
     onPlaylistIdChanged: {
@@ -28,6 +33,8 @@ Item {
         if (cardMenu && cardMenu.opened) cardMenu.dismissImmediately()
     }
     signal clicked()
+    signal deleteRequested()
+    signal unsubscribeRequested()
 
     implicitWidth: tile
     implicitHeight: tile + 72
@@ -132,7 +139,11 @@ Item {
     PlaylistContextMenu {
         id: cardMenu
         playlistId: card.playlistId
+        deletable: card.deletable
+        subscribed: card.subscribed
         onOpenRequested: card.clicked()
+        onDeleteRequested: card.deleteRequested()
+        onUnsubscribeRequested: card.unsubscribeRequested()
         onClosed: card._menuArmed = false
     }
 }

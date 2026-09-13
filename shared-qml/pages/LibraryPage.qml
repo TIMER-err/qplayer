@@ -16,6 +16,10 @@ Item {
     // still fills this page while the primary one is signed out.
     property bool hasPlaylists: player.playlistCount > 0
 
+    // Card the delete confirmation is about. Captured when the menu action fires,
+    // since the grid's pendingPlaylist moves on with the next card interaction.
+    property var pendingRemoval
+
     PlaylistGrid {
         id: grid
         anchors.fill: parent
@@ -23,6 +27,16 @@ Item {
         list: (player.sourceContentActive || page.hasPlaylists)
               ? player.sourceMyPlaylists : player.myPlaylists
         onOpenPlaylist: { page.pendingPlaylist = grid.pendingPlaylist; page.openPlaylist() }
+        // Deleting is destructive and confirms first; un-collecting is reversible
+        // and matches the detail page's own bookmark button, which acts at once.
+        onDeletePlaylistRequested: {
+            page.pendingRemoval = grid.pendingPlaylist
+            if (page.pendingRemoval) deleteDialog.open()
+        }
+        onUnsubscribePlaylistRequested: {
+            var target = grid.pendingPlaylist
+            if (target) player.setMediaPlaylistSubscribed("" + target.id, false)
+        }
     }
 
     // New-playlist entry point.
@@ -57,6 +71,29 @@ Item {
             type: "outlined"
             label: i18n.t("library.create.hint")
             onAccepted: { createDialog.accepted(); createDialog.close() }
+        }
+    }
+
+    Dialog {
+
+        topInset: settings.topInset
+
+        bottomInset: settings.bottomInset
+        id: deleteDialog
+        icon: "delete"
+        title: i18n.t("playlist.delete.title")
+        text: i18n.t("playlist.delete.body",
+                     page.pendingRemoval ? page.pendingRemoval.name : "")
+        acceptText: i18n.t("common.delete")
+        rejectText: i18n.t("common.cancel")
+        onAccepted: {
+            var target = page.pendingRemoval
+            if (!target) return
+            // Provider-qualified ids carry their source; a bare number is the
+            // legacy built-in netease id (same split the copy-link action makes).
+            var pid = "" + target.id
+            if (pid.indexOf(":") >= 0) player.deleteMediaPlaylist(pid)
+            else player.deletePlaylist(target.id)
         }
     }
 

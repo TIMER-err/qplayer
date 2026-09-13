@@ -6905,24 +6905,42 @@ public final class PlayerController {
     }
 
     private void toggleMediaPlaylistSubscribe(String mediaId) {
-        if (!loggedIn.peek() || playlistOwned.peek() || subscribeBusy) return;
+        if (!loggedIn.peek() || playlistOwned.peek()) return;
+        setMediaPlaylistSubscribed(mediaId, !Boolean.TRUE.equals(playlistSubscribed.peek()));
+    }
+
+    /**
+     * Collect / un-collect a playlist by id, whether or not it is the one currently
+     * open. 我的's card menu acts on a grid entry rather than on the detail page, so
+     * it cannot read the target's state from {@link #playlistSubscribed} — it passes
+     * the desired state in instead.
+     *
+     * <p>The optimistic flip and its revert only apply while the affected playlist
+     * is the open one; the toast and the 我的 refresh always run, since the result
+     * matters to the grid even when no detail page is showing it.
+     */
+    public void setMediaPlaylistSubscribed(String mediaId, boolean subscribed) {
+        // A collect is heavily risk-controlled upstream, so a second tap while one
+        // is in flight is dropped rather than queued — same rule the detail page's
+        // button has always followed.
+        if (subscribeBusy) return;
         final MediaId id;
         try { id = MediaId.parse(mediaId).requireKind(dev.t1m3.qplayer.media.MediaKind.PLAYLIST); }
-        catch (IllegalArgumentException error) { return; }
+        catch (IllegalArgumentException error) { showToast(I18n.tr("toast.id.playlist")); return; }
         if (!pluginHasCapability(id.provider(), ProviderCapability.PLAYLIST_MUTATION)) return;
-        final boolean target = !Boolean.TRUE.equals(playlistSubscribed.peek());
         subscribeBusy = true;
-        playlistSubscribed.set(target);
-        pluginProviders.mutatePlaylist(id, target ? "subscribe" : "unsubscribe",
+        if (id.toString().equals(openSourcePlaylistId.peek())) playlistSubscribed.set(subscribed);
+        pluginProviders.mutatePlaylist(id, subscribed ? "subscribe" : "unsubscribe",
                         Collections.<MediaId>emptyList(), null)
                 .whenComplete((success, error) -> post(() -> {
                     subscribeBusy = false;
-                    if (!id.toString().equals(openSourcePlaylistId.peek())) return;
+                    boolean stillOpen = id.toString().equals(openSourcePlaylistId.peek());
                     if (error == null && Boolean.TRUE.equals(success)) {
-                        showToast(I18n.tr(target ? "toast.playlist.subscribed" : "toast.playlist.unsubscribed"));
+                        showToast(I18n.tr(subscribed
+                                ? "toast.playlist.subscribed" : "toast.playlist.unsubscribed"));
                         loadMyPlaylists();
                     } else {
-                        playlistSubscribed.set(!target);
+                        if (stillOpen) playlistSubscribed.set(!subscribed);
                         showToast(I18n.tr("toast.actionFailed", safeMessage(error)));
                     }
                 }));

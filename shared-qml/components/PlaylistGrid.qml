@@ -15,6 +15,11 @@ Flickable {
     property real pad: width >= 840 ? 28 : 16
     property var pendingPlaylist
     signal openPlaylist()
+    // Card-menu actions. Like openPlaylist they publish the target through
+    // pendingPlaylist, so the page handling them knows which card it was without
+    // the grid needing to own a confirmation dialog.
+    signal deletePlaylistRequested()
+    signal unsubscribePlaylistRequested()
 
     property int count: list ? list.length : 0
     // Responsive column count: keep each card at least ~200dp wide, so a phone shows
@@ -68,7 +73,17 @@ Flickable {
                 coverUrl: modelData.coverUrl
                 coverThumbPath: modelData.coverThumbPath || ""
                 sourceName: modelData.sourceName || ""
+                deletable: !!modelData.deletable
+                subscribed: !!modelData.subscribed
                 onClicked: { grid.pendingPlaylist = modelData; grid.openPlaylist() }
+                onDeleteRequested: {
+                    grid.pendingPlaylist = modelData
+                    grid.deletePlaylistRequested()
+                }
+                onUnsubscribeRequested: {
+                    grid.pendingPlaylist = modelData
+                    grid.unsubscribePlaylistRequested()
+                }
             }
         }
     }
