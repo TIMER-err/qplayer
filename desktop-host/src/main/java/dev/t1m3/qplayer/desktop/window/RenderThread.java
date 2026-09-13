@@ -97,6 +97,7 @@ final class RenderThread extends Thread {
 
             while (running) {
                 long frameStarted = System.nanoTime();
+                boolean renderFrame = win.windowVisible();
                 // Re-read uiScale each frame so a DPI change (e.g. moving between
                 // monitors) or a late-fired content-scale callback is picked up before
                 // the next sizeRoot / composite call — avoids stale-scale mismatch.
@@ -111,7 +112,10 @@ final class RenderThread extends Thread {
                     try {
                         win.drainRenderTasks();
                         win.tickInput(); // smooth wheel-scroll easing
-                        int[] size = win.consumePendingResize();
+                        // Keep playback, bindings and the independent desktop
+                        // lyrics live while minimized, but defer all main-window
+                        // GPU work (including resize) until restoration.
+                        int[] size = renderFrame ? win.consumePendingResize() : null;
                         if (size != null) {
                             failureStage = FailureStage.BACKEND_FRAME;
                             backend.resize(size[0], size[1]);
@@ -124,26 +128,34 @@ final class RenderThread extends Thread {
                         view.tickAnimations(System.nanoTime());
                         dq.flush();
 
-                        failureStage = FailureStage.BACKEND_FRAME;
-                        Canvas canvas = backend.acquireCanvas();
-                        failureStage = FailureStage.APPLICATION_FRAME;
-                        Renderer renderer = view.renderer();
-                        renderer.setGpuContext(backend.recordingContext());
-                        compositor.composite(canvas, renderer, view, controller, win.settings(),
-                                backend.recordingContext(), uiScale, backend.width(), backend.height());
+                        if (renderFrame) {
+                            failureStage = FailureStage.BACKEND_FRAME;
+                            Canvas canvas = backend.acquireCanvas();
+                            failureStage = FailureStage.APPLICATION_FRAME;
+                            Renderer renderer = view.renderer();
+                            renderer.setGpuContext(backend.recordingContext());
+                            compositor.composite(canvas, renderer, view, controller, win.settings(),
+                                    backend.recordingContext(), uiScale, backend.width(), backend.height());
+                        }
                     } finally {
                         dq.uninstall();
                     }
                 }
 
-                failureStage = FailureStage.BACKEND_FRAME;
-                backend.present();
-                failureStage = FailureStage.APPLICATION_FRAME;
+                // Iconification may happen during composition. Recheck outside
+                // the QML lock immediately before swapping GL buffers. Vulkan
+                // must present an already-acquired image to release ownership;
+                // dropping it here would exhaust the swapchain on later restores.
+                if (renderFrame && (backend.kind() != GraphicsBackend.Kind.GL || win.windowVisible())) {
+                    failureStage = FailureStage.BACKEND_FRAME;
+                    backend.present();
+                    failureStage = FailureStage.APPLICATION_FRAME;
 
-                if (!firstFrameDone) {
-                    firstFrameDone = true;
-                    dev.t1m3.qplayer.util.Logger.info("first frame painted");
-                    win.onFirstFramePainted();
+                    if (!firstFrameDone) {
+                        firstFrameDone = true;
+                        dev.t1m3.qplayer.util.Logger.info("first frame painted");
+                        win.onFirstFramePainted();
+                    }
                 }
 
                 // Pace relative to this frame, rather than an accumulated absolute
@@ -151,13 +163,14 @@ final class RenderThread extends Thread {
                 // tries to catch up by emitting the next frame immediately, creating
                 // a repeating long/near-zero interval that looks like UI bouncing.
                 // Dropped display frames cannot be recovered, so never catch them up.
-                long remaining = frameNanos - (System.nanoTime() - frameStarted);
+                long frameBudget = renderFrame ? frameNanos : 30_000_000L;
+                long remaining = frameBudget - (System.nanoTime() - frameStarted);
                 if (remaining > 0L) {
                     // parkNanos can return early; finish the short remainder so
                     // frame intervals do not alternate around the deadline.
                     while (remaining > 0L && running) {
                         LockSupport.parkNanos(remaining);
-                        remaining = frameNanos - (System.nanoTime() - frameStarted);
+                        remaining = frameBudget - (System.nanoTime() - frameStarted);
                     }
                 }
             }

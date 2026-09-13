@@ -100,6 +100,10 @@ public final class DesktopWindow {
     private volatile RenderThread renderThread;
     private volatile boolean quitRequested;
     private volatile boolean hiddenToTray;
+    private volatile boolean windowIconified;
+    // Cached on the main thread and replaced when graphics fallback recreates
+    // the window. The render thread must not query GLFW's window state.
+    private com.sun.jna.Pointer nativeWindow;
     private boolean graphicsFallbackAttempted;
     // Whether a system tray actually installed. Without one, hiding the window would
     // make the app vanish with no way back, so the close button quits instead and
@@ -154,6 +158,29 @@ public final class DesktopWindow {
 
     int refreshHz() {
         return refreshHz;
+    }
+
+    /** Rendering is allowed during the initial hidden first frame, but never
+     * while minimized or hidden to the tray. */
+    boolean windowVisible() {
+        if (windowIconified || hiddenToTray) return false;
+        if (nativeWindow != null) {
+            try {
+                // GLFW's cached iconify state can lag behind the OS until the
+                // main thread pumps events. Check again at the point of drawing
+                // and presenting to avoid swapping into a minimized Win32 window.
+                return !WinUser32.I.IsIconic(nativeWindow);
+            } catch (LinkageError | RuntimeException ignored) {
+                // Best effort if User32 cannot be loaded: use the GLFW callback.
+            }
+        }
+        return true;
+    }
+
+    private interface WinUser32 extends com.sun.jna.win32.StdCallLibrary {
+        WinUser32 I = com.sun.jna.Native.load("user32", WinUser32.class,
+                com.sun.jna.win32.W32APIOptions.DEFAULT_OPTIONS);
+        boolean IsIconic(com.sun.jna.Pointer hwnd);
     }
 
     PlayerController controller() {
@@ -534,6 +561,10 @@ public final class DesktopWindow {
             GLFW.glfwTerminate();
             throw new IllegalStateException("glfwCreateWindow failed");
         }
+        windowIconified = false;
+        nativeWindow = org.lwjgl.system.Platform.get() == org.lwjgl.system.Platform.WINDOWS
+                ? com.sun.jna.Pointer.createConstant(GLFWNativeWin32.glfwGetWin32Window(window))
+                : null;
         // IMPORTANT: do NOT make the GL context current here — the render thread
         // owns it. (For Vulkan there is no GL context at all.)
 
@@ -812,6 +843,9 @@ public final class DesktopWindow {
         });
         GLFW.glfwSetWindowFocusCallback(window, (win, foc) -> {
             if (windowChrome != null) postRenderTask(() -> windowChrome.focused.set(foc));
+        });
+        GLFW.glfwSetWindowIconifyCallback(window, (win, iconified) -> {
+            windowIconified = iconified;
         });
     }
 

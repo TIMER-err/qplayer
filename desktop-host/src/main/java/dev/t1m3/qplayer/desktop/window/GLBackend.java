@@ -55,7 +55,11 @@ final class GLBackend implements GraphicsBackend {
         // calling (render) thread before any GL / Skija call.
         GLFW.glfwMakeContextCurrent(window);
         GL.createCapabilities();
-        boolean vsync = !"false".equals(System.getProperty("qplayer.vsync", "true"));
+        // A Windows driver waiting for vblank in SwapBuffers can stall after
+        // iconification. Both render loops already pace frames in software,
+        // so avoid that wait on Windows.
+        boolean vsync = !"false".equals(System.getProperty("qplayer.vsync", "true"))
+                && org.lwjgl.system.Platform.get() != org.lwjgl.system.Platform.WINDOWS;
         GLFW.glfwSwapInterval(vsync ? 1 : 0);
         // DirectContext.makeGL() binds to the GL context current on this thread.
         context = DirectContext.makeGL();
