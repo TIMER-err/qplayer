@@ -15,12 +15,9 @@ Rectangle {
     // previous playlist's scroll position doesn't carry over.
     property string playlistWatch: String(player.openSourcePlaylistId || player.openPlaylistId)
     onPlaylistWatchChanged: {
-        playlistRefresh.flickable.contentY = playlistRefresh.maximumPull
+        tracks.contentY = 0
         page.filterText = ""
     }
-    property bool pullRefreshing: false
-    property bool playlistBusy: player.playlistLoading
-    onPlaylistBusyChanged: if (!playlistBusy) page.pullRefreshing = false
 
     property string filterText: ""
     property var filteredTracks: {
@@ -189,47 +186,31 @@ Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
-            PullToRefresh {
-                id: playlistRefresh
-                objectName: "playlistPullToRefresh"
+            VirtualSongList {
+                id: tracks
                 anchors.fill: parent
-                contentHeight: tracks.contentHeight
-                refreshing: page.pullRefreshing && player.playlistLoading
-                refreshTexts: [i18n.t("refresh.pull"), i18n.t("refresh.release"), i18n.t("refresh.loading"), i18n.t("refresh.complete")]
-                onRefreshRequested: {
-                    player.refreshPlaylist()
-                    page.pullRefreshing = player.playlistLoading
-                }
-
-                VirtualSongList {
-                    id: tracks
-                    width: parent.width
-                    height: contentHeight
-                    scrollViewport: playlistRefresh
-                    // Drop the row delegates when the detail page is closed (see
-                    // QueuePage): an invisible detail otherwise keeps the whole
-                    // playlist's SongRows alive after you return home.
-                    list: page.visible ? page.filteredTracks : null
-                    // Long-press a track → add to another playlist, and (in your own
-                    // playlist) remove it from this one. Not login-gated: adding to the queue
-                    // (local list) works signed-out too.
-                    songMenu: true
-                    ownedPlaylist: player.playlistOwned
-                    showOfflineBadge: player.playlistOffline
-                    onActivated: {
-                        var selected = tracks.list[tracks.activatedIndex]
-                        var all = player.openSourcePlaylistId !== ""
-                                  ? player.sourcePlaylistTracks : player.playlistTracks
-                        if (!selected || !all) return
-                        for (var i = 0; i < all.length; i++) {
-                            if (String(all[i].id) === String(selected.id)) {
-                                player.playPlaylistTrack(i)
-                                return
-                            }
+                // Drop the row delegates when the detail page is closed (see
+                // QueuePage): an invisible detail otherwise keeps the whole
+                // playlist's SongRows alive after you return home.
+                list: page.visible ? page.filteredTracks : null
+                // Long-press a track → add to another playlist, and (in your own
+                // playlist) remove it from this one. Not login-gated: adding to the queue
+                // (local list) works signed-out too.
+                songMenu: true
+                ownedPlaylist: player.playlistOwned
+                showOfflineBadge: player.playlistOffline
+                onActivated: {
+                    var selected = tracks.list[tracks.activatedIndex]
+                    var all = player.openSourcePlaylistId !== ""
+                              ? player.sourcePlaylistTracks : player.playlistTracks
+                    if (!selected || !all) return
+                    for (var i = 0; i < all.length; i++) {
+                        if (String(all[i].id) === String(selected.id)) {
+                            player.playPlaylistTrack(i)
+                            return
                         }
                     }
                 }
-
             }
 
             LoadingIndicator {

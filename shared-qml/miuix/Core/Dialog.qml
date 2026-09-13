@@ -148,16 +148,18 @@ Item {
                     id: bodyColumn
                     width: bodyViewport.width
                     spacing: 12
+                    // Bind children to the viewport: older positioners can replace
+                    // their own width binding while the overlay is still unsized.
                     Icon {
                         name: dialogRoot.icon
                         visible: name.length > 0
                         width: 28
                         height: 28
-                        x: (parent.width - width) / 2
+                        x: (bodyViewport.width - width) / 2
                         color: Theme.color.primary
                     }
                     Text {
-                        width: parent.width
+                        width: bodyViewport.width
                         visible: text.length > 0
                         text: dialogRoot.title
                         font.pixelSize: 18
@@ -167,7 +169,7 @@ Item {
                         color: Theme.color.onBackground
                     }
                     Text {
-                        width: parent.width
+                        width: bodyViewport.width
                         visible: text.length > 0
                         text: dialogRoot.text
                         font.pixelSize: 16
@@ -177,7 +179,7 @@ Item {
                     }
                     Item {
                         id: contentPlaceholder
-                        width: parent.width
+                        width: bodyViewport.width
                         height: childrenRect.height
                         visible: children.length > 0
                     }
@@ -190,7 +192,7 @@ Item {
                 width: Math.max(0, panel.width - dialogRoot.padding * 2)
                 spacing: 12
                 Button {
-                    width: parent.width
+                    width: bodyViewport.width
                     visible: dialogRoot.showNeutralButton
                     text: dialogRoot.neutralText
                     type: "filledTonal"
@@ -198,7 +200,7 @@ Item {
                 }
                 Item {
                     id: actionRow
-                    width: parent.width
+                    width: bodyViewport.width
                     property bool stacked: dialogRoot.showAcceptButton && dialogRoot.showRejectButton
                         && width < acceptButton.implicitWidth + rejectButton.implicitWidth + 12
                     height: stacked ? 108 : (dialogRoot.showAcceptButton || dialogRoot.showRejectButton ? 48 : 0)
