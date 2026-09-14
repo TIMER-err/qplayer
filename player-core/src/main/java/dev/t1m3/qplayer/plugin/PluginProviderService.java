@@ -12,6 +12,7 @@ import dev.t1m3.qplayer.media.ProviderHome;
 import dev.t1m3.qplayer.media.Song;
 import dev.t1m3.qplayer.media.StreamDescriptor;
 import dev.t1m3.qplayer.media.Artist;
+import dev.t1m3.qplayer.util.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -114,9 +115,7 @@ public final class PluginProviderService {
         return manager.invoke(provider, ProviderCapability.SONG_DETAILS.wireName(),
                 Collections.<String, Object>singletonMap("ids", nativeIds)).thenApply(raw -> {
             List<Object> values = boundedList(raw, "songDetails response", 500);
-            List<Song> songs = new ArrayList<>();
-            for (Object value : values) songs.add(parseSong(provider, map(value, "song")));
-            return Collections.unmodifiableList(songs);
+            return Collections.unmodifiableList(parseSongs(provider, values, "songDetails"));
         });
     }
 
@@ -323,7 +322,7 @@ public final class PluginProviderService {
         Map<String, Object> object = map(raw, "searchSongs response");
         List<Object> items = boundedList(object.get("items"), "searchSongs.items", 200);
         Page<Song> page = new Page<>();
-        for (Object item : items) page.items.add(parseSong(provider, map(item, "song")));
+        page.items.addAll(parseSongs(provider, items, "searchSongs"));
         page.nextCursor = boundedString(object.get("nextCursor"), MAX_CURSOR_CHARS,
                 "searchSongs.nextCursor", false);
         return page;
@@ -342,9 +341,8 @@ public final class PluginProviderService {
                                                     Map<String, Object> arguments) {
         return manager.invoke(provider, capability.wireName(), arguments).thenApply(raw -> {
             List<Object> values = boundedList(raw, capability.wireName() + " response", 500);
-            List<Song> result = new ArrayList<>();
-            for (Object value : values) result.add(parseSong(provider, map(value, "song")));
-            return Collections.unmodifiableList(result);
+            return Collections.unmodifiableList(
+                    parseSongs(provider, values, capability.wireName()));
         });
     }
 
@@ -353,9 +351,8 @@ public final class PluginProviderService {
         ProviderHome home = new ProviderHome();
         Object songs = value.get("songs");
         if (songs instanceof List) {
-            for (Object item : boundedList(songs, "home songs", 100)) {
-                home.songs.add(parseSong(provider, map(item, "song")));
-            }
+            home.songs.addAll(parseSongs(provider,
+                    boundedList(songs, "home songs", 100), "home songs"));
         }
         Object playlists = value.get("playlists");
         if (playlists instanceof List) {
@@ -412,6 +409,43 @@ public final class PluginProviderService {
     private String artworkThumb(String provider, Map<String, Object> object, String full) {
         String thumb = allowedUrl(provider, optionalString(object.get("artworkThumbUrl")));
         return thumb.isEmpty() ? full : thumb;
+    }
+
+    /**
+     * Parse a batch of song DTOs, dropping entries the provider could not describe
+     * instead of failing the whole batch.
+     *
+     * <p>One malformed song used to sink everything around it. Services hand back
+     * stub entries for delisted or region-locked tracks — no id, and sometimes no
+     * title either — and a single one of those anywhere in a playlist, album, home
+     * shelf or search page made the entire response throw, so the user got an empty
+     * page instead of the other 49 songs. A provider can pre-filter (QQ's songsOf
+     * drops entries with no mid for exactly this reason) but the host should not
+     * depend on every provider having remembered to, for every field.
+     *
+     * <p>Deliberately not used by {@link #validateSongs}: there the plugin is asking
+     * the host to replace the queue with a list it built itself, so a bad entry is
+     * the plugin's own bug and should surface rather than be silently dropped.
+     */
+    private List<Song> parseSongs(String provider, List<Object> values, String label) {
+        List<Song> songs = new ArrayList<>(values.size());
+        int dropped = 0;
+        for (Object value : values) {
+            try {
+                songs.add(parseSong(provider, map(value, "song")));
+            } catch (PluginExecutionException | IllegalArgumentException malformed) {
+                if (dropped == 0) {
+                    Logger.warn("plugin {} {}: dropping unusable song entry: {}",
+                            provider, label, malformed.getMessage());
+                }
+                dropped++;
+            }
+        }
+        if (dropped > 1) {
+            Logger.warn("plugin {} {}: dropped {} unusable song entries in total",
+                    provider, label, dropped);
+        }
+        return songs;
     }
 
     private Song parseSong(String provider, Map<String, Object> object) {
@@ -489,9 +523,9 @@ public final class PluginProviderService {
                             "playlist.owner.name", false));
         }
         if (object.get("songs") instanceof List) {
-            for (Object item : boundedList(object.get("songs"), "playlist songs", 20_000)) {
-                playlist.songs.add(parseSong(provider, map(item, "song")));
-            }
+            playlist.songs.addAll(parseSongs(provider,
+                    boundedList(object.get("songs"), "playlist songs", 20_000),
+                    "playlist songs"));
         }
         return playlist;
     }
@@ -524,9 +558,8 @@ public final class PluginProviderService {
             album.artistMediaId = album.artists.get(0).id;
         }
         if (object.get("songs") instanceof List) {
-            for (Object item : boundedList(object.get("songs"), "album songs", 5000)) {
-                album.songs.add(parseSong(provider, map(item, "song")));
-            }
+            album.songs.addAll(parseSongs(provider,
+                    boundedList(object.get("songs"), "album songs", 5000), "album songs"));
         }
         return album;
     }
@@ -546,9 +579,8 @@ public final class PluginProviderService {
         artist.songCount = (int) boundedLong(object.get("songCount"), 0L,
                 10_000_000L, "artist.songCount");
         if (object.get("songs") instanceof List) {
-            for (Object item : boundedList(object.get("songs"), "artist songs", 1000)) {
-                artist.songs.add(parseSong(provider, map(item, "song")));
-            }
+            artist.songs.addAll(parseSongs(provider,
+                    boundedList(object.get("songs"), "artist songs", 1000), "artist songs"));
         }
         if (object.get("albums") instanceof List) {
             for (Object item : boundedList(object.get("albums"), "artist albums", 1000)) {

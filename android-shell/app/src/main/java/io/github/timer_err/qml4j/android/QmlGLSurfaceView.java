@@ -266,6 +266,13 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 queueEvent(new Runnable() {
                     @Override public void run() {
                         if (view == null) return;
+                        // pauseGlThread() disposes the surface but deliberately keeps the
+                        // scene alive, so the `view` check above does not imply a surface:
+                        // a press already queued for this thread runs after the pause and
+                        // finds it gone. Backgrounding mid-touch (Home, app switch, lock)
+                        // hits this. Skip only the gesture that needs surface dimensions
+                        // and let the press dispatch to QML as usual.
+                        SkijaGlSurface gl = surface;
                         // The lyric body (between the QML title and transport bands) is
                         // host-drawn with no QML controls under it, so a touch there is
                         // ours: a drag scrolls the column, a tap seeks to that line. Don't
@@ -274,7 +281,9 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                         // that same region.
                         boolean offsetPanelOpen = controller != null
                                 && Boolean.TRUE.equals(controller.lyricOffsetPanelOpen.peek());
-                        if (!compositor.temperaVisible(controller) && !offsetPanelOpen && compositor.lyricsScrollable(x, y, surface.width() / uiScale, surface.height() / uiScale, insetTop())) {
+                        if (gl != null && !compositor.temperaVisible(controller) && !offsetPanelOpen
+                                && compositor.lyricsScrollable(x, y, gl.width() / uiScale,
+                                        gl.height() / uiScale, insetTop())) {
                             lyGrab = true;
                             lyDownY = y;
                             lyMoved = false;
