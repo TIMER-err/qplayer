@@ -23,6 +23,7 @@ Item {
     signal itemClicked(int index, var itemData)
 
     property real _progress: expandable && extended ? 1 : 0
+    readonly property real _contentWidth: Math.max(0, width - (showDivider ? 1 : 0))
     Behavior on _progress { NumberAnimation { duration: 350; easing.type: Easing.OutCubic } }
     implicitWidth: minWidth + (Math.max(minWidth, expandedWidth) - minWidth) * _progress
     implicitHeight: 480
@@ -46,7 +47,10 @@ Item {
         id: viewport
         objectName: "miuixRailViewport"
         y: railRoot.topInset
-        width: parent.width - (railRoot.showDivider ? 1 : 0)
+        // Bind every hit-test-bearing level directly to the component root.
+        // qml4j can miss the second leg of parent.width -> viewport.width ->
+        // entries.width while the responsive rail animates from 0px.
+        width: railRoot._contentWidth
         height: Math.max(0, footerLoader.y - y - (footerLoader.visible ? 24 : 0))
         contentWidth: width
         contentHeight: entries.height + 48
@@ -55,7 +59,7 @@ Item {
         Column {
             id: entries
             y: 24
-            width: viewport.width
+            width: railRoot._contentWidth
             Item {
                 width: parent.width
                 height: 80
@@ -104,7 +108,7 @@ Item {
                 delegate: Item {
                     id: railItem
                     objectName: "miuixRailItem" + index
-                    width: entries.width
+                    width: railRoot._contentWidth
                     height: Math.round((56 + (railRoot.expandable ? 8 : 0) + label.implicitHeight) * (1 - railRoot._progress)
                         + (28 + Math.max(28, label.implicitHeight)) * railRoot._progress)
                     property bool selected: index === railRoot.currentIndex

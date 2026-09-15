@@ -34,6 +34,7 @@ Item {
     property bool largeScreen: overlayLayer.width >= 840 && overlayLayer.height >= 480
     readonly property bool opened: overlayLayer.visible
     readonly property bool compactActionLayout: actionRow.stacked
+    readonly property real contentWidth: Math.max(0, panel.width - padding * 2)
     default property alias content: contentPlaceholder.data
     signal accepted()
     signal rejected()
@@ -138,7 +139,7 @@ Item {
                 objectName: "miuixDialogViewport"
                 x: dialogRoot.padding
                 y: dialogRoot.padding
-                width: Math.max(0, panel.width - dialogRoot.padding * 2)
+                width: dialogRoot.contentWidth
                 height: Math.max(0, panel.height - dialogRoot.padding * 2 - actions.height - (actions.height > 0 ? 12 : 0))
                 contentWidth: width
                 contentHeight: bodyColumn.height
@@ -189,7 +190,7 @@ Item {
                 id: actions
                 x: dialogRoot.padding
                 y: panel.height - dialogRoot.padding - height
-                width: Math.max(0, panel.width - dialogRoot.padding * 2)
+                width: dialogRoot.contentWidth
                 spacing: 12
                 Button {
                     width: bodyViewport.width

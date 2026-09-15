@@ -37,7 +37,7 @@ Item {
         // it past the screen, and a nested scroller would just fight that one
         // for the drag.
         Text {
-            width: parent.width
+            width: dialog.contentWidth
             text: player.updateNotes
             color: Theme.color.onSurfaceVariantColor
             fontSize: 13

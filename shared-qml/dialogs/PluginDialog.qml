@@ -104,7 +104,7 @@ Item {
         ColumnLayout {
             id: nodeColumn
 
-            width: parent.width
+            width: dialog.contentWidth
             spacing: 10
 
             PluginDialogNode {

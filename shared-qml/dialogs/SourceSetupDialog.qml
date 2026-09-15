@@ -34,7 +34,7 @@ Item {
         onRejected: player.dismissSourceSetup()
 
         ColumnLayout {
-            width: parent.width
+            width: setupDialog.contentWidth
             spacing: 10
 
             RowLayout {
