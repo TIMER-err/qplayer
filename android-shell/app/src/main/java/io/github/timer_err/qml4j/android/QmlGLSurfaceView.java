@@ -40,6 +40,7 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
@@ -62,10 +63,13 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     private volatile boolean pauseRequested;
     private boolean glThreadPaused;
     private boolean resourcesReleased;
-    private final Runnable renderWake = () -> {
-        setRenderMode(RENDERMODE_CONTINUOUSLY);
-        requestRender();
-    };
+    // A wake can land on the same frame that starts a Behavior. Its first tick only
+    // captures the start time and may not change a Property, so keep a second frame
+    // alive before the ordinary active-work test is allowed to put the surface back
+    // to sleep.
+    private static final int WAKE_SETTLE_FRAMES = 2;
+    private final AtomicInteger wakeSettleFrames = new AtomicInteger();
+    private final Runnable renderWake = this::wakeRenderer;
 
     /** Drives a host splash while the QML tree compiles: per-component progress
      *  (on the GL thread) and a one-shot ready signal at the first painted frame. */
@@ -350,8 +354,17 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
      *  updates QML state but never draws — the screen looks frozen until Home
      *  or Back (which do post() and wake). */
     private void wakeRenderer() {
+        wakeSettleFrames.updateAndGet(current -> Math.max(current, WAKE_SETTLE_FRAMES));
         setRenderMode(RENDERMODE_CONTINUOUSLY);
         requestRender();
+    }
+
+    private boolean consumeWakeSettleFrame() {
+        while (true) {
+            int current = wakeSettleFrames.get();
+            if (current <= 0) return false;
+            if (wakeSettleFrames.compareAndSet(current, current - 1)) return true;
+        }
     }
 
     // Status-bar inset in logical px, fed to the lyric compositor for column gating.
@@ -614,7 +627,8 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 if (controller != null) controller.pump();
                 view.tickAnimations(System.nanoTime());
                 dq.flush();
-                profBumpTick += Property.changeVersion() - v0;
+                long frameChanges = Property.changeVersion() - v0;
+                profBumpTick += frameChanges;
                 long t1 = System.nanoTime();
                 Canvas canvas = surface.acquireCanvas();
                 io.github.timer_err.qml4j.render.Renderer renderer = view.renderer();
@@ -628,12 +642,14 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 long t1b = System.nanoTime();
                 surface.present();
                 profileFrame(t0, t1, t1b, System.nanoTime());
-                boolean needContinuous = controller != null && (
+                boolean hostAnimation = controller != null && (
                         controller.isPlaying()
                         || compositor.temperaVisible(controller)
                         || Boolean.TRUE.equals(controller.lyricsOpen.peek())
                         || (controller.lyricSlide.peek() != null
                             && controller.lyricSlide.peek() > 0.001));
+                boolean needContinuous = AndroidRenderPolicy.shouldRenderContinuously(
+                        hostAnimation, frameChanges > 0, consumeWakeSettleFrame(), view.root());
                 if (!needContinuous && compositor.skippedLayout()) {
                     setRenderMode(RENDERMODE_WHEN_DIRTY);
                 } else {

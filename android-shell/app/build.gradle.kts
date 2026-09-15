@@ -134,4 +134,6 @@ dependencies {
     // MediaSessionCompat + MediaStyle notification + media-button handling for
     // system media controls (lockscreen / notification / bluetooth).
     implementation("androidx.media:media:1.7.0")
+
+    testImplementation("junit:junit:4.13.2")
 }
