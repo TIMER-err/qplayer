@@ -19,7 +19,13 @@ if [ -z "$VERSION" ]; then
   VERSION="${VERSION#v}"
 fi
 [ -n "$VERSION" ] || VERSION="0.0.0"
-echo "packaging QPlayer $VERSION"
+# jpackage only accepts a numeric --app-version (digits and periods, at most three
+# components). A tag suffix such as "-debug" is what version.properties reports to
+# the update check, but it cannot go into the bundle metadata, so drop everything
+# from the first non-numeric character.
+BUNDLE_VERSION="$(printf '%s' "$VERSION" | sed 's/[^0-9.].*$//; s/\.*$//')"
+[ -n "$BUNDLE_VERSION" ] || BUNDLE_VERSION="0.0.0"
+echo "packaging QPlayer $VERSION (bundle version $BUNDLE_VERSION)"
 
 # Shared module list (see jre-modules.txt), comments stripped.
 MODS=$(sed 's/#.*//' "$DIST/jre-modules.txt" | tr -d '[:blank:]' | grep . | paste -sd, -)
@@ -34,7 +40,7 @@ rm -rf "$T/pkg" "$T/AppDir"
 # Skija/LWJGL keep extracting their own natives out of the jars in lib/app, so
 # there is nothing to hand-place here.
 jpackage --type app-image \
-  --name qplayer --app-version "$VERSION" --vendor t1m3 --description "QPlayer" \
+  --name qplayer --app-version "$BUNDLE_VERSION" --vendor t1m3 --description "QPlayer" \
   --input "$APP" --main-jar qplayer.jar --main-class dev.t1m3.qplayer.desktop.app.Main \
   --dest "$T/pkg" \
   --add-modules "$MODS" \

@@ -18,7 +18,13 @@ if (-not $ver) { $ver = $env:GITHUB_REF_NAME }
 if (-not $ver) { $ver = (git describe --tags --abbrev=0 2>$null) }
 $ver = "$ver" -replace '^v', ''
 if (-not $ver) { $ver = '0.0.0' }
-Write-Host "packaging QPlayer $ver"
+# jpackage only accepts a numeric --app-version (digits and periods). A tag suffix
+# such as "-debug" is what version.properties reports to the update check, but it
+# cannot go into the bundle metadata, so drop everything from the first
+# non-numeric character.
+$bundleVer = ($ver -replace '[^0-9.].*$', '') -replace '\.+$', ''
+if (-not $bundleVer) { $bundleVer = '0.0.0' }
+Write-Host "packaging QPlayer $ver (bundle version $bundleVer)"
 
 # Shared module list (see jre-modules.txt), comments stripped. The Windows-only
 # SMTC implementation serves cover art from a loopback HttpServer, so only this
@@ -48,7 +54,7 @@ Remove-Item -Recurse -Force $out, $dir -ErrorAction SilentlyContinue
 # launcher means no console window on double-click; WinConsole re-attaches to a
 # parent terminal's console when started from a shell, so logs still stream there.
 & jpackage --type app-image `
-    --name qplayer --app-version $ver --vendor t1m3 --description "QPlayer" `
+    --name qplayer --app-version $bundleVer --vendor t1m3 --description "QPlayer" `
     --input $app --main-jar qplayer.jar --main-class dev.t1m3.qplayer.desktop.app.Main `
     --dest $out --icon "$PSScriptRoot\..\src\main\resources\app-icon.ico" `
     --add-modules $mods `

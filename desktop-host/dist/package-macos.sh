@@ -22,11 +22,16 @@ if [ -z "$VERSION" ]; then
   VERSION="${VERSION#v}"
 fi
 [ -n "$VERSION" ] || VERSION="0.0.0"
+# jpackage (and macOS itself) only accept a numeric bundle version — digits and
+# periods, at most three components. A tag suffix such as "-debug" is still what
+# version.properties reports to the update check, but it cannot appear in
+# CFBundleVersion, so drop everything from the first non-numeric character.
+BUNDLE_VERSION="$(printf '%s' "$VERSION" | sed 's/[^0-9.].*$//; s/\.*$//')"
+[ -n "$BUNDLE_VERSION" ] || BUNDLE_VERSION="0.0.0"
 # CFBundleVersion's major must be > 0 or jpackage refuses the build, and QPlayer
 # is still on 0.x. Bump only the number baked into the bundle — the version the
 # app reports (and the update check compares) comes from version.properties.
-BUNDLE_VERSION="$VERSION"
-case "$BUNDLE_VERSION" in 0.*|0) BUNDLE_VERSION="1${VERSION#0}" ;; esac
+case "$BUNDLE_VERSION" in 0.*|0) BUNDLE_VERSION="1${BUNDLE_VERSION#0}" ;; esac
 echo "packaging QPlayer $VERSION (bundle version $BUNDLE_VERSION)"
 
 # App icon: macOS wants a multi-resolution .icns, not a loose PNG. Build one from
