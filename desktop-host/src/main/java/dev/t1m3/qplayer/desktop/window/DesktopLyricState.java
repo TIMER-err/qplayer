@@ -23,9 +23,11 @@ public final class DesktopLyricState extends QObject {
     private final DesktopLyricWindow owner;
     private LyricTimeline.Frame frame;
     private String fallbackText = "";
+    private String fontFamily = "";
     private int fontSize = 26;
     private int fontWeight = 2;
     private boolean shadow = true;
+    private boolean outline = true;
     private DesktopLyricPalette palette = DesktopLyricPalette.capture(true);
     private long positionMs;
 
@@ -38,9 +40,11 @@ public final class DesktopLyricState extends QObject {
         positionMs = active ? snapshot.predictedPosition(nowNanos) : 0L;
         this.frame = active ? LyricTimeline.frameAt(snapshot.timeline, positionMs) : null;
         fallbackText = fallback(snapshot);
+        fontFamily = snapshot.fontFamily;
         fontSize = Math.max(18, Math.min(38, snapshot.fontSize));
         fontWeight = Math.max(0, Math.min(3, snapshot.fontWeight));
         shadow = snapshot.shadow;
+        outline = snapshot.outline;
         palette = snapshot.palette;
         playing.set(snapshot.playing);
         mousePassthrough.set(owner.isMousePassthrough());
@@ -73,8 +77,16 @@ public final class DesktopLyricState extends QObject {
         return fontWeight;
     }
 
+    String fontFamilyValue() {
+        return fontFamily;
+    }
+
     boolean shadowValue() {
         return shadow;
+    }
+
+    boolean outlineValue() {
+        return outline;
     }
 
     DesktopLyricPalette palette() {

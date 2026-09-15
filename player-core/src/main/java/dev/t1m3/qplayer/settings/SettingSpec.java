@@ -26,6 +26,7 @@ public final class SettingSpec {
     public static final String PATH = "path";            // string chosen by the host directory picker
     public static final String RADIO = "radio";          // int index as radio buttons
     public static final String DROPDOWN = "dropdown";    // int index in a combo box
+    public static final String COLOR = "color";          // "#rrggbb" string, empty = the row's automatic default
     public static final String ACTION = "action";        // button/icon, no stored value
 
     /** Every platform. The alternative values are the host ids passed to
@@ -130,7 +131,7 @@ public final class SettingSpec {
     public boolean hasValue() {
         return SWITCH.equals(type) || STEPPER.equals(type) || SLIDER.equals(type)
                 || SEGMENTED.equals(type) || TEXT.equals(type) || PATH.equals(type)
-                || RADIO.equals(type)
+                || RADIO.equals(type) || COLOR.equals(type)
                 || DROPDOWN.equals(type);
     }
 
@@ -174,6 +175,13 @@ public final class SettingSpec {
 
     public static Builder path(String key, String category, String title, String def) {
         return new Builder(key, PATH, category, title).def(def);
+    }
+
+    /** A colour chosen from the picker dialog. The stored value is "#rrggbb", or
+     *  empty for "whatever this row's automatic default is" (a Monet role, a fixed
+     *  neutral) — which is what the picker's reset button writes back. */
+    public static Builder color(String key, String category, String title, String def) {
+        return new Builder(key, COLOR, category, title).def(def);
     }
 
     public static Builder action(String action, String category, String title, String button) {

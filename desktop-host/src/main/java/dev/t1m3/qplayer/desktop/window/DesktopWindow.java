@@ -217,11 +217,27 @@ public final class DesktopWindow {
     public void setLyricSettingsStore(dev.t1m3.qplayer.settings.SettingsStore store) {
         this.lyricWindow = new DesktopLyricWindow(store, resources, kind, qmlCompilationCache,
                 enabled -> postRenderTask(() -> settings.put("desktopLyricEnabled", enabled)),
+                locked -> postRenderTask(() -> settings.put(
+                        dev.t1m3.qplayer.settings.SettingsCatalog.DESKTOP_LYRIC_LOCKED_KEY, locked)),
                 this::postMainTask, this::restoreFromTray);
         settings.onChange("desktopLyricEnabled", value -> postMainTask(() -> {
             DesktopLyricWindow target = lyricWindow;
             if (target != null) target.applyEnabled(Boolean.TRUE.equals(value));
         }));
+        // The floating window's own lock button writes the same setting back
+        // through passthroughWriter above; SettingsCore drops a write that doesn't
+        // change the value, so the two directions cannot loop.
+        settings.onChange(dev.t1m3.qplayer.settings.SettingsCatalog.DESKTOP_LYRIC_LOCKED_KEY,
+                value -> postMainTask(() -> {
+                    DesktopLyricWindow target = lyricWindow;
+                    if (target != null) target.applyMousePassthrough(Boolean.TRUE.equals(value));
+                }));
+        for (String key : DesktopLyricWindow.APPEARANCE_KEYS) {
+            settings.onChange(key, value -> postMainTask(() -> {
+                DesktopLyricWindow target = lyricWindow;
+                if (target != null) target.reloadAppearance();
+            }));
+        }
     }
 
     public void setFirstFrameListener(Runnable r) {

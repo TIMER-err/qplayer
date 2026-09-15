@@ -7,6 +7,15 @@ Item {
     anchors.fill: parent
     property bool active: false
     property bool familyListOpen: false
+    // Which font source is being edited: empty is the app-wide font, anything
+    // else a secondary one (desktop lyrics). A secondary source additionally
+    // offers "follow the app font", which is what its empty value means — so the
+    // bundled face needs an explicit name there (Fonts.BUNDLED).
+    property string targetKey: ""
+    property bool secondary: control.targetKey.length > 0
+    property string bundledValue: control.secondary ? "bundled" : ""
+    property string current: settings.fontFamilyFor(control.targetKey)
+    function choose(value) { settings.setFontSelectionFor(control.targetKey, value) }
     signal closed()
     onActiveChanged: {
         if (active) { searchField.text = ""; picker.open() }
@@ -36,22 +45,30 @@ Item {
             spacing: 8
             SuperArrow {
                 Layout.fillWidth: true
+                visible: control.secondary
+                title: i18n.t("font.picker.followMain")
+                indicator: control.current === "" ? "check" : "chevron_right"
+                onClicked: { control.choose(""); picker.close() }
+            }
+            SuperArrow {
+                Layout.fillWidth: true
                 title: i18n.t("font.picker.bundled")
-                indicator: settings.fontFamily() === "" ? "check" : "chevron_right"
-                onClicked: { settings.setFontSelection(""); picker.close() }
+                indicator: control.current === control.bundledValue ? "check" : "chevron_right"
+                onClicked: { control.choose(control.bundledValue); picker.close() }
             }
             SuperArrow {
                 Layout.fillWidth: true
                 title: i18n.t("font.picker.system")
-                indicator: settings.fontFamily() === "system" ? "check" : "chevron_right"
-                onClicked: { settings.setFontSelection("system"); picker.close() }
+                indicator: control.current === "system" ? "check" : "chevron_right"
+                onClicked: { control.choose("system"); picker.close() }
             }
             SuperArrow {
                 objectName: "openFontFamilyList"
                 Layout.fillWidth: true
                 title: i18n.t("font.picker.installed")
-                summary: settings.fontFamily() !== "" && settings.fontFamily() !== "system"
-                    ? settings.fontFamily() : i18n.t("font.picker.installed.summary")
+                summary: control.current !== "" && control.current !== "system"
+                         && control.current !== control.bundledValue
+                    ? control.current : i18n.t("font.picker.installed.summary")
                 onClicked: { control.familyListOpen = true; familyPicker.open() }
             }
         }
@@ -100,12 +117,12 @@ Item {
                                 id: familyRow
                                 objectName: "fontFamilyRow"
                                 property string family: modelData
-                                property bool selected: settings.fontFamily() === family
+                                property bool selected: control.current === family
                                 width: listView.width
                                 height: listView.rowH - 4
                                 y: index * listView.rowH
                                 activeFocusOnTab: true
-                                function choose() { settings.setFontSelection(family); familyPicker.close() }
+                                function choose() { control.choose(family); familyPicker.close() }
                                 Keys.onReturnPressed: { choose(); event.accepted = true }
                                 Keys.onSpacePressed: { choose(); event.accepted = true }
                                 Rectangle {

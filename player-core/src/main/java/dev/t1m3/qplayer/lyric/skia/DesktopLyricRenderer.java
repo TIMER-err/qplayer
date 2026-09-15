@@ -6,6 +6,7 @@ import io.github.humbleui.skija.Canvas;
 import io.github.humbleui.skija.Font;
 import io.github.humbleui.skija.FontMetrics;
 import io.github.humbleui.skija.Paint;
+import io.github.humbleui.skija.PaintMode;
 import io.github.humbleui.types.Rect;
 
 import java.util.Collections;
@@ -28,34 +29,46 @@ public final class DesktopLyricRenderer implements AutoCloseable {
     private static final float SHADOW_OPACITY = 0.32f;
     private static final float TRANSLATION_OPTICAL_GAP = -3f;
     private static final long LINE_TRANSITION_NANOS = 380_000_000L;
+    /** Outline thickness as a fraction of the font size it traces, and the floor
+     *  below which a stroke stops reading as an outline at all. */
+    private static final float OUTLINE_SIZE_RATIO = 0.10f;
+    private static final float OUTLINE_MIN_WIDTH = 1.4f;
+    /** Outlines sit under the glyph, so the visible half is the outer half; a fully
+     *  opaque stroke would read as a heavy border rather than a separation edge. */
+    private static final float OUTLINE_OPACITY = 0.85f;
 
     private final LyricTextShaper shaper = new LyricTextShaper();
     private final Paint textPaint = new Paint().setAntiAlias(true);
     private final Paint shadowPaint = new Paint().setAntiAlias(true);
+    private final Paint outlinePaint = new Paint().setAntiAlias(true).setMode(PaintMode.STROKE);
     private Visual current;
     private Visual outgoing;
     private long transitionStartNanos;
     private int transitionDirection = 1;
     private int cachedFontSize = -1;
     private Fonts.Weight cachedWeight;
+    private String cachedFamily = "";
 
     public void render(Canvas canvas, float left, float top, float width, float height,
                        LyricTimeline.Frame frame, String fallbackText,
-                       int fontSize, int fontWeight, boolean shadow, Colors colors,
+                       String fontFamily, int fontSize, int fontWeight,
+                       boolean shadow, boolean outline, Colors colors,
                        long positionMs, long nowNanos) {
         if (canvas == null || width <= 0f || height <= 0f || colors == null) return;
         int safeSize = Math.max(18, Math.min(38, fontSize));
         Fonts.Weight weight = toWeight(fontWeight);
-        if (safeSize != cachedFontSize || weight != cachedWeight) {
+        String family = fontFamily == null ? "" : fontFamily;
+        if (safeSize != cachedFontSize || weight != cachedWeight || !family.equals(cachedFamily)) {
             closeVisuals();
             cachedFontSize = safeSize;
             cachedWeight = weight;
+            cachedFamily = family;
         }
 
         LyricTimeline.Frame safeFrame = frame;
         String fallback = fallbackText == null ? "" : fallbackText;
         if (current == null || !current.matches(safeFrame, fallback)) {
-            Visual replacement = createVisual(safeFrame, fallback, safeSize, weight);
+            Visual replacement = createVisual(safeFrame, fallback, family, safeSize, weight);
             if (current != null) {
                 if (outgoing != null) outgoing.close();
                 outgoing = current;
@@ -77,18 +90,18 @@ public final class DesktopLyricRenderer implements AutoCloseable {
                     outgoing.close();
                     outgoing = null;
                     drawVisual(canvas, current, left, top, width, height,
-                            0f, 1f, shadow, colors, false);
+                            0f, 1f, shadow, outline, colors, false);
                 } else {
                     drawVisual(canvas, outgoing, left, top, width, height,
                             transitionDirection * -slot * eased, 1f - eased,
-                            shadow, colors, true);
+                            shadow, outline, colors, true);
                     drawVisual(canvas, current, left, top, width, height,
                             transitionDirection * slot * (1f - eased), eased,
-                            shadow, colors, false);
+                            shadow, outline, colors, false);
                 }
             } else {
                 drawVisual(canvas, current, left, top, width, height,
-                        0f, 1f, shadow, colors, false);
+                        0f, 1f, shadow, outline, colors, false);
             }
         } finally {
             canvas.restoreToCount(save);
@@ -96,16 +109,16 @@ public final class DesktopLyricRenderer implements AutoCloseable {
     }
 
     private Visual createVisual(LyricTimeline.Frame frame, String fallback,
-                                int fontSize, Fonts.Weight weight) {
+                                String family, int fontSize, Fonts.Weight weight) {
         String previous = frame != null ? safe(frame.previous) : "";
         String currentText = frame != null ? safe(frame.current) : "";
         String next = frame != null ? safe(frame.next) : "";
         String translation = frame != null ? safe(frame.translation) : "";
         if (currentText.isEmpty()) currentText = fallback;
 
-        Font currentFont = Fonts.get(weight, fontSize);
-        Font sideFont = Fonts.get(weight, fontSize * SIDE_SIZE_RATIO);
-        Font translationFont = Fonts.get(weight,
+        Font currentFont = Fonts.get(family, weight, fontSize);
+        Font sideFont = Fonts.get(family, weight, fontSize * SIDE_SIZE_RATIO);
+        Font translationFont = Fonts.get(family, weight,
                 Math.max(12f, fontSize * TRANSLATION_SIZE_RATIO));
         LyricTextShaper.configureForAnimation(currentFont);
         LyricTextShaper.configureForAnimation(sideFont);
@@ -134,12 +147,12 @@ public final class DesktopLyricRenderer implements AutoCloseable {
     private void drawVisual(Canvas canvas, Visual visual,
                             float left, float top, float width, float height,
                             float translateY, float alpha, boolean shadow,
-                            Colors colors, boolean outgoingVisual) {
+                            boolean outline, Colors colors, boolean outgoingVisual) {
         if (visual == null || alpha <= 0.001f) return;
         float slot = height / 3f;
         drawStatic(canvas, visual.previous, visual.sideFont,
                 left, top + slot * 0.5f + translateY, width, 1f,
-                colors.previous, alpha, shadow, colors.shadow);
+                colors.previous, alpha, shadow, outline, colors.shadow);
 
         float currentCenter = top + slot * 1.5f + translateY;
         boolean hasTranslation = visual.translation != null
@@ -153,27 +166,31 @@ public final class DesktopLyricRenderer implements AutoCloseable {
                     + TRANSLATION_OPTICAL_GAP) * 0.5f;
         }
         drawCurrent(canvas, visual, left, mainCenter, width,
-                alpha, shadow, colors, outgoingVisual);
+                alpha, shadow, outline, colors, outgoingVisual);
         if (hasTranslation) {
             drawStatic(canvas, visual.translation, visual.translationFont,
                     left, translationCenter, width, visual.progress,
-                    colors.next, alpha * 0.88f, shadow, colors.shadow);
+                    colors.next, alpha * 0.88f, shadow, outline, colors.shadow);
         }
 
         drawStatic(canvas, visual.next, visual.sideFont,
                 left, top + slot * 2.5f + translateY, width, 0f,
-                colors.next, alpha, shadow, colors.shadow);
+                colors.next, alpha, shadow, outline, colors.shadow);
     }
 
     private void drawCurrent(Canvas canvas, Visual visual, float left, float centerY,
                              float viewportWidth, float alpha, boolean shadow,
-                             Colors colors, boolean forceComplete) {
+                             boolean outline, Colors colors, boolean forceComplete) {
         LyricTextShaper.ShapedRow row = visual.current;
         if (row == null || row.blob == null || row.width <= 0f) return;
         float baseline = baseline(visual.currentFont, centerY);
         float x = textX(left, viewportWidth, row.width, visual.progress);
         if (shadow) drawBlob(canvas, row.blob, x + 0.75f, baseline + 1.25f,
                 colors.shadow, alpha * SHADOW_OPACITY, shadowPaint);
+        // The outline traces the whole row once, before the sung/unsung split:
+        // it is a separation edge against the wallpaper, not part of the sweep.
+        if (outline) drawOutline(canvas, row.blob, x, baseline,
+                visual.currentFont.getSize(), colors.current, alpha);
 
         float sweep = forceComplete ? row.width : sweepWidth(visual, row);
         if (sweep >= row.width - 0.01f) {
@@ -216,13 +233,40 @@ public final class DesktopLyricRenderer implements AutoCloseable {
 
     private void drawStatic(Canvas canvas, LyricTextShaper.ShapedText text, Font font,
                             float left, float centerY, float viewportWidth, float progress,
-                            int color, float alpha, boolean shadow, int shadowColor) {
+                            int color, float alpha, boolean shadow, boolean outline,
+                            int shadowColor) {
         if (text == null || text.blob == null || text.width <= 0f) return;
         float x = textX(left, viewportWidth, text.width, progress);
         float baseline = baseline(font, centerY);
         if (shadow) drawBlob(canvas, text.blob, x + 0.75f, baseline + 1.25f,
                 shadowColor, alpha * SHADOW_OPACITY, shadowPaint);
+        if (outline) drawOutline(canvas, text.blob, x, baseline, font.getSize(), color, alpha);
         drawBlob(canvas, text.blob, x, baseline, color, alpha, textPaint);
+    }
+
+    /**
+     * Traces the glyphs in whichever of black/white contrasts with the text, so
+     * the lyric stays readable over a wallpaper or window of any colour without
+     * the overlay having to paint a background of its own.
+     */
+    private void drawOutline(Canvas canvas, io.github.humbleui.skija.TextBlob blob,
+                             float x, float baseline, float fontSize,
+                             int textColor, float alpha) {
+        if (blob == null) return;
+        outlinePaint.setStrokeWidth(
+                Math.max(OUTLINE_MIN_WIDTH, fontSize * OUTLINE_SIZE_RATIO));
+        drawBlob(canvas, blob, x, baseline, contrastingColor(textColor),
+                alpha * OUTLINE_OPACITY, outlinePaint);
+    }
+
+    /** Visible for tests: opaque black under light text, opaque white under dark
+     *  text, using the same Rec. 709 luma the rest of the app judges contrast by. */
+    static int contrastingColor(int argb) {
+        float r = ((argb >> 16) & 0xFF) / 255f;
+        float g = ((argb >> 8) & 0xFF) / 255f;
+        float b = (argb & 0xFF) / 255f;
+        float luma = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+        return luma > 0.5f ? 0xFF000000 : 0xFFFFFFFF;
     }
 
     private static void drawBlob(Canvas canvas, io.github.humbleui.skija.TextBlob blob,
@@ -294,6 +338,7 @@ public final class DesktopLyricRenderer implements AutoCloseable {
         shaper.close();
         textPaint.close();
         shadowPaint.close();
+        outlinePaint.close();
     }
 
     /** Monet-derived colors captured by the host alongside the lyric snapshot. */

@@ -110,6 +110,16 @@ public class LyricRendererTest {
         assertEquals(1f, DesktopLyricRenderer.transitionEasing(2f), 0.001f);
     }
 
+    /** Desktop lyrics draw straight onto the wallpaper, so the outline is the only
+     *  thing keeping them legible when what's underneath changes colour. */
+    @Test
+    public void desktopOutlineAlwaysContrastsWithTheTextItTraces() {
+        assertEquals(0xFF000000, DesktopLyricRenderer.contrastingColor(0xFFF2F2F2));
+        assertEquals(0xFF000000, DesktopLyricRenderer.contrastingColor(0xFFD0BCFF));
+        assertEquals(0xFFFFFFFF, DesktopLyricRenderer.contrastingColor(0xFF201A2B));
+        assertEquals(0xFFFFFFFF, DesktopLyricRenderer.contrastingColor(0xFF000000));
+    }
+
     @Test
     public void sharedTimelineKeepsFollowingBackgroundVocalInActiveGroup() {
         LyricLine main = new LyricLine();

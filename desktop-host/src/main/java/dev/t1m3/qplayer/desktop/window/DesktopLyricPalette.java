@@ -20,7 +20,7 @@ final class DesktopLyricPalette {
     private DesktopLyricPalette(String surface, String outline, String primary,
                                 String onSurfaceVariant, String secondary,
                                 String secondaryContainer, String onSecondaryContainer,
-                                String shadow) {
+                                String shadow, String sungOverride, String unsungOverride) {
         this.surface = surface;
         this.outline = outline;
         this.primary = primary;
@@ -28,13 +28,22 @@ final class DesktopLyricPalette {
         this.secondary = secondary;
         this.secondaryContainer = secondaryContainer;
         this.onSecondaryContainer = onSecondaryContainer;
+        // The chrome roles above always stay Monet — only the lyric text itself
+        // honours the user's fixed colours, and an empty override keeps the Monet
+        // role that has always been used for that slot.
+        String sung = override(sungOverride, primary);
+        String unsungPrevious = override(unsungOverride, onSurfaceVariant);
+        String unsungNext = override(unsungOverride, secondary);
         this.lyricColors = new DesktopLyricRenderer.Colors(
-                argb(onSurfaceVariant), argb(primary), argb(secondary),
-                argb(shadow));
+                argb(unsungPrevious), argb(sung), argb(unsungNext), argb(shadow));
+    }
+
+    private static String override(String value, String fallback) {
+        return value != null && !value.isEmpty() ? value : fallback;
     }
 
     static DesktopLyricPalette capture(boolean dark) {
-        return capture(scheme(dark), dark);
+        return capture(scheme(dark), dark, "", "");
     }
 
     static Object scheme(boolean dark) {
@@ -42,7 +51,8 @@ final class DesktopLyricPalette {
         return (dark ? manager.darkScheme : manager.lightScheme).peek();
     }
 
-    static DesktopLyricPalette capture(Object raw, boolean dark) {
+    static DesktopLyricPalette capture(Object raw, boolean dark,
+                                       String sungOverride, String unsungOverride) {
         Map<?, ?> scheme = raw instanceof Map ? (Map<?, ?>) raw : null;
         return new DesktopLyricPalette(
                 role(scheme, "surfaceContainerHigh", dark ? "#28282b" : "#e9e7ec"),
@@ -52,7 +62,8 @@ final class DesktopLyricPalette {
                 role(scheme, "secondary", dark ? "#ccc2dc" : "#625b71"),
                 role(scheme, "secondaryContainer", dark ? "#4a4458" : "#e8def8"),
                 role(scheme, "onSecondaryContainerColor", dark ? "#e8def8" : "#1d192b"),
-                role(scheme, "shadow", "#000000"));
+                role(scheme, "shadow", "#000000"),
+                sungOverride, unsungOverride);
     }
 
     private static String role(Map<?, ?> scheme, String name, String fallback) {

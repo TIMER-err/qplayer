@@ -38,6 +38,12 @@ public final class Fonts {
      *  three sources without a parallel flag to keep in sync. */
     public static final String SYSTEM = "system";
 
+    /** {@link #get(String, Weight, float)} sentinel for the bundled PingFang SC.
+     *  The global selection spells "bundled" as an empty string, but a per-consumer
+     *  selection needs empty to mean "follow the global setting", so the bundled
+     *  faces need a name of their own there. */
+    public static final String BUNDLED = "bundled";
+
     /** OpenType weight class for each bundled weight, used to ask FontMgr for the
      *  matching face of a system/custom family (and to set a variable font's
      *  {@code wght} axis). PingFang's own four files are Thin/Light/Regular/Medium. */
@@ -209,6 +215,10 @@ public final class Fonts {
         synchronized (LOCK) {
             bundledLoader = loader;
             java.util.Arrays.fill(bundledFaces, null);
+            // The per-family cache can hold a BUNDLED row built from the previous
+            // loader's faces; drop it with them.
+            familyFaces.clear();
+            familyFonts.clear();
             reapply();
         }
     }
@@ -479,6 +489,78 @@ public final class Fonts {
         synchronized (LOCK) {
             return getLocked(w, size);
         }
+    }
+
+    // ---- per-consumer font selection ---------------------------------------
+    //
+    // The global selection above is one process-wide face table, which is what the
+    // lyric page wants. Desktop lyrics is a second, independent consumer that may
+    // be set to a different family, so it resolves through its own cache instead:
+    // same three-tier per-weight resolution, keyed by family name, with no effect
+    // on (and no invalidation by) the global table.
+
+    private static final Map<String, Typeface[]> familyFaces = new HashMap<>();
+    private static final Map<String, Font> familyFonts = new HashMap<>();
+
+    /**
+     * A face for an explicitly named source, independent of {@link #setSelection}.
+     *
+     * @param family empty/null to follow the global selection, {@link #BUNDLED} for
+     *               the bundled PingFang SC, {@link #SYSTEM} for the OS default UI
+     *               font, or any family name from {@link #listFamilies()}. Anything
+     *               that fails to resolve falls back to the global selection rather
+     *               than drawing tofu.
+     */
+    public static Font get(String family, Weight w, float size) {
+        if (family == null || family.isEmpty()) return get(w, size);
+        synchronized (LOCK) {
+            String key = family + ' ' + w.ordinal() + ' ' + Float.floatToIntBits(size);
+            Font f = familyFonts.get(key);
+            if (f != null) return f;
+            Typeface tf = familyFace(family, w);
+            if (tf == null) return getLocked(w, size);
+            f = new Font(tf, size);
+            f.setSubpixel(true);
+            f.setEdging(FontEdging.SUBPIXEL_ANTI_ALIAS);
+            familyFonts.put(key, f);
+            return f;
+        }
+    }
+
+    /** Resolve one weight of {@code family}, caching the whole weight row so a
+     *  family is walked through FontMgr at most once per weight. */
+    private static Typeface familyFace(String family, Weight w) {
+        Typeface[] row = familyFaces.get(family);
+        if (row == null) {
+            row = new Typeface[Weight.values().length];
+            familyFaces.put(family, row);
+        }
+        int index = w.ordinal();
+        if (row[index] != null) return row[index];
+        int target = WEIGHT_VALUES[index];
+        Typeface resolved = null;
+        if (BUNDLED.equals(family)) {
+            resolved = bundledFace(w);
+        } else {
+            FontMgr mgr = FontMgr.getDefault();
+            if (mgr != null) {
+                Typeface base;
+                if (SYSTEM.equals(family)) {
+                    // systemDefaultFace only queries NORMAL; re-query by the name it
+                    // resolved to so the weight setting reaches the system font too.
+                    base = systemDefaultFace(mgr);
+                    String name = base != null ? familyNameOf(base, null) : null;
+                    Typeface byWeight = name != null
+                            ? mgr.matchFamilyStyle(name, FontStyle.NORMAL.withWeight(target)) : null;
+                    if (byWeight != null) base = byWeight;
+                } else {
+                    base = mgr.matchFamilyStyle(family, FontStyle.NORMAL.withWeight(target));
+                }
+                if (base != null) resolved = atWeight(base, target);
+            }
+        }
+        row[index] = resolved;
+        return resolved;
     }
 
     /** Decode the current lyric face and resolve script fallbacks off the render

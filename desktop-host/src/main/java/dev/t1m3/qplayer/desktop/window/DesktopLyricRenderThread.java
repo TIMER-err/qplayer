@@ -141,8 +141,10 @@ final class DesktopLyricRenderThread extends Thread {
                                             - DesktopLyricWindow.LYRIC_RIGHT_MARGIN,
                                     DesktopLyricWindow.HEIGHT - 12f,
                                     state.frame(), state.fallbackText(),
-                                    state.fontSizeValue(), state.fontWeightValue(),
-                                    state.shadowValue(), state.palette().lyricColors,
+                                    state.fontFamilyValue(), state.fontSizeValue(),
+                                    state.fontWeightValue(),
+                                    state.shadowValue(), state.outlineValue(),
+                                    state.palette().lyricColors,
                                     state.positionMs(), frameStart);
                         } finally {
                             canvas.restoreToCount(save);

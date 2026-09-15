@@ -280,7 +280,10 @@ Rectangle {
 
     FontPickerDialog {
         active: settings.fontPickerOpen
+        targetKey: settings.fontPickerTarget
         onClosed: settings.fontPickerOpen = false
     }
+
+    ColorPickerDialog { objectName: "settingsColorPicker" }
 
 }

@@ -24,7 +24,7 @@ ColumnLayout {
                 Loader {
                     Layout.fillWidth: true
                     property var rowSpec: modelData
-                    property bool preferenceRow: rowSpec.type === "switch" || rowSpec.type === "dropdown" || rowSpec.type === "action" || rowSpec.type === "path"
+                    property bool preferenceRow: rowSpec.type === "switch" || rowSpec.type === "dropdown" || rowSpec.type === "action" || rowSpec.type === "path" || rowSpec.type === "color"
                     Layout.leftMargin: preferenceRow ? 0 : 16
                     Layout.rightMargin: preferenceRow ? 0 : 16
                     Layout.topMargin: preferenceRow ? 0 : 16
@@ -37,6 +37,7 @@ ColumnLayout {
                         : rowSpec.type === "radio" ? radioRow
                         : rowSpec.type === "dropdown" ? dropdownRow
                         : rowSpec.type === "text" ? textRow
+                        : rowSpec.type === "color" ? colorRow
                         : rowSpec.type === "path" ? pathRow : actionRow
                 }
             }
@@ -51,6 +52,7 @@ ColumnLayout {
         Component { id: radioRow; SettingRadioRow { spec: rowSpec } }
         Component { id: dropdownRow; SettingDropdownRow { spec: rowSpec } }
         Component { id: textRow; SettingTextRow { spec: rowSpec } }
+        Component { id: colorRow; SettingColorRow { spec: rowSpec } }
         Component { id: pathRow; SettingPathRow { spec: rowSpec } }
         Component { id: actionRow; SettingActionRow { spec: rowSpec } }
     }

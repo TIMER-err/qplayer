@@ -329,6 +329,7 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
                 return store.getInt(spec.key, def instanceof Number ? ((Number) def).intValue() : 0);
             case SettingSpec.TEXT:
             case SettingSpec.PATH:
+            case SettingSpec.COLOR:
                 return store.getString(spec.key, def instanceof String ? (String) def : "");
             default:
                 return null;
@@ -349,6 +350,7 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
                 break;
             case SettingSpec.TEXT:
             case SettingSpec.PATH:
+            case SettingSpec.COLOR:
                 store.putString(spec.key, v instanceof String ? (String) v : "");
                 break;
             default:
@@ -385,9 +387,25 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
             case SettingSpec.TEXT:
             case SettingSpec.PATH:
                 return raw != null ? raw.toString() : "";
+            case SettingSpec.COLOR:
+                return normalizeColor(raw);
             default:
                 return null;
         }
+    }
+
+    /** "#rrggbb", lowercased; anything else (including QML's "#aarrggbb" form and
+     *  the picker's reset) becomes empty, i.e. "use this row's automatic default". */
+    private static String normalizeColor(Object raw) {
+        if (raw == null) return "";
+        String hex = raw.toString().trim();
+        if (hex.startsWith("#")) hex = hex.substring(1);
+        if (hex.length() == 8) hex = hex.substring(2);
+        if (hex.length() != 6) return "";
+        for (int i = 0; i < 6; i++) {
+            if (Character.digit(hex.charAt(i), 16) < 0) return "";
+        }
+        return "#" + hex.toLowerCase(java.util.Locale.ROOT);
     }
 
     // ---- side effects -------------------------------------------------------
@@ -477,6 +495,11 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
      *  family), not from a row widget. */
     public static final String FONT_KEY = "fontFamily";
 
+    /** Desktop lyrics' own font source, stored the same way but resolved through
+     *  {@link Fonts#get(String, Fonts.Weight, float)} rather than the process-wide
+     *  selection. Empty means "follow the main font", which is the default. */
+    public static final String DESKTOP_LYRIC_FONT_KEY = "desktopLyricFont";
+
     public String fontSelection() {
         if (store == null) return "";
         return store.getString(FONT_KEY, migratedFontSelection());
@@ -491,12 +514,44 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
         fontFamilyChanged.set(fontFamilyChanged.peek() + 1);
     }
 
+    /** The picker writes whichever font source it was opened for: empty key (or
+     *  {@link #FONT_KEY}) is the app-wide selection, anything else a secondary one
+     *  stored under its own key. */
+    public void setFontSelectionFor(String key, String family) {
+        if (key == null || key.isEmpty() || FONT_KEY.equals(key)) {
+            setFontSelection(family);
+            return;
+        }
+        if (store != null) store.putString(key, family != null ? family : "");
+        fontFamilyChanged.set(fontFamilyChanged.peek() + 1);
+        fireHooks(key, family != null ? family : "");
+    }
+
+    /** Reactive current value of one font source; see {@link #fontFamily()}. */
+    public String fontFamilyFor(String key) {
+        fontFamilyChanged.get();
+        if (key == null || key.isEmpty() || FONT_KEY.equals(key)) return fontSelection();
+        return store != null ? store.getString(key, "") : "";
+    }
+
+    /** Non-reactive read for host code (the desktop-lyric window). */
+    public String fontSelectionOf(String key) {
+        if (key == null || key.isEmpty() || FONT_KEY.equals(key)) return fontSelection();
+        return store != null ? store.getString(key, "") : "";
+    }
+
     /** Bumped on every font change so QML rows showing the current font
      *  re-evaluate (the value itself lives in the store, not in a Property). */
     public final Property<Integer> fontFamilyChanged = new Property<>(0);
     /** The font picker is a dialog rather than a row widget, so the "pickFont"
      *  action just raises this flag and the settings page binds its dialog to it. */
     public final Property<Boolean> fontPickerOpen = new Property<>(Boolean.FALSE);
+    /** Which font source {@link #fontPickerOpen} is currently editing: empty for
+     *  the app-wide font, {@link #DESKTOP_LYRIC_FONT_KEY} for desktop lyrics. */
+    public final Property<String> fontPickerTarget = new Property<>("");
+    /** Key of the COLOR row whose picker dialog is open, empty when none is. One
+     *  dialog serves every colour row, the same way one dialog serves both fonts. */
+    public final Property<String> colorPickerKey = new Property<>("");
 
     /** Reactive current-font readout for the picker dialog and the 外观 row. */
     public String fontFamily() {
@@ -516,7 +571,28 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
                     I18n.tr("font.picker.system"));
             return I18n.tr("settings.font.current", sel);
         });
-        actions.putIfAbsent("pickFont", () -> fontPickerOpen.set(Boolean.TRUE));
+        actions.putIfAbsent("pickFont", () -> {
+            fontPickerTarget.set("");
+            fontPickerOpen.set(Boolean.TRUE);
+        });
+        infos.putIfAbsent("desktopLyricFontName", () -> {
+            String sel = fontFamilyFor(DESKTOP_LYRIC_FONT_KEY);
+            if (sel.isEmpty()) return I18n.tr("font.picker.followMain");
+            if (Fonts.BUNDLED.equals(sel)) return I18n.tr("font.picker.bundled");
+            if (Fonts.SYSTEM.equals(sel)) return I18n.tr("font.picker.system");
+            return sel;
+        });
+        actions.putIfAbsent("pickDesktopLyricFont", () -> {
+            fontPickerTarget.set(DESKTOP_LYRIC_FONT_KEY);
+            fontPickerOpen.set(Boolean.TRUE);
+        });
+    }
+
+    /** Open the shared colour dialog for a COLOR row. */
+    public void openColorPicker(String key) {
+        SettingSpec spec = specsByKey.get(key);
+        if (spec == null || !SettingSpec.COLOR.equals(spec.type)) return;
+        colorPickerKey.set(key);
     }
 
     /** One-time key moves, run before anything is read: the store keeps whatever

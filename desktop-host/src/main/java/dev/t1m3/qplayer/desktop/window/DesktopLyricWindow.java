@@ -34,6 +34,33 @@ public final class DesktopLyricWindow {
     private static final String PASSTHROUGH_KEY = "desktopLyricMousePassthrough";
     private static final String X_KEY = "desktopLyricX";
     private static final String Y_KEY = "desktopLyricY";
+    private static final String FONT_KEY = "desktopLyricFont";
+    private static final String FONT_SIZE_KEY = "desktopLyricFontSize";
+    private static final String FONT_WEIGHT_KEY = "desktopLyricFontWeight";
+    private static final String SHADOW_KEY = "desktopLyricShadow";
+    private static final String OUTLINE_KEY = "desktopLyricOutline";
+    private static final String SUNG_COLOR_KEY = "desktopLyricSungColor";
+    private static final String UNSUNG_COLOR_KEY = "desktopLyricUnsungColor";
+
+    /** The settings keys whose changes {@link #reloadAppearance()} picks up. The
+     *  host registers one listener per key against this list. */
+    public static final String[] APPEARANCE_KEYS = {
+        FONT_KEY, FONT_SIZE_KEY, FONT_WEIGHT_KEY, SHADOW_KEY, OUTLINE_KEY,
+        SUNG_COLOR_KEY, UNSUNG_COLOR_KEY,
+    };
+
+    /**
+     * Desktop lyrics' own typography and colours, read as one immutable snapshot.
+     *
+     * <p>Deliberately separate from {@link LyricConfig}, which the full lyric page
+     * owns: that page draws over a controlled backdrop, while this window sits on
+     * whatever wallpaper or window happens to be underneath, so the two want
+     * different sizes and colours in practice.
+     */
+    record Appearance(String fontFamily, int fontSize, int fontWeight,
+                      boolean shadow, boolean outline,
+                      String sungColor, String unsungColor) {
+    }
     static final int WIDTH = 900;
     static final int HEIGHT = 180;
     static final float LYRIC_LEFT = 160f;
@@ -55,6 +82,9 @@ public final class DesktopLyricWindow {
     private final DiskCompiledSceneCache qmlCompilationCache;
     private final String qmlSource;
     private final Consumer<Boolean> settingsWriter;
+    /** Mirrors a lock-button toggle back into the settings page, so the floating
+     *  window's own control and the 锁定歌词窗口 row never disagree. */
+    private final Consumer<Boolean> passthroughWriter;
     private final Consumer<Runnable> mainPoster;
     private final Runnable playerRestorer;
     private volatile Consumer<Boolean> stateListener;
@@ -82,6 +112,7 @@ public final class DesktopLyricWindow {
     private LyricTimeline.Prepared prepared;
     private Object lastPaletteScheme;
     private DesktopLyricPalette palette;
+    private volatile Appearance appearance;
 
     private boolean dragging;
     private boolean controlsPressed;
@@ -93,6 +124,7 @@ public final class DesktopLyricWindow {
     DesktopLyricWindow(SettingsStore store, ResourceLoader resources,
                        GraphicsBackend.Kind kind, DiskCompiledSceneCache qmlCompilationCache,
                        Consumer<Boolean> settingsWriter,
+                       Consumer<Boolean> passthroughWriter,
                        Consumer<Runnable> mainPoster,
                        Runnable playerRestorer) {
         this.store = store;
@@ -100,10 +132,12 @@ public final class DesktopLyricWindow {
         this.qmlCompilationCache = qmlCompilationCache;
         this.kind = transparentBackend(kind);
         this.settingsWriter = settingsWriter;
+        this.passthroughWriter = passthroughWriter;
         this.mainPoster = mainPoster;
         this.playerRestorer = playerRestorer;
         this.enabled = store.getBool(ENABLED_KEY, false);
         this.mousePassthrough = store.getBool(PASSTHROUGH_KEY, false);
+        reloadAppearance();
         byte[] bytes = resources.load("DesktopLyric.qml");
         if (bytes == null) throw new IllegalStateException("DesktopLyric.qml not found on classpath");
         this.qmlSource = new String(bytes, StandardCharsets.UTF_8);
@@ -266,19 +300,19 @@ public final class DesktopLyricWindow {
             lastLinearPlainLrc = linear;
             prepared = LyricTimeline.prepare(lines, linear);
         }
-        int fontSize = config.lyricFontSize.getValue();
-        int fontWeight = config.fontWeight.getValue().ordinal();
-        boolean shadow = Boolean.TRUE.equals(config.dropShadow.getValue());
+        Appearance look = appearance;
         Object paletteScheme = DesktopLyricPalette.scheme(dark);
         if (palette == null || paletteScheme != lastPaletteScheme) {
             lastPaletteScheme = paletteScheme;
-            palette = DesktopLyricPalette.capture(paletteScheme, dark);
+            palette = DesktopLyricPalette.capture(paletteScheme, dark,
+                    look.sungColor(), look.unsungColor());
         }
         snapshot.set(new DesktopLyricSnapshot(prepared,
                 controller.title.peek(), controller.artist.peek(),
                 controller.lyricClockPosition(), controller.isLyricClockRunning(),
                 System.nanoTime(), config.offsetMs.getValue(),
-                fontSize, fontWeight, shadow,
+                look.fontFamily(), look.fontSize(), look.fontWeight(),
+                look.shadow(), look.outline(),
                 Boolean.TRUE.equals(controller.playing.peek()),
                 palette));
         boolean firstSnapshot = !snapshotPublished;
@@ -287,6 +321,26 @@ public final class DesktopLyricWindow {
             DesktopLyricRenderThread thread = renderThread;
             if (thread != null) java.util.concurrent.locks.LockSupport.unpark(thread);
         }
+    }
+
+    /**
+     * Main thread: re-read the appearance settings after one of
+     * {@link #APPEARANCE_KEYS} changed. Dropping the cached palette is what makes
+     * a colour change visible — it is otherwise only rebuilt when the Monet
+     * scheme itself changes.
+     */
+    void reloadAppearance() {
+        appearance = new Appearance(
+                store.getString(FONT_KEY, ""),
+                store.getInt(FONT_SIZE_KEY, 26),
+                store.getInt(FONT_WEIGHT_KEY, 2),
+                store.getBool(SHADOW_KEY, true),
+                store.getBool(OUTLINE_KEY, true),
+                store.getString(SUNG_COLOR_KEY, ""),
+                store.getString(UNSUNG_COLOR_KEY, ""));
+        palette = null;
+        DesktopLyricRenderThread thread = renderThread;
+        if (thread != null) java.util.concurrent.locks.LockSupport.unpark(thread);
     }
 
     /** Main thread. */
@@ -373,6 +427,13 @@ public final class DesktopLyricWindow {
 
     /** Main thread. The unlock button remains interactive through region polling. */
     public void setMousePassthrough(boolean value) {
+        applyMousePassthrough(value);
+        if (passthroughWriter != null) passthroughWriter.accept(value);
+    }
+
+    /** Main thread: applies a SettingsCore-originated change without echoing it
+     *  back, mirroring {@link #applyEnabled}. */
+    void applyMousePassthrough(boolean value) {
         mousePassthrough = value;
         store.putBool(PASSTHROUGH_KEY, value);
         if (!value) pointerInside = cursorInsideWindow();
@@ -514,9 +575,26 @@ public final class DesktopLyricWindow {
                 IntBuffer windowX = stack.mallocInt(1);
                 IntBuffer windowY = stack.mallocInt(1);
                 GLFW.glfwGetWindowPos(win, windowX, windowY);
-                GLFW.glfwSetWindowPos(win,
-                        (int) Math.round(windowX.get(0) + x - dragCursorX0),
-                        (int) Math.round(windowY.get(0) + y - dragCursorY0));
+                int targetX = (int) Math.round(windowX.get(0) + x - dragCursorX0);
+                int targetY = (int) Math.round(windowY.get(0) + y - dragCursorY0);
+                // Constrain during the drag rather than only snapping back on
+                // release, so the window can never be dragged off-screen at all.
+                // The bounding monitor is the one under the CURSOR, not the one
+                // the window overlaps most: clamping to the latter would pin the
+                // window against the edge it is being dragged across and make a
+                // multi-monitor setup impossible to cross.
+                int cursorScreenX = (int) Math.round(windowX.get(0) + x);
+                int cursorScreenY = (int) Math.round(windowY.get(0) + y);
+                int[] clamped = clampToWorkArea(targetX, targetY,
+                        workAreaAt(cursorScreenX, cursorScreenY, targetX, targetY));
+                GLFW.glfwSetWindowPos(win, clamped[0], clamped[1]);
+                // Re-anchor the grab point to where the cursor now sits relative to
+                // the window that was actually placed. While clamped, the pointer
+                // keeps travelling past the edge; without this the overshoot would
+                // accumulate into a dead zone that the drag back has to undo first.
+                // This is a no-op whenever the move was not clamped.
+                dragCursorX0 = cursorScreenX - clamped[0];
+                dragCursorY0 = cursorScreenY - clamped[1];
             }
         });
     }
@@ -606,6 +684,41 @@ public final class DesktopLyricWindow {
                 GLFW.glfwSetWindowPos(window, snapped[0], snapped[1]);
             }
         }
+    }
+
+    /** Visible for tests: clamps the window rect at (x, y) fully inside one work area. */
+    static int[] clampToWorkArea(int x, int y, int[] wa) {
+        int wx = wa[0], wy = wa[1], ww = wa[2], wh = wa[3];
+        int maxX = wx + Math.max(WIDTH, ww) - WIDTH;
+        int maxY = wy + Math.max(HEIGHT, wh) - HEIGHT;
+        return new int[]{
+            Math.max(wx, Math.min(x, maxX)),
+            Math.max(wy, Math.min(y, maxY)),
+        };
+    }
+
+    /** The work area of whichever monitor contains the screen point (cx, cy) --
+     *  during a drag that is the monitor under the cursor, which is what lets a
+     *  drag cross between monitors. Falls back to the window-overlap answer when
+     *  the point is on no work area at all (the cursor is over a taskbar). */
+    private int[] workAreaAt(int cx, int cy, int fallbackX, int fallbackY) {
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            org.lwjgl.PointerBuffer monitors = GLFW.glfwGetMonitors();
+            if (monitors != null) {
+                for (int i = 0; i < monitors.limit(); i++) {
+                    IntBuffer mx = stack.mallocInt(1);
+                    IntBuffer my = stack.mallocInt(1);
+                    IntBuffer mw = stack.mallocInt(1);
+                    IntBuffer mh = stack.mallocInt(1);
+                    GLFW.glfwGetMonitorWorkarea(monitors.get(i), mx, my, mw, mh);
+                    if (cx >= mx.get(0) && cx < mx.get(0) + mw.get(0)
+                            && cy >= my.get(0) && cy < my.get(0) + mh.get(0)) {
+                        return new int[]{mx.get(0), my.get(0), mw.get(0), mh.get(0)};
+                    }
+                }
+            }
+        }
+        return bestWorkArea(fallbackX, fallbackY);
     }
 
     /** Clamps (x, y) fully inside the work area it mostly overlaps, snapping flush
