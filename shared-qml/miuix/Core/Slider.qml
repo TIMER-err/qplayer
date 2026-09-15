@@ -33,6 +33,7 @@ Item {
     readonly property int _tickCount: tickMarksEnabled && stepSize > 0 && _range > 0
         ? Math.min(200, Math.floor(_range / stepSize) + 1) : 0
     property real _pressX: 0
+    property real _pressY: 0
     property bool _dragActive: false
     property bool _secondActive: false
 
@@ -152,46 +153,27 @@ Item {
             color: _colors.inverseOnSurface
         }
     }
-    // Claims the gesture for this slider. qml4j accepts `preventStealing` but the
-    // flag is inert -- what actually decides the hand-off is whether the pressed
-    // MouseArea has a drag target: EventDispatcher only remembers a pendingFlick
-    // for one that has none, and a Flickable then takes the gesture over as soon
-    // as the pointer passes its 10px DRAG_THRESHOLD, setting pressed=false and
-    // firing onCanceled. Since this slider only began tracking at 8px, that left a
-    // 2px window -- the drag visibly started and died immediately. The steal is a
-    // geometric hit test rather than an ancestor walk, so any Flickable under the
-    // press could grab it, including one on a page behind an overlay; declaring the
-    // target here fixes every placement instead of each container separately.
-    Item {
-        id: dragClaim
-        width: 0
-        height: 0
-        visible: false
-    }
+    // Delay capture until horizontal intent is clear, so vertical page scrolling
+    // can still begin on the slider. A tap alone leaves the value unchanged.
     MouseArea {
         id: mouseArea
         anchors.fill: parent
         enabled: control.enabled
         hoverEnabled: true
-        drag.target: dragClaim
-        drag.axis: "XAxis"
-        // Kept for the day the engine honours it, and to state the intent.
-        preventStealing: true
+        preventStealing: control._dragActive
         onPressed: (mouse) => {
             control._pressX = mouse.x
+            control._pressY = mouse.y
             control._dragActive = false
             control._secondActive = control.rangeMode
                 && Math.abs(mouse.x - control._secondX) < Math.abs(mouse.x - control._centerX)
         }
-        // A tap alone still leaves the value unchanged; 8px of travel separates a
-        // press from a drag. The old rule also required horizontal travel to exceed
-        // vertical, to let a vertical page scroll start on the slider -- that is no
-        // longer possible now the gesture is claimed, and keeping it only made a
-        // diagonal drag feel dead.
         onPositionChanged: (mouse) => {
             if (!pressed) return
             if (!control._dragActive) {
-                if (Math.abs(mouse.x - control._pressX) < 8) return
+                var dx = mouse.x - control._pressX
+                var dy = mouse.y - control._pressY
+                if (Math.abs(dx) < 8 || Math.abs(dx) <= Math.abs(dy)) return
                 control._dragActive = true
             }
             control.updateAt(mouse.x)
