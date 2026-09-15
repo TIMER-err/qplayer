@@ -57,6 +57,12 @@ public final class Main {
      *  property), false on a plain `mvn exec:exec` dev run. */
     private static final boolean PACKAGED = System.getProperty("jpackage.app-path") != null;
 
+    /** How long to wait for the render thread's first frame before forcing the window
+     *  visible anyway. Deliberately generous: a cold QML compile takes a few seconds on
+     *  a slow machine, and this reveal is only a last resort (see the startup watchdog
+     *  in {@link #main}). */
+    private static final long FIRST_FRAME_GRACE_MS = 8000L;
+
     public static void main(String[] args) {
         long startupStartedNanos = System.nanoTime();
         // The jpackage launcher hands the command line straight to main() instead of
@@ -307,6 +313,27 @@ public final class Main {
             }
             if (systemMedia != null && systemMediaEnabled) systemMedia.start();
         });
+
+        // Safety net for the "runs but shows no window" failure mode. The window is
+        // created hidden and only revealed by the render thread's first frame, so if
+        // that frame never arrives — the render thread crashed, or wedged (a swap
+        // waiting on a vblank a not-yet-visible window never gets) — the app would sit
+        // there alive with no window and no feedback. Force the window visible after a
+        // grace period so the user can at least see and close it; the render-thread log
+        // lines above say exactly where startup stopped.
+        Thread startupWatchdog = new Thread(() -> {
+            try {
+                Thread.sleep(FIRST_FRAME_GRACE_MS);
+            } catch (InterruptedException e) {
+                return;
+            }
+            if (window.firstFrameShown()) return;
+            Logger.error("no first frame after {} ms; forcing the window visible "
+                    + "(the app would otherwise run with no window at all)", FIRST_FRAME_GRACE_MS);
+            window.postMainTask(window::showWindowAnyway);
+        }, "qplayer-startup-watchdog");
+        startupWatchdog.setDaemon(true);
+        startupWatchdog.start();
 
         // Start rendering only after every callback and persisted cache path is
         // wired, then enter the native event loop immediately.

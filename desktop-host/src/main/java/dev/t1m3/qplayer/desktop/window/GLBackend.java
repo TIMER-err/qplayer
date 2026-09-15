@@ -27,6 +27,12 @@ final class GLBackend implements GraphicsBackend {
     /** Windows only: swap-on-minimized-window can wedge with vsync (see init). */
     private static final boolean IS_WINDOWS =
             System.getProperty("os.name", "").toLowerCase().contains("win");
+    /** macOS: same class of wedge. The startup window is created hidden (it is only
+     *  revealed by the first frame), and a swap on a window that is not on screen yet
+     *  can wait for a vblank that never arrives — stranding startup before that first
+     *  frame, i.e. the app runs with no window at all. */
+    private static final boolean IS_MACOS =
+            System.getProperty("os.name", "").toLowerCase().contains("mac");
 
     private final long window;
     private final boolean transparent;
@@ -62,12 +68,15 @@ final class GLBackend implements GraphicsBackend {
         // is waiting for the next vblank when the window gets minimized blocks
         // forever — the DWM stops compositing minimized windows, so the vblank the
         // swap waits on never comes (and it stays wedged even after restore).
+        // macOS: the window is created hidden and revealed by this very first frame,
+        // so a swap that blocks on a vblank a not-yet-visible window never receives
+        // strands startup the same way (app alive, no window, error only in the log).
         // Frame rate is still capped by RenderThread's own pacing (parkNanos to the
         // monitor refresh), which already covers platforms where swapInterval is
-        // ignored (X11 .desktop launches) — so Windows behaves like that known-good
-        // path instead of freezing on minimize/restore.
+        // ignored (X11 .desktop launches) — so both platforms behave like that
+        // known-good path instead of freezing on minimize/restore or on startup.
         boolean vsync = !"false".equals(System.getProperty("qplayer.vsync", "true"))
-                && !IS_WINDOWS;
+                && !IS_WINDOWS && !IS_MACOS;
         GLFW.glfwSwapInterval(vsync ? 1 : 0);
         // DirectContext.makeGL() binds to the GL context current on this thread.
         context = DirectContext.makeGL();

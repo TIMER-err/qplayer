@@ -32,6 +32,7 @@ import io.github.timer_err.qml4j.render.items.input.TextEditable;
 import dev.t1m3.qplayer.bridge.PlayerController;
 import dev.t1m3.qplayer.bridge.WindowChromeStub;
 import dev.t1m3.qplayer.settings.SettingsCore;
+import dev.t1m3.qplayer.android.lyric.AndroidTemperaHost;
 import dev.t1m3.qplayer.lyric.skia.LyricCompositor;
 import dev.t1m3.qplayer.lyric.skia.LyricConfig;
 import dev.t1m3.qplayer.resources.CompressedResources;
@@ -78,6 +79,8 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     // cached shaders/state live in LyricCompositor. This view only owns the
     // platform-specific touch gestures that drive it.
     private final LyricCompositor compositor = new LyricCompositor();
+    // 凝彩宿主：歌词页开启且设置打开「凝彩」时，整帧改由它出画（流体底色 + 构图 + 逐字歌词）。
+    private final AndroidTemperaHost temperaHost = new AndroidTemperaHost();
     // Lyric-body gesture state (GL-thread only). lyGrab: the touch is ours (vs the QML
     // scene). lyMoved: it has passed the slop, so it's a scroll, not a tap-to-seek.
     private boolean lyGrab;
@@ -169,6 +172,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 view = null;
             }
             compositor.dispose();
+            temperaHost.dispose();
             if (surface != null) {
                 surface.dispose();
                 surface = null;
@@ -577,12 +581,20 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 Canvas canvas = surface.acquireCanvas();
                 io.github.timer_err.qml4j.render.Renderer renderer = view.renderer();
                 renderer.setGpuContext(surface.recordingContext());
-                // The QML main scene, the host lyric overlay (fluid backdrop + per-syllable
-                // column) and the QML lyric chrome subtree are composited by the shared
-                // LyricCompositor — the same code path the desktop LWJGL host runs.
-                compositor.composite(canvas, renderer, view, controller, settings,
-                        surface.recordingContext(), uiScale, surface.width(), surface.height());
-                if (compositor.skippedLayout()) profSkips++;
+                // 凝彩是歌词页的一种渲染模式，不是另一个页面：歌词页开着且设置里打开了这一项时，
+                // 整帧由凝彩宿主满屏绘制（流体底色 + 构图 + 逐字歌词），关页的滑出动画走完才交还
+                // 给 LyricCompositor 画标准歌词。两条路径互斥，不会重复推进 lyricSlide。
+                if (temperaHost != null && temperaHost.wantsFrame(controller, settings)) {
+                    temperaHost.drawFrame(canvas, renderer, view, controller, settings,
+                            uiScale, surface.width(), surface.height());
+                } else {
+                    // The QML main scene, the host lyric overlay (fluid backdrop + per-syllable
+                    // column) and the QML lyric chrome subtree are composited by the shared
+                    // LyricCompositor — the same code path the desktop LWJGL host runs.
+                    compositor.composite(canvas, renderer, view, controller, settings,
+                            surface.recordingContext(), uiScale, surface.width(), surface.height());
+                    if (compositor.skippedLayout()) profSkips++;
+                }
                 long t1b = System.nanoTime();
                 surface.present();
                 profileFrame(t0, t1, t1b, System.nanoTime());

@@ -930,6 +930,12 @@ Rectangle {
         y: (1 - transitionEase) * height
     }
 
+    // 「凝彩」歌词页的 QML 层（右下角胶囊）。画面由宿主满屏绘制，这棵子树是该页唯一可见的
+    // QML —— 与歌词页的 "lyricChrome" 是同一套机制。它的内部（含 objectName
+    // "temperaChrome"）都在 components/TemperaLayer.qml 里，因为 Main.qml 的根节点已经
+    // 贴着 JVM 单方法 64KB 上限，这里多一个子节点都得省着用。
+    TemperaLayer { anchors.fill: parent }
+
     LoginDialog {
         active: app.loginOpen
         onClosed: app.loginOpen = false

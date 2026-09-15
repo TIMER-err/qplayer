@@ -138,9 +138,18 @@ final class RenderThread extends Thread {
                         failureStage = FailureStage.APPLICATION_FRAME;
                         Renderer renderer = view.renderer();
                         renderer.setGpuContext(backend.recordingContext());
-                        compositor.composite(canvas, renderer, view, controller, win.settings(),
-                                backend.recordingContext(), uiScale,
-                                backend.width(), backend.height());
+                        // 「凝彩」是歌词页的一种渲染模式，不是另一个页面：歌词页开着且设置里
+                        // 打开了这一项时，整帧由宿主满屏绘制（合成器那三路绘制一行不改）；关页
+                        // 的滑出动画走完才交还给合成器画标准歌词。
+                        boolean temperaMode = win.temperaPage().wantsFrame(controller,
+                                win.temperaEnabledMode());
+                        if (temperaMode) {
+                            drawTemperaFrame(canvas, renderer, view, controller, uiScale);
+                        } else {
+                            compositor.composite(canvas, renderer, view, controller, win.settings(),
+                                    backend.recordingContext(), uiScale,
+                                    backend.width(), backend.height());
+                        }
                     } finally {
                         dq.uninstall();
                     }
@@ -209,5 +218,46 @@ final class RenderThread extends Thread {
         if (view.root() == null) return;
         view.root().width.set(fbW / uiScale);
         view.root().height.set(fbH / uiScale);
+    }
+
+    /**
+     * 「凝彩」歌词页的一帧：宿主用 Skija 画满整屏（构图 + 逐字歌词），再把该页自己的 QML
+     * 控件子树（右下角胶囊）渲染上去——与歌词页的 "lyricChrome" 是同一套子树渲染机制。
+     *
+     * <p>打开／关闭走的是标准歌词页同一条 bottom-sheet：还没盖满时主场景照旧画在下面，
+     * 凝彩整帧按同一条平滑曲线从底部推上来。控件子树由 QML 自己按 {@code player.lyricSlide}
+     * 平移（与 LyricOverlay 一致），所以这里只推画面，避免推两次。
+     */
+    private void drawTemperaFrame(Canvas canvas, Renderer renderer, QmlView view,
+                                  PlayerController controller, float uiScale) {
+        float lw = backend.width() / uiScale;
+        float lh = backend.height() / uiScale;
+        dev.t1m3.qplayer.desktop.lyric.tempera.TemperaHostPage page = win.temperaPage();
+        float fontScale = win.settings() == null ? 1f
+                : win.settings().intOf("lyricFontSize") / 28f;
+        page.configure(win.temperaTuning(), fontScale,
+                win.settings() != null && win.settings().lyricBgStatic());
+
+        float ease = page.slideEase();
+        if (ease < 0.999f) {
+            int under = canvas.save();
+            canvas.scale(uiScale, uiScale);
+            renderer.render(canvas, view.root(), false);
+            canvas.restoreToCount(under);
+        }
+
+        int save = canvas.save();
+        canvas.translate(0f, (1f - ease) * lh * uiScale);
+        page.render(canvas, controller, uiScale, lw, lh, System.nanoTime(),
+                win.settings() == null || win.settings().resolvedDarkValue());
+        canvas.restoreToCount(save);
+
+        io.github.timer_err.qml4j.render.items.core.Item chrome = win.temperaChrome(view);
+        if (chrome == null) return;
+        renderer.layoutOnly(chrome);
+        int chromeSave = canvas.save();
+        canvas.scale(uiScale, uiScale);
+        renderer.renderSubtree(canvas, chrome, lw, lh);
+        canvas.restoreToCount(chromeSave);
     }
 }

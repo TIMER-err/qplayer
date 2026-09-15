@@ -71,6 +71,21 @@ public final class DesktopWindow {
     private final SettingsCore settings;
     private final DiskCompiledSceneCache qmlCompilationCache;
     private final LyricCompositor compositor = new LyricCompositor();
+    /**
+     * 「凝彩」歌词页的宿主（纯宿主侧，player-core 的合成器一行不改）。它只在「歌词页开着 +
+     * 设置里开启凝彩」时参与出帧，其余时间完全惰性。
+     */
+    private final dev.t1m3.qplayer.desktop.lyric.tempera.TemperaHostPage temperaPage =
+            new dev.t1m3.qplayer.desktop.lyric.tempera.TemperaHostPage();
+    /** 「凝彩」调参（由设置页三项驱动）；引用变化即代表需要重建场景。 */
+    private volatile dev.t1m3.qplayer.desktop.lyric.tempera.TemperaTuning temperaTuning;
+    private int temperaStretchSetting = Integer.MIN_VALUE;
+    private boolean temperaWholeLineSetting;
+    private boolean temperaImagesSetting;
+    private boolean temperaFluidSetting = true;
+    private int temperaEffectsSetting = Integer.MIN_VALUE;
+    /** 「凝彩」歌词页自己的 QML 控件子树（右下角胶囊），只在凝彩模式下渲染。 */
+    private io.github.timer_err.qml4j.render.items.core.Item temperaChrome;
     /** Desktop lyrics floating window (issue #25) -- null until {@link
      *  #setLyricSettingsStore} is called (before {@link #init}). */
     private DesktopLyricWindow lyricWindow;
@@ -119,6 +134,11 @@ public final class DesktopWindow {
     // recovery is left to the window manager's minimise (the taskbar icon is set).
     private volatile boolean trayAvailable;
     private Runnable firstFrameListener;
+    /** True once the render thread has presented its first frame — the moment the
+     *  hidden startup window is revealed. The startup watchdog watches this: if it is
+     *  still false after a generous grace period the window is force-shown, because
+     *  otherwise a dead or wedged render thread leaves the app running invisibly. */
+    private volatile boolean firstFrameShown;
     // Windows-only custom title bar. Both null on other platforms; a fresh
     // WinFrameless is created per createWindow() call (see its own javadoc for why).
     private WindowChrome windowChrome;
@@ -179,6 +199,67 @@ public final class DesktopWindow {
 
     LyricCompositor compositor() {
         return compositor;
+    }
+
+    /** 宿主侧的「凝彩」全屏页渲染器。 */
+    dev.t1m3.qplayer.desktop.lyric.tempera.TemperaHostPage temperaPage() {
+        return temperaPage;
+    }
+
+    /**
+     * 「凝彩」的调参。设置页只把三项暴露给用户，其余保持 folia 的默认值；读值很便宜，所以
+     * 每帧比较，只在真正变化时换一个新对象（宿主据此重建场景）。
+     */
+    dev.t1m3.qplayer.desktop.lyric.tempera.TemperaTuning temperaTuning() {
+        int stretch = settings == null ? 50 : settings.intOf("temperaGlyphSettleStretch");
+        boolean wholeLine = settings != null && settings.bool("temperaWholeLine");
+        boolean images = settings != null && settings.bool("temperaImages");
+        boolean fluid = settings == null || settings.bool("temperaFluidBackdrop");
+        int effects = settings == null ? 60 : settings.intOf("temperaEffects");
+        if (temperaTuning == null || stretch != temperaStretchSetting
+                || wholeLine != temperaWholeLineSetting
+                || images != temperaImagesSetting
+                || fluid != temperaFluidSetting
+                || effects != temperaEffectsSetting) {
+            temperaStretchSetting = stretch;
+            temperaWholeLineSetting = wholeLine;
+            temperaImagesSetting = images;
+            temperaFluidSetting = fluid;
+            temperaEffectsSetting = effects;
+            dev.t1m3.qplayer.desktop.lyric.tempera.TemperaTuning next =
+                    new dev.t1m3.qplayer.desktop.lyric.tempera.TemperaTuning();
+            next.glyphSettleStretch = Math.max(0f, Math.min(1f, stretch / 100f));
+            next.wholeLineLyrics = wholeLine;
+            next.layerImagesEnabled = images;
+            next.fluidBackdrop = fluid;
+            next.effectsIntensity = Math.max(0f, Math.min(1f, effects / 100f));
+            temperaTuning = next;
+        }
+        return temperaTuning;
+    }
+
+    /**
+     * 「凝彩」是否作为歌词页的渲染模式开启。
+     *
+     * <p>凝彩不是独立页面：它和标准歌词共用歌词页这一个入口（迷你播放器的歌词按钮 / 「歌词」
+     * 路由），设置里这一项只决定歌词页由哪套渲染器出画，所以判断条件永远是「歌词页开着 + 开关
+     * 打开」，而不是某个自己的开关状态。
+     */
+    boolean temperaEnabledMode() {
+        return settings != null && settings.bool("temperaEnabled");
+    }
+
+    /** 「凝彩」页的 QML 控件子树（objectName "temperaChrome"），首次需要时才查。 */
+    io.github.timer_err.qml4j.render.items.core.Item temperaChrome(QmlView view) {
+        if (temperaChrome == null && view != null) {
+            temperaChrome = view.findByObjectName("temperaChrome");
+        }
+        return temperaChrome;
+    }
+
+    /** 场景重载后丢弃缓存的子树查询，下次重新解析。 */
+    void onTemperaSceneReloaded() {
+        temperaChrome = null;
     }
 
     /** Public: TrayController (a different package) needs this for its
@@ -454,6 +535,7 @@ public final class DesktopWindow {
     }
 
     void onFirstFramePainted() {
+        firstFrameShown = true;
         // The window is created hidden so the first visible frame is real content,
         // not a blank flash during the QML compile. Show it now (on the main thread,
         // where GLFW window ops must run).
@@ -476,6 +558,28 @@ public final class DesktopWindow {
         }
     }
 
+    /** Whether the render thread has already presented its first frame yet (and so
+     *  revealed the window). Public for the startup watchdog in {@code Main}. */
+    public boolean firstFrameShown() {
+        return firstFrameShown;
+    }
+
+    /**
+     * Last-resort reveal for a window that never got a first frame — the render thread
+     * died or wedged before it. Without this the app runs with no window at all, and
+     * the only trace of the failure is a log line nobody is looking at. Main thread
+     * only (GLFW window ops).
+     */
+    public void showWindowAnyway() {
+        if (firstFrameShown) {
+            return;
+        }
+        if (!hiddenToTray) {
+            GLFW.glfwShowWindow(window);
+            GLFW.glfwFocusWindow(window);
+        }
+    }
+
     void onRenderError(Throwable t, RenderThread.FailureStage stage) {
         Logger.error("render thread crashed during {}: {}", stage, t);
         java.io.StringWriter sw = new java.io.StringWriter();
@@ -484,6 +588,14 @@ public final class DesktopWindow {
         if (shouldFallbackToOpenGL(kind, graphicsFallbackAttempted, stage)) {
             graphicsFallbackAttempted = true;
             postMainTask(this::fallbackToOpenGL);
+            return;
+        }
+        // Nothing left to try, and the window is still hidden (it is only revealed by
+        // the first frame, which just failed). Reveal it so the crash is at least
+        // visible, instead of leaving the app running with no window and the reason
+        // buried in the log.
+        if (!firstFrameShown) {
+            postMainTask(this::showWindowAnyway);
         }
     }
 
@@ -1051,6 +1163,10 @@ public final class DesktopWindow {
         }
         try {
             compositor.dispose();
+        } catch (Throwable ignored) {
+        }
+        try {
+            temperaPage.dispose();
         } catch (Throwable ignored) {
         }
         org.lwjgl.glfw.Callbacks.glfwFreeCallbacks(window);

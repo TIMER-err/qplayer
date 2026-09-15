@@ -24,7 +24,7 @@ import java.util.Map;
  * <p>Prepared asynchronously: {@link #play} kicks off {@code prepareAsync} and
  * starts on the prepared callback, honoring the requested start offset.
  */
-public final class AndroidAudioBackend implements AudioBackend {
+public final class AndroidAudioTrackBackend implements AudioBackend {
 
     private MediaPlayer player;
     private String source;
@@ -32,6 +32,7 @@ public final class AndroidAudioBackend implements AudioBackend {
     private boolean wantPlay;
     private float volume = 0.8f;
     private boolean prepared;
+    private int automixMs = 8000;
     private Runnable onComplete;
     private Runnable onStarted;
     private Runnable onPaused;
@@ -47,7 +48,7 @@ public final class AndroidAudioBackend implements AudioBackend {
     private boolean resumeOnGain;
     private boolean ducked;
 
-    public AndroidAudioBackend(Context ctx) {
+    public AndroidAudioTrackBackend(Context ctx) {
         appContext = ctx.getApplicationContext();
         audioManager = (AudioManager) appContext.getSystemService(Context.AUDIO_SERVICE);
     }
@@ -212,6 +213,11 @@ public final class AndroidAudioBackend implements AudioBackend {
             float effective = ducked ? volume * 0.3f : volume;
             player.setVolume(effective, effective);
         }
+    }
+
+    /** Configure the automix overlap length (ms) used by {@code prepareAutomix}. */
+    public void setAutomixMs(int ms) {
+        this.automixMs = Math.max(0, ms);
     }
 
     @Override

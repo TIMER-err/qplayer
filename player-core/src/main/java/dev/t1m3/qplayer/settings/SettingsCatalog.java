@@ -28,12 +28,13 @@ public final class SettingsCatalog {
     public static final String APPEARANCE = "外观";
     public static final String PLAYBACK = "播放";
     public static final String LYRIC = "歌词";
+    public static final String TEMPERA = "凝彩";
     public static final String LOCAL = "本地";
     public static final String PLUGINS = "插件";
     public static final String ABOUT = "关于";
 
     public static final List<String> CATEGORIES = Collections.unmodifiableList(
-            Arrays.asList(APPEARANCE, PLAYBACK, LYRIC, LOCAL, PLUGINS, ABOUT));
+            Arrays.asList(APPEARANCE, PLAYBACK, LYRIC, TEMPERA, LOCAL, PLUGINS, ABOUT));
 
     /** Fluid-background mode, 0 dynamic / 1 static. Stored under a new key
      *  because the same setting used to be a boolean ("lyricBgStatic") and a
@@ -196,6 +197,31 @@ public final class SettingsCatalog {
         out.add(SettingSpec.dropdown(BG_STYLE_KEY, LYRIC, "流体样式", BG_STYLE_PIXI_RENDERER,
                         "Pixi Renderer", "Mesh Gradient", "Classic")
                 .desc("切换歌词页的流体背景算法")
+                .build());
+        // ---- 凝彩 -----------------------------------------------------------
+        // 「凝彩」不是独立页面，而是歌词页的一种渲染模式：关掉就是标准歌词页，打开就是凝彩，
+        // 入口始终是同一个（迷你播放器的歌词按钮 / "lyrics" 路由）。下面六项是它暴露给用户的
+        // 全部调节；其余调参保持上游默认，见 TemperaTuning。凝彩引擎已移植到安卓，这六项在
+        // 两个平台都生效（AndroidTemperaHost 从 SettingsCore 读这些 key）。
+        out.add(SettingSpec.toggle("temperaEnabled", TEMPERA, "启用凝彩", true)
+                .desc("歌词页改用凝彩的逐字视觉，关掉即回到标准歌词页")
+                .build());
+        out.add(SettingSpec.toggle("temperaWholeLine", TEMPERA, "整行模式", false)
+                .desc("整行歌词作为一个镜头，而不是半个短语一切")
+                .build());
+        out.add(SettingSpec.slider("temperaGlyphSettleStretch", TEMPERA, "入场节奏", 50, 0, 100, 5)
+                .unit(" %")
+                .desc("逐字入场向行尾拉伸的比例：0 更快落位，100 撑满整行")
+                .build());
+        out.add(SettingSpec.toggle("temperaFluidBackdrop", TEMPERA, "流动底色", true)
+                .desc("三团缓慢漂移的柔光色斑垫在构图之下；老机器卡的话先关这个，它最吃填充率")
+                .build());
+        out.add(SettingSpec.slider("temperaEffects", TEMPERA, "增强特效", 60, 0, 100, 5)
+                .unit(" %")
+                .desc("落字涟漪 / 边缘漏光 / 飘浮微粒 / 印刷颗粒的总强度，0 关闭回到纯 folia 观感")
+                .build());
+        out.add(SettingSpec.toggle("temperaImages", TEMPERA, "凝彩插图", false)
+                .desc("把图片放进 <数据目录>/tempera/images/ 后，凝彩会按种子挑一张摆进镜头")
                 .build());
         // ---- 本地 -----------------------------------------------------------
         out.add(SettingSpec.slider("maxCacheSizeMB", LOCAL, "最大缓存", 200, 50, 1024, 1)
