@@ -83,6 +83,21 @@ Rectangle {
                     else player.startIntelligenceMode(player.openPlaylistId)
                 }
             }
+            // Pull this whole playlist into a local one, which then follows it.
+            // Unlike collecting below, this works signed out and across sources —
+            // it copies the songs into a list QPlayer owns.
+            IconButton {
+                id: followButton
+                objectName: "followIntoLocalButton"
+                Layout.alignment: Qt.AlignVCenter
+                type: "standard"
+                visible: !player.playlistLoading && player.openSourcePlaylistId !== ""
+                icon: "library_add"
+                onClicked: {
+                    followMenu.rebuild()
+                    followMenu.open(followButton, 0, followButton.height)
+                }
+            }
             // Collect (subscribe) this playlist. Shown only once loaded and only for
             // playlists that aren't the user's own; filled when already collected. The
             // initial state comes from playlist/detail, so it's correct on open.
@@ -228,6 +243,43 @@ Rectangle {
                 fontSize: 16
                 color: Theme.color.onSurfaceVariantColor
             }
+        }
+    }
+
+    // Destinations for the follow button: every local playlist, toggling, plus a
+    // "new playlist" entry that names itself after this playlist.
+    Menu {
+        id: followMenu
+        outlined: true
+        function rebuild() {
+            var sourceId = "" + player.openSourcePlaylistId
+            var items = []
+            var lists = player.localPlaylists
+            var n = lists ? lists.length : 0
+            for (var i = 0; i < n; i++) items.push(followMenu._item(sourceId, lists[i]))
+            if (n > 0) items.push({ type: "separator" })
+            items.push({ text: i18n.t("playlist.local.newPlaylist"), icon: "playlist_add",
+                         action: followMenu._newAction(sourceId) })
+            followMenu.model = items
+        }
+        function _item(sourceId, pl) {
+            var pid = "" + pl.id
+            var followed = player.isSourcePlaylistFollowed(pid, sourceId)
+            return {
+                text: pl.name,
+                icon: followed ? "check" : "queue_music",
+                action: followed ? followMenu._unfollow(pid, sourceId)
+                                 : followMenu._follow(pid, sourceId)
+            }
+        }
+        function _follow(pid, sourceId) {
+            return function() { player.followSourcePlaylist(pid, sourceId) }
+        }
+        function _unfollow(pid, sourceId) {
+            return function() { player.unfollowSourcePlaylist(pid, sourceId) }
+        }
+        function _newAction(sourceId) {
+            return function() { player.followSourcePlaylistInNewLocalPlaylist(sourceId) }
         }
     }
 

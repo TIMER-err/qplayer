@@ -63,6 +63,7 @@ Rectangle {
     property bool libraryLoaded: false
     property bool localLoaded: false
     property bool detailLoaded: false
+    property bool localPlaylistLoaded: false
     property bool artistLoaded: false
     property bool albumLoaded: false
     property bool queueLoaded: false
@@ -204,6 +205,7 @@ Rectangle {
 
     function ensurePageLoaded(which) {
         if (which === "detail") app.detailLoaded = true
+        if (which === "localPlaylist") app.localPlaylistLoaded = true
         if (which === "artist") app.artistLoaded = true
         if (which === "album") app.albumLoaded = true
         if (which === "settings") app.settingsLoaded = true
@@ -732,6 +734,10 @@ Rectangle {
                                 player.openMediaPlaylist("" + libraryPage.pendingPlaylist.id)
                                 app.replacePage("detail", libraryPage.pendingPlaylist.id)
                             }
+                            onOpenLocalPlaylist: {
+                                player.openLocalPlaylist("" + libraryPage.pendingPlaylist.id)
+                                app.replacePage("localPlaylist", libraryPage.pendingPlaylist.id)
+                            }
                             onRequestLogin: app.loginOpen = true
                         }
                     }
@@ -753,6 +759,19 @@ Rectangle {
                 active: app.detailLoaded
                 sourceComponent: Component {
                     PlaylistDetailPage {
+                        onHome: app.goHome()
+                        onBack: app.popPage()
+                    }
+                }
+            }
+
+            ManagedPageLoader {
+                pageManager: app
+                motion: rootPageMotion
+                routeType: "localPlaylist"
+                active: app.localPlaylistLoaded
+                sourceComponent: Component {
+                    LocalPlaylistPage {
                         onHome: app.goHome()
                         onBack: app.popPage()
                     }

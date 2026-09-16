@@ -30,10 +30,17 @@ Menu {
         }
         var items = [
             { text: i18n.t("menu.playNow"), icon: "play_arrow", action: menu._playAction(pid) },
-            { text: i18n.t("menu.openPlaylist"), icon: "queue_music", action: menu._openAction() },
-            { type: "separator" },
-            { text: i18n.t("menu.copyLink"), icon: "link", action: menu._copyAction(pid) }
+            { text: i18n.t("menu.openPlaylist"), icon: "queue_music", action: menu._openAction() }
         ]
+        // Following pulls this playlist's songs into a local one and keeps them in
+        // sync. Only source playlists can be followed — a local playlist is
+        // already the destination, and following one into itself is meaningless.
+        if (("" + pid).indexOf("local:playlist:") !== 0 && ("" + pid).indexOf(":") >= 0) {
+            items.push({ text: i18n.t("playlist.local.addPlaylistTo"), icon: "library_add",
+                         subItems: menu._followSubItems("" + pid) })
+        }
+        items.push({ type: "separator" })
+        items.push({ text: i18n.t("menu.copyLink"), icon: "link", action: menu._copyAction(pid) })
         if (menu.subscribed) {
             items.push({ text: i18n.t("menu.unsubscribePlaylist"), icon: "bookmark_remove",
                          action: menu._unsubscribeAction() })
@@ -43,6 +50,40 @@ Menu {
                          action: menu._deleteAction() })
         }
         menu.model = items
+    }
+
+    function _followSubItems(sourceId) {
+        var subs = []
+        var lists = player.localPlaylists
+        var n = lists ? lists.length : 0
+        for (var i = 0; i < n; i++) subs.push(menu._followItem(sourceId, lists[i]))
+        if (n > 0) subs.push({ type: "separator" })
+        subs.push({ text: i18n.t("playlist.local.newPlaylist"), icon: "playlist_add",
+                    action: menu._followInNewAction(sourceId) })
+        return subs
+    }
+
+    function _followItem(sourceId, pl) {
+        var pid = "" + pl.id
+        var followed = player.isSourcePlaylistFollowed(pid, sourceId)
+        return {
+            text: pl.name,
+            icon: followed ? "check" : "queue_music",
+            action: followed ? menu._unfollowAction(pid, sourceId)
+                             : menu._followAction(pid, sourceId)
+        }
+    }
+
+    function _followAction(pid, sourceId) {
+        return function() { player.followSourcePlaylist(pid, sourceId) }
+    }
+
+    function _unfollowAction(pid, sourceId) {
+        return function() { player.unfollowSourcePlaylist(pid, sourceId) }
+    }
+
+    function _followInNewAction(sourceId) {
+        return function() { player.followSourcePlaylistInNewLocalPlaylist(sourceId) }
     }
 
     function _playAction(pid) {

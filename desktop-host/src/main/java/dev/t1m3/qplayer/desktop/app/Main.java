@@ -241,6 +241,20 @@ public final class Main {
                         controller.setPlaylistCover(playlistKey, selected))));
         controller.setPluginPicker(() -> DesktopFilePicker.pickPlugin(
                 controller::inspectPluginPackage));
+        // Playlist import/export. The controller does its file I/O on its own
+        // worker, so the chosen path is handed over as-is rather than bounced
+        // through the render thread like the QML-observable pickers above.
+        controller.setPlaylistFileBridge(new dev.t1m3.qplayer.bridge.PlayerController
+                .PlaylistFileBridge() {
+            @Override public void open(java.util.function.Consumer<String> onPicked) {
+                DesktopFilePicker.pickPlaylist(onPicked);
+            }
+
+            @Override public void save(String suggestedFileName,
+                                       java.util.function.Consumer<String> onPicked) {
+                DesktopFilePicker.savePlaylist(suggestedFileName, onPicked);
+            }
+        });
 
         // A second launch now surfaces this window instead of starting a new process.
         onActivate.set(() -> window.postMainTask(window::restoreFromTray));

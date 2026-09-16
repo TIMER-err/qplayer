@@ -27,6 +27,11 @@ import dev.t1m3.qplayer.media.ProviderHome;
 import dev.t1m3.qplayer.media.Song;
 import dev.t1m3.qplayer.media.StreamDescriptor;
 import dev.t1m3.qplayer.model.Track;
+import dev.t1m3.qplayer.playlist.LocalPlaylist;
+import dev.t1m3.qplayer.playlist.LocalPlaylistStore;
+import dev.t1m3.qplayer.playlist.PlaylistSubscription;
+import dev.t1m3.qplayer.playlist.PlaylistTrack;
+import dev.t1m3.qplayer.playlist.PlaylistTransfer;
 import dev.t1m3.qplayer.plugin.CorePluginHostApi;
 import dev.t1m3.qplayer.plugin.PluginManager;
 import dev.t1m3.qplayer.plugin.PluginAccountService;
@@ -753,6 +758,26 @@ public final class PlayerController {
      *  the rail's download menu; rebuilt on open via {@link #refreshCachedSongs}. */
     public final Property<List<Track>> cachedSongs = new Property<>(Collections.<Track>emptyList());
 
+    // --- Local playlists (user-owned, mixed-source) ------------------------
+    /** The user's own playlists, as Playlist DTOs so the existing cards/grids
+     *  render them next to source-owned ones without a second component. */
+    public final Property<List<Playlist>> localPlaylists =
+            new Property<>(Collections.<Playlist>emptyList());
+    /** Non-zero whenever at least one local playlist exists; QML binds an int
+     *  rather than a Java List's length, same as {@link #playlistCount}. */
+    public final Property<Integer> localPlaylistCount = new Property<>(0);
+    /** Currently open local playlist, empty when none is. */
+    public final Property<String> openLocalPlaylistId = new Property<>("");
+    public final Property<String> localPlaylistTitle = new Property<>("");
+    /** Rows of the open local playlist. */
+    public final Property<List<Track>> localPlaylistTracks =
+            new Property<>(Collections.<Track>emptyList());
+    /** Source playlists the open local playlist follows. */
+    public final Property<List<PlaylistSubscription>> localPlaylistSubscriptions =
+            new Property<>(Collections.<PlaylistSubscription>emptyList());
+    /** True while subscriptions of the open playlist are being pulled. */
+    public final Property<Boolean> localPlaylistSyncing = new Property<>(false);
+
     // --- Account ----------------------------------------------------------
     public final Property<Boolean> loggedIn = new Property<>(false);
     public final Property<String> userName = new Property<>("");
@@ -927,6 +952,11 @@ public final class PlayerController {
         pluginManager.startEnabled();
         loadQueue();
         loadCustomPlaylist();
+        // Loading also migrates the previous single custom playlist on first run,
+        // so it has to happen after loadCustomPlaylist has settled that file.
+        localPlaylistStore.load();
+        publishLocalPlaylists();
+        saveLocalPlaylists();
         legacySourceMigrationAvailable.set(detectLegacySourceMigration());
         publishPlugins();
         refreshPluginCatalog();
@@ -3289,6 +3319,565 @@ public final class PlayerController {
         } catch (Throwable e) {
             Logger.warn("loadCustomPlaylist failed: {}", e.getMessage());
         }
+    }
+
+    // --- Local playlists --------------------------------------------------
+    //
+    // A local playlist mixes songs from every source in one user-owned list. Two
+    // routes put songs in it: adding a song directly, and adding a whole source
+    // playlist, which is recorded as a subscription and re-pulled on open. The
+    // set-arithmetic for that lives in LocalPlaylist; everything here is the QML
+    // surface, the threading, and the network fetch.
+
+    private final LocalPlaylistStore localPlaylistStore = new LocalPlaylistStore();
+    /** Don't re-pull a subscription that was refreshed this recently on open.
+     *  The manual refresh button ignores it. */
+    private static final long SUBSCRIPTION_SYNC_COOLDOWN_MS = 10 * 60 * 1000L;
+    /** Playlists with a sync in flight, so opening one twice doesn't double-fetch. */
+    private final java.util.Set<String> syncingLocalPlaylists =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /** Render thread: republish the playlist list after any structural change. */
+    private void publishLocalPlaylists() {
+        List<LocalPlaylist> all = localPlaylistStore.all();
+        List<Playlist> cards = new ArrayList<>(all.size());
+        for (LocalPlaylist playlist : all) {
+            Playlist card = new Playlist();
+            card.id = playlist.id;
+            card.name = playlist.name;
+            card.description = playlist.description;
+            card.artworkUrl = playlist.artworkUrl();
+            card.coverUrl = card.artworkUrl;
+            card.sourceName = I18n.tr("playlist.local.sourceName");
+            card.trackCount = playlist.size();
+            card.owned = true;
+            card.mutable = true;
+            card.deletable = true;
+            cards.add(card);
+        }
+        localPlaylists.set(Collections.unmodifiableList(cards));
+        localPlaylistCount.set(cards.size());
+    }
+
+    /** Render thread: republish the open playlist's rows. */
+    private void publishOpenLocalPlaylist() {
+        String id = openLocalPlaylistId.peek();
+        if (id == null || id.isEmpty()) return;
+        LocalPlaylist playlist = localPlaylistStore.get(id);
+        if (playlist == null) {
+            closeLocalPlaylist();
+            return;
+        }
+        localPlaylistTitle.set(playlist.name);
+        List<Track> rows = new ArrayList<>(playlist.tracks.size());
+        for (PlaylistTrack stored : playlist.tracks) {
+            Track track = stored.toTrack();
+            if (track.source != Track.Source.LOCAL) {
+                track.coverThumbPath = trackCoverUrl(track, "128");
+            } else {
+                // A local song's own cached thumbnail lives in the library, not in
+                // the playlist record; recover it so rows aren't blank after restart.
+                for (Track known : library) {
+                    if (known.filePath != null && known.filePath.equals(track.filePath)) {
+                        track.coverThumbPath = known.coverThumbPath;
+                        track.coverLocalPath = known.coverLocalPath;
+                        break;
+                    }
+                }
+            }
+            rows.add(track);
+        }
+        localPlaylistTracks.set(Collections.unmodifiableList(rows));
+        localPlaylistSubscriptions.set(Collections.unmodifiableList(
+                new ArrayList<>(playlist.subscriptions)));
+    }
+
+    private void saveLocalPlaylists() {
+        worker.submit(localPlaylistStore::save);
+    }
+
+    /** Both republish and persist, after a mutation to {@code playlistId}. */
+    private void afterLocalPlaylistChange(String playlistId) {
+        publishLocalPlaylists();
+        if (playlistId != null && playlistId.equals(openLocalPlaylistId.peek())) {
+            publishOpenLocalPlaylist();
+        }
+        saveLocalPlaylists();
+    }
+
+    public void createLocalPlaylist(String name) {
+        LocalPlaylist created = localPlaylistStore.create(name);
+        publishLocalPlaylists();
+        saveLocalPlaylists();
+        showToast(I18n.tr("toast.localPlaylist.created", created.name));
+    }
+
+    public void renameLocalPlaylist(String playlistId, String name) {
+        if (!localPlaylistStore.rename(playlistId, name)) return;
+        afterLocalPlaylistChange(playlistId);
+    }
+
+    public void deleteLocalPlaylist(String playlistId) {
+        if (!localPlaylistStore.delete(playlistId)) return;
+        if (playlistId.equals(openLocalPlaylistId.peek())) closeLocalPlaylist();
+        publishLocalPlaylists();
+        saveLocalPlaylists();
+        showToast(I18n.tr("toast.localPlaylist.deleted"));
+    }
+
+    public void openLocalPlaylist(String playlistId) {
+        if (!LocalPlaylist.isLocalPlaylistId(playlistId)) return;
+        LocalPlaylist playlist = localPlaylistStore.get(playlistId);
+        if (playlist == null) {
+            showToast(I18n.tr("toast.localPlaylist.missing"));
+            return;
+        }
+        openLocalPlaylistId.set(playlistId);
+        publishOpenLocalPlaylist();
+        // Opening is also the sync trigger, subject to the cooldown so flipping
+        // between playlists doesn't hammer every source.
+        syncLocalPlaylist(playlistId, false);
+    }
+
+    public void closeLocalPlaylist() {
+        openLocalPlaylistId.set("");
+        localPlaylistTitle.set("");
+        localPlaylistTracks.set(Collections.<Track>emptyList());
+        localPlaylistSubscriptions.set(Collections.<PlaylistSubscription>emptyList());
+        localPlaylistSyncing.set(false);
+    }
+
+    /** Menu state: whether this playlist already holds this song. */
+    public boolean isInLocalPlaylist(String playlistId, String songMediaId) {
+        LocalPlaylist playlist = localPlaylistStore.get(playlistId);
+        return playlist != null && playlist.contains(songMediaId);
+    }
+
+    // The row menu offers the same three identities the rest of the app uses —
+    // a media id, a legacy numeric netease id, and a local file path. Resolving
+    // each to its canonical id here keeps that mapping out of QML.
+
+    public boolean isSongInLocalPlaylist(String playlistId, long songId) {
+        return isInLocalPlaylist(playlistId, neteaseMediaId(songId));
+    }
+
+    public boolean isLocalFileInLocalPlaylist(String playlistId, String filePath) {
+        return isInLocalPlaylist(playlistId, localFileMediaId(filePath));
+    }
+
+    public void removeSongFromLocalPlaylist(String playlistId, long songId) {
+        removeMediaFromLocalPlaylist(playlistId, neteaseMediaId(songId));
+    }
+
+    public void removeLocalFileFromLocalPlaylist(String playlistId, String filePath) {
+        removeMediaFromLocalPlaylist(playlistId, localFileMediaId(filePath));
+    }
+
+    private static String neteaseMediaId(long songId) {
+        if (songId == 0L) return "";
+        return MediaId.of("netease", dev.t1m3.qplayer.media.MediaKind.SONG,
+                Long.toString(songId)).toString();
+    }
+
+    /** A local file's id is derived from its locator, exactly as Track does it. */
+    private String localFileMediaId(String filePath) {
+        if (filePath == null || filePath.isEmpty()) return "";
+        for (Track candidate : library) {
+            if (filePath.equals(candidate.filePath)) return candidate.canonicalId();
+        }
+        Track probe = new Track();
+        probe.source = Track.Source.LOCAL;
+        probe.filePath = filePath;
+        return probe.canonicalId();
+    }
+
+    /** True when any local playlist holds it — drives the row's filled/outline icon. */
+    public boolean isInAnyLocalPlaylist(String songMediaId) {
+        if (songMediaId == null || songMediaId.isEmpty()) return false;
+        for (LocalPlaylist playlist : localPlaylistStore.all()) {
+            if (playlist.contains(songMediaId)) return true;
+        }
+        return false;
+    }
+
+    public void addMediaToLocalPlaylist(String playlistId, String songMediaId) {
+        Track track = findTrackForMedia(songMediaId);
+        if (track == null) {
+            showToast(I18n.tr("toast.custom.staleSong"));
+            return;
+        }
+        addTrackToLocalPlaylist(playlistId, track);
+    }
+
+    /** Netease compatibility entry (numeric id from a legacy row's menu). */
+    public void addSongToLocalPlaylist(String playlistId, long songId) {
+        Track track = findLiveTrack(songId);
+        if (track == null) {
+            showToast(I18n.tr("toast.playlist.addFailed"));
+            return;
+        }
+        addTrackToLocalPlaylist(playlistId, track);
+    }
+
+    public void addLocalFileToLocalPlaylist(String playlistId, String filePath) {
+        if (filePath == null || filePath.isEmpty()) return;
+        Track found = null;
+        for (Track candidate : library) {
+            if (filePath.equals(candidate.filePath)) { found = candidate; break; }
+        }
+        if (found == null) {
+            showToast(I18n.tr("toast.playlist.addFailed"));
+            return;
+        }
+        addTrackToLocalPlaylist(playlistId, found);
+    }
+
+    private void addTrackToLocalPlaylist(String playlistId, Track track) {
+        final PlaylistTrack entry = PlaylistTrack.from(
+                track, PlaylistTrack.MANUAL, System.currentTimeMillis());
+        if (!entry.valid()) {
+            showToast(I18n.tr("toast.custom.staleSong"));
+            return;
+        }
+        boolean added = localPlaylistStore.mutate(playlistId, playlist -> playlist.add(entry));
+        if (!added) {
+            showToast(I18n.tr("toast.localPlaylist.duplicate"));
+            return;
+        }
+        afterLocalPlaylistChange(playlistId);
+        showToast(I18n.tr("toast.custom.added"));
+    }
+
+    // One-step "new playlist + add", so the row menu can offer it without owning
+    // a dialog. The playlist takes the default name, de-duplicated by the store.
+
+    public void addMediaToNewLocalPlaylist(String songMediaId) {
+        addMediaToLocalPlaylist(newLocalPlaylistId(), songMediaId);
+    }
+
+    public void addSongToNewLocalPlaylist(long songId) {
+        addSongToLocalPlaylist(newLocalPlaylistId(), songId);
+    }
+
+    public void addLocalFileToNewLocalPlaylist(String filePath) {
+        addLocalFileToLocalPlaylist(newLocalPlaylistId(), filePath);
+    }
+
+    public void followSourcePlaylistInNewLocalPlaylist(String sourcePlaylistId) {
+        // Name the new playlist after the source it is being seeded from, which is
+        // almost always what the user would have typed anyway.
+        String name = "";
+        try {
+            name = sourcePlaylistDisplayName(MediaId.parse(sourcePlaylistId));
+        } catch (IllegalArgumentException ignored) {
+            // fall back to the default name
+        }
+        LocalPlaylist created = localPlaylistStore.create(name);
+        publishLocalPlaylists();
+        followSourcePlaylist(created.id, sourcePlaylistId);
+    }
+
+    private String newLocalPlaylistId() {
+        LocalPlaylist created = localPlaylistStore.create("");
+        publishLocalPlaylists();
+        return created.id;
+    }
+
+    public void removeFromLocalPlaylistAt(String playlistId, int index) {
+        if (!localPlaylistStore.mutate(playlistId, playlist -> playlist.removeAt(index))) return;
+        afterLocalPlaylistChange(playlistId);
+        showToast(I18n.tr("toast.custom.removed"));
+    }
+
+    public void removeMediaFromLocalPlaylist(String playlistId, String songMediaId) {
+        if (!localPlaylistStore.mutate(playlistId, playlist -> playlist.remove(songMediaId))) return;
+        afterLocalPlaylistChange(playlistId);
+        showToast(I18n.tr("toast.custom.removed"));
+    }
+
+    public void playLocalPlaylistIndex(String playlistId, int index) {
+        List<Track> rows = playlistId != null && playlistId.equals(openLocalPlaylistId.peek())
+                ? localPlaylistTracks.peek() : tracksOf(playlistId);
+        if (rows == null || index < 0 || index >= rows.size()) return;
+        playQueue(new ArrayList<>(rows), index);
+    }
+
+    public void playLocalPlaylist(String playlistId) {
+        List<Track> rows = tracksOf(playlistId);
+        if (rows == null || rows.isEmpty()) {
+            showToast(I18n.tr("toast.localPlaylist.empty"));
+            return;
+        }
+        playQueue(rows, 0);
+    }
+
+    private List<Track> tracksOf(String playlistId) {
+        LocalPlaylist playlist = localPlaylistStore.get(playlistId);
+        if (playlist == null) return null;
+        List<Track> rows = new ArrayList<>(playlist.tracks.size());
+        for (PlaylistTrack stored : playlist.tracks) rows.add(stored.toTrack());
+        return rows;
+    }
+
+    // --- Local playlists: following a source playlist ----------------------
+
+    /** Whether a local playlist already follows this source playlist. */
+    public boolean isSourcePlaylistFollowed(String playlistId, String sourcePlaylistId) {
+        LocalPlaylist playlist = localPlaylistStore.get(playlistId);
+        return playlist != null && playlist.subscribed(sourcePlaylistId);
+    }
+
+    /**
+     * Add a whole source playlist to a local one. The songs are pulled
+     * immediately, and re-pulled whenever the local playlist is opened, so the
+     * local copy follows the source.
+     */
+    public void followSourcePlaylist(String playlistId, String sourcePlaylistId) {
+        if (!LocalPlaylist.isLocalPlaylistId(playlistId)) return;
+        final MediaId id;
+        try {
+            id = MediaId.parse(sourcePlaylistId).requireKind(dev.t1m3.qplayer.media.MediaKind.PLAYLIST);
+        } catch (IllegalArgumentException error) {
+            showToast(I18n.tr("toast.id.playlist"));
+            return;
+        }
+        PlaylistSubscription subscription = new PlaylistSubscription(
+                id.toString(), sourcePlaylistDisplayName(id), providerDisplayName(id.provider()),
+                sourcePlaylistArtwork(id));
+        boolean added = localPlaylistStore.mutate(playlistId,
+                playlist -> playlist.subscribe(subscription));
+        if (!added) {
+            showToast(I18n.tr("toast.localPlaylist.alreadyFollowed"));
+            return;
+        }
+        afterLocalPlaylistChange(playlistId);
+        showToast(I18n.tr("toast.localPlaylist.following", subscription.name));
+        syncLocalPlaylist(playlistId, true);
+    }
+
+    public void unfollowSourcePlaylist(String playlistId, String sourcePlaylistId) {
+        if (!localPlaylistStore.mutate(playlistId,
+                playlist -> playlist.unsubscribe(sourcePlaylistId))) {
+            return;
+        }
+        afterLocalPlaylistChange(playlistId);
+        showToast(I18n.tr("toast.localPlaylist.unfollowed"));
+    }
+
+    /** Manual refresh button: ignores the cooldown. */
+    public void refreshLocalPlaylist(String playlistId) {
+        syncLocalPlaylist(playlistId, true);
+    }
+
+    /**
+     * Re-pull every subscription of one local playlist.
+     *
+     * <p>Each subscription is fetched independently and applied as it lands, so
+     * one dead source cannot hold up the others; the playlist is saved and the
+     * spinner cleared once the last one settles.
+     */
+    private void syncLocalPlaylist(String playlistId, boolean force) {
+        LocalPlaylist playlist = localPlaylistStore.get(playlistId);
+        if (playlist == null || playlist.subscriptions.isEmpty()) return;
+        long now = System.currentTimeMillis();
+        List<PlaylistSubscription> due = new ArrayList<>();
+        for (PlaylistSubscription subscription : playlist.subscriptions) {
+            if (force || now - subscription.lastSyncedAtMs >= SUBSCRIPTION_SYNC_COOLDOWN_MS) {
+                due.add(subscription);
+            }
+        }
+        if (due.isEmpty()) return;
+        if (!syncingLocalPlaylists.add(playlistId)) return;
+        if (playlistId.equals(openLocalPlaylistId.peek())) localPlaylistSyncing.set(true);
+
+        final java.util.concurrent.atomic.AtomicInteger pending =
+                new java.util.concurrent.atomic.AtomicInteger(due.size());
+        for (PlaylistSubscription subscription : due) {
+            final String sourceId = subscription.sourcePlaylistId;
+            final MediaId id;
+            try {
+                id = MediaId.parse(sourceId).requireKind(dev.t1m3.qplayer.media.MediaKind.PLAYLIST);
+            } catch (IllegalArgumentException error) {
+                finishSubscriptionSync(playlistId, pending);
+                continue;
+            }
+            pluginProviders.playlist(id).whenComplete((resolved, error) -> post(() -> {
+                applySubscriptionResult(playlistId, sourceId, resolved, error);
+                finishSubscriptionSync(playlistId, pending);
+            }));
+        }
+    }
+
+    /** Render thread: fold one fetched source playlist into the local one. */
+    private void applySubscriptionResult(String playlistId, String sourceId,
+                                         Playlist resolved, Throwable error) {
+        if (error != null || resolved == null) {
+            Logger.warn("local playlist sync of {} failed: {}", sourceId, safeMessage(error));
+            final String message = I18n.tr("playlist.local.syncFailed");
+            localPlaylistStore.mutate(playlistId, playlist -> {
+                PlaylistSubscription subscription = playlist.subscription(sourceId);
+                if (subscription == null) return false;
+                subscription.lastError = message;
+                return true;
+            });
+            return;
+        }
+        final long now = System.currentTimeMillis();
+        final List<PlaylistTrack> incoming = new ArrayList<>(resolved.songs.size());
+        for (Song song : resolved.songs) {
+            PlaylistTrack entry = PlaylistTrack.from(toTrackPlugin(song), sourceId, now);
+            if (entry.valid()) incoming.add(entry);
+        }
+        final String name = resolved.name;
+        final String artwork = resolved.artworkUrl;
+        localPlaylistStore.mutate(playlistId, playlist -> {
+            PlaylistSubscription subscription = playlist.subscription(sourceId);
+            if (subscription == null) return false;
+            if (name != null && !name.isEmpty()) subscription.name = name;
+            if (artwork != null && !artwork.isEmpty()) subscription.artworkUrl = artwork;
+            playlist.applySync(sourceId, incoming, now);
+            return true;
+        });
+    }
+
+    private void finishSubscriptionSync(String playlistId,
+                                        java.util.concurrent.atomic.AtomicInteger pending) {
+        if (pending.decrementAndGet() > 0) return;
+        syncingLocalPlaylists.remove(playlistId);
+        if (playlistId.equals(openLocalPlaylistId.peek())) localPlaylistSyncing.set(false);
+        afterLocalPlaylistChange(playlistId);
+    }
+
+    private String providerDisplayName(String providerId) {
+        if (providerId == null || providerId.isEmpty()) return "";
+        for (PluginManifest manifest : pluginManager.enabledProviders()) {
+            if (providerId.equals(manifest.id)) return manifest.name;
+        }
+        return providerId;
+    }
+
+    /** Best currently-known name for a source playlist: the open page, the cards
+     *  on 我的, or the offline snapshot — whichever has it. */
+    private String sourcePlaylistDisplayName(MediaId id) {
+        String key = id.toString();
+        if (key.equals(openSourcePlaylistId.peek())) {
+            String title = playlistTitle.peek();
+            if (title != null && !title.isEmpty()) return title;
+        }
+        for (List<Playlist> slice : myPlaylistsBySource.values()) {
+            for (Playlist playlist : slice) {
+                if (key.equals(playlist.id) && playlist.name != null) return playlist.name;
+            }
+        }
+        Playlist cached = mediaPlaylistCacheIndex.get(key);
+        return cached != null && cached.name != null ? cached.name : "";
+    }
+
+    private String sourcePlaylistArtwork(MediaId id) {
+        String key = id.toString();
+        for (List<Playlist> slice : myPlaylistsBySource.values()) {
+            for (Playlist playlist : slice) {
+                if (key.equals(playlist.id) && playlist.artworkUrl != null) return playlist.artworkUrl;
+            }
+        }
+        Playlist cached = mediaPlaylistCacheIndex.get(key);
+        return cached != null && cached.artworkUrl != null ? cached.artworkUrl : "";
+    }
+
+    /** Resolve a song media id to a Track from whichever list is showing it. */
+    private Track findTrackForMedia(String mediaId) {
+        if (mediaId == null || mediaId.isEmpty()) return null;
+        Song song = findPluginSong(mediaId);
+        if (song != null) return toTrackPlugin(song);
+        List<List<Track>> lists = java.util.Arrays.asList(
+                queue, customPlaylist, cachedSongTracks, localPlaylistTracks.peek(), library);
+        for (List<Track> list : lists) {
+            if (list == null) continue;
+            for (Track track : list) {
+                if (mediaId.equals(track.canonicalId())) return track;
+            }
+        }
+        return null;
+    }
+
+    // --- Local playlists: import / export ----------------------------------
+
+    /** Host bridge for the two file dialogs an import/export needs. Desktop
+     *  installs it; a host without one simply reports the feature as unavailable
+     *  rather than failing silently. */
+    public interface PlaylistFileBridge {
+        /** Choose an existing playlist file to read. */
+        void open(java.util.function.Consumer<String> onPicked);
+        /** Choose where to write, seeded with {@code suggestedFileName}. */
+        void save(String suggestedFileName, java.util.function.Consumer<String> onPicked);
+    }
+
+    private volatile PlaylistFileBridge playlistFiles;
+
+    public void setPlaylistFileBridge(PlaylistFileBridge bridge) {
+        this.playlistFiles = bridge;
+        post(() -> playlistTransferAvailable.set(bridge != null));
+    }
+
+    /** Whether QML should offer the import/export rows at all. */
+    public final Property<Boolean> playlistTransferAvailable = new Property<>(false);
+
+    public void requestLocalPlaylistExport(String playlistId) {
+        PlaylistFileBridge bridge = playlistFiles;
+        final LocalPlaylist playlist = localPlaylistStore.get(playlistId);
+        if (bridge == null || playlist == null) {
+            showToast(I18n.tr("toast.localPlaylist.transferUnavailable"));
+            return;
+        }
+        if (playlist.tracks.isEmpty()) {
+            showToast(I18n.tr("toast.localPlaylist.empty"));
+            return;
+        }
+        final String suggested = PlaylistTransfer.suggestedFileName(playlist.name);
+        onMain(() -> bridge.save(suggested, path -> worker.submit(() -> {
+            try {
+                String json = PlaylistTransfer.export(playlist, currentVersion,
+                        this::providerDisplayName);
+                StorageFiles.writeUtf8Atomic(java.nio.file.Paths.get(path), json);
+                post(() -> showToast(I18n.tr("toast.localPlaylist.exported",
+                        playlist.tracks.size())));
+            } catch (Throwable error) {
+                Logger.warn("playlist export failed: {}", error.getMessage());
+                post(() -> showToast(I18n.tr("toast.localPlaylist.exportFailed")));
+            }
+        })));
+    }
+
+    public void requestLocalPlaylistImport() {
+        PlaylistFileBridge bridge = playlistFiles;
+        if (bridge == null) {
+            showToast(I18n.tr("toast.localPlaylist.transferUnavailable"));
+            return;
+        }
+        onMain(() -> bridge.open(path -> worker.submit(() -> {
+            try {
+                String json = StorageFiles.readUtf8(java.nio.file.Paths.get(path));
+                LocalPlaylist parsed = PlaylistTransfer.parse(json);
+                LocalPlaylist inserted = localPlaylistStore.insertImported(parsed);
+                localPlaylistStore.save();
+                post(() -> {
+                    publishLocalPlaylists();
+                    showToast(I18n.tr("toast.localPlaylist.imported",
+                            inserted.name, inserted.size()));
+                    // A file written on another machine carries a snapshot of its
+                    // subscriptions; pull them now so the copy is current rather
+                    // than however stale the export was.
+                    if (!inserted.subscriptions.isEmpty()) {
+                        syncLocalPlaylist(inserted.id, true);
+                    }
+                });
+            } catch (PlaylistTransfer.UnsupportedFormat error) {
+                post(() -> showToast(I18n.tr("toast.localPlaylist.importUnsupported")));
+            } catch (Throwable error) {
+                Logger.warn("playlist import failed: {}", error.getMessage());
+                post(() -> showToast(I18n.tr("toast.localPlaylist.importFailed")));
+            }
+        })));
     }
 
     // --- Local library ----------------------------------------------------

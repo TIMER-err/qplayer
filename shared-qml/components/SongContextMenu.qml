@@ -27,11 +27,8 @@ Menu {
         // the live queue) have no provider identity at all — a much smaller menu, just
         // the custom-playlist toggle, keyed by path instead of a provider media ID.
         if (s.filePath) {
-            if (player.isLocalInCustomPlaylist(s.filePath)) {
-                items.push({ text: i18n.t("menu.removeFromCustom"), icon: "playlist_remove", action: menu._removeLocalCustomAction(s.filePath) })
-            } else {
-                items.push({ text: i18n.t("menu.addToCustom"), icon: "playlist_add", action: menu._addLocalCustomAction(s.filePath) })
-            }
+            items.push({ text: i18n.t("playlist.local.addTo"), icon: "playlist_add",
+                         subItems: menu._localSubItems("local", s.filePath) })
             menu.model = items
             return
         }
@@ -62,10 +59,8 @@ Menu {
             if (menu.inOwnedPlaylist && player.openSourcePlaylistId !== ""
                     && ("" + player.openSourcePlaylistId).indexOf(sourcePrefix) === 0)
                 items.push({ text: i18n.t("menu.removeFromPlaylist"), icon: "playlist_remove", action: menu._removeMediaPlaylistAction("" + songId) })
-            if (player.isMediaInCustomPlaylist("" + songId))
-                items.push({ text: i18n.t("menu.removeFromCustom"), icon: "playlist_remove", action: menu._removeMediaCustomAction("" + songId) })
-            else
-                items.push({ text: i18n.t("menu.addToCustom"), icon: "playlist_add", action: menu._addMediaCustomAction("" + songId) })
+            items.push({ text: i18n.t("playlist.local.addTo"), icon: "playlist_add",
+                         subItems: menu._localSubItems("media", "" + songId) })
             if (menu.inCacheList)
                 items.push({ text: i18n.t("menu.removeCache"), icon: "delete", action: menu._removeMediaCacheAction("" + songId) })
             else
@@ -99,12 +94,9 @@ Menu {
                 items.push({ text: i18n.t("menu.removeFromPlaylist"), icon: "playlist_remove", action: menu._removeAction(songId) })
             }
         }
-        // Custom "play later" list: local-only, works signed-out.
-        if (player.isInCustomPlaylist(songId)) {
-            items.push({ text: i18n.t("menu.removeFromCustom"), icon: "playlist_remove", action: menu._removeCustomAction(songId) })
-        } else {
-            items.push({ text: i18n.t("menu.addToCustom"), icon: "playlist_add", action: menu._addCustomAction(songId) })
-        }
+        // Local playlists: mixed-source, work signed-out.
+        items.push({ text: i18n.t("playlist.local.addTo"), icon: "playlist_add",
+                     subItems: menu._localSubItems("song", songId) })
         // Cache the track's audio for offline replay when the provider permits it;
         // the bridge skips it with a toast if it is already cached.
         // In the cached-songs list this flips to "remove cache" instead.
@@ -116,6 +108,60 @@ Menu {
         // The source plugin owns share-link generation.
         items.push({ text: i18n.t("menu.copyLink"), icon: "link", action: menu._copyAction(songId) })
         menu.model = items
+    }
+
+    // Local playlists accept a song by any of the three identities a row can
+    // carry, so one submenu builder serves all three branches above. `kind` says
+    // which one `key` is: "media" (provider media id), "song" (legacy numeric
+    // netease id) or "local" (file path).
+    function _localSubItems(kind, key) {
+        var subs = []
+        var lists = player.localPlaylists
+        var n = lists ? lists.length : 0
+        for (var i = 0; i < n; i++) subs.push(menu._localItem(kind, key, lists[i]))
+        if (n > 0) subs.push({ type: "separator" })
+        subs.push({ text: i18n.t("playlist.local.newPlaylist"), icon: "playlist_add",
+                    action: menu._addToNewLocalAction(kind, key) })
+        return subs
+    }
+
+    // A playlist that already holds the song shows a check and removes it again,
+    // so the submenu is a toggle per playlist rather than a one-way add.
+    function _localItem(kind, key, pl) {
+        var pid = "" + pl.id
+        var has = kind === "media" ? player.isInLocalPlaylist(pid, key)
+                : kind === "song" ? player.isSongInLocalPlaylist(pid, key)
+                : player.isLocalFileInLocalPlaylist(pid, key)
+        return {
+            text: pl.name,
+            icon: has ? "check" : "queue_music",
+            action: has ? menu._removeFromLocalAction(kind, key, pid)
+                        : menu._addToLocalAction(kind, key, pid)
+        }
+    }
+
+    function _addToLocalAction(kind, key, pid) {
+        return function() {
+            if (kind === "media") player.addMediaToLocalPlaylist(pid, key)
+            else if (kind === "song") player.addSongToLocalPlaylist(pid, key)
+            else player.addLocalFileToLocalPlaylist(pid, key)
+        }
+    }
+
+    function _removeFromLocalAction(kind, key, pid) {
+        return function() {
+            if (kind === "media") player.removeMediaFromLocalPlaylist(pid, key)
+            else if (kind === "song") player.removeSongFromLocalPlaylist(pid, key)
+            else player.removeLocalFileFromLocalPlaylist(pid, key)
+        }
+    }
+
+    function _addToNewLocalAction(kind, key) {
+        return function() {
+            if (kind === "media") player.addMediaToNewLocalPlaylist(key)
+            else if (kind === "song") player.addSongToNewLocalPlaylist(key)
+            else player.addLocalFileToNewLocalPlaylist(key)
+        }
     }
 
     // Factory helpers give each closure a fresh scope, sidestepping the for-loop
@@ -140,18 +186,6 @@ Menu {
     function _removeAction(songId) {
         return function() { player.removeFromCurrentPlaylist(songId) }
     }
-    function _addCustomAction(songId) {
-        return function() { player.addToCustomPlaylist(songId) }
-    }
-    function _removeCustomAction(songId) {
-        return function() { player.removeFromCustomPlaylist(songId) }
-    }
-    function _addMediaCustomAction(mediaId) {
-        return function() { player.addMediaToCustomPlaylist(mediaId) }
-    }
-    function _removeMediaCustomAction(mediaId) {
-        return function() { player.removeMediaFromCustomPlaylist(mediaId) }
-    }
     function _copyMediaAction(mediaId) {
         return function() { player.copyMediaReference(mediaId) }
     }
@@ -166,12 +200,6 @@ Menu {
     }
     function _openMediaArtistAction(mediaId) {
         return function() { player.openMediaArtist(mediaId) }
-    }
-    function _addLocalCustomAction(filePath) {
-        return function() { player.addLocalToCustomPlaylist(filePath) }
-    }
-    function _removeLocalCustomAction(filePath) {
-        return function() { player.removeLocalFromCustomPlaylist(filePath) }
     }
     function _copyAction(songId) {
         return function() { player.copySongLink(songId) }

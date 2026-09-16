@@ -55,6 +55,66 @@ final class DesktopFilePicker {
                 I18n.tr("picker.pluginFiles"), new String[]{"qplug"}, onPicked);
     }
 
+    private static final String[] PLAYLIST_EXTENSIONS = {"qpl", "json"};
+
+    static void pickPlaylist(Consumer<String> onPicked) {
+        show(I18n.tr("picker.importPlaylist"), initialDirectory(documentsDirectory()), false,
+                I18n.tr("picker.playlistFiles"), PLAYLIST_EXTENSIONS, onPicked);
+    }
+
+    /** Save dialog for an exported playlist, seeded with a suggested file name. */
+    static void savePlaylist(String suggestedFileName, Consumer<String> onPicked) {
+        if (!OPEN.compareAndSet(false, true)) return;
+        SwingUtilities.invokeLater(() -> {
+            try {
+                applyLookAndFeel(darkTheme);
+                JFileChooser chooser = new JFileChooser(initialDirectory(documentsDirectory()));
+                chooser.setDialogTitle(I18n.tr("picker.exportPlaylist"));
+                chooser.setMultiSelectionEnabled(false);
+                chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
+                chooser.setAcceptAllFileFilterUsed(false);
+                chooser.setFileFilter(new FileNameExtensionFilter(
+                        I18n.tr("picker.playlistFiles"), PLAYLIST_EXTENSIONS));
+                if (suggestedFileName != null && !suggestedFileName.isEmpty()) {
+                    chooser.setSelectedFile(new File(chooser.getCurrentDirectory(),
+                            suggestedFileName));
+                }
+                chooser.addHierarchyListener(event -> {
+                    if ((event.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) == 0
+                            || !chooser.isShowing()) return;
+                    Window dialog = SwingUtilities.getWindowAncestor(chooser);
+                    DesktopSwingFocus.requestForeground(dialog);
+                });
+                if (chooser.showSaveDialog(null) != JFileChooser.APPROVE_OPTION) return;
+                File selected = chooser.getSelectedFile();
+                if (selected == null) return;
+                // A chooser with a filter still hands back whatever was typed, so
+                // give a bare name the suffix the filter implies.
+                String path = selected.getAbsolutePath();
+                if (!hasPlaylistExtension(path)) path = path + ".qpl.json";
+                onPicked.accept(path);
+            } catch (Throwable t) {
+                Logger.warn("desktop save dialog failed: {}", t.toString());
+            } finally {
+                OPEN.set(false);
+            }
+        });
+    }
+
+    private static boolean hasPlaylistExtension(String path) {
+        String lower = path.toLowerCase(java.util.Locale.ROOT);
+        for (String extension : PLAYLIST_EXTENSIONS) {
+            if (lower.endsWith('.' + extension)) return true;
+        }
+        return false;
+    }
+
+    private static String documentsDirectory() {
+        File documents = new File(System.getProperty("user.home", "."), "Documents");
+        return documents.isDirectory()
+                ? documents.getAbsolutePath() : System.getProperty("user.home", ".");
+    }
+
     private static void show(String title, File initialDirectory, boolean directoryOnly,
                              String filterDescription, String[] extensions,
                              Consumer<String> onPicked) {
