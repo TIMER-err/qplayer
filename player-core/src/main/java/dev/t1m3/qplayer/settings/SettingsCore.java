@@ -141,9 +141,22 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
 
     // ---- QML API ------------------------------------------------------------
 
-    /** Tab names, in order. */
+    /**
+     * Tab ids, in declaration order, minus any that this host has no rows for.
+     *
+     * <p>A category can be entirely platform-specific (桌面歌词 is desktop-only),
+     * and a tab that opens onto nothing is worse than no tab. The plugins tab is
+     * the one exception: its content is contributed by the page itself rather
+     * than by catalog rows, so it stays even while the catalog has none.
+     */
     public List<String> categories() {
-        return SettingsCatalog.CATEGORIES;
+        List<String> out = new ArrayList<>(SettingsCatalog.CATEGORIES.size());
+        for (String category : SettingsCatalog.CATEGORIES) {
+            if (SettingsCatalog.PLUGINS.equals(category) || !rows(category).isEmpty()) {
+                out.add(category);
+            }
+        }
+        return Collections.unmodifiableList(out);
     }
 
     /** The rows of one category, in declaration order. */

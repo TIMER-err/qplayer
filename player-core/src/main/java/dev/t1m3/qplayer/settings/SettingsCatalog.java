@@ -29,12 +29,17 @@ public final class SettingsCatalog {
     public static final String APPEARANCE = "appearance";
     public static final String PLAYBACK = "playback";
     public static final String LYRIC = "lyric";
+    /** Desktop lyrics gets its own tab rather than sitting under 歌词: it is a
+     *  separate surface with its own typography and colours, and every row in it
+     *  is desktop-only. A category with no rows on the running host is dropped —
+     *  see {@link SettingsCore#categories()} — so Android never shows this. */
+    public static final String DESKTOP_LYRIC = "desktopLyric";
     public static final String LOCAL = "local";
     public static final String PLUGINS = "plugins";
     public static final String ABOUT = "about";
 
     public static final List<String> CATEGORIES = Collections.unmodifiableList(
-            Arrays.asList(APPEARANCE, PLAYBACK, LYRIC, LOCAL, PLUGINS, ABOUT));
+            Arrays.asList(APPEARANCE, PLAYBACK, LYRIC, DESKTOP_LYRIC, LOCAL, PLUGINS, ABOUT));
 
     /** Fluid-background mode, 0 dynamic / 1 static. Stored under a new key
      *  because the same setting used to be a boolean ("lyricBgStatic") and a
@@ -210,73 +215,6 @@ public final class SettingsCatalog {
                 .group("lyricDisplay")
                 .build());
 
-        // ---- 桌面歌词 (desktop only) -----------------------------------------
-        // Everything below the master switch is deliberately independent of the
-        // lyric page's own typography: the floating window sits on the wallpaper,
-        // not on a controlled backdrop, so it needs its own size/weight/colours.
-        // dependsOn hides the whole block while the feature is off.
-        out.add(SettingSpec.toggle("desktopLyricEnabled", LYRIC, "settings.desktopLyric.title", false)
-                .desc("settings.desktopLyric.desc")
-                .onlyOn(DESKTOP)
-                .group("desktopLyric")
-                .build());
-        out.add(SettingSpec.toggle(DESKTOP_LYRIC_LOCKED_KEY, LYRIC,
-                        "settings.desktopLyricLocked.title", false)
-                .desc("settings.desktopLyricLocked.desc")
-                .onlyOn(DESKTOP)
-                .dependsOn("desktopLyricEnabled")
-                .group("desktopLyric")
-                .build());
-        out.add(SettingSpec.action("pickDesktopLyricFont", LYRIC,
-                        "settings.desktopLyricFont.title", "")
-                .provider("desktopLyricFontName")
-                .onlyOn(DESKTOP)
-                .dependsOn("desktopLyricEnabled")
-                .group("desktopLyric")
-                .build());
-        out.add(SettingSpec.slider("desktopLyricFontSize", LYRIC,
-                        "settings.desktopLyricFontSize.title", 26, 18, 38, 1)
-                .unit(" px").dots()
-                .onlyOn(DESKTOP)
-                .dependsOn("desktopLyricEnabled")
-                .group("desktopLyric")
-                .build());
-        out.add(SettingSpec.segmented("desktopLyricFontWeight", LYRIC,
-                        "settings.desktopLyricFontWeight.title", 2,
-                        "settings.lyricFontWeight.thin", "settings.lyricFontWeight.light",
-                        "settings.lyricFontWeight.regular", "settings.lyricFontWeight.medium")
-                .onlyOn(DESKTOP)
-                .dependsOn("desktopLyricEnabled")
-                .group("desktopLyric")
-                .build());
-        out.add(SettingSpec.color(DESKTOP_LYRIC_SUNG_COLOR_KEY, LYRIC,
-                        "settings.desktopLyricSungColor.title", "")
-                .desc("settings.desktopLyricSungColor.desc")
-                .onlyOn(DESKTOP)
-                .dependsOn("desktopLyricEnabled")
-                .group("desktopLyric")
-                .build());
-        out.add(SettingSpec.color(DESKTOP_LYRIC_UNSUNG_COLOR_KEY, LYRIC,
-                        "settings.desktopLyricUnsungColor.title", "")
-                .desc("settings.desktopLyricUnsungColor.desc")
-                .onlyOn(DESKTOP)
-                .dependsOn("desktopLyricEnabled")
-                .group("desktopLyric")
-                .build());
-        out.add(SettingSpec.toggle("desktopLyricOutline", LYRIC,
-                        "settings.desktopLyricOutline.title", true)
-                .desc("settings.desktopLyricOutline.desc")
-                .onlyOn(DESKTOP)
-                .dependsOn("desktopLyricEnabled")
-                .group("desktopLyric")
-                .build());
-        out.add(SettingSpec.toggle("desktopLyricShadow", LYRIC,
-                        "settings.desktopLyricShadow.title", true)
-                .desc("settings.desktopLyricShadow.desc")
-                .onlyOn(DESKTOP)
-                .dependsOn("desktopLyricEnabled")
-                .group("desktopLyric")
-                .build());
         out.add(SettingSpec.radio(BG_MODE_KEY, LYRIC, "settings.lyricBgMode.title", 0,
                         "settings.lyricBgMode.dynamic", "settings.lyricBgMode.static")
                 .desc("settings.lyricBgMode.desc")
@@ -301,6 +239,74 @@ public final class SettingsCatalog {
         out.add(SettingSpec.toggle("temperaImages", LYRIC, "settings.temperaImages.title", false)
                 .desc("settings.temperaImages.desc")
                 .group("tempera")
+                .build());
+        // ---- 桌面歌词 (its own tab, desktop only) -----------------------------
+        // Everything below the master switch is deliberately independent of the
+        // lyric page's own typography: the floating window sits on the wallpaper,
+        // not on a controlled backdrop, so it needs its own size/weight/colours.
+        // dependsOn hides the whole block while the feature is off.
+        out.add(SettingSpec.toggle("desktopLyricEnabled", DESKTOP_LYRIC,
+                        "settings.desktopLyric.title", false)
+                .desc("settings.desktopLyric.desc")
+                .onlyOn(DESKTOP)
+                .group("desktopLyricGeneral")
+                .build());
+        out.add(SettingSpec.toggle(DESKTOP_LYRIC_LOCKED_KEY, DESKTOP_LYRIC,
+                        "settings.desktopLyricLocked.title", false)
+                .desc("settings.desktopLyricLocked.desc")
+                .onlyOn(DESKTOP)
+                .dependsOn("desktopLyricEnabled")
+                .group("desktopLyricGeneral")
+                .build());
+        out.add(SettingSpec.action("pickDesktopLyricFont", DESKTOP_LYRIC,
+                        "settings.desktopLyricFont.title", "")
+                .provider("desktopLyricFontName")
+                .onlyOn(DESKTOP)
+                .dependsOn("desktopLyricEnabled")
+                .group("desktopLyricText")
+                .build());
+        out.add(SettingSpec.slider("desktopLyricFontSize", DESKTOP_LYRIC,
+                        "settings.desktopLyricFontSize.title", 26, 18, 38, 1)
+                .unit(" px").dots()
+                .onlyOn(DESKTOP)
+                .dependsOn("desktopLyricEnabled")
+                .group("desktopLyricText")
+                .build());
+        out.add(SettingSpec.segmented("desktopLyricFontWeight", DESKTOP_LYRIC,
+                        "settings.desktopLyricFontWeight.title", 2,
+                        "settings.lyricFontWeight.thin", "settings.lyricFontWeight.light",
+                        "settings.lyricFontWeight.regular", "settings.lyricFontWeight.medium")
+                .onlyOn(DESKTOP)
+                .dependsOn("desktopLyricEnabled")
+                .group("desktopLyricText")
+                .build());
+        out.add(SettingSpec.color(DESKTOP_LYRIC_SUNG_COLOR_KEY, DESKTOP_LYRIC,
+                        "settings.desktopLyricSungColor.title", "")
+                .desc("settings.desktopLyricSungColor.desc")
+                .onlyOn(DESKTOP)
+                .dependsOn("desktopLyricEnabled")
+                .group("desktopLyricInk")
+                .build());
+        out.add(SettingSpec.color(DESKTOP_LYRIC_UNSUNG_COLOR_KEY, DESKTOP_LYRIC,
+                        "settings.desktopLyricUnsungColor.title", "")
+                .desc("settings.desktopLyricUnsungColor.desc")
+                .onlyOn(DESKTOP)
+                .dependsOn("desktopLyricEnabled")
+                .group("desktopLyricInk")
+                .build());
+        out.add(SettingSpec.toggle("desktopLyricOutline", DESKTOP_LYRIC,
+                        "settings.desktopLyricOutline.title", true)
+                .desc("settings.desktopLyricOutline.desc")
+                .onlyOn(DESKTOP)
+                .dependsOn("desktopLyricEnabled")
+                .group("desktopLyricInk")
+                .build());
+        out.add(SettingSpec.toggle("desktopLyricShadow", DESKTOP_LYRIC,
+                        "settings.desktopLyricShadow.title", true)
+                .desc("settings.desktopLyricShadow.desc")
+                .onlyOn(DESKTOP)
+                .dependsOn("desktopLyricEnabled")
+                .group("desktopLyricInk")
                 .build());
         // ---- 本地 -----------------------------------------------------------
         out.add(SettingSpec.slider("maxCacheSizeMB", LOCAL, "settings.maxCacheSize.title",

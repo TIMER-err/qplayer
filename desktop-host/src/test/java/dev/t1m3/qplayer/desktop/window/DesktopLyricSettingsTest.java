@@ -14,6 +14,7 @@ import io.github.timer_err.qml4j.render.items.core.Item;
 import org.junit.Test;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
@@ -64,7 +65,7 @@ public class DesktopLyricSettingsTest {
     }
 
     private static SettingSpec row(SettingsCore settings, String key) {
-        for (SettingGroup group : settings.groups(SettingsCatalog.LYRIC)) {
+        for (SettingGroup group : settings.groups(SettingsCatalog.DESKTOP_LYRIC)) {
             for (SettingSpec spec : group.rows) {
                 if (spec.key.equals(key)) return spec;
             }
@@ -73,25 +74,58 @@ public class DesktopLyricSettingsTest {
     }
 
     @Test
-    public void everyDesktopLyricRowHangsOffTheMasterSwitchInOneCard() {
+    public void everyDesktopLyricRowHangsOffTheMasterSwitch() {
         SettingsCore settings = core();
-        SettingGroup block = null;
-        for (SettingGroup group : settings.groups(SettingsCatalog.LYRIC)) {
-            if ("desktopLyric".equals(group.id)) block = group;
-        }
-        assertNotNull("the 桌面歌词 card must exist on desktop", block);
-        assertTrue("the card carries the switch plus its dependants", block.rows.size() > 1);
+        List<SettingGroup> groups = settings.groups(SettingsCatalog.DESKTOP_LYRIC);
+        assertFalse("桌面歌词 is its own tab, not a card under 歌词", groups.isEmpty());
 
-        for (SettingSpec spec : block.rows) {
-            assertEquals("desktop lyrics never reach Android",
-                    SettingsCatalog.DESKTOP, spec.platform);
-            if ("desktopLyricEnabled".equals(spec.key)) {
-                assertEquals("the master switch cannot depend on itself", "", spec.dependsOn);
-            } else {
-                assertEquals("row " + spec.key + " must hide with the feature",
-                        "desktopLyricEnabled", spec.dependsOn);
+        int rows = 0;
+        for (SettingGroup group : groups) {
+            for (SettingSpec spec : group.rows) {
+                rows++;
+                assertEquals("desktop lyrics never reach Android",
+                        SettingsCatalog.DESKTOP, spec.platform);
+                if ("desktopLyricEnabled".equals(spec.key)) {
+                    assertEquals("the master switch cannot depend on itself", "", spec.dependsOn);
+                } else {
+                    assertEquals("row " + spec.key + " must hide with the feature",
+                            "desktopLyricEnabled", spec.dependsOn);
+                }
             }
         }
+        assertTrue("the tab carries the switch plus its dependants", rows > 1);
+    }
+
+    /** The tab is desktop-only, so Android must not be handed an empty one. */
+    @Test
+    public void theDesktopLyricTabIsAbsentOnAndroid() {
+        SettingsCore desktop = core();
+        assertTrue(desktop.categories().contains(SettingsCatalog.DESKTOP_LYRIC));
+
+        SettingsCore android = new SettingsCore();
+        android.load(new MemoryStore(), SettingsCatalog.ANDROID);
+        assertFalse("a tab that opens onto nothing must not be shown",
+                android.categories().contains(SettingsCatalog.DESKTOP_LYRIC));
+        assertTrue("the shared tabs are untouched",
+                android.categories().contains(SettingsCatalog.LYRIC));
+        // Plugins has no catalog rows at all — the page supplies its own content,
+        // so it must survive the empty-category filter.
+        assertTrue(android.categories().contains(SettingsCatalog.PLUGINS));
+    }
+
+    /** 歌词 keeps its own rows; only the desktop-lyric block moved out. */
+    @Test
+    public void theLyricTabStillCarriesTheLyricPagesOwnSettings() {
+        SettingsCore settings = core();
+        boolean sawFontSize = false;
+        for (SettingGroup group : settings.groups(SettingsCatalog.LYRIC)) {
+            for (SettingSpec spec : group.rows) {
+                assertFalse("no desktop-lyric row may be left behind under 歌词",
+                        spec.key.startsWith("desktopLyric"));
+                if ("lyricFontSize".equals(spec.key)) sawFontSize = true;
+            }
+        }
+        assertTrue(sawFontSize);
     }
 
     @Test

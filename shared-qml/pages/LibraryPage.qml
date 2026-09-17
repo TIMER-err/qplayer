@@ -18,9 +18,9 @@ Item {
     // Playlists are aggregated across sources, so a signed-in secondary source
     // still fills this page while the primary one is signed out.
     property bool hasPlaylists: player.playlistCount > 0
-    // Start on whichever tab has something in it; local wins when both do, since
-    // it is the one that works signed out.
-    property bool showLocal: player.localPlaylistCount > 0 || !page.hasPlaylists
+    // 我的歌单 is the default: this page is primarily about the account's own
+    // playlists, and local ones are the secondary, offline-capable tab.
+    property bool showLocal: false
 
     // Card the delete confirmation is about. Captured when the menu action fires,
     // since the grid's pendingPlaylist moves on with the next card interaction.
@@ -36,10 +36,10 @@ Item {
             Layout.leftMargin: 16
             Layout.rightMargin: 16
             Layout.bottomMargin: 8
-            tabs: [i18n.t("playlist.local.title"), i18n.t("nav.library")]
+            tabs: [i18n.t("library.tab.mine"), i18n.t("playlist.local.title")]
             selectOnClick: false
-            selectedTabIndex: page.showLocal ? 0 : 1
-            onTabSelected: (index) => page.showLocal = (index === 0)
+            selectedTabIndex: page.showLocal ? 1 : 0
+            onTabSelected: (index) => page.showLocal = (index === 1)
         }
 
         Item {

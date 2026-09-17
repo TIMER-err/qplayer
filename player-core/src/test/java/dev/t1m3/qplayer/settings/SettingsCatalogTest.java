@@ -58,7 +58,15 @@ public class SettingsCatalogTest {
 
     @Test
     public void temperaUsesTheExistingLyricTabAndDoesNotAddMobileTabs() {
-        assertEquals(6, SettingsCatalog.CATEGORIES.size());
+        // Spelled out rather than counted: a diff here says which tab appeared.
+        // 桌面歌词 is a real tab but a desktop-only one — SettingsCore.categories()
+        // drops it on a host with no rows for it.
+        assertEquals(java.util.Arrays.asList(
+                        SettingsCatalog.APPEARANCE, SettingsCatalog.PLAYBACK,
+                        SettingsCatalog.LYRIC, SettingsCatalog.DESKTOP_LYRIC,
+                        SettingsCatalog.LOCAL, SettingsCatalog.PLUGINS,
+                        SettingsCatalog.ABOUT),
+                SettingsCatalog.CATEGORIES);
         assertFalse(SettingsCatalog.specs().stream().anyMatch(spec -> "temperaEnabled".equals(spec.key)));
         for (String key : new String[]{"temperaWholeLine",
                 "temperaGlyphSettleStretch", "temperaImages"}) {
