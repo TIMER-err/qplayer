@@ -223,11 +223,16 @@ Rectangle {
 
         Text {
             id: tagText
+            objectName: "songSourceBadgeLabel"
             x: 8
+            // Center the measured line explicitly. Stretching the Text to the
+            // pill's height and leaning on verticalAlignment does not work here:
+            // qml4j accepts the property but it does not affect painting (same
+            // reason TextField.qml positions its label by hand), so the glyphs
+            // stayed at the top of the pill.
+            y: (parent.height - implicitHeight) / 2
             width: Math.max(0, parent.width - 16)
-            height: parent.height
             horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
             text: row.tag
             elide: Text.ElideRight
             fontSize: 11
