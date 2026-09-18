@@ -55,6 +55,17 @@ Flickable {
     property int rowH: 64
     property int activatedIndex: -1
     property int removeIndex: -1
+    // Drag-to-reorder. Each row crossed emits one moveRequested with the pair of
+    // positions; the caller applies it immediately, so the list re-publishes and
+    // the dragged song stays under the finger. reorderCommitted fires once, when
+    // the gesture ends, which is where a caller should persist.
+    property bool reorderable: false
+    property int moveFrom: -1
+    property int moveTo: -1
+    signal moveRequested()
+    signal reorderCommitted()
+    // Row the drag is currently "holding", in list positions. -1 when idle.
+    property int _dragIndex: -1
     // Optional incremental-data hook. SearchPage enables this so reaching the
     // tail asks the controller for another API page without coupling this generic
     // virtual list to a specific data source.
@@ -147,6 +158,26 @@ Flickable {
                 inCacheList: view.cacheList
                 onActivated: { view.activatedIndex = index; view.activated() }
                 onRemoveRequested: { view.removeIndex = index; view.removeRequested() }
+                reorderable: view.reorderable
+                onReorderDragged: {
+                    // First movement of a gesture: the grip that is being held is
+                    // still at its own index, so that is where the drag starts.
+                    if (view._dragIndex < 0) view._dragIndex = index
+                    var target = Math.floor(reorderContentY / view.rowH)
+                    if (target < 0) target = 0
+                    if (target > view.count - 1) target = view.count - 1
+                    if (target !== view._dragIndex) {
+                        view.moveFrom = view._dragIndex
+                        view.moveTo = target
+                        view._dragIndex = target
+                        view.moveRequested()
+                    }
+                }
+                onReorderReleased: {
+                    var moved = view._dragIndex >= 0
+                    view._dragIndex = -1
+                    if (moved) view.reorderCommitted()
+                }
             }
         }
     }

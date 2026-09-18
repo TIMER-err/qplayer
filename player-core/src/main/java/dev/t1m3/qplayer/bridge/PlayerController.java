@@ -769,6 +769,11 @@ public final class PlayerController {
     /** Currently open local playlist, empty when none is. */
     public final Property<String> openLocalPlaylistId = new Property<>("");
     public final Property<String> localPlaylistTitle = new Property<>("");
+    /** Cover of the open local playlist: the user's own image when they picked
+     *  one, otherwise derived from the songs. */
+    public final Property<String> localPlaylistCover = new Property<>("");
+    /** Whether that cover is the user's own — gates the "restore default" entry. */
+    public final Property<Boolean> localPlaylistCustomCover = new Property<>(false);
     /** Rows of the open local playlist. */
     public final Property<List<Track>> localPlaylistTracks =
             new Property<>(Collections.<Track>emptyList());
@@ -777,6 +782,12 @@ public final class PlayerController {
             new Property<>(Collections.<PlaylistSubscription>emptyList());
     /** True while subscriptions of the open playlist are being pulled. */
     public final Property<Boolean> localPlaylistSyncing = new Property<>(false);
+    /** How the open playlist is sorted; empty is the user's own order. */
+    public final Property<String> localPlaylistSortField = new Property<>(LocalPlaylist.SORT_CUSTOM);
+    public final Property<Boolean> localPlaylistSortDescending = new Property<>(false);
+    /** Whether rows can be dragged — only meaningful in the user's own order,
+     *  since dragging a row inside a sorted view would have nowhere to land. */
+    public final Property<Boolean> localPlaylistReorderable = new Property<>(true);
 
     // --- Account ----------------------------------------------------------
     public final Property<Boolean> loggedIn = new Property<>(false);
@@ -3369,8 +3380,14 @@ public final class PlayerController {
             return;
         }
         localPlaylistTitle.set(playlist.name);
-        List<Track> rows = new ArrayList<>(playlist.tracks.size());
-        for (PlaylistTrack stored : playlist.tracks) {
+        localPlaylistCover.set(playlist.artworkUrl());
+        localPlaylistCustomCover.set(playlist.hasCustomCover());
+        localPlaylistSortField.set(playlist.sortField);
+        localPlaylistSortDescending.set(playlist.sortDescending);
+        localPlaylistReorderable.set(LocalPlaylist.SORT_CUSTOM.equals(playlist.sortField));
+        List<PlaylistTrack> ordered = playlist.sortedTracks();
+        List<Track> rows = new ArrayList<>(ordered.size());
+        for (PlaylistTrack stored : ordered) {
             Track track = stored.toTrack();
             if (track.source != Track.Source.LOCAL) {
                 track.coverThumbPath = trackCoverUrl(track, "128");
@@ -3418,7 +3435,13 @@ public final class PlayerController {
     }
 
     public void deleteLocalPlaylist(String playlistId) {
+        // Read the cover before the record goes, or the file is orphaned.
+        LocalPlaylist doomed = localPlaylistStore.get(playlistId);
         if (!localPlaylistStore.delete(playlistId)) return;
+        if (doomed != null && doomed.hasCustomCover()) {
+            final String cover = doomed.coverPath;
+            worker.submit(() -> deleteQuietly(cover));
+        }
         if (playlistId.equals(openLocalPlaylistId.peek())) closeLocalPlaylist();
         publishLocalPlaylists();
         saveLocalPlaylists();
@@ -3434,6 +3457,7 @@ public final class PlayerController {
         }
         openLocalPlaylistId.set(playlistId);
         publishOpenLocalPlaylist();
+        resetSyncIndicatorFor(playlistId);
         // Opening is also the sync trigger, subject to the cooldown so flipping
         // between playlists doesn't hammer every source.
         syncLocalPlaylist(playlistId, false);
@@ -3442,6 +3466,8 @@ public final class PlayerController {
     public void closeLocalPlaylist() {
         openLocalPlaylistId.set("");
         localPlaylistTitle.set("");
+        localPlaylistCover.set("");
+        localPlaylistCustomCover.set(false);
         localPlaylistTracks.set(Collections.<Track>emptyList());
         localPlaylistSubscriptions.set(Collections.<PlaylistSubscription>emptyList());
         localPlaylistSyncing.set(false);
@@ -3583,10 +3609,18 @@ public final class PlayerController {
         return created.id;
     }
 
+    /**
+     * Remove by the row's position on screen.
+     *
+     * <p>That is a position in the sorted view, which is not the stored position
+     * once any sort is active — so it is resolved to the song's id against the
+     * published rows rather than used as an index into the stored list.
+     */
     public void removeFromLocalPlaylistAt(String playlistId, int index) {
-        if (!localPlaylistStore.mutate(playlistId, playlist -> playlist.removeAt(index))) return;
-        afterLocalPlaylistChange(playlistId);
-        showToast(I18n.tr("toast.custom.removed"));
+        List<Track> rows = playlistId != null && playlistId.equals(openLocalPlaylistId.peek())
+                ? localPlaylistTracks.peek() : tracksOf(playlistId);
+        if (rows == null || index < 0 || index >= rows.size()) return;
+        removeMediaFromLocalPlaylist(playlistId, rows.get(index).canonicalId());
     }
 
     public void removeMediaFromLocalPlaylist(String playlistId, String songMediaId) {
@@ -3611,12 +3645,54 @@ public final class PlayerController {
         playQueue(rows, 0);
     }
 
+    /** Rows in the order the page shows them, so "play all" and a card tap follow
+     *  the visible sort rather than the stored one. */
     private List<Track> tracksOf(String playlistId) {
         LocalPlaylist playlist = localPlaylistStore.get(playlistId);
         if (playlist == null) return null;
-        List<Track> rows = new ArrayList<>(playlist.tracks.size());
-        for (PlaylistTrack stored : playlist.tracks) rows.add(stored.toTrack());
+        List<PlaylistTrack> ordered = playlist.sortedTracks();
+        List<Track> rows = new ArrayList<>(ordered.size());
+        for (PlaylistTrack stored : ordered) rows.add(stored.toTrack());
         return rows;
+    }
+
+    // --- Local playlists: ordering -----------------------------------------
+
+    /** Change the sort of one playlist. Sorting is a view over the stored order,
+     *  so switching back to the custom sort restores the arrangement untouched. */
+    public void setLocalPlaylistSort(String playlistId, String field, boolean descending) {
+        final String safe = LocalPlaylist.isSortField(field) ? field : LocalPlaylist.SORT_CUSTOM;
+        boolean changed = localPlaylistStore.mutate(playlistId, playlist -> {
+            if (safe.equals(playlist.sortField) && playlist.sortDescending == descending) {
+                return false;
+            }
+            playlist.sortField = safe;
+            playlist.sortDescending = descending;
+            return true;
+        });
+        if (!changed) return;
+        afterLocalPlaylistChange(playlistId);
+    }
+
+    /**
+     * Move a row during a drag. Both positions are stored positions, which is the
+     * same as on-screen positions because dragging is only offered in the custom
+     * sort ({@link #localPlaylistReorderable}).
+     *
+     * <p>Deliberately does not persist: a drag emits one of these per row crossed,
+     * and writing the file on each would be dozens of writes per gesture. The page
+     * calls {@link #commitLocalPlaylistOrder} when the gesture ends.
+     */
+    public void moveLocalPlaylistTrack(String playlistId, int from, int to) {
+        if (!Boolean.TRUE.equals(localPlaylistReorderable.peek())) return;
+        if (!localPlaylistStore.mutate(playlistId, playlist -> playlist.move(from, to))) return;
+        publishLocalPlaylists();
+        if (playlistId.equals(openLocalPlaylistId.peek())) publishOpenLocalPlaylist();
+    }
+
+    /** Persist the arrangement once a drag finishes. */
+    public void commitLocalPlaylistOrder(String playlistId) {
+        saveLocalPlaylists();
     }
 
     // --- Local playlists: following a source playlist ----------------------
@@ -3702,8 +3778,16 @@ public final class PlayerController {
                 continue;
             }
             pluginProviders.playlist(id).whenComplete((resolved, error) -> post(() -> {
-                applySubscriptionResult(playlistId, sourceId, resolved, error);
-                finishSubscriptionSync(playlistId, pending);
+                // Whatever applying the result does, this subscription has to be
+                // counted off: anything thrown here (a plugin fault, a class that
+                // failed to load) would otherwise leave the playlist permanently
+                // "syncing" and, because the id stays in syncingLocalPlaylists,
+                // refuse every later sync of it too.
+                try {
+                    applySubscriptionResult(playlistId, sourceId, resolved, error);
+                } finally {
+                    finishSubscriptionSync(playlistId, pending);
+                }
             }));
         }
     }
@@ -3740,12 +3824,21 @@ public final class PlayerController {
         });
     }
 
+    /** Clears the in-flight state first and publishes second, so a failure while
+     *  publishing cannot strand the spinner either. */
     private void finishSubscriptionSync(String playlistId,
                                         java.util.concurrent.atomic.AtomicInteger pending) {
         if (pending.decrementAndGet() > 0) return;
         syncingLocalPlaylists.remove(playlistId);
         if (playlistId.equals(openLocalPlaylistId.peek())) localPlaylistSyncing.set(false);
         afterLocalPlaylistChange(playlistId);
+    }
+
+    /** Opening a different playlist must not inherit the previous one's spinner:
+     *  the in-flight sync belongs to a playlist that is no longer on screen, and
+     *  its completion will not touch this one's state. */
+    private void resetSyncIndicatorFor(String playlistId) {
+        localPlaylistSyncing.set(syncingLocalPlaylists.contains(playlistId));
     }
 
     private String providerDisplayName(String providerId) {
@@ -3798,6 +3891,101 @@ public final class PlayerController {
             }
         }
         return null;
+    }
+
+    // --- Local playlists: cover --------------------------------------------
+
+    /** Open the host image picker for a local playlist (QML entry point). */
+    public void pickLocalPlaylistCover(String playlistId) {
+        if (!LocalPlaylist.isLocalPlaylistId(playlistId)) return;
+        pickPlaylistCover(playlistId);
+    }
+
+    /** Drop the chosen cover and go back to deriving one from the songs. */
+    public void clearLocalPlaylistCover(String playlistId) {
+        final java.util.concurrent.atomic.AtomicReference<String> removed =
+                new java.util.concurrent.atomic.AtomicReference<>("");
+        boolean changed = localPlaylistStore.mutate(playlistId, playlist -> {
+            if (!playlist.hasCustomCover()) return false;
+            removed.set(playlist.coverPath);
+            playlist.coverPath = "";
+            return true;
+        });
+        if (!changed) return;
+        final String path = removed.get();
+        worker.submit(() -> deleteQuietly(path));
+        afterLocalPlaylistChange(playlistId);
+        showToast(I18n.tr("toast.cover.cleared"));
+    }
+
+    /**
+     * Worker thread: keep a copy of the picked image and point the playlist at it.
+     *
+     * <p>Copied rather than referenced so the cover survives the original being
+     * moved or deleted, and named after the playlist so one playlist can only
+     * ever own one cover file.
+     */
+    private void storeLocalPlaylistCover(String playlistId, byte[] data, String filename) {
+        String extension = imageExtension(filename);
+        java.nio.file.Path target;
+        try {
+            java.nio.file.Path dir = AppDirs.playlistCoversDir();
+            java.nio.file.Files.createDirectories(dir);
+            target = dir.resolve(MediaId.parse(playlistId).nativeId() + '.' + extension);
+            java.nio.file.Files.write(target, data);
+        } catch (Throwable error) {
+            Logger.warn("store local playlist cover failed: {}", error.getMessage());
+            showToast(I18n.tr("toast.cover.updateFailed"));
+            return;
+        }
+        final String path = target.toAbsolutePath().toString();
+        final java.util.concurrent.atomic.AtomicReference<String> previous =
+                new java.util.concurrent.atomic.AtomicReference<>("");
+        boolean changed = localPlaylistStore.mutate(playlistId, playlist -> {
+            previous.set(playlist.coverPath);
+            playlist.coverPath = path;
+            return true;
+        });
+        if (!changed) {
+            // The playlist was deleted while the picker was open.
+            deleteQuietly(path);
+            return;
+        }
+        // Replacing a .png with a .jpg leaves the old file behind otherwise.
+        String old = previous.get();
+        if (old != null && !old.isEmpty() && !old.equals(path)) deleteQuietly(old);
+        post(() -> {
+            afterLocalPlaylistChange(playlistId);
+            showToast(I18n.tr("toast.cover.updated"));
+        });
+    }
+
+    private static void deleteQuietly(String path) {
+        if (path == null || path.isEmpty()) return;
+        try {
+            java.nio.file.Files.deleteIfExists(java.nio.file.Paths.get(path));
+        } catch (Throwable ignored) {
+            // A leftover cover file is harmless; nothing reads it any more.
+        }
+    }
+
+    /** Extension for the stored copy, from the picked file name. Restricted to
+     *  what the image decoders actually handle, so a misnamed pick still lands
+     *  as something loadable rather than as an arbitrary extension. */
+    private static String imageExtension(String filename) {
+        if (filename != null) {
+            int dot = filename.lastIndexOf('.');
+            if (dot >= 0 && dot < filename.length() - 1) {
+                String candidate = filename.substring(dot + 1)
+                        .toLowerCase(java.util.Locale.ROOT);
+                if ("png".equals(candidate) || "jpg".equals(candidate)
+                        || "jpeg".equals(candidate) || "webp".equals(candidate)
+                        || "bmp".equals(candidate) || "gif".equals(candidate)) {
+                    return candidate;
+                }
+            }
+        }
+        return "jpg";
     }
 
     // --- Local playlists: import / export ----------------------------------
@@ -7769,6 +7957,13 @@ public final class PlayerController {
             showToast(I18n.tr("toast.cover.tooLarge"));
             return;
         }
+        // A local playlist has no server to upload to: its cover is a file we
+        // keep ourselves. Same entry point either way, so both hosts' pickers
+        // (desktop file chooser, Android gallery bytes) work unchanged.
+        if (LocalPlaylist.isLocalPlaylistId(playlistKey)) {
+            storeLocalPlaylistCover(playlistKey, data, filename);
+            return;
+        }
         if (playlistKey.indexOf(':') >= 0) {
             uploadPluginPlaylistCover(playlistKey, data, filename);
             return;
@@ -8608,6 +8803,10 @@ public final class PlayerController {
         // A just-clicked lyric adjustment may still be queued behind network work;
         // persist the current in-memory map synchronously before stopping the worker.
         saveLyricOffsets();
+        // Same reason: every local-playlist edit persists through the worker, and
+        // shutdownNow() below discards whatever is still queued. A song added or a
+        // row dragged immediately before quitting would be lost.
+        localPlaylistStore.save();
         synchronized (fadeLock) {
             fadeGeneration++;
             fadeRunning = false;

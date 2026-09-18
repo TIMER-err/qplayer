@@ -26,6 +26,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -117,6 +118,10 @@ public class LocalPlaylistUiTest {
                     + " anchors.fill: parent }\n"
                     + "}");
             assertNotNull(view.findByObjectName("localPlaylistPage"));
+            assertNotNull("a local playlist can have its own cover",
+                    view.findByObjectName("localPlaylistCoverButton"));
+            assertNotNull("and its own sort",
+                    view.findByObjectName("localPlaylistSortButton"));
             assertEquals("mixed", harness.player.localPlaylistTitle.peek());
         }
     }
@@ -327,6 +332,322 @@ public class LocalPlaylistUiTest {
 
             player.removeLocalFileFromLocalPlaylist(id, local.filePath);
             assertEquals(0, player.localPlaylists.peek().get(0).trackCount);
+        }
+    }
+
+    // ---- sorting -----------------------------------------------------------
+
+    /** Seed a playlist with local files named in order, returning its id. */
+    private static String playlistOf(PlayerController player, String... titles) {
+        player.createLocalPlaylist("mixed");
+        String id = firstPlaylistId(player);
+        List<dev.t1m3.qplayer.model.Track> library = new java.util.ArrayList<>();
+        for (String title : titles) {
+            dev.t1m3.qplayer.model.Track track = new dev.t1m3.qplayer.model.Track();
+            track.source = dev.t1m3.qplayer.model.Track.Source.LOCAL;
+            track.filePath = "/music/" + title + ".flac";
+            track.title = title;
+            track.artist = title;
+            library.add(track);
+        }
+        player.scanTracks(library);
+        player.pump();
+        for (dev.t1m3.qplayer.model.Track track : library) {
+            player.addLocalFileToLocalPlaylist(id, track.filePath);
+        }
+        player.openLocalPlaylist(id);
+        return id;
+    }
+
+    private static List<String> rowTitles(PlayerController player) {
+        List<String> out = new java.util.ArrayList<>();
+        for (dev.t1m3.qplayer.model.Track track : player.localPlaylistTracks.peek()) {
+            out.add(track.title);
+        }
+        return out;
+    }
+
+    @Test
+    public void sortingReordersTheRowsWithoutLosingTheStoredOrder() throws Exception {
+        try (Harness harness = new Harness(temporary.newFolder().toPath())) {
+            PlayerController player = harness.player;
+            String id = playlistOf(player, "charlie", "alpha", "bravo");
+            assertEquals(java.util.Arrays.asList("charlie", "alpha", "bravo"), rowTitles(player));
+
+            player.setLocalPlaylistSort(id, "title", false);
+            assertEquals(java.util.Arrays.asList("alpha", "bravo", "charlie"), rowTitles(player));
+            player.setLocalPlaylistSort(id, "title", true);
+            assertEquals(java.util.Arrays.asList("charlie", "bravo", "alpha"), rowTitles(player));
+
+            player.setLocalPlaylistSort(id, "", false);
+            assertEquals("the custom order comes back exactly as it was",
+                    java.util.Arrays.asList("charlie", "alpha", "bravo"), rowTitles(player));
+        }
+    }
+
+    /**
+     * The row index QML reports is a position in the SORTED view. Treating it as a
+     * position in the stored list would delete a different song entirely.
+     */
+    @Test
+    public void removingByRowPositionDeletesTheRowThatWasClicked() throws Exception {
+        try (Harness harness = new Harness(temporary.newFolder().toPath())) {
+            PlayerController player = harness.player;
+            String id = playlistOf(player, "charlie", "alpha", "bravo");
+            player.setLocalPlaylistSort(id, "title", false);
+            assertEquals(java.util.Arrays.asList("alpha", "bravo", "charlie"), rowTitles(player));
+
+            // Row 0 on screen is "alpha", but "charlie" is stored at index 0.
+            player.removeFromLocalPlaylistAt(id, 0);
+            assertEquals("the clicked row is the one that goes",
+                    java.util.Arrays.asList("bravo", "charlie"), rowTitles(player));
+
+            player.setLocalPlaylistSort(id, "", false);
+            assertEquals("and the stored order kept its remaining songs",
+                    java.util.Arrays.asList("charlie", "bravo"), rowTitles(player));
+        }
+    }
+
+    @Test
+    public void draggingIsOnlyOfferedInTheCustomOrder() throws Exception {
+        try (Harness harness = new Harness(temporary.newFolder().toPath())) {
+            PlayerController player = harness.player;
+            String id = playlistOf(player, "charlie", "alpha", "bravo");
+            assertTrue(player.localPlaylistReorderable.peek());
+
+            player.setLocalPlaylistSort(id, "title", false);
+            assertFalse("a drop position would be meaningless in a sorted view",
+                    player.localPlaylistReorderable.peek());
+            // And a move that slipped through anyway must be refused, not applied
+            // to whatever happens to sit at those stored indices.
+            player.moveLocalPlaylistTrack(id, 0, 2);
+            player.setLocalPlaylistSort(id, "", false);
+            assertEquals(java.util.Arrays.asList("charlie", "alpha", "bravo"), rowTitles(player));
+        }
+    }
+
+    @Test
+    public void draggingRewritesTheOrderAndSurvivesAReload() throws Exception {
+        Path base = temporary.newFolder().toPath();
+        String id;
+        try (Harness harness = new Harness(base)) {
+            PlayerController player = harness.player;
+            id = playlistOf(player, "charlie", "alpha", "bravo");
+
+            player.moveLocalPlaylistTrack(id, 0, 2);
+            assertEquals(java.util.Arrays.asList("alpha", "bravo", "charlie"), rowTitles(player));
+            // Persisting is deliberately deferred to the end of the gesture, and
+            // the write itself runs on a worker — closing the harness (which calls
+            // shutdown) is what guarantees it reached disk.
+            player.commitLocalPlaylistOrder(id);
+        }
+        try (Harness harness = new Harness(base)) {
+            harness.player.openLocalPlaylist(id);
+            assertEquals("the arrangement is what reopens",
+                    java.util.Arrays.asList("alpha", "bravo", "charlie"),
+                    rowTitles(harness.player));
+        }
+    }
+
+    /** The sort is per playlist and reopens the way it was left. */
+    @Test
+    public void theChosenSortIsRemembered() throws Exception {
+        Path base = temporary.newFolder().toPath();
+        String id;
+        try (Harness harness = new Harness(base)) {
+            id = playlistOf(harness.player, "charlie", "alpha", "bravo");
+            harness.player.setLocalPlaylistSort(id, "title", true);
+        }
+        try (Harness harness = new Harness(base)) {
+            harness.player.openLocalPlaylist(id);
+            assertEquals("title", harness.player.localPlaylistSortField.peek());
+            assertTrue(harness.player.localPlaylistSortDescending.peek());
+            assertEquals(java.util.Arrays.asList("charlie", "bravo", "alpha"),
+                    rowTitles(harness.player));
+        }
+    }
+
+    /**
+     * Every playlist edit persists through a worker, and shutdown stops that
+     * worker with shutdownNow(), which drops whatever is still queued. Quitting
+     * right after an edit must not lose it.
+     */
+    @Test
+    public void anEditMadeJustBeforeQuittingIsNotLost() throws Exception {
+        Path base = temporary.newFolder().toPath();
+        try (Harness harness = new Harness(base)) {
+            // No pumping, no waiting: close() follows the edit immediately.
+            playlistOf(harness.player, "only");
+            harness.player.renameLocalPlaylist(firstPlaylistId(harness.player), "renamed");
+        }
+        try (Harness harness = new Harness(base)) {
+            List<dev.t1m3.qplayer.media.Playlist> cards = harness.player.localPlaylists.peek();
+            assertEquals(1, cards.size());
+            assertEquals("renamed", cards.get(0).name);
+            assertEquals("and the song that was added with it", 1, cards.get(0).trackCount);
+        }
+    }
+
+    // ---- sync state --------------------------------------------------------
+
+    /**
+     * A sync that cannot reach its source must still clear the spinner. With no
+     * plugin installed the fetch fails immediately, which is the same path a
+     * network timeout takes.
+     */
+    @Test
+    public void aFailedSyncClearsTheSpinner() throws Exception {
+        try (Harness harness = new Harness(temporary.newFolder().toPath())) {
+            PlayerController player = harness.player;
+            player.createLocalPlaylist("mixed");
+            String id = firstPlaylistId(player);
+            player.followSourcePlaylist(id, "netease:playlist:7");
+            player.openLocalPlaylist(id);
+
+            waitFor(player, () -> !player.localPlaylistSyncing.peek());
+            assertFalse("the playlist must not be left syncing forever",
+                    player.localPlaylistSyncing.peek());
+
+            // And the failure has to be recoverable: a second sync must actually
+            // run rather than be refused as "already in flight".
+            player.refreshLocalPlaylist(id);
+            waitFor(player, () -> !player.localPlaylistSyncing.peek());
+            assertFalse(player.localPlaylistSyncing.peek());
+        }
+    }
+
+    /** Opening a playlist with no subscriptions must not inherit a spinner from
+     *  whichever playlist was open before. */
+    @Test
+    public void switchingPlaylistsDoesNotInheritTheSpinner() throws Exception {
+        try (Harness harness = new Harness(temporary.newFolder().toPath())) {
+            PlayerController player = harness.player;
+            player.createLocalPlaylist("followed");
+            String followed = firstPlaylistId(player);
+            player.followSourcePlaylist(followed, "netease:playlist:7");
+            player.openLocalPlaylist(followed);
+
+            player.createLocalPlaylist("plain");
+            String plain = "";
+            for (dev.t1m3.qplayer.media.Playlist card : player.localPlaylists.peek()) {
+                if ("plain".equals(card.name)) plain = card.id;
+            }
+            assertFalse(plain.isEmpty());
+
+            player.openLocalPlaylist(plain);
+            assertFalse("a playlist that follows nothing can never be syncing",
+                    player.localPlaylistSyncing.peek());
+        }
+    }
+
+    // ---- cover ------------------------------------------------------------
+
+    /** 1x1 PNG, enough for the store path (nothing decodes it here). */
+    private static byte[] pngBytes() {
+        return java.util.Base64.getDecoder().decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==");
+    }
+
+    @Test
+    public void aPickedCoverIsCopiedAndReplacesTheDerivedOne() throws Exception {
+        try (Harness harness = new Harness(temporary.newFolder().toPath())) {
+            PlayerController player = harness.player;
+            player.createLocalPlaylist("mixed");
+            String id = firstPlaylistId(player);
+            player.openLocalPlaylist(id);
+            assertEquals("", player.localPlaylistCover.peek());
+
+            player.setPlaylistCoverBytes(id, pngBytes(), "picked.png");
+            waitFor(player, () -> player.localPlaylistCustomCover.peek());
+
+            String cover = player.localPlaylistCover.peek();
+            assertTrue("the cover must be a real file", Files.isRegularFile(Path.of(cover)));
+            assertTrue("kept as our own copy, not a reference to the picked file",
+                    Path.of(cover).startsWith(AppDirs.playlistCoversDir()));
+            assertEquals("the card shows it too",
+                    cover, player.localPlaylists.peek().get(0).artworkUrl);
+        }
+    }
+
+    /** A second pick with a different extension must not orphan the first file. */
+    @Test
+    public void replacingACoverRemovesThePreviousFile() throws Exception {
+        try (Harness harness = new Harness(temporary.newFolder().toPath())) {
+            PlayerController player = harness.player;
+            player.createLocalPlaylist("mixed");
+            String id = firstPlaylistId(player);
+            player.openLocalPlaylist(id);
+
+            player.setPlaylistCoverBytes(id, pngBytes(), "first.png");
+            waitFor(player, () -> player.localPlaylistCustomCover.peek());
+            Path first = Path.of(player.localPlaylistCover.peek());
+            assertTrue(first.toString().endsWith(".png"));
+
+            player.setPlaylistCoverBytes(id, pngBytes(), "second.jpg");
+            waitFor(player, () -> player.localPlaylistCover.peek().endsWith(".jpg"));
+            assertFalse("the superseded .png must be deleted", Files.exists(first));
+            assertTrue(Files.isRegularFile(Path.of(player.localPlaylistCover.peek())));
+        }
+    }
+
+    @Test
+    public void clearingACoverDeletesItAndFallsBackToTheSongs() throws Exception {
+        try (Harness harness = new Harness(temporary.newFolder().toPath())) {
+            PlayerController player = harness.player;
+            player.createLocalPlaylist("mixed");
+            String id = firstPlaylistId(player);
+            player.openLocalPlaylist(id);
+
+            player.setPlaylistCoverBytes(id, pngBytes(), "picked.png");
+            waitFor(player, () -> player.localPlaylistCustomCover.peek());
+            Path file = Path.of(player.localPlaylistCover.peek());
+
+            player.clearLocalPlaylistCover(id);
+            waitFor(player, () -> !Files.exists(file));
+            assertFalse(player.localPlaylistCustomCover.peek());
+            assertEquals("with no songs there is nothing to derive from either",
+                    "", player.localPlaylistCover.peek());
+        }
+    }
+
+    @Test
+    public void deletingAPlaylistTakesItsCoverWithIt() throws Exception {
+        try (Harness harness = new Harness(temporary.newFolder().toPath())) {
+            PlayerController player = harness.player;
+            player.createLocalPlaylist("mixed");
+            String id = firstPlaylistId(player);
+            player.openLocalPlaylist(id);
+
+            player.setPlaylistCoverBytes(id, pngBytes(), "picked.png");
+            waitFor(player, () -> player.localPlaylistCustomCover.peek());
+            Path file = Path.of(player.localPlaylistCover.peek());
+
+            player.deleteLocalPlaylist(id);
+            waitFor(player, () -> !Files.exists(file));
+            assertTrue(player.localPlaylists.peek().isEmpty());
+        }
+    }
+
+    /** A cover file that vanished (profile moved, manual delete) must not leave
+     *  the card permanently blank. */
+    @Test
+    public void aMissingCoverFileFallsBackOnReload() throws Exception {
+        Path base = temporary.newFolder().toPath();
+        Path cover;
+        String id;
+        try (Harness harness = new Harness(base)) {
+            PlayerController player = harness.player;
+            player.createLocalPlaylist("mixed");
+            id = firstPlaylistId(player);
+            player.setPlaylistCoverBytes(id, pngBytes(), "picked.png");
+            waitFor(player, () -> !player.localPlaylists.peek().get(0).artworkUrl.isEmpty());
+            cover = Path.of(player.localPlaylists.peek().get(0).artworkUrl);
+        }
+        Files.delete(cover);
+
+        try (Harness harness = new Harness(base)) {
+            assertEquals("a dangling cover path is dropped on load",
+                    "", harness.player.localPlaylists.peek().get(0).artworkUrl);
         }
     }
 

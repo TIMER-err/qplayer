@@ -158,6 +158,155 @@ public class LocalPlaylistTest {
                 PlaylistTrack.MANUAL, playlist.tracks.get(1).origin);
     }
 
+    // ---- sorting -----------------------------------------------------------
+
+    private static PlaylistTrack song(String nativeId, String title, String artist,
+                                      long durationMs, long addedAtMs) {
+        PlaylistTrack track = song("netease", nativeId, title);
+        track.artist = artist;
+        track.durationMs = durationMs;
+        track.addedAtMs = addedAtMs;
+        return track;
+    }
+
+    private static LocalPlaylist threeSongs() {
+        LocalPlaylist playlist = LocalPlaylist.create("mixed", 1L);
+        playlist.add(song("1", "Banana", "Zoe", 300L, 30L));
+        playlist.add(song("2", "apple", "adam", 100L, 20L));
+        playlist.add(song("3", "Cherry", "Mia", 200L, 10L));
+        return playlist;
+    }
+
+    private static List<String> sortedTitles(LocalPlaylist playlist, String field, boolean desc) {
+        playlist.sortField = field;
+        playlist.sortDescending = desc;
+        List<String> out = new ArrayList<>();
+        for (PlaylistTrack track : playlist.sortedTracks()) out.add(track.title);
+        return out;
+    }
+
+    @Test
+    public void sortingIsAViewAndNeverRewritesTheStoredOrder() {
+        LocalPlaylist playlist = threeSongs();
+        assertEquals(Arrays.asList("apple", "Banana", "Cherry"),
+                sortedTitles(playlist, LocalPlaylist.SORT_TITLE, false));
+        assertEquals("the stored order is what a sync and a drag act on, so it "
+                        + "must survive sorting untouched",
+                Arrays.asList("Banana", "apple", "Cherry"), titles(playlist));
+        assertEquals("switching back restores exactly what was arranged",
+                Arrays.asList("Banana", "apple", "Cherry"),
+                sortedTitles(playlist, LocalPlaylist.SORT_CUSTOM, false));
+    }
+
+    @Test
+    public void sortingByTitleIgnoresCase() {
+        LocalPlaylist playlist = threeSongs();
+        assertEquals("'apple' must not sort after 'Cherry' just for being lowercase",
+                Arrays.asList("apple", "Banana", "Cherry"),
+                sortedTitles(playlist, LocalPlaylist.SORT_TITLE, false));
+        assertEquals(Arrays.asList("Cherry", "Banana", "apple"),
+                sortedTitles(playlist, LocalPlaylist.SORT_TITLE, true));
+    }
+
+    @Test
+    public void everySortFieldOrdersByItsOwnValue() {
+        LocalPlaylist playlist = threeSongs();
+        assertEquals(Arrays.asList("apple", "Cherry", "Banana"),
+                sortedTitles(playlist, LocalPlaylist.SORT_ARTIST, false));
+        assertEquals(Arrays.asList("apple", "Cherry", "Banana"),
+                sortedTitles(playlist, LocalPlaylist.SORT_DURATION, false));
+        assertEquals(Arrays.asList("Cherry", "apple", "Banana"),
+                sortedTitles(playlist, LocalPlaylist.SORT_ADDED, false));
+    }
+
+    /** Descending must mirror the field only: two equal rows keep their stored
+     *  order either way, or they would swap places between openings. */
+    @Test
+    public void tiesAlwaysFallBackToTheStoredOrder() {
+        LocalPlaylist playlist = LocalPlaylist.create("mixed", 1L);
+        playlist.add(song("1", "same", "first", 100L, 1L));
+        playlist.add(song("2", "same", "second", 100L, 2L));
+        playlist.add(song("3", "other", "third", 100L, 3L));
+
+        playlist.sortField = LocalPlaylist.SORT_TITLE;
+        playlist.sortDescending = false;
+        assertEquals(Arrays.asList("first", "second"), artistsOf(playlist, "same"));
+
+        playlist.sortDescending = true;
+        assertEquals("the tie-break does not flip with the direction",
+                Arrays.asList("first", "second"), artistsOf(playlist, "same"));
+    }
+
+    private static List<String> artistsOf(LocalPlaylist playlist, String title) {
+        List<String> out = new ArrayList<>();
+        for (PlaylistTrack track : playlist.sortedTracks()) {
+            if (title.equals(track.title)) out.add(track.artist);
+        }
+        return out;
+    }
+
+    @Test
+    public void untitledRowsSortLastRatherThanFirst() {
+        LocalPlaylist playlist = LocalPlaylist.create("mixed", 1L);
+        playlist.add(song("1", "", "", 0L, 1L));
+        playlist.add(song("2", "beta", "", 0L, 2L));
+        playlist.add(song("3", "alpha", "", 0L, 3L));
+        assertEquals("a handful of blank rows must not push the real content down",
+                Arrays.asList("alpha", "beta", ""),
+                sortedTitles(playlist, LocalPlaylist.SORT_TITLE, false));
+    }
+
+    @Test
+    public void anUnknownSortFieldFallsBackToTheStoredOrder() {
+        LocalPlaylist playlist = threeSongs();
+        playlist.sortField = "nonsense";
+        assertEquals(Arrays.asList("Banana", "apple", "Cherry"),
+                titlesOf(playlist.sortedTracks()));
+        playlist.sanitize();
+        assertEquals(LocalPlaylist.SORT_CUSTOM, playlist.sortField);
+    }
+
+    private static List<String> titlesOf(List<PlaylistTrack> tracks) {
+        List<String> out = new ArrayList<>();
+        for (PlaylistTrack track : tracks) out.add(track.title);
+        return out;
+    }
+
+    @Test
+    public void draggingRewritesTheStoredOrder() {
+        LocalPlaylist playlist = threeSongs();
+        assertTrue(playlist.move(0, 2));
+        assertEquals(Arrays.asList("apple", "Cherry", "Banana"), titles(playlist));
+        assertTrue(playlist.move(2, 0));
+        assertEquals(Arrays.asList("Banana", "apple", "Cherry"), titles(playlist));
+        assertFalse("a move to the same slot changes nothing", playlist.move(1, 1));
+        assertFalse(playlist.move(-1, 0));
+        assertFalse(playlist.move(0, 99));
+    }
+
+    /** A drag must not disturb which subscription a song belongs to, or the next
+     *  sync would replace the wrong rows. */
+    @Test
+    public void draggingKeepsEveryOrigin() {
+        LocalPlaylist playlist = withSubscription();
+        playlist.add(song("local", "mine", "manual"));
+        playlist.applySync(SOURCE, Arrays.asList(
+                song("netease", "1", "a"), song("netease", "2", "b")), 10L);
+
+        playlist.move(0, 2);
+        for (PlaylistTrack track : playlist.tracks) {
+            if ("manual".equals(track.title)) {
+                assertEquals(PlaylistTrack.MANUAL, track.origin);
+            } else {
+                assertEquals(SOURCE, track.origin);
+            }
+        }
+        // And the following sync still replaces exactly the subscription's rows.
+        playlist.applySync(SOURCE, Arrays.asList(song("netease", "1", "a")), 20L);
+        assertTrue(titles(playlist).contains("manual"));
+        assertFalse(titles(playlist).contains("b"));
+    }
+
     // ---- import / export ---------------------------------------------------
 
     @Test

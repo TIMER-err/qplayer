@@ -103,6 +103,13 @@ public final class AppDirs {
         return basePath().resolve("logs");
     }
 
+    /** Covers the user picked for their local playlists. User data, not a cache:
+     *  the image is copied here so the playlist keeps its cover when the original
+     *  file is moved or deleted, and so cache eviction never touches it. */
+    public static Path playlistCoversDir() {
+        return basePath().resolve("state").resolve("playlist-covers");
+    }
+
     public static Path pluginsDir() {
         return basePath().resolve("plugins");
     }

@@ -31,3 +31,8 @@ desktop-host/src/main/java/dev/t1m3/qplayer/desktop/tools/
 # Local dev memo — never committed
 /本地开发备忘.md
 .tmp/
+
+# JVM crash dumps. This machine runs close to its memory limit, so a build or
+# test JVM occasionally dies and drops these in the repo root.
+hs_err_pid*.log
+replay_pid*.log

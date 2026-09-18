@@ -88,6 +88,30 @@ Rectangle {
                 onClicked: player.requestLocalPlaylistExport(page.playlistId)
             }
             IconButton {
+                id: sortButton
+                objectName: "localPlaylistSortButton"
+                Layout.alignment: Qt.AlignVCenter
+                type: "standard"
+                icon: "sort"
+                contentColor: player.localPlaylistSortField !== ""
+                              ? Theme.color.primary : Theme.color.onSurfaceVariantColor
+                onClicked: {
+                    sortMenu.rebuild()
+                    sortMenu.open(sortButton, 0, sortButton.height)
+                }
+            }
+            IconButton {
+                id: coverButton
+                objectName: "localPlaylistCoverButton"
+                Layout.alignment: Qt.AlignVCenter
+                type: "standard"
+                icon: "image"
+                onClicked: {
+                    coverMenu.rebuild()
+                    coverMenu.open(coverButton, 0, coverButton.height)
+                }
+            }
+            IconButton {
                 Layout.alignment: Qt.AlignVCenter
                 type: "standard"
                 icon: "edit"
@@ -115,9 +139,9 @@ Rectangle {
                 Layout.preferredWidth: page.width >= 600 ? 128 : 96
                 Layout.preferredHeight: width
                 radius: 20
-                source: page.tracksList && page.tracksList.length > 0
-                        ? (page.tracksList[0].coverThumbPath || page.tracksList[0].coverUrl || "")
-                        : ""
+                // The playlist's own cover: the picked image when there is one,
+                // otherwise derived from the songs by the controller.
+                source: player.localPlaylistCover
                 icon: "queue_music"
             }
             ColumnLayout {
@@ -247,6 +271,13 @@ Rectangle {
                 removable: true
                 // Positions here are the playlist's own, not the live queue's.
                 highlightCurrent: false
+                // Dragging only makes sense while the rows are in the stored
+                // order, and the filter hides rows, which would make a dropped
+                // position mean something other than what it looks like.
+                reorderable: player.localPlaylistReorderable && page.filterText === ""
+                onMoveRequested: player.moveLocalPlaylistTrack(
+                                     page.playlistId, tracks.moveFrom, tracks.moveTo)
+                onReorderCommitted: player.commitLocalPlaylistOrder(page.playlistId)
                 onActivated: {
                     // The filter can reorder nothing but it does hide rows, so map
                     // the tapped row back to its index in the real playlist.
@@ -290,6 +321,68 @@ Rectangle {
                 fontSize: 16
                 color: Theme.color.onSurfaceVariantColor
             }
+        }
+    }
+
+    // Sorting is a view over the stored order. Tapping the active field flips the
+    // direction; tapping another switches to it ascending. "Custom" is the stored
+    // order itself and has no direction, and is the only mode rows can be dragged
+    // in — a drag in a sorted view would have nowhere to land.
+    Menu {
+        id: sortMenu
+        outlined: true
+        function rebuild() {
+            var fields = [
+                { key: "",         label: i18n.t("playlist.local.sort.custom") },
+                { key: "title",    label: i18n.t("playlist.local.sort.title") },
+                { key: "artist",   label: i18n.t("playlist.local.sort.artist") },
+                { key: "duration", label: i18n.t("playlist.local.sort.duration") },
+                { key: "added",    label: i18n.t("playlist.local.sort.added") },
+                { key: "source",   label: i18n.t("playlist.local.sort.source") }
+            ]
+            var items = []
+            for (var i = 0; i < fields.length; i++) items.push(sortMenu._item(fields[i]))
+            sortMenu.model = items
+        }
+        function _item(field) {
+            var active = player.localPlaylistSortField === field.key
+            var descending = player.localPlaylistSortDescending
+            var mark = ""
+            if (active) {
+                mark = field.key === "" ? "check"
+                     : (descending ? "arrow_downward" : "arrow_upward")
+            }
+            return {
+                text: field.label,
+                icon: mark,
+                action: sortMenu._apply(field.key, active, descending)
+            }
+        }
+        function _apply(key, active, descending) {
+            return function() {
+                var flip = active && key !== "" ? !descending : false
+                player.setLocalPlaylistSort(page.playlistId, key, flip)
+            }
+        }
+    }
+
+    // Picking is one action, resetting only exists once something was picked, so
+    // a menu rather than a second permanently-visible header button.
+    Menu {
+        id: coverMenu
+        outlined: true
+        function rebuild() {
+            var items = [{
+                text: i18n.t("playlist.local.pickCover"), icon: "image",
+                action: function() { player.pickLocalPlaylistCover(page.playlistId) }
+            }]
+            if (player.localPlaylistCustomCover) {
+                items.push({
+                    text: i18n.t("playlist.local.clearCover"), icon: "hide_image",
+                    action: function() { player.clearLocalPlaylistCover(page.playlistId) }
+                })
+            }
+            coverMenu.model = items
         }
     }
 

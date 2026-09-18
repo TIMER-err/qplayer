@@ -97,6 +97,64 @@ public class SongRowLayoutTest {
         }
     }
 
+    /** The grip and the remove button share the right edge; overlapping them would
+     *  make one of the two unhittable. */
+    @Test
+    public void theReorderGripDoesNotSitOnTheRemoveButton() throws Exception {
+        String oldBase = AppDirs.base();
+        String oldCache = AppDirs.cacheBase();
+        PlayerController player = null;
+        QmlView view = null;
+        try {
+            Path base = temporary.newFolder().toPath();
+            AppDirs.setBase(base.toString());
+            AppDirs.setCacheBase(base.resolve("cache").toString());
+            AudioBackend backend = (AudioBackend) Proxy.newProxyInstance(
+                    AudioBackend.class.getClassLoader(), new Class<?>[]{AudioBackend.class},
+                    (proxy, method, args) -> {
+                        if (method.getReturnType() == boolean.class) return false;
+                        if (method.getReturnType() == long.class) return 0L;
+                        return null;
+                    });
+            player = new PlayerController(backend, track -> { });
+            SettingsCore settings = new SettingsCore();
+            settings.load(new JsonSettingsStore(), SettingsCatalog.DESKTOP);
+            view = QmlView.withStockTypes(new QmlEngine())
+                    .resources(new ClasspathResourceLoader())
+                    .context("player", player).context("settings", settings)
+                    .context("i18n", I18n.instance());
+            view.load("import QtQuick\nimport \"components\"\n"
+                    + "Item { width: 900; height: 64\n"
+                    + "  SongRow { width: 900; height: 64\n"
+                    + "    rowTitle: \"song\"; rowArtist: \"artist\"\n"
+                    + "    removable: true; reorderable: true }\n"
+                    + "}");
+            settle(view);
+
+            Item grip = view.findByObjectName("songRowDragHandle");
+            Item remove = view.findByObjectName("queueRemoveButton");
+            assertNotNull("a reorderable row must offer a grip", grip);
+            assertNotNull(remove);
+
+            float gripRight = grip.x.peekFloat() + grip.width.peekFloat();
+            assertTrue("the grip must sit left of the remove button, not under it: "
+                            + "grip ends at " + gripRight + ", remove starts at "
+                            + remove.x.peekFloat(),
+                    gripRight <= remove.x.peekFloat());
+            assertTrue("and stay inside the row",
+                    grip.x.peekFloat() >= 0f && gripRight <= 900f);
+        } finally {
+            if (view != null) {
+                try { view.dispose(); } catch (Throwable ignored) { }
+            }
+            if (player != null) {
+                try { player.shutdown(); } catch (Throwable ignored) { }
+            }
+            AppDirs.setBase(oldBase);
+            AppDirs.setCacheBase(oldCache);
+        }
+    }
+
     private static void settle(QmlView view) {
         DirtyQueue queue = view.dirtyQueue();
         queue.install();

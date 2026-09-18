@@ -4,6 +4,8 @@ import dev.t1m3.qplayer.media.MediaId;
 import dev.t1m3.qplayer.media.MediaKind;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -28,10 +30,34 @@ public final class LocalPlaylist {
     public String id = "";
     public String name = "";
     public String description = "";
+    /** Absolute path of a cover the user chose, or empty to derive one from the
+     *  songs. The file lives under {@code AppDirs.playlistCoversDir()} — a copy,
+     *  so the playlist does not break when the original image moves. */
+    public String coverPath = "";
     public long createdAtMs;
     public long updatedAtMs;
+    /** How the page presents {@link #tracks}; empty is the stored order. Sorting
+     *  is a view, never a rewrite — see {@link #sortedTracks()}. Persisted per
+     *  playlist so reopening one looks the way the user left it. */
+    public String sortField = SORT_CUSTOM;
+    public boolean sortDescending;
     public List<PlaylistTrack> tracks = new ArrayList<>();
     public List<PlaylistSubscription> subscriptions = new ArrayList<>();
+
+    /** The stored order: what the user arranged, and where subscriptions sit. */
+    public static final String SORT_CUSTOM = "";
+    public static final String SORT_TITLE = "title";
+    public static final String SORT_ARTIST = "artist";
+    public static final String SORT_DURATION = "duration";
+    public static final String SORT_ADDED = "added";
+    public static final String SORT_SOURCE = "source";
+
+    private static final List<String> SORT_FIELDS = Arrays.asList(
+            SORT_CUSTOM, SORT_TITLE, SORT_ARTIST, SORT_DURATION, SORT_ADDED, SORT_SOURCE);
+
+    public static boolean isSortField(String value) {
+        return value != null && SORT_FIELDS.contains(value);
+    }
 
     public static LocalPlaylist create(String name, long nowMs) {
         LocalPlaylist playlist = new LocalPlaylist();
@@ -181,8 +207,73 @@ public final class LocalPlaylist {
         return accepted.size();
     }
 
-    /** Cover for the playlist card: the first song that has artwork. */
+    /**
+     * The songs as the page should show them.
+     *
+     * <p>Sorting deliberately does not touch {@link #tracks}: the stored order is
+     * what the user arranged by hand and what {@link #applySync} replaces a
+     * subscription's block within, so rewriting it to sort by title would destroy
+     * both. Switching back to {@link #SORT_CUSTOM} restores exactly what was there.
+     *
+     * <p>Ties fall back to the stored order, which makes every sort stable — two
+     * songs with the same title keep their relative positions instead of swapping
+     * around between openings.
+     */
+    public List<PlaylistTrack> sortedTracks() {
+        if (!isSortField(sortField) || SORT_CUSTOM.equals(sortField)) {
+            return new ArrayList<>(tracks);
+        }
+        List<PlaylistTrack> out = new ArrayList<>(tracks);
+        final java.util.IdentityHashMap<PlaylistTrack, Integer> storedIndex =
+                new java.util.IdentityHashMap<>();
+        for (int i = 0; i < tracks.size(); i++) storedIndex.put(tracks.get(i), i);
+
+        final java.text.Collator collator = java.text.Collator.getInstance();
+        // TERTIARY would order "a" before "A"; for a song list case is noise.
+        collator.setStrength(java.text.Collator.SECONDARY);
+        final String field = sortField;
+        Comparator<PlaylistTrack> comparator = new Comparator<PlaylistTrack>() {
+            @Override public int compare(PlaylistTrack left, PlaylistTrack right) {
+                switch (field) {
+                    case SORT_DURATION:
+                        return Long.compare(left.durationMs, right.durationMs);
+                    case SORT_ADDED:
+                        return Long.compare(left.addedAtMs, right.addedAtMs);
+                    case SORT_ARTIST:
+                        return compareText(collator, left.artist, right.artist);
+                    case SORT_SOURCE:
+                        return compareText(collator, left.provider, right.provider);
+                    default:
+                        return compareText(collator, left.title, right.title);
+                }
+            }
+        };
+        // Reverse the field comparison for descending, then break ties by stored
+        // position -- NOT by reversing the whole result, which would also flip
+        // equal rows and make two same-titled songs swap places between openings.
+        final Comparator<PlaylistTrack> primary =
+                sortDescending ? comparator.reversed() : comparator;
+        out.sort((left, right) -> {
+            int decided = primary.compare(left, right);
+            if (decided != 0) return decided;
+            return Integer.compare(storedIndex.get(left), storedIndex.get(right));
+        });
+        return out;
+    }
+
+    /** Empty values sort last in ascending order rather than clumping at the top,
+     *  where a handful of untitled rows would push the real content down. */
+    private static int compareText(java.text.Collator collator, String left, String right) {
+        boolean leftEmpty = left == null || left.isEmpty();
+        boolean rightEmpty = right == null || right.isEmpty();
+        if (leftEmpty || rightEmpty) return leftEmpty == rightEmpty ? 0 : (leftEmpty ? 1 : -1);
+        return collator.compare(left, right);
+    }
+
+    /** Cover for the playlist card: the user's own choice if they made one, else
+     *  the first song that has artwork, else a followed playlist's cover. */
     public String artworkUrl() {
+        if (coverPath != null && !coverPath.isEmpty()) return coverPath;
         for (PlaylistTrack track : tracks) {
             if (track.coverUrl != null && !track.coverUrl.isEmpty()) return track.coverUrl;
         }
@@ -192,12 +283,24 @@ public final class LocalPlaylist {
         return "";
     }
 
+    /** Whether the cover is the user's own rather than derived from the content. */
+    public boolean hasCustomCover() {
+        return coverPath != null && !coverPath.isEmpty();
+    }
+
     /** Drop records that can no longer identify a song, and de-duplicate. Runs on
      *  load, so a hand-edited or partially-written file cannot poison the list. */
     public void sanitize() {
         if (id == null || !isLocalPlaylistId(id)) id = newId();
         if (name == null) name = "";
         if (description == null) description = "";
+        if (!isSortField(sortField)) sortField = SORT_CUSTOM;
+        // A cover file that is gone (profile moved, manually deleted) must fall
+        // back to a derived one rather than leaving the card permanently blank.
+        if (coverPath == null || (!coverPath.isEmpty()
+                && !new java.io.File(coverPath).isFile())) {
+            coverPath = "";
+        }
         if (tracks == null) tracks = new ArrayList<>();
         if (subscriptions == null) subscriptions = new ArrayList<>();
         subscriptions.removeIf(s -> s == null || s.sourcePlaylistId == null

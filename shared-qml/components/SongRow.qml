@@ -31,6 +31,14 @@ Rectangle {
     property string tag: ""
     property bool highlighted: false
     property bool removable: false
+    // Shows a drag handle that starts a reorder. Only the handle does — the rest
+    // of the row keeps its tap and long-press behaviour.
+    property bool reorderable: false
+    /** Finger position in the list's content coordinates, published for the list
+     *  to turn into a target row (it owns rowH and the model). */
+    property real reorderContentY: 0
+    signal reorderDragged()
+    signal reorderReleased()
     // Long-press context menu. `song` is the raw model item (needs `.id`); the
     // menu only arms when `menuEnabled` (provider-backed lists opt in — local rows
     // have no playlist-track id). `inOwnedPlaylist` + `ownerPlaylistId` unlock the
@@ -169,7 +177,8 @@ Rectangle {
     // How much room the title/artist lines leave on the right: the remove "×"
     // and the source tag are mutually exclusive in practice (no caller sets
     // both), but sizing for whichever is present keeps text from sliding under it.
-    property real _rightReserve: row.removable ? 68 : (tagPill.visible ? (tagPill.width + 24) : 16)
+    property real _rightReserve: (row.removable ? 68 : (tagPill.visible ? (tagPill.width + 24) : 16))
+                                 + (row.reorderable ? 44 : 0)
 
     Text {
         id: titleText
@@ -303,6 +312,51 @@ Rectangle {
         if (row.song === null || menuLoader.item === null) return
         menuLoader.item.rebuild()
         menuLoader.item.open(ripple, ripple.pressX, ripple.pressY)
+    }
+
+    // Reorder grip. Explicit geometry, like every other child here: anchors do
+    // not survive the skipped measure pass under cachedLayout.
+    Item {
+        id: dragHandle
+        objectName: "songRowDragHandle"
+        visible: row.reorderable
+        width: 44
+        height: 44
+        x: Math.max(0, row.width - width - (row.removable ? 72 : 16))
+        y: (row.height - height) / 2
+
+        Icon {
+            name: "drag_handle"
+            width: 22
+            height: 22
+            x: (parent.width - width) / 2
+            y: (parent.height - height) / 2
+            color: handleArea.pressed ? Theme.color.primary
+                                      : Theme.color.onSurfaceVariantColor
+        }
+
+        MouseArea {
+            id: handleArea
+            x: 0
+            y: 0
+            width: parent.width
+            height: parent.height
+            enabled: row.reorderable
+            // The row lives in a Flickable: without this the first few pixels of
+            // a vertical drag are taken for scrolling and the reorder never starts.
+            preventStealing: true
+            cursorShape: Qt.SizeVerCursor
+            onPositionChanged: (mouse) => {
+                if (!handleArea.pressed) return
+                // row.y is this row's offset inside the list content, so adding
+                // the grip's offset and the finger's own position inside it gives
+                // a content-space coordinate the list can map to a row.
+                row.reorderContentY = row.y + dragHandle.y + mouse.y
+                row.reorderDragged()
+            }
+            onReleased: row.reorderReleased()
+            onCanceled: row.reorderReleased()
+        }
     }
 
     // Explicit geometry follows recycled queue rows without a new anchor pass.
