@@ -66,6 +66,68 @@ Flickable {
     signal reorderCommitted()
     // Row the drag is currently "holding", in list positions. -1 when idle.
     property int _dragIndex: -1
+    // Finger position within the viewport during a drag, kept so the auto-scroll
+    // tick can recompute the target row while the finger itself is still.
+    property real _dragViewportY: 0
+    // Pixels per tick the auto-scroll is currently applying; 0 = not scrolling.
+    property real _autoScrollStep: 0
+    /** How deep into the top/bottom edge a drag has to reach before the list
+     *  starts scrolling itself, capped so a short list still has a neutral middle. */
+    property real autoScrollEdge: Math.min(64, view.height / 4)
+
+    /** Turn a content-space finger position into the row it is over, and move
+     *  the held row there. Shared by the drag itself and the auto-scroll tick. */
+    function _applyDragTarget(contentPos) {
+        if (view._dragIndex < 0 || view.count <= 0) return
+        var target = Math.floor(contentPos / view.rowH)
+        if (target < 0) target = 0
+        if (target > view.count - 1) target = view.count - 1
+        if (target === view._dragIndex) return
+        view.moveFrom = view._dragIndex
+        view.moveTo = target
+        view._dragIndex = target
+        view.moveRequested()
+    }
+
+    /** Dragging against either edge scrolls the list, so a row can be moved
+     *  further than one screenful without letting go. Speed ramps with depth so
+     *  a fingertip just inside the edge creeps instead of lurching. */
+    function _updateAutoScroll(viewportPos) {
+        // When something else owns the scrolling (PullToRefresh), it is not ours
+        // to drive — leave it alone rather than fighting it.
+        if (view.scrollViewport) { view._autoScrollStep = 0; return }
+        var edge = view.autoScrollEdge
+        if (edge <= 0) { view._autoScrollStep = 0; return }
+        if (viewportPos < edge) {
+            view._autoScrollStep = -view._scrollSpeed(edge - viewportPos, edge)
+        } else if (viewportPos > view.height - edge) {
+            view._autoScrollStep = view._scrollSpeed(viewportPos - (view.height - edge), edge)
+        } else {
+            view._autoScrollStep = 0
+        }
+    }
+
+    function _scrollSpeed(depth, edge) {
+        var ramp = Math.max(0, Math.min(1, depth / edge))
+        return 2 + ramp * 14
+    }
+
+    Timer {
+        id: autoScrollTimer
+        objectName: "virtualSongListAutoScroll"
+        interval: 16
+        repeat: true
+        running: view.reorderable && view._dragIndex >= 0 && view._autoScrollStep !== 0
+        onTriggered: {
+            var maxY = Math.max(0, view.contentHeight - view.height)
+            var next = Math.max(0, Math.min(maxY, view.contentY + view._autoScrollStep))
+            if (next === view.contentY) return
+            view.contentY = next
+            // The finger has not moved, but what is under it has: re-derive the
+            // target from the same viewport position against the new offset.
+            view._applyDragTarget(view._dragViewportY + next)
+        }
+    }
     // Optional incremental-data hook. SearchPage enables this so reaching the
     // tail asks the controller for another API page without coupling this generic
     // virtual list to a specific data source.
@@ -163,19 +225,14 @@ Flickable {
                     // First movement of a gesture: the grip that is being held is
                     // still at its own index, so that is where the drag starts.
                     if (view._dragIndex < 0) view._dragIndex = index
-                    var target = Math.floor(reorderContentY / view.rowH)
-                    if (target < 0) target = 0
-                    if (target > view.count - 1) target = view.count - 1
-                    if (target !== view._dragIndex) {
-                        view.moveFrom = view._dragIndex
-                        view.moveTo = target
-                        view._dragIndex = target
-                        view.moveRequested()
-                    }
+                    view._dragViewportY = reorderContentY - view.viewportY
+                    view._updateAutoScroll(view._dragViewportY)
+                    view._applyDragTarget(reorderContentY)
                 }
                 onReorderReleased: {
                     var moved = view._dragIndex >= 0
                     view._dragIndex = -1
+                    view._autoScrollStep = 0
                     if (moved) view.reorderCommitted()
                 }
             }

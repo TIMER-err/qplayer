@@ -19,6 +19,7 @@ import org.junit.rules.TemporaryFolder;
 import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -153,6 +154,84 @@ public class SongRowLayoutTest {
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCache);
         }
+    }
+
+    /**
+     * Dragging against an edge has to scroll the list, or a row can never be
+     * moved further than one screenful. The geometry is pure arithmetic, so it
+     * is checked directly rather than by simulating a gesture.
+     */
+    @Test
+    public void draggingIntoAnEdgeScrollsTheListFasterTheDeeperItGoes() throws Exception {
+        String oldBase = AppDirs.base();
+        String oldCache = AppDirs.cacheBase();
+        PlayerController player = null;
+        QmlView view = null;
+        try {
+            Path base = temporary.newFolder().toPath();
+            AppDirs.setBase(base.toString());
+            AppDirs.setCacheBase(base.resolve("cache").toString());
+            AudioBackend backend = (AudioBackend) Proxy.newProxyInstance(
+                    AudioBackend.class.getClassLoader(), new Class<?>[]{AudioBackend.class},
+                    (proxy, method, args) -> {
+                        if (method.getReturnType() == boolean.class) return false;
+                        if (method.getReturnType() == long.class) return 0L;
+                        return null;
+                    });
+            player = new PlayerController(backend, track -> { });
+            SettingsCore settings = new SettingsCore();
+            settings.load(new JsonSettingsStore(), SettingsCatalog.DESKTOP);
+            view = QmlView.withStockTypes(new QmlEngine())
+                    .resources(new ClasspathResourceLoader())
+                    .context("player", player).context("settings", settings)
+                    .context("i18n", I18n.instance());
+            // Probe items carry the results out: qml4j exposes no reader for a
+            // QML-declared property, but Item.x is a real field and takes the
+            // negative values an upward scroll produces.
+            view.load("import QtQuick\nimport \"components\"\n"
+                    + "Item { width: 900; height: 400\n"
+                    + "  VirtualSongList { id: list; width: 900; height: 400; isLocal: true\n"
+                    + "    reorderable: true\n"
+                    + "    list: [{title: \"a\", artist: \"x\"}, {title: \"b\", artist: \"y\"}] }\n"
+                    + "  Item { id: midProbe; objectName: \"midProbe\" }\n"
+                    + "  Item { id: nearTopProbe; objectName: \"nearTopProbe\" }\n"
+                    + "  Item { id: farTopProbe; objectName: \"farTopProbe\" }\n"
+                    + "  Item { id: bottomProbe; objectName: \"bottomProbe\" }\n"
+                    + "  Component.onCompleted: {\n"
+                    + "    list._updateAutoScroll(200); midProbe.x = list._autoScrollStep\n"
+                    + "    list._updateAutoScroll(60);  nearTopProbe.x = list._autoScrollStep\n"
+                    + "    list._updateAutoScroll(2);   farTopProbe.x = list._autoScrollStep\n"
+                    + "    list._updateAutoScroll(398); bottomProbe.x = list._autoScrollStep\n"
+                    + "  }\n"
+                    + "}");
+            settle(view);
+
+            float middle = probeX(view, "midProbe");
+            float nearTop = probeX(view, "nearTopProbe");
+            float farTop = probeX(view, "farTopProbe");
+            float bottom = probeX(view, "bottomProbe");
+
+            assertEquals("the middle of the list must not scroll", 0f, middle, 0.001f);
+            assertTrue("dragging near the top scrolls up, got " + nearTop, nearTop < 0f);
+            assertTrue("dragging near the bottom scrolls down, got " + bottom, bottom > 0f);
+            assertTrue("deeper into the edge must be faster: " + farTop + " vs " + nearTop,
+                    Math.abs(farTop) > Math.abs(nearTop));
+        } finally {
+            if (view != null) {
+                try { view.dispose(); } catch (Throwable ignored) { }
+            }
+            if (player != null) {
+                try { player.shutdown(); } catch (Throwable ignored) { }
+            }
+            AppDirs.setBase(oldBase);
+            AppDirs.setCacheBase(oldCache);
+        }
+    }
+
+    private static float probeX(QmlView view, String objectName) {
+        Item probe = view.findByObjectName(objectName);
+        assertNotNull("missing probe " + objectName, probe);
+        return probe.x.peekFloat();
     }
 
     private static void settle(QmlView view) {
