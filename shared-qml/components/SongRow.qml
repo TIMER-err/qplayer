@@ -37,6 +37,26 @@ Rectangle {
     /** Finger position in the list's content coordinates, published for the list
      *  to turn into a target row (it owns rowH and the model). */
     property real reorderContentY: 0
+    /** Where inside the row the grip was grabbed, so the list can keep that exact
+     *  point under the finger instead of snapping the row's top to it. */
+    property real reorderGrabOffset: 0
+    /** True for the row being carried: it lifts off the list and follows the
+     *  finger rather than sitting in its slot. */
+    property bool dragging: false
+    /** Vertical offset opening a gap for the carried row. The list writes the
+     *  target; the Behavior below is what makes neighbours glide instead of
+     *  teleporting. Deliberately NOT a Behavior on `y`: `y` also jumps when the
+     *  virtual window recycles a delegate onto a different index, and animating
+     *  that would send rows flying across the screen on every scroll.
+     */
+    property real reorderShift: 0
+    Behavior on reorderShift {
+        NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+    }
+    // The lift itself. Small on purpose — this is a 64px row, not a card.
+    scale: row.dragging ? 1.03 : 1.0
+    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+    signal reorderPressed()
     signal reorderDragged()
     signal reorderReleased()
     // Long-press context menu. `song` is the raw model item (needs `.id`); the
@@ -85,9 +105,16 @@ Rectangle {
         anchors.topMargin: 4
         anchors.bottomMargin: 4
         radius: 16
-        color: row.highlighted ? Theme.color.primaryContainer : Theme.color.surfaceContainerHigh
-        opacity: row.highlighted ? 0.65 : (ripple.containsMouse ? 1 : 0)
+        // While carried the row needs to read as detached from the list. qml4j's
+        // MultiEffect accepts shadow properties but does not paint them yet, so the
+        // lift is done with an opaque raised fill plus an outline instead.
+        color: row.dragging ? Theme.color.surfaceContainerHighest
+             : (row.highlighted ? Theme.color.primaryContainer : Theme.color.surfaceContainerHigh)
+        opacity: row.dragging ? 1 : (row.highlighted ? 0.65 : (ripple.containsMouse ? 1 : 0))
+        border.width: row.dragging ? 1 : 0
+        border.color: Theme.color.outlineVariant
         Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+        Behavior on color { ColorAnimation { duration: 150 } }
     }
 
     // Cover sits 4px inside the hover background. Subtract that inset from
@@ -346,6 +373,14 @@ Rectangle {
             // a vertical drag are taken for scrolling and the reorder never starts.
             preventStealing: true
             cursorShape: Qt.SizeVerCursor
+            onPressed: (mouse) => {
+                // Where in the row the finger landed. The list keeps this point
+                // under the cursor for the whole gesture, so the carried row does
+                // not jump when the drag starts.
+                row.reorderGrabOffset = dragHandle.y + mouse.y
+                row.reorderContentY = row.y + row.reorderGrabOffset
+                row.reorderPressed()
+            }
             onPositionChanged: (mouse) => {
                 if (!handleArea.pressed) return
                 // row.y is this row's offset inside the list content, so adding

@@ -228,10 +228,103 @@ public class SongRowLayoutTest {
         }
     }
 
+    /**
+     * A whole drag, driven through the real pointer plumbing.
+     *
+     * <p>What is actually being checked is that the model is left alone until the
+     * finger lifts: the list previews the drop by shifting rows on screen and
+     * reports one move at the end, where it used to rewrite the playlist on every
+     * row crossed. Simulating the gesture rather than calling the internals is the
+     * point — a grip that stops receiving moves, or a press handler that never
+     * seats the drag, is exactly the kind of break this has to catch.
+     */
+    @Test
+    public void aDragPreviewsTheDropAndReportsOneMoveOnRelease() throws Exception {
+        String oldBase = AppDirs.base();
+        String oldCache = AppDirs.cacheBase();
+        PlayerController player = null;
+        QmlView view = null;
+        try {
+            Path base = temporary.newFolder().toPath();
+            AppDirs.setBase(base.toString());
+            AppDirs.setCacheBase(base.resolve("cache").toString());
+            AudioBackend backend = (AudioBackend) Proxy.newProxyInstance(
+                    AudioBackend.class.getClassLoader(), new Class<?>[]{AudioBackend.class},
+                    (proxy, method, args) -> {
+                        if (method.getReturnType() == boolean.class) return false;
+                        if (method.getReturnType() == long.class) return 0L;
+                        return null;
+                    });
+            player = new PlayerController(backend, track -> { });
+            SettingsCore settings = new SettingsCore();
+            settings.load(new JsonSettingsStore(), SettingsCatalog.DESKTOP);
+            view = QmlView.withStockTypes(new QmlEngine())
+                    .resources(new ClasspathResourceLoader())
+                    .context("player", player).context("settings", settings)
+                    .context("i18n", I18n.instance());
+            view.load("import QtQuick\nimport \"components\"\n"
+                    + "Item { width: 900; height: 400\n"
+                    + "  VirtualSongList { id: list; width: 900; height: 400; isLocal: true\n"
+                    + "    reorderable: true; rowH: 64\n"
+                    + "    list: [{title: \"a\", artist: \"x\"}, {title: \"b\", artist: \"y\"},\n"
+                    + "           {title: \"c\", artist: \"z\"}, {title: \"d\", artist: \"w\"}]\n"
+                    + "    onMoveRequested: { moves.x = moves.x + 1\n"
+                    + "                       moves.width = list.moveFrom; drop.width = list.moveTo }\n"
+                    + "    onReorderCommitted: commits.x = commits.x + 1 }\n"
+                    + "  Item { id: moves; objectName: \"moves\"; x: 0; width: -1 }\n"
+                    + "  Item { id: commits; objectName: \"commits\"; x: 0 }\n"
+                    + "  Item { id: drop; objectName: \"drop\"; x: list._dropIndex; width: -1 }\n"
+                    + "  Item { id: held; objectName: \"held\"; x: list._dragFrom;"
+                    + " width: list._dragFloatY }\n"
+                    + "}");
+            settle(view);
+
+            // The grip sits 16px in from the right edge (nothing removable here) and
+            // is centred in the row, so this lands on row 0's handle.
+            float gripX = 900f - 16f - 22f;
+            assertTrue("a drag starts", view.dispatchPointerDown(gripX, 32f));
+            settle(view);
+            assertEquals("the press seats the drag on row 0", 0f, probeX(view, "held"), 0.001f);
+
+            // Two rows down. The grip was grabbed at the row's middle, so the
+            // carried row's top trails the cursor by half a row.
+            view.dispatchPointerMove(gripX, 160f);
+            settle(view);
+            assertEquals("the carried row follows the cursor",
+                    128f, probeWidth(view, "held"), 1f);
+            assertEquals("and previews landing at row 2", 2f, probeX(view, "drop"), 0.001f);
+            assertEquals("but nothing is applied while the finger is down",
+                    0f, probeX(view, "moves"), 0.001f);
+
+            view.dispatchPointerUp(gripX, 160f);
+            settle(view);
+            assertEquals("releasing reports exactly one move", 1f, probeX(view, "moves"), 0.001f);
+            assertEquals("from row 0", 0f, probeWidth(view, "moves"), 0.001f);
+            assertEquals("to row 2", 2f, probeWidth(view, "drop"), 0.001f);
+            assertEquals("and commits once", 1f, probeX(view, "commits"), 0.001f);
+            assertEquals("the drag is released", -1f, probeX(view, "held"), 0.001f);
+        } finally {
+            if (view != null) {
+                try { view.dispose(); } catch (Throwable ignored) { }
+            }
+            if (player != null) {
+                try { player.shutdown(); } catch (Throwable ignored) { }
+            }
+            AppDirs.setBase(oldBase);
+            AppDirs.setCacheBase(oldCache);
+        }
+    }
+
     private static float probeX(QmlView view, String objectName) {
         Item probe = view.findByObjectName(objectName);
         assertNotNull("missing probe " + objectName, probe);
         return probe.x.peekFloat();
+    }
+
+    private static float probeWidth(QmlView view, String objectName) {
+        Item probe = view.findByObjectName(objectName);
+        assertNotNull("missing probe " + objectName, probe);
+        return probe.width.peekFloat();
     }
 
     private static void settle(QmlView view) {

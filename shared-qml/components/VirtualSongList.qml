@@ -55,17 +55,32 @@ Flickable {
     property int rowH: 64
     property int activatedIndex: -1
     property int removeIndex: -1
-    // Drag-to-reorder. Each row crossed emits one moveRequested with the pair of
-    // positions; the caller applies it immediately, so the list re-publishes and
-    // the dragged song stays under the finger. reorderCommitted fires once, when
-    // the gesture ends, which is where a caller should persist.
+    // Drag-to-reorder. The model is NOT touched while the finger is down: the
+    // carried row lifts out of the list and follows the cursor, and the rows it
+    // passes slide aside to preview the gap it would land in. Exactly one
+    // moveRequested fires, on release, followed by reorderCommitted (where a
+    // caller should persist).
+    //
+    // The earlier version applied the move on every row crossed. That read as
+    // stiff — each crossing snapped the row to the next slot with no motion in
+    // between — and on a long playlist it was genuinely slow, because applying a
+    // move re-publishes the whole track list through the bridge and every
+    // published row is rebuilt into a fresh JS array. One gesture across fifty
+    // rows meant fifty of those.
     property bool reorderable: false
     property int moveFrom: -1
     property int moveTo: -1
     signal moveRequested()
     signal reorderCommitted()
-    // Row the drag is currently "holding", in list positions. -1 when idle.
-    property int _dragIndex: -1
+    // Where the carried row started, in list positions. -1 when idle; stays put
+    // for the whole gesture, since the model does not change under it.
+    property int _dragFrom: -1
+    // Where it would land if released now.
+    property int _dropIndex: -1
+    // Top of the carried row in content coordinates — the cursor position minus
+    // wherever inside the row the grip was taken.
+    property real _dragFloatY: 0
+    property real _dragGrabOffset: 0
     // Finger position within the viewport during a drag, kept so the auto-scroll
     // tick can recompute the target row while the finger itself is still.
     property real _dragViewportY: 0
@@ -74,19 +89,38 @@ Flickable {
     /** How deep into the top/bottom edge a drag has to reach before the list
      *  starts scrolling itself, capped so a short list still has a neutral middle. */
     property real autoScrollEdge: Math.min(64, view.height / 4)
+    readonly property var _dragRow: view._dragFrom >= 0 && view.list
+                                    && view._dragFrom < view.count
+                                    ? view.list[view._dragFrom] : null
 
-    /** Turn a content-space finger position into the row it is over, and move
-     *  the held row there. Shared by the drag itself and the auto-scroll tick. */
+    /** Turn a content-space cursor position into the slot the carried row would
+     *  drop into. Shared by the drag itself and the auto-scroll tick. */
     function _applyDragTarget(contentPos) {
-        if (view._dragIndex < 0 || view.count <= 0) return
-        var target = Math.floor(contentPos / view.rowH)
+        if (view._dragFrom < 0 || view.count <= 0) return
+        var maxY = Math.max(0, (view.count - 1) * view.rowH)
+        view._dragFloatY = Math.max(0, Math.min(maxY, contentPos - view._dragGrabOffset))
+        // Measure from the carried row's middle, so the gap opens when the row
+        // has actually covered its neighbour rather than when its top edge grazes it.
+        var target = Math.floor((view._dragFloatY + view.rowH / 2) / view.rowH)
         if (target < 0) target = 0
         if (target > view.count - 1) target = view.count - 1
-        if (target === view._dragIndex) return
-        view.moveFrom = view._dragIndex
-        view.moveTo = target
-        view._dragIndex = target
-        view.moveRequested()
+        view._dropIndex = target
+    }
+
+    /** End the gesture, applying the single move it adds up to. */
+    function _endDrag() {
+        var from = view._dragFrom
+        var to = view._dropIndex
+        view._dragFrom = -1
+        view._dropIndex = -1
+        view._autoScrollStep = 0
+        if (from < 0) return
+        if (to >= 0 && to !== from) {
+            view.moveFrom = from
+            view.moveTo = to
+            view.moveRequested()
+        }
+        view.reorderCommitted()
     }
 
     /** Dragging against either edge scrolls the list, so a row can be moved
@@ -117,7 +151,7 @@ Flickable {
         objectName: "virtualSongListAutoScroll"
         interval: 16
         repeat: true
-        running: view.reorderable && view._dragIndex >= 0 && view._autoScrollStep !== 0
+        running: view.reorderable && view._dragFrom >= 0 && view._autoScrollStep !== 0
         onTriggered: {
             var maxY = Math.max(0, view.contentHeight - view.height)
             var next = Math.max(0, Math.min(maxY, view.contentY + view._autoScrollStep))
@@ -194,7 +228,11 @@ Flickable {
                 objectName: "virtualSongRow"
                 height: view.rowH
                 width: view.width
-                y: index * view.rowH
+                // The gap preview is added here rather than animated on `y` itself:
+                // `y` also jumps when the window recycles this delegate onto another
+                // index, and that jump must stay instant. Dropped the moment the
+                // gesture ends so the settled row does not glide in from the gap.
+                y: index * view.rowH + (view._dragFrom >= 0 ? reorderShift : 0)
                 rowTitle: view.isLocal ? modelData.title : modelData.name
                 rowArtist: modelData.artist
                 rowArtistId: modelData.artistMediaId || modelData.artistId || 0
@@ -221,21 +259,69 @@ Flickable {
                 onActivated: { view.activatedIndex = index; view.activated() }
                 onRemoveRequested: { view.removeIndex = index; view.removeRequested() }
                 reorderable: view.reorderable
+                // The carried row is drawn once, by the floating copy below, so
+                // its slot in the list simply empties out.
+                visible: view._dragFrom !== index
+                // Slide aside to preview the gap. Read straight off the view's
+                // properties (not via a helper function) so the engine records
+                // them all as dependencies of this binding.
+                reorderShift: {
+                    if (view._dragFrom < 0 || view._dropIndex < 0) return 0
+                    if (view._dragFrom < view._dropIndex) {
+                        return (index > view._dragFrom && index <= view._dropIndex)
+                               ? -view.rowH : 0
+                    }
+                    if (view._dragFrom > view._dropIndex) {
+                        return (index >= view._dropIndex && index < view._dragFrom)
+                               ? view.rowH : 0
+                    }
+                    return 0
+                }
+                onReorderPressed: {
+                    view._dragFrom = index
+                    view._dropIndex = index
+                    view._dragGrabOffset = reorderGrabOffset
+                    view._dragFloatY = index * view.rowH
+                    view._dragViewportY = reorderContentY - view.viewportY
+                }
                 onReorderDragged: {
-                    // First movement of a gesture: the grip that is being held is
-                    // still at its own index, so that is where the drag starts.
-                    if (view._dragIndex < 0) view._dragIndex = index
+                    // A press always precedes this, but a delegate recycled onto
+                    // another index mid-gesture must not re-seat the drag.
+                    if (view._dragFrom < 0) return
                     view._dragViewportY = reorderContentY - view.viewportY
                     view._updateAutoScroll(view._dragViewportY)
                     view._applyDragTarget(reorderContentY)
                 }
-                onReorderReleased: {
-                    var moved = view._dragIndex >= 0
-                    view._dragIndex = -1
-                    view._autoScrollStep = 0
-                    if (moved) view.reorderCommitted()
-                }
+                onReorderReleased: view._endDrag()
             }
+        }
+
+        // The carried row, lifted out of the list. A separate item rather than the
+        // delegate itself: auto-scrolling can carry a row far past the live window,
+        // and a recycled delegate would take the row being dragged with it.
+        SongRow {
+            objectName: "reorderFloatingRow"
+            visible: view._dragFrom >= 0 && view._dragRow !== null
+            z: 5
+            width: view.width
+            height: view.rowH
+            y: view._dragFloatY
+            dragging: true
+            reorderable: true
+            // A preview, not a target: no context menu, and the live gesture already
+            // owns the pointer. `removable` is mirrored even though the button does
+            // nothing here, because it decides where the grip sits — otherwise the
+            // grip would jump sideways the moment the row lifts.
+            song: null
+            menuEnabled: false
+            removable: view.removable
+            highlighted: false
+            rowTitle: view._dragRow ? (view.isLocal ? view._dragRow.title : view._dragRow.name) : ""
+            rowArtist: view._dragRow ? view._dragRow.artist : ""
+            coverThumbPath: view._dragRow ? (view._dragRow.coverThumbPath || "") : ""
+            tag: view._dragRow ? (view._dragRow.kindLabel || "") : ""
+            offlineReady: view.showOfflineBadge
+                          && !!(view._dragRow && view._dragRow.cachedOffline)
         }
     }
 }
