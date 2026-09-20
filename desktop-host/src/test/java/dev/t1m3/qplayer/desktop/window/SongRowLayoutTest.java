@@ -144,6 +144,20 @@ public class SongRowLayoutTest {
                     gripRight <= remove.x.peekFloat());
             assertTrue("and stay inside the row",
                     grip.x.peekFloat() >= 0f && gripRight <= 900f);
+
+            assertEquals("the grip box is centred in the row",
+                    32f, grip.y.peekFloat() + grip.height.peekFloat() / 2f, 0.5f);
+
+            // The glyph has to be sized to the whole handle box, which is what makes
+            // an icon-font Text self-centre here. Centring it with anchors instead
+            // leaves it 0x0 in the row's top-left when the measure pass is skipped.
+            // This checks the invariant the placement depends on; where the glyph's
+            // ink actually lands is below the engine's reach from a unit test.
+            Item glyph = findIn(grip, "songRowDragGlyph");
+            assertNotNull("the grip must draw a glyph", glyph);
+            assertEquals("the glyph box must span the handle",
+                    grip.width.peekFloat(), glyph.width.peekFloat(), 0.001f);
+            assertEquals(grip.height.peekFloat(), glyph.height.peekFloat(), 0.001f);
         } finally {
             if (view != null) {
                 try { view.dispose(); } catch (Throwable ignored) { }
@@ -296,6 +310,32 @@ public class SongRowLayoutTest {
             assertEquals("but nothing is applied while the finger is down",
                     0f, probeX(view, "moves"), 0.001f);
 
+            // The carried row is its own item, realized hidden and revealed here.
+            // It has to be a fully laid-out, opaque row: with no background it is
+            // see-through, and the row it is passing over reads through it.
+            Item carried = view.findByObjectName("reorderFloatingRow");
+            assertNotNull("the carried row must exist during a drag", carried);
+            Item carriedBackground = findIn(carried, "songRowBackground");
+            Item carriedTitle = findIn(carried, "songRowTitle");
+            Item carriedArtist = findIn(carried, "songRowArtist");
+            assertNotNull(carriedBackground);
+            assertNotNull(carriedTitle);
+            assertNotNull(carriedArtist);
+            assertTrue("the carried row needs an opaque background, got "
+                            + carriedBackground.width.peekFloat() + "x"
+                            + carriedBackground.height.peekFloat(),
+                    carriedBackground.width.peekFloat() > 800f
+                            && carriedBackground.height.peekFloat() > 50f);
+            assertTrue("and its two lines must not collide: title ends at "
+                            + (carriedTitle.y.peekFloat() + carriedTitle.height.peekFloat())
+                            + ", artist starts at " + carriedArtist.y.peekFloat(),
+                    carriedTitle.y.peekFloat() + carriedTitle.height.peekFloat()
+                            <= carriedArtist.y.peekFloat());
+            Item carriedCover = findIn(carried, "songRowLeading");
+            assertNotNull(carriedCover);
+            assertEquals("its cover sits where every other row's does",
+                    8f, carriedCover.y.peekFloat(), 0.5f);
+
             view.dispatchPointerUp(gripX, 160f);
             settle(view);
             assertEquals("releasing reports exactly one move", 1f, probeX(view, "moves"), 0.001f);
@@ -315,10 +355,102 @@ public class SongRowLayoutTest {
         }
     }
 
+    /**
+     * A row that is first realized hidden -- which is what the carried row of a
+     * reorder is, sitting invisible until a drag starts -- still has to lay its
+     * text out. The title places itself by subtracting its own measured height
+     * from the row's midpoint, so a node that never measured collapses onto the
+     * artist line underneath it.
+     */
+    @Test
+    public void aRowRevealedAfterCreationStillSeparatesItsTwoLines() throws Exception {
+        String oldBase = AppDirs.base();
+        String oldCache = AppDirs.cacheBase();
+        PlayerController player = null;
+        QmlView view = null;
+        try {
+            Path base = temporary.newFolder().toPath();
+            AppDirs.setBase(base.toString());
+            AppDirs.setCacheBase(base.resolve("cache").toString());
+            AudioBackend backend = (AudioBackend) Proxy.newProxyInstance(
+                    AudioBackend.class.getClassLoader(), new Class<?>[]{AudioBackend.class},
+                    (proxy, method, args) -> {
+                        if (method.getReturnType() == boolean.class) return false;
+                        if (method.getReturnType() == long.class) return 0L;
+                        return null;
+                    });
+            player = new PlayerController(backend, track -> { });
+            SettingsCore settings = new SettingsCore();
+            settings.load(new JsonSettingsStore(), SettingsCatalog.DESKTOP);
+            view = QmlView.withStockTypes(new QmlEngine())
+                    .resources(new ClasspathResourceLoader())
+                    .context("player", player).context("settings", settings)
+                    .context("i18n", I18n.instance());
+            // cachedLayout is what VirtualSongList puts its rows under, and it is
+            // what skips the measure pass for a node realized off-screen.
+            view.load("import QtQuick\nimport \"components\"\n"
+                    + "Item { id: host; width: 900; height: 200\n"
+                    + "  property bool shown: false\n"
+                    + "  Item { width: 900; height: 200; cachedLayout: true\n"
+                    + "    SongRow { objectName: \"hidden\"; width: 900; height: 64\n"
+                    + "      visible: host.shown\n"
+                    + "      rowTitle: host.shown ? \"song\" : \"\"\n"
+                    + "      rowArtist: host.shown ? \"artist\" : \"\"\n"
+                    + "      reorderable: true }\n"
+                    + "  }\n"
+                    + "  Component.onCompleted: host.shown = true\n"
+                    + "}");
+            settle(view);
+
+            Item title = view.findByObjectName("songRowTitle");
+            Item artist = view.findByObjectName("songRowArtist");
+            assertNotNull(title);
+            assertNotNull(artist);
+            float titleHeight = title.height.peekFloat();
+            assertTrue("the title has to have measured a line, got " + titleHeight,
+                    titleHeight > 1f);
+            assertTrue("the title must sit clear of the artist line: title ends at "
+                            + (title.y.peekFloat() + titleHeight) + ", artist starts at "
+                            + artist.y.peekFloat(),
+                    title.y.peekFloat() + titleHeight <= artist.y.peekFloat());
+            assertTrue("and stay inside the row", title.y.peekFloat() >= 0f);
+
+            // The background is the only opaque thing in the row; anchored, which is
+            // exactly what the skipped measure pass drops. Without it the carried row
+            // of a drag is see-through and reads as two rows printed on top of
+            // each other.
+            Item background = view.findByObjectName("songRowBackground");
+            assertNotNull(background);
+            assertTrue("the row background must fill the row, got "
+                            + background.width.peekFloat() + "x" + background.height.peekFloat(),
+                    background.width.peekFloat() > 800f && background.height.peekFloat() > 50f);
+        } finally {
+            if (view != null) {
+                try { view.dispose(); } catch (Throwable ignored) { }
+            }
+            if (player != null) {
+                try { player.shutdown(); } catch (Throwable ignored) { }
+            }
+            AppDirs.setBase(oldBase);
+            AppDirs.setCacheBase(oldCache);
+        }
+    }
+
     private static float probeX(QmlView view, String objectName) {
         Item probe = view.findByObjectName(objectName);
         assertNotNull("missing probe " + objectName, probe);
         return probe.x.peekFloat();
+    }
+
+    /** Depth-first lookup inside one subtree; the view-wide finder would return
+     *  whichever list delegate happens to come first in the tree. */
+    private static Item findIn(Item root, String objectName) {
+        if (objectName.equals(root.objectName.peek())) return root;
+        for (Item child : root.children) {
+            Item hit = findIn(child, objectName);
+            if (hit != null) return hit;
+        }
+        return null;
     }
 
     private static float probeWidth(QmlView view, String objectName) {

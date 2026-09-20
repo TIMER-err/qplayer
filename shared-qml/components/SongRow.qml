@@ -99,11 +99,17 @@ Rectangle {
     // keeps its primary-tinted text/glyph rather than a fill.
     Rectangle {
         id: rowBackground
-        anchors.fill: parent
-        anchors.leftMargin: 8
-        anchors.rightMargin: 8
-        anchors.topMargin: 4
-        anchors.bottomMargin: 4
+        objectName: "songRowBackground"
+        // Explicit geometry, not anchors.fill + margins: a row first realized
+        // off-screen never gets the layout pass cachedLayout skips, and an
+        // anchored background stays 0x0 there. Harmless while it was only a hover
+        // tint, but the carried row of a drag is realized hidden and needs this to
+        // be the opaque thing that lifts it off the list — without it the row
+        // underneath reads straight through it.
+        x: 8
+        y: 4
+        width: Math.max(0, row.width - 16)
+        height: Math.max(0, row.height - 8)
         radius: 16
         // While carried the row needs to read as detached from the list. qml4j's
         // MultiEffect accepts shadow properties but does not paint them yet, so the
@@ -111,8 +117,10 @@ Rectangle {
         color: row.dragging ? Theme.color.surfaceContainerHighest
              : (row.highlighted ? Theme.color.primaryContainer : Theme.color.surfaceContainerHigh)
         opacity: row.dragging ? 1 : (row.highlighted ? 0.65 : (ripple.containsMouse ? 1 : 0))
-        border.width: row.dragging ? 1 : 0
-        border.color: Theme.color.outlineVariant
+        // The outline is what actually says "this is the song you are holding",
+        // so it is the accent colour rather than a hairline separator.
+        border.width: row.dragging ? 2 : 0
+        border.color: Theme.color.primary
         Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
         Behavior on color { ColorAnimation { duration: 150 } }
     }
@@ -121,10 +129,11 @@ Rectangle {
     // the outer radius (16 - 4 = 12) so the rounded corners are concentric.
     Item {
         id: leading
+        objectName: "songRowLeading"
         readonly property real cornerRadius: Math.max(0, rowBackground.radius - 4)
-        anchors.left: parent.left
-        anchors.leftMargin: 12
-        anchors.verticalCenter: parent.verticalCenter
+        // Explicit, for the same reason as the background above.
+        x: 12
+        y: (row.height - height) / 2
         width: 48
         height: 48
 
@@ -185,14 +194,17 @@ Rectangle {
             width: 16
             height: 16
             radius: 8
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            anchors.margins: -2
+            x: parent.width - width + 2
+            y: parent.height - height + 2
             color: Theme.color.primary
             border.width: 1.5
             border.color: Theme.color.surface
             Text {
-                anchors.centerIn: parent
+                // Sized to the box rather than centred by anchors — see the
+                // placeholder glyph above for why.
+                width: parent.width
+                height: parent.height
+                horizontalAlignment: Text.AlignHCenter
                 text: "check"
                 font.family: Theme.iconFont.name
                 font.pixelSize: 11
@@ -221,6 +233,7 @@ Rectangle {
 
     Text {
         id: artistText
+        objectName: "songRowArtist"
         x: titleText.x
         y: row.height / 2 + 2
         width: titleText.width
@@ -352,12 +365,19 @@ Rectangle {
         x: Math.max(0, row.width - width - (row.removable ? 72 : 16))
         y: (row.height - height) / 2
 
-        Icon {
-            name: "drag_handle"
-            width: 22
-            height: 22
-            x: (parent.width - width) / 2
-            y: (parent.height - height) / 2
+        // Not an Icon: that centres its glyph with anchors.centerIn, which the
+        // skipped measure pass drops, and even when it runs it centres the text
+        // BOX while the glyph sits on the box's baseline. Same self-centring
+        // pattern as the placeholder glyph above — size the Text to the box and
+        // let the icon font's own vertical metrics do the rest.
+        Text {
+            objectName: "songRowDragGlyph"
+            width: parent.width
+            height: parent.height
+            horizontalAlignment: Text.AlignHCenter
+            text: "drag_handle"
+            font.family: Theme.iconFont.name
+            font.pixelSize: 22
             color: handleArea.pressed ? Theme.color.primary
                                       : Theme.color.onSurfaceVariantColor
         }
