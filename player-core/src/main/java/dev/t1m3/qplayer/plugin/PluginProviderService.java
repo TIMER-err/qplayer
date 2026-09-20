@@ -95,9 +95,21 @@ public final class PluginProviderService {
 
     public CompletableFuture<Playlist> playlist(MediaId id) {
         id.requireKind(MediaKind.PLAYLIST);
+        // A big playlist is the slowest thing a provider is asked for, and "it is
+        // slow" can mean the service, the plugin's own JS, or this validation pass.
+        // One line per open says which, without needing a profiler attached.
+        final long startedAtNanos = System.nanoTime();
         return manager.invoke(id.provider(), ProviderCapability.PLAYLIST_DETAILS.wireName(),
                 Collections.<String, Object>singletonMap("id", id.nativeId()))
-                .thenApply(raw -> parsePlaylist(id.provider(), map(raw, "playlist")));
+                .thenApply(raw -> {
+                    long providerMs = (System.nanoTime() - startedAtNanos) / 1_000_000L;
+                    long parseStartNanos = System.nanoTime();
+                    Playlist playlist = parsePlaylist(id.provider(), map(raw, "playlist"));
+                    Logger.info("playlist {}: {} tracks, provider {} ms, validate {} ms",
+                            id, playlist.songs.size(), providerMs,
+                            (System.nanoTime() - parseStartNanos) / 1_000_000L);
+                    return playlist;
+                });
     }
 
     public CompletableFuture<List<Song>> songsByIds(String provider, List<String> canonicalIds) {
@@ -222,6 +234,45 @@ public final class PluginProviderService {
         arguments.put("songIds", nativeIds);
         return manager.invoke(playlistId.provider(),
                         ProviderCapability.PLAYLIST_MUTATION.wireName(), arguments)
+                .thenApply(PluginProviderService::successValue);
+    }
+
+    /**
+     * Save a new song order for a playlist the user owns.
+     *
+     * <p>Takes the whole arrangement rather than the one row that moved: NetEase's
+     * and QQ's endpoints both rewrite the playlist's track list wholesale, so a
+     * from/to pair would only have to be expanded back into this on the other side
+     * of the boundary — and a plugin that reconstructed it from a stale copy of the
+     * playlist would silently reorder the wrong songs.
+     */
+    public CompletableFuture<Boolean> reorderPlaylist(MediaId playlistId, List<MediaId> ordered) {
+        playlistId.requireKind(MediaKind.PLAYLIST);
+        if (ordered == null || ordered.isEmpty()) {
+            throw new IllegalArgumentException("playlist order is empty");
+        }
+        List<String> nativeIds = new ArrayList<>(ordered.size());
+        Set<String> seen = new LinkedHashSet<>();
+        for (MediaId song : ordered) {
+            song.requireKind(MediaKind.SONG);
+            if (!playlistId.provider().equals(song.provider())) {
+                throw new IllegalArgumentException("playlist and song provider mismatch");
+            }
+            // A duplicated id would make the provider's own de-duplication decide
+            // which copy survives, quietly dropping a row the user can still see.
+            if (!seen.add(song.nativeId())) {
+                throw new IllegalArgumentException("playlist order repeats a song");
+            }
+            nativeIds.add(song.nativeId());
+            if (nativeIds.size() > 10_000) {
+                throw new IllegalArgumentException("too many songs to reorder");
+            }
+        }
+        Map<String, Object> arguments = new LinkedHashMap<>();
+        arguments.put("playlistId", playlistId.nativeId());
+        arguments.put("songIds", nativeIds);
+        return manager.invoke(playlistId.provider(),
+                        ProviderCapability.PLAYLIST_REORDER.wireName(), arguments)
                 .thenApply(PluginProviderService::successValue);
     }
 

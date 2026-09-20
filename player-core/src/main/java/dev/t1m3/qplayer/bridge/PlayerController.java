@@ -647,6 +647,10 @@ public final class PlayerController {
      *  cover is its own provider capability: a source may well support adding and
      *  removing songs without supporting artwork upload. */
     public final Property<Boolean> sourcePlaylistCoverAvailable = new Property<>(false);
+    /** Whether the open playlist can be rearranged by dragging: its source
+     *  advertises {@link ProviderCapability#PLAYLIST_REORDER} and the user owns it.
+     *  Someone else's playlist is read-only no matter what the source can do. */
+    public final Property<Boolean> sourcePlaylistReorderable = new Property<>(false);
     /** Currently opened playlist. */
     public final Property<List<NeteaseSong>> playlistTracks = new Property<>(Collections.<NeteaseSong>emptyList());
     public final Property<List<Song>> sourcePlaylistTracks =
@@ -3679,9 +3683,11 @@ public final class PlayerController {
      * same as on-screen positions because dragging is only offered in the custom
      * sort ({@link #localPlaylistReorderable}).
      *
-     * <p>Deliberately does not persist: a drag emits one of these per row crossed,
-     * and writing the file on each would be dozens of writes per gesture. The page
-     * calls {@link #commitLocalPlaylistOrder} when the gesture ends.
+     * <p>Deliberately does not persist; the page calls
+     * {@link #commitLocalPlaylistOrder} when the gesture ends. The list now sends
+     * one of these per gesture rather than one per row crossed (it previews the
+     * gap on screen and only applies the move on release), but keeping the write
+     * out of here also keeps a programmatic caller from writing the file per step.
      */
     public void moveLocalPlaylistTrack(String playlistId, int from, int to) {
         if (!Boolean.TRUE.equals(localPlaylistReorderable.peek())) return;
@@ -7418,6 +7424,7 @@ public final class PlayerController {
                 pluginHasCapability(id.provider(), ProviderCapability.PLAYLIST_COVER));
         playlistLoading.set(true);
         playlistOffline.set(false);
+        sourcePlaylistReorderable.set(false);
         if (!refreshing) {
             playlistTracks.set(Collections.<NeteaseSong>emptyList());
             sourcePlaylistTracks.set(Collections.<Song>emptyList());
@@ -7440,15 +7447,31 @@ public final class PlayerController {
                 }
                 playlistOffline.set(true);
             }
+            long publishStartNanos = System.nanoTime();
             playlistTitle.set(resolved.name);
             playlistCoverPath.set(resolved.artworkUrl);
             playlistSubscribed.set(resolved.subscribed);
             playlistOwned.set(resolved.owned);
             playlistDeletable.set(resolved.deletable);
+            // Dragging is offered only on a playlist that is both the user's own and
+            // whose source can save an order. An offline snapshot is read-only too:
+            // there is nowhere to send the new arrangement.
+            sourcePlaylistReorderable.set(resolved.owned
+                    && !Boolean.TRUE.equals(playlistOffline.peek())
+                    && pluginHasCapability(id.provider(), ProviderCapability.PLAYLIST_REORDER));
             sourcePlaylistTracks.set(Collections.unmodifiableList(
                     new ArrayList<>(resolved.songs)));
-            mediaPlaylistCacheIndex.upsert(resolved);
-            worker.submit(mediaPlaylistCacheIndex::save);
+            // Snapshotting the playlist costs a full JSON round trip of every track
+            // — measured at 30-70 ms for a thousand-track list — which has no
+            // business running on the render thread while the rows are appearing.
+            final Playlist snapshot = resolved;
+            worker.submit(() -> {
+                mediaPlaylistCacheIndex.upsert(snapshot);
+                mediaPlaylistCacheIndex.save();
+            });
+            Logger.info("playlist {} published {} rows in {} ms", id,
+                    resolved.songs.size(),
+                    (System.nanoTime() - publishStartNanos) / 1_000_000L);
         }));
     }
 
@@ -8142,16 +8165,50 @@ public final class PlayerController {
                     if (error == null && Boolean.TRUE.equals(success)) {
                         showToast(I18n.tr(add ? "toast.playlist.songAdded" : "toast.playlist.songRemoved"));
                         if (refreshDetail && playlistId.toString().equals(openSourcePlaylistId.peek())) {
-                            openMediaPlaylist(playlistId.toString());
+                            dropOpenSourcePlaylistTrack(songId.toString());
                         }
                     } else showToast(I18n.tr(add ? "toast.playlist.addFailedReason" : "toast.playlist.removeFailedReason", safeMessage(error)));
                 }));
     }
 
+    /**
+     * Take one song out of the open source playlist's rows after the provider
+     * confirmed the removal.
+     *
+     * <p>This used to re-open the playlist, which re-fetched every page of it from
+     * the network — several seconds and a scroll back to the top to delete one row,
+     * and on a thousand-track playlist a visible freeze. The provider already told
+     * us the removal succeeded, so the local rows are authoritative enough; the next
+     * open (or the refresh button) reconciles anything else that changed server-side.
+     */
+    private void dropOpenSourcePlaylistTrack(String songMediaId) {
+        List<Song> current = sourcePlaylistTracks.peek();
+        if (current == null || current.isEmpty()) return;
+        List<Song> remaining = new ArrayList<>(current.size());
+        for (Song song : current) {
+            if (!songMediaId.equals(song.id)) remaining.add(song);
+        }
+        if (remaining.size() == current.size()) return;
+        sourcePlaylistTracks.set(Collections.unmodifiableList(remaining));
+        // Keep the offline snapshot in step, or reopening without network would
+        // bring the song back. Off the render thread: the cache copies by JSON
+        // round trip, which is not free for a large playlist.
+        final String playlistId = openSourcePlaylistId.peek();
+        worker.submit(() -> {
+            Playlist cached = mediaPlaylistCacheIndex.get(playlistId);
+            if (cached == null) return;
+            if (!cached.songs.removeIf(song -> songMediaId.equals(song.id))) return;
+            cached.trackCount = cached.songs.size();
+            mediaPlaylistCacheIndex.upsert(cached);
+            mediaPlaylistCacheIndex.save();
+        });
+    }
+
     /** Remove a track from the currently open playlist (the "从此歌单移除" menu
-     *  entry only appears there), then refresh the detail view. Reads the open id
-     *  internally so QML needn't round-trip a 64-bit playlist id back through a
-     *  numeric property. */
+     *  entry only appears there). Reads the open id internally so QML needn't
+     *  round-trip a 64-bit playlist id back through a numeric property. Drops the
+     *  row locally rather than re-fetching, for the reason in
+     *  {@link #dropOpenSourcePlaylistTrack}. */
     public void removeFromCurrentPlaylist(long songId) {
         final long playlistId = currentPlaylistId;
         if (uid == 0 || playlistId == 0 || songId == 0) return;
@@ -8160,13 +8217,91 @@ public final class PlayerController {
                 boolean ok = netease.manipulatePlaylistTracks(playlistId, songId, false);
                 post(() -> {
                     showToast(I18n.tr(ok ? "toast.playlist.songRemoved" : "toast.playlist.removeFailed"));
-                    if (ok && currentPlaylistId == playlistId) openPlaylist(playlistId);
+                    if (ok && currentPlaylistId == playlistId) dropOpenPlaylistTrack(songId);
                 });
             } catch (Throwable e) {
                 Logger.warn("remove track {} <- playlist {} failed: {}", songId, playlistId, e.getMessage());
                 showToast(I18n.tr("toast.playlist.removeFailed"));
             }
         });
+    }
+
+    /**
+     * Move a row in the open source playlist while a drag is being applied. Local
+     * only: {@link #commitSourcePlaylistOrder} is what reaches the provider, so the
+     * whole gesture costs one network call rather than one per row crossed.
+     */
+    public void moveSourcePlaylistTrack(int from, int to) {
+        if (!Boolean.TRUE.equals(sourcePlaylistReorderable.peek())) return;
+        List<Song> current = sourcePlaylistTracks.peek();
+        if (current == null) return;
+        if (from < 0 || from >= current.size() || to < 0 || to >= current.size()) return;
+        if (from == to) return;
+        List<Song> reordered = new ArrayList<>(current);
+        reordered.add(to, reordered.remove(from));
+        sourcePlaylistTracks.set(Collections.unmodifiableList(reordered));
+    }
+
+    /** True while a reorder is on its way to the provider. */
+    private boolean sourceOrderSaving;
+    /** Set when a drag lands while the previous one is still in flight, so the
+     *  final arrangement is sent rather than an intermediate one. */
+    private boolean sourceOrderPending;
+
+    /** Send the open source playlist's current arrangement to its provider. */
+    public void commitSourcePlaylistOrder() {
+        if (!Boolean.TRUE.equals(sourcePlaylistReorderable.peek())) return;
+        if (sourceOrderSaving) { sourceOrderPending = true; return; }
+        final String playlistMediaId = openSourcePlaylistId.peek();
+        if (playlistMediaId == null || playlistMediaId.isEmpty()) return;
+        List<Song> rows = sourcePlaylistTracks.peek();
+        if (rows == null || rows.isEmpty()) return;
+        final MediaId playlistId;
+        final List<MediaId> ordered = new ArrayList<>(rows.size());
+        try {
+            playlistId = MediaId.parse(playlistMediaId)
+                    .requireKind(dev.t1m3.qplayer.media.MediaKind.PLAYLIST);
+            for (Song song : rows) {
+                ordered.add(MediaId.parse(song.id)
+                        .requireKind(dev.t1m3.qplayer.media.MediaKind.SONG));
+            }
+        } catch (IllegalArgumentException error) {
+            showToast(I18n.tr("toast.id.media"));
+            return;
+        }
+        sourceOrderSaving = true;
+        pluginProviders.reorderPlaylist(playlistId, ordered)
+                .whenComplete((success, error) -> post(() -> {
+                    sourceOrderSaving = false;
+                    boolean stillOpen = playlistId.toString().equals(openSourcePlaylistId.peek());
+                    if (error == null && Boolean.TRUE.equals(success)) {
+                        if (sourceOrderPending && stillOpen) {
+                            sourceOrderPending = false;
+                            commitSourcePlaylistOrder();
+                        } else {
+                            sourceOrderPending = false;
+                        }
+                        return;
+                    }
+                    sourceOrderPending = false;
+                    Logger.warn("playlist {} reorder failed: {}", playlistId, safeMessage(error));
+                    showToast(I18n.tr("toast.playlist.orderFailedReason", safeMessage(error)));
+                    // The rows on screen no longer match the server. Re-read rather
+                    // than leave the user looking at an order that did not save.
+                    if (stillOpen) loadMediaPlaylist(playlistId.toString(), true);
+                }));
+    }
+
+    /** {@link #dropOpenSourcePlaylistTrack} for the built-in netease playlist view. */
+    private void dropOpenPlaylistTrack(long songId) {
+        List<NeteaseSong> current = playlistTracks.peek();
+        if (current == null || current.isEmpty()) return;
+        List<NeteaseSong> remaining = new ArrayList<>(current.size());
+        for (NeteaseSong song : current) {
+            if (song.id != songId) remaining.add(song);
+        }
+        if (remaining.size() == current.size()) return;
+        playlistTracks.set(Collections.unmodifiableList(remaining));
     }
 
     /** Recently played (netease listen history). */

@@ -214,6 +214,11 @@ Rectangle {
                 songMenu: true
                 ownedPlaylist: player.playlistOwned
                 showOfflineBadge: player.playlistOffline
+                // Own playlist, on a source that can save an order, and unfiltered —
+                // a drop position means nothing while rows are hidden.
+                reorderable: player.sourcePlaylistReorderable && page.filterText === ""
+                onMoveRequested: player.moveSourcePlaylistTrack(tracks.moveFrom, tracks.moveTo)
+                onReorderCommitted: player.commitSourcePlaylistOrder()
                 onActivated: {
                     var selected = tracks.list[tracks.activatedIndex]
                     var all = player.openSourcePlaylistId !== ""

@@ -3,6 +3,7 @@ package dev.t1m3.qplayer.plugin;
 import com.google.gson.Gson;
 import dev.t1m3.qplayer.store.AppDirs;
 import dev.t1m3.qplayer.store.StorageFiles;
+import dev.t1m3.qplayer.util.Logger;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -204,8 +205,19 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
                 case "http.request":
                     require(manifest, PluginPermission.NETWORK);
                     return CompletableFuture.supplyAsync(() -> {
+                        long startedAtNanos = System.nanoTime();
                         try { return request(manifest, args); }
                         catch (IOException error) { throw new CompletionException(error); }
+                        finally {
+                            // Splits a slow provider call into "the service was slow"
+                            // versus "the plugin's own JS was". Only the slow ones, so
+                            // ordinary browsing does not fill the log panel.
+                            long elapsedMs = (System.nanoTime() - startedAtNanos) / 1_000_000L;
+                            if (elapsedMs >= 1_000L) {
+                                Logger.info("plugin {} http {} ms: {}", pluginId, elapsedMs,
+                                        requestHost(args));
+                            }
+                        }
                     }, network);
                 default:
                     AppBridge bridge = appBridge;
@@ -449,6 +461,17 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
             throw new IOException("HTTP request failed");
         } finally {
             Files.deleteIfExists(pending);
+        }
+    }
+
+    /** Host of a pending request, for logging. Never the full URL: query strings on
+     *  these APIs carry uin, tokens and cookies. */
+    private static String requestHost(Map<String, Object> args) {
+        try {
+            String host = URI.create(String.valueOf(args.get("url"))).getHost();
+            return host != null ? host : "?";
+        } catch (RuntimeException ignored) {
+            return "?";
         }
     }
 

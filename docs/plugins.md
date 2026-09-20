@@ -106,6 +106,7 @@ Each advertised capability maps to a same-named handler:
 | `login` | operation `methods`, `begin`, `poll`, `submit`, or `logout` |
 | `like` | operation `list` or `set` |
 | `playlistMutation` | `add`, `remove`, `subscribe`, `unsubscribe`, `delete`, or `create` |
+| `playlistReorder` | `{playlistId, songIds}` → `{success}` |
 | `playlistCover` | `{playlistId, imageBase64, filename, mimeType}` → `{success}` |
 | `scrobble` | playback report |
 | `heartRecommendation` | seed song and optional playlist → songs |
@@ -116,6 +117,16 @@ payload rather than song ids, and so the change-cover action can stay hidden on
 sources that cannot upload artwork. The host forwards the picked file unmodified
 (size-capped, as base64) and leaves cropping or provider-specific upload to the
 plugin.
+
+`playlistReorder` is separate for the same reason — the drag grip appears only on
+sources that advertise it, and only in a playlist the user owns. `songIds` is the
+playlist's **complete** new order, not the row that moved: both providers that
+implement it replace the whole track list server-side, and reconstructing the full
+order inside a plugin from a from/to pair would mean trusting a possibly stale
+copy. The host sends one call per gesture, when the finger lifts. A plugin whose
+provider rewrites playlist metadata in the same request (QQ's does) must read the
+current name, description, cover and tags back and return them unchanged, and must
+fail rather than send a partial form — a missing field there clears it.
 
 `home` may also return `sections`: up to 6 `{title, playlists}` groups (30
 playlists each) drawn above the plain recommendation grid, for lists a source

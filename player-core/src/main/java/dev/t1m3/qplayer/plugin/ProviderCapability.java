@@ -14,6 +14,13 @@ public enum ProviderCapability {
      * host needs to know whether a given source can do it at all — the change-cover
      * action stays hidden on sources that cannot, instead of failing on tap. */
     PLAYLIST_COVER("playlistCover"),
+    /** Rearrange the songs in a playlist the user owns. Separate from
+     * {@link #PLAYLIST_MUTATION} for the same reason as the cover: the host has to
+     * know up front whether the source supports it, so the drag grip stays hidden
+     * on the ones that do not rather than failing after the gesture. The handler
+     * receives the complete new order, not a from/to pair — both providers that
+     * implement it replace the whole list server-side anyway. */
+    PLAYLIST_REORDER("playlistReorder"),
     HEART_RECOMMENDATION("heartRecommendation"), SHARE("share"),
     MATCH_SONG("matchSong"), LOGIN("login"),
     /** Manifest-only compatibility for pre-migration packages. The host does not
