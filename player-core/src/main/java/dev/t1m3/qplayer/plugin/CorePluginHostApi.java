@@ -5,6 +5,7 @@ import dev.t1m3.qplayer.store.AppDirs;
 import dev.t1m3.qplayer.store.StorageFiles;
 import dev.t1m3.qplayer.util.Logger;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -32,6 +33,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.zip.GZIPInputStream;
 
 /** Core-owned, namespaced implementations of the non-UI plugin host services. */
 public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCloseable {
@@ -339,6 +341,11 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
         timeout = Math.max(1_000, Math.min(30_000, timeout));
         byte[] body = requestBody(args);
         Map<String, String> requestHeaders = stringMap(args.get("headers"));
+        // Negotiate compression for the plugin, the way any HTTP client does. A
+        // playlist page is JSON that compresses better than 3:1, and a plugin
+        // that asks for a thousand tracks otherwise pays for every byte of it.
+        // A plugin that sets its own Accept-Encoding keeps the raw bytes.
+        boolean hostNegotiatedGzip = !hasHeader(requestHeaders, "Accept-Encoding");
 
         for (int redirect = 0; redirect <= MAX_REDIRECTS; redirect++) {
             URL url = validateNetworkUrl(manifest, current);
@@ -348,6 +355,7 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
             connection.setConnectTimeout(timeout);
             connection.setReadTimeout(timeout);
             connection.setRequestProperty("User-Agent", "QPlayer-Plugin/1");
+            if (hostNegotiatedGzip) connection.setRequestProperty("Accept-Encoding", "gzip");
             for (Map.Entry<String, String> header : requestHeaders.entrySet()) {
                 String name = header.getKey();
                 if ("Host".equalsIgnoreCase(name) || "Content-Length".equalsIgnoreCase(name)
@@ -376,7 +384,18 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
                 continue;
             }
             InputStream raw = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
-            byte[] response = raw != null ? readLimited(raw, MAX_HTTP_BYTES) : new byte[0];
+            byte[] response;
+            try {
+                response = raw != null ? readLimited(raw, MAX_HTTP_BYTES) : new byte[0];
+            } catch (IOException error) {
+                // A body that hit the cap is left undrained, and a half-read
+                // connection must not go back into the keep-alive pool.
+                connection.disconnect();
+                throw error;
+            }
+            boolean decoded = hostNegotiatedGzip
+                    && "gzip".equalsIgnoreCase(trimmed(connection.getHeaderField("Content-Encoding")));
+            if (decoded) response = gunzipLimited(response, MAX_HTTP_BYTES);
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("status", status);
             result.put("finalUrl", current);
@@ -388,6 +407,10 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
             List<String> setCookies = new ArrayList<>();
             for (Map.Entry<String, List<String>> header : connection.getHeaderFields().entrySet()) {
                 if (header.getKey() != null && header.getValue() != null) {
+                    // Both of these describe bytes the plugin never sees once the
+                    // host has decoded the body for it.
+                    if (decoded && ("Content-Encoding".equalsIgnoreCase(header.getKey())
+                            || "Content-Length".equalsIgnoreCase(header.getKey()))) continue;
                     responseHeaders.put(header.getKey(), String.join(", ", header.getValue()));
                     if ("Set-Cookie".equalsIgnoreCase(header.getKey())) {
                         setCookies.addAll(header.getValue());
@@ -396,7 +419,9 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
             }
             result.put("headers", responseHeaders);
             result.put("setCookies", setCookies);
-            connection.disconnect();
+            // Deliberately not disconnect(): the body is fully read, so leaving the
+            // connection in the JDK's keep-alive pool saves the next call to the
+            // same host a TCP and TLS handshake, and a fresh slow-start window.
             return result;
         }
         throw new IOException("HTTP request failed");
@@ -435,9 +460,12 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
                 throw new IOException("HTTP " + status);
             }
             try {
+                // Left connected on success for the same reason as above: a
+                // playlist's worth of cover art is a run of requests to one host.
                 return readLimited(connection.getInputStream(), limit);
-            } finally {
+            } catch (IOException error) {
                 connection.disconnect();
+                throw error;
             }
         }
         throw new IOException("HTTP request failed");
@@ -584,6 +612,30 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
             }
             return output.toByteArray();
         }
+    }
+
+    /** Decompress a response the host itself asked to have compressed. The output
+     * is held to the same cap as the raw body, so a small archive cannot expand
+     * into an unbounded one. A body labelled gzip that does not start like one is
+     * handed back untouched rather than failing the whole request. */
+    static byte[] gunzipLimited(byte[] compressed, long limit) throws IOException {
+        if (compressed == null || compressed.length < 2) return compressed;
+        if ((compressed[0] & 0xFF) != 0x1F || (compressed[1] & 0xFF) != 0x8B) return compressed;
+        try (GZIPInputStream input = new GZIPInputStream(new ByteArrayInputStream(compressed))) {
+            return readLimited(input, limit);
+        }
+    }
+
+    static boolean hasHeader(Map<String, String> headers, String name) {
+        if (headers == null) return false;
+        for (String key : headers.keySet()) {
+            if (name.equalsIgnoreCase(key)) return true;
+        }
+        return false;
+    }
+
+    private static String trimmed(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private static void require(PluginManifest manifest, PluginPermission permission) {

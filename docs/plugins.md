@@ -168,6 +168,15 @@ Calls are asynchronous: `qplayer.call(method, arguments)` returns a Promise.
 | `notifications.toast` | `notifications` | host Snackbar/Toast, including over the lyric page |
 | `clipboard.write` | `clipboard` | platform clipboard |
 
+`http.request` negotiates `Accept-Encoding: gzip` on the plugin's behalf and hands
+back the decoded body, dropping `Content-Encoding`/`Content-Length` from the
+reported headers; the decoded size is held to the same cap as a plain one. A
+plugin that sets its own `Accept-Encoding` gets the bytes exactly as they arrived
+and decodes them itself, which is what `compression.gunzip` is for. Connections
+are kept alive between calls to the same host, so a run of requests — a paged
+playlist, a list's worth of cover art — pays for one handshake instead of one per
+call.
+
 Network URLs returned for playback and artwork are checked again by the host.
 Host-fetched artwork and cached audio enforce the policy on every redirect. A
 platform playback backend validates the initial stream URL; redirects performed
