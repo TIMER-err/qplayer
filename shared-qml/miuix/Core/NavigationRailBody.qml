@@ -109,8 +109,12 @@ Item {
                     id: railItem
                     objectName: "miuixRailItem" + index
                     width: railRoot._contentWidth
+                    // Expanded, the slot is 8dp taller than the indicator pill inside
+                    // it. They used to be the same height, so the selected and hover
+                    // pills of adjacent entries met edge to edge with nothing between
+                    // them and the column read as one continuous block.
                     height: Math.round((56 + (railRoot.expandable ? 8 : 0) + label.implicitHeight) * (1 - railRoot._progress)
-                        + (28 + Math.max(28, label.implicitHeight)) * railRoot._progress)
+                        + (36 + Math.max(28, label.implicitHeight)) * railRoot._progress)
                     property bool selected: index === railRoot.currentIndex
                     property var itemData: modelData
                     property bool available: railRoot.enabled && modelData.enabled !== false
