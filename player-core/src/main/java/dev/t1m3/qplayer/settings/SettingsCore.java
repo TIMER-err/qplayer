@@ -625,6 +625,14 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
         return store.getBool("useSystemFont", false) ? Fonts.SYSTEM : "";
     }
 
+    /** Re-read the installed font families. Hosts that index font files
+     *  asynchronously (Android has to parse every file to learn its family name)
+     *  call this when that finishes, so the picker gains them without a restart.
+     *  Must run on the thread that owns the QML scene. */
+    public void refreshFontFamilies() {
+        availableFontFamilies.set(sortedFontFamilies());
+    }
+
     private static List<String> sortedFontFamilies() {
         String[] names = Fonts.listFamilies();
         java.util.Arrays.sort(names, String.CASE_INSENSITIVE_ORDER);

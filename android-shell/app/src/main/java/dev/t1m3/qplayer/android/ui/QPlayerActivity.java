@@ -1,5 +1,6 @@
 package dev.t1m3.qplayer.android.ui;
 
+import dev.t1m3.qplayer.android.app.AndroidFontIndex;
 import dev.t1m3.qplayer.android.graphics.AndroidColorExtractor;
 import dev.t1m3.qplayer.i18n.I18n;
 import dev.t1m3.qplayer.android.library.AndroidLibraryScanner;
@@ -238,11 +239,33 @@ public final class QPlayerActivity extends Activity {
                         "fonts/PingFangSC-" + bundledFontWeightName(weight) + ".otf"));
                 dev.t1m3.qplayer.lyric.skia.Fonts.initIcon(
                         readAssetBytes("fonts/MaterialSymbolsRounded.ttf"));
+                // Android's font manager only indexes what /system/etc/fonts.xml
+                // declares, so a font an OEM skin or theme engine installed
+                // elsewhere is neither listed nor resolvable by name. Register the
+                // file index before the scene is built: it is also how the QML
+                // UI's own typeface is located (uiTypefaces takes bytes).
+                dev.t1m3.qplayer.lyric.skia.Fonts.setFileIndex(AndroidFontIndex.instance());
                 lyricFontsInitialized = true;
             }
             dev.t1m3.qplayer.lyric.skia.Fonts.warmupFromConfig();
         } catch (IOException ignored) {
         }
+        // Learning a font file's family name means parsing it, so the ~200 files
+        // on a device are indexed off the main thread and the picker's list is
+        // republished when that finishes. Started here rather than in
+        // Application.onCreate because it needs Skija's natives, which the
+        // Activity has just brought up.
+        AndroidFontIndex.instance().scanAsync(() -> runOnUiThread(() -> {
+            QmlGLSurfaceView view = glView;
+            SettingsCore s = settings;
+            if (view == null || s == null) return;
+            view.queueEvent(() -> {
+                // A font only the index knows about was unresolvable when the
+                // selection was first applied; resolve it again now.
+                dev.t1m3.qplayer.lyric.skia.Fonts.reloadFileIndex();
+                s.refreshFontFamilies();
+            });
+        }));
 
         // Cache D8-dexed QML across launches (dexing is the slow part of startup);
         // wipe it whenever the apk is (re)installed so stale dex never loads.

@@ -81,6 +81,97 @@ public final class Fonts {
         byte[] load(Weight weight) throws Exception;
     }
 
+    /**
+     * Font files a host can read but its Skija {@code FontMgr} doesn't index.
+     *
+     * <p>Desktop needs none of this: DirectWrite/CoreText/Fontconfig already list
+     * every installed family, and the host resolves the matching FILE separately
+     * (registry / fc-match / a directory scan) only because {@code uiTypefaces}
+     * takes bytes. Android's {@code SkFontMgr_android} is narrower — it indexes
+     * what {@code /system/etc/fonts.xml} declares and nothing else, so fonts an
+     * OEM skin or theme engine dropped somewhere else are invisible to it, and a
+     * bare {@code matchFamilyStyle} for one of them silently returns Roboto
+     * instead of failing. A host that can enumerate those files supplies them
+     * here, and they become selectable everywhere a FontMgr family is.
+     */
+    public interface FileIndex {
+        /** Family names this index can load that {@link #listFamilies()} would
+         *  otherwise miss. */
+        String[] families();
+
+        /** The bytes of {@code family}'s face closest to {@code weight} (an
+         *  OpenType weight class, 100-900), or null when this index has no file
+         *  for it. */
+        byte[] read(String family, int weight);
+    }
+
+    private static FileIndex fileIndex;
+    // Typefaces parsed out of FileIndex bytes, keyed "family/weight". A font file
+    // is a few MiB and a theme CJK face far more, so the parse happens once.
+    private static final Map<String, Typeface> indexFaces = new HashMap<>();
+
+    /** Install the host's font-file index. Safe to call before or after
+     *  {@link #init}; re-resolves the current selection so a font that only this
+     *  index knows about can be applied straight away. */
+    public static void setFileIndex(FileIndex index) {
+        synchronized (LOCK) {
+            fileIndex = index;
+            reloadFileIndexLocked();
+        }
+    }
+
+    /** Re-resolve the current selection against the index. An index that fills in
+     *  asynchronously (Android parses every font file to learn its family name)
+     *  is empty when it is installed, so the selection has to be resolved a
+     *  second time once it is populated — otherwise a font only the index knows
+     *  about stays unresolved until the next launch. */
+    public static void reloadFileIndex() {
+        synchronized (LOCK) {
+            reloadFileIndexLocked();
+        }
+    }
+
+    private static void reloadFileIndexLocked() {
+        indexFaces.clear();
+        familyFaces.clear();
+        familyFonts.clear();
+        reapply();
+    }
+
+    /** A face for {@code family} built from the host's font files, or null when
+     *  there is no index or it has no file for that family. */
+    private static Typeface indexFace(String family, int weight) {
+        if (fileIndex == null || family == null || family.isEmpty()) return null;
+        if (SYSTEM.equals(family) || BUNDLED.equals(family)) return null;
+        String key = family + '/' + weight;
+        if (indexFaces.containsKey(key)) return indexFaces.get(key);
+        Typeface face = null;
+        try {
+            FontMgr mgr = FontMgr.getDefault();
+            byte[] bytes = fileIndex.read(family, weight);
+            if (mgr != null && bytes != null) face = atWeight(make(mgr, bytes), weight);
+        } catch (Throwable ignored) {
+            // An unreadable or unparseable file is just a family we can't offer.
+        }
+        indexFaces.put(key, face);
+        return face;
+    }
+
+    /** Whether {@code face} really belongs to {@code family}. Android's
+     *  matchFamilyStyle never returns null — an unknown family resolves to
+     *  Roboto — so "did it resolve" has to mean "did it resolve to the family we
+     *  asked for", or a theme font silently renders as Latin-only Roboto. */
+    private static boolean isFamily(Typeface face, String family) {
+        if (face == null) return false;
+        try {
+            String name = face.getFamilyName();
+            return name != null && name.equalsIgnoreCase(family);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+
     // OpenType weight each face in `faces` was resolved for, so a fallback face can
     // be matched to the same weight as the lyric face that needs it. Identity-keyed:
     // these are the exact Typeface instances handed out by get(), and they're
@@ -256,12 +347,35 @@ public final class Fonts {
      *  to list. Cheap to call repeatedly (Skija just walks its own index), so no
      *  caching here — the caller (Settings) reads it once at startup. */
     public static String[] listFamilies() {
+        // Case-insensitive de-dupe: an index may well re-find a file FontMgr
+        // already indexed, and the picker should not show it twice.
+        Map<String, String> unique = new java.util.LinkedHashMap<>();
         FontMgr mgr = FontMgr.getDefault();
-        if (mgr == null) return new String[0];
-        int n = mgr.getFamiliesCount();
-        String[] out = new String[n];
-        for (int i = 0; i < n; i++) out[i] = mgr.getFamilyName(i);
-        return out;
+        if (mgr != null) {
+            int n = mgr.getFamiliesCount();
+            for (int i = 0; i < n; i++) {
+                String name = mgr.getFamilyName(i);
+                if (name != null && !name.isEmpty()) {
+                    unique.put(name.toLowerCase(java.util.Locale.ROOT), name);
+                }
+            }
+        }
+        FileIndex index = fileIndex;
+        if (index != null) {
+            try {
+                String[] extra = index.families();
+                if (extra != null) {
+                    for (String name : extra) {
+                        if (name != null && !name.isEmpty()) {
+                            unique.putIfAbsent(name.toLowerCase(java.util.Locale.ROOT), name);
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {
+                // A broken index just means no extra families.
+            }
+        }
+        return unique.values().toArray(new String[0]);
     }
 
     /** The family the lyric page is actually rendering with, or null when it's on
@@ -276,8 +390,20 @@ public final class Fonts {
     private static void reapply() {
         FontMgr mgr = FontMgr.getDefault();
         if (selection != null && mgr != null) {
-            Typeface base = SYSTEM.equals(selection) ? systemDefaultFace(mgr)
-                    : mgr.matchFamilyStyle(selection, FontStyle.NORMAL);
+            Typeface base;
+            if (SYSTEM.equals(selection)) {
+                base = systemDefaultFace(mgr);
+            } else {
+                base = mgr.matchFamilyStyle(selection, FontStyle.NORMAL);
+                // matchFamilyStyle answers with the closest face it has rather
+                // than nothing, so a family only the host's file index knows
+                // about comes back as some unrelated face (Roboto on Android).
+                // Trust the name, not the non-null.
+                if (!isFamily(base, selection)) {
+                    Typeface fromFile = indexFace(selection, WEIGHT_VALUES[Weight.REGULAR.ordinal()]);
+                    if (fromFile != null) base = fromFile;
+                }
+            }
             // A system default with no CJK coverage never becomes `base` (see
             // systemDefaultFace); a custom family that fails to resolve at all
             // (uninstalled, renamed) leaves it null. Either way fall through to
@@ -322,6 +448,12 @@ public final class Fonts {
         for (Weight w : Weight.values()) {
             int target = WEIGHT_VALUES[w.ordinal()];
             Typeface t = family != null ? mgr.matchFamilyStyle(family, FontStyle.NORMAL.withWeight(target)) : null;
+            // A family only the host's file index knows about resolves to some
+            // unrelated face here, so re-read it from the file for this weight.
+            if (family != null && fileIndex != null && !isFamily(t, family)) {
+                Typeface fromFile = indexFace(family, target);
+                if (fromFile != null) t = fromFile;
+            }
             // matchFamilyStyle never fails outright — it returns the CLOSEST face in
             // the family, so a family with only one weight hands back that same face
             // for all four. Retarget through the variation axis in that case; fonts
@@ -555,6 +687,10 @@ public final class Fonts {
                     if (byWeight != null) base = byWeight;
                 } else {
                     base = mgr.matchFamilyStyle(family, FontStyle.NORMAL.withWeight(target));
+                    if (fileIndex != null && !isFamily(base, family)) {
+                        Typeface fromFile = indexFace(family, target);
+                        if (fromFile != null) base = fromFile;
+                    }
                 }
                 if (base != null) resolved = atWeight(base, target);
             }
@@ -648,6 +784,7 @@ public final class Fonts {
     /** Retarget a face to {@code weight}, preferring the family's own static face and
      *  falling back to its variable {@code wght} axis. */
     private static Typeface atWeight(Typeface t, int weight) {
+        if (t == null) return null;
         if (t.getFontStyle().getWeight() == weight) return t;
         Typeface variable = cloneAtWeight(t, weight);
         return variable != null ? variable : t;

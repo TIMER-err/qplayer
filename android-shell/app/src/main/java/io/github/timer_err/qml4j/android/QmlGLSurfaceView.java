@@ -29,6 +29,7 @@ import io.github.timer_err.qml4j.render.SurfaceBackend;
 import io.github.timer_err.qml4j.render.items.core.Item;
 import io.github.timer_err.qml4j.render.items.input.TextEditable;
 
+import dev.t1m3.qplayer.android.app.AndroidFontIndex;
 import dev.t1m3.qplayer.bridge.PlayerController;
 import dev.t1m3.qplayer.bridge.WindowChromeStub;
 import dev.t1m3.qplayer.settings.SettingsCore;
@@ -598,10 +599,33 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                         if (l != null) l.onProgress(name, count);
                     });
                     // Provide the app fonts to the engine (it ships none of its own):
-                    // bundled PingFang for the whole UI (Latin + CJK) + Material Symbols
-                    // for icon glyphs.
-                    byte[] reg = CompressedResources.load(resources, "fonts/PingFangSC-Regular.otf");
-                    byte[] med = CompressedResources.load(resources, "fonts/PingFangSC-Medium.otf");
+                    // the selected font for the whole UI (Latin + CJK), falling back
+                    // to the bundled PingFang, plus Material Symbols for icon glyphs.
+                    byte[] reg = null, med = null;
+                    // uiTypefaces takes raw file bytes, not a Typeface, so following
+                    // the font setting for QML's own text means finding the file
+                    // behind the family the lyric renderer resolved — the same thing
+                    // DesktopWindow.loadFonts does via the registry/fontconfig. This
+                    // is read once per view, hence Settings' "restart to apply".
+                    SettingsCore s = settings;
+                    // Only a non-bundled selection needs the index, and only then
+                    // is it worth waiting for: the scan runs on a background
+                    // thread started at Activity create, and blocking here on the
+                    // default font would put its cost straight into cold start.
+                    if (s != null && !s.fontSelectionOf("").isEmpty()) {
+                        AndroidFontIndex index = AndroidFontIndex.instance();
+                        index.awaitReady(3000);
+                        // The selection was first resolved before the index had
+                        // been populated; redo it now that the files are known.
+                        dev.t1m3.qplayer.lyric.skia.Fonts.reloadFileIndex();
+                        String family = dev.t1m3.qplayer.lyric.skia.Fonts.activeFamilyName();
+                        if (family != null) {
+                            reg = index.read(family, 400);
+                            med = index.read(family, 700);
+                        }
+                    }
+                    if (reg == null) reg = CompressedResources.load(resources, "fonts/PingFangSC-Regular.otf");
+                    if (med == null) med = CompressedResources.load(resources, "fonts/PingFangSC-Medium.otf");
                     if (reg != null || med != null) view.uiTypefaces(reg, med);
                     byte[] iconFont = resources.load("fonts/MaterialSymbolsRounded.ttf");
                     if (iconFont != null) view.iconTypeface(iconFont);
