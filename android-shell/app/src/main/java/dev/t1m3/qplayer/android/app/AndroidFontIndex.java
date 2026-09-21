@@ -52,10 +52,15 @@ public final class AndroidFontIndex implements Fonts.FileIndex {
         "/odm/fonts",
         // Updatable system fonts (API 31+).
         "/data/fonts",
-        // MIUI/HyperOS extract an applied theme's fonts here. Usually
-        // system-owned and unreadable to us, but it costs nothing to try.
+        // MIUI/HyperOS extract an applied theme's fonts here. System-owned, so
+        // whether an app can read them depends on the ROM's own permissions and
+        // SELinux policy — worth trying, since the framework loads the very same
+        // files from inside each app's process.
         "/data/system/theme/fonts",
         "/data/system/theme",
+        "/data/theme/fonts",
+        // The stock theme that ships on the system partition, always readable.
+        "/system/media/theme/default/fonts",
     };
 
     private static final String[] EXTENSIONS = {".ttf", ".otf", ".ttc", ".otc"};
@@ -173,37 +178,62 @@ public final class AndroidFontIndex implements Fonts.FileIndex {
         }
         Logger.info("font index: {} families from {} files in {} ms",
                 families.length, parsed, (System.nanoTime() - startedAtNanos) / 1_000_000L);
+        // The picker shows family names, so a font that is present but listed
+        // under an unexpected name is indistinguishable from a missing one
+        // without this.
+        Logger.info("font index: {}", String.join(", ", families));
     }
 
-    /** Font file paths to try, system-font-config entries first. */
+    /**
+     * Font file paths to try, system-font-config entries first.
+     *
+     * <p>Logs one line per source. Which directories a given ROM actually lets an
+     * app read is the whole question here — a theme engine's font directory is
+     * system-owned, and whether that is reachable varies by OEM, Android version
+     * and SELinux policy — so the log has to say what was found where rather than
+     * just how many fonts turned up.
+     */
     private static List<String> candidateFiles() {
         Set<String> paths = new LinkedHashSet<>();
         // The platform's own font config knows about updatable and OEM fonts that
         // are not necessarily in /system/fonts.
         if (Build.VERSION.SDK_INT >= 29) {
             try {
+                int before = paths.size();
                 for (android.graphics.fonts.Font font
                         : android.graphics.fonts.SystemFonts.getAvailableFonts()) {
                     File file = font.getFile();
                     if (file != null && file.isFile()) paths.add(file.getAbsolutePath());
                 }
-            } catch (Throwable ignored) {
+                Logger.info("font index: SystemFonts gave {} files", paths.size() - before);
+            } catch (Throwable t) {
+                Logger.info("font index: SystemFonts unavailable ({})", t);
                 // Not fatal: the directory walk below covers the same ground on
                 // any device where this API misbehaves.
             }
         }
         for (String dir : FONT_DIRS) {
+            File directory = new File(dir);
             File[] files;
             try {
-                files = new File(dir).listFiles();
-            } catch (Throwable ignored) {
-                continue; // unreadable directory (the theme dirs, typically)
+                if (!directory.exists()) continue; // nothing to report
+                files = directory.listFiles();
+            } catch (Throwable t) {
+                Logger.info("font index: {} not readable ({})", dir, t);
+                continue;
             }
-            if (files == null) continue;
+            if (files == null) {
+                // Exists but listFiles() returned null: no read permission, which
+                // is the expected answer for a theme engine's own directory.
+                Logger.info("font index: {} exists but is not listable", dir);
+                continue;
+            }
+            int added = 0;
             for (File f : files) {
                 if (f == null || !f.isFile() || !hasFontExtension(f.getName())) continue;
-                paths.add(f.getAbsolutePath());
+                if (paths.add(f.getAbsolutePath())) added++;
             }
+            Logger.info("font index: {} -> {} font files ({} entries)", dir, added, files.length);
         }
         return new ArrayList<>(paths);
     }
