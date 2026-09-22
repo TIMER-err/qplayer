@@ -358,6 +358,7 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
     @Override public int temperaGlyphSettleStretch() { return intOf("temperaGlyphSettleStretch"); }
     @Override public boolean temperaImages() { return bool("temperaImages"); }
     @Override public int lyricFontSize() { return intOf("lyricFontSize"); }
+    @Override public boolean lyricFullWidth() { return bool("lyricFullWidth"); }
 
     @Override
     public float topInset() {

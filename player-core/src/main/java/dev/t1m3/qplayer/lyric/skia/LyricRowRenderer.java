@@ -73,10 +73,13 @@ final class LyricRowRenderer implements AutoCloseable {
     private RuntimeEffectBuilder liftBuilder;
     private boolean liftEffectUnavailable;
 
-    void drawSubLine(ShapedText text, float leftX, float rightAnchorX, float y,
-                     float alpha, boolean alignRight, boolean shadowOn) {
+    /** @param align 0 left, 0.5 centred, 1 right — within the block the main rows
+     *               actually occupy ({@code blockLeftX}..{@code blockRightX}), not
+     *               the column, so a translation stays under its own line. */
+    void drawSubLine(ShapedText text, float blockLeftX, float blockRightX, float y,
+                     float alpha, float align, boolean shadowOn) {
         if (text == null || text.blob == null) return;
-        float x = alignRight ? rightAnchorX - text.width : leftX;
+        float x = blockLeftX + (blockRightX - blockLeftX - text.width) * align;
         if (shadowOn) drawTextShadow(text.blob, x, y, alpha);
         Paint paint = LyricSkia.scratchPaint();
         paint.setColor(0xFFE6E6E6);

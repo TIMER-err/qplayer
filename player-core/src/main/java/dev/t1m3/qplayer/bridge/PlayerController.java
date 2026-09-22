@@ -536,6 +536,11 @@ public final class PlayerController {
      *  every frame from the live position so the wavy bar advances smoothly (the 5 Hz
      *  positionMs would step it). */
     public final Property<Double> lyricProgress = new Property<>(0.0);
+    /** Host-published progress of the lyric page's full-width layout change
+     *  (0 cover beside the lyrics .. 1 lyrics across the page, chrome along the
+     *  bottom). The QML chrome reads this instead of animating the setting
+     *  itself, so it cannot drift from the host-drawn column it moves with. */
+    public final Property<Double> lyricFullWidth = new Property<>(0.0);
     /** Current disk cache usage in MB (updated after each cache write). */
     public final Property<Long> cacheSizeMB = new Property<>(0L);
 

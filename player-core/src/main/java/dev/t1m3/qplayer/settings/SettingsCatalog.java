@@ -214,6 +214,15 @@ public final class SettingsCatalog {
                         "settings.lyricProgressStyle.line")
                 .group("lyricDisplay")
                 .build());
+        // Wide-window layout: no cover, lyrics across the whole page, transport
+        // and progress along the bottom. Desktop only — it needs a window much
+        // wider than it is tall to read well, which a phone never is.
+        out.add(SettingSpec.toggle("lyricFullWidth", LYRIC,
+                        "settings.lyricFullWidth.title", false)
+                .desc("settings.lyricFullWidth.desc")
+                .onlyOn(DESKTOP)
+                .group("lyricDisplay")
+                .build());
 
         out.add(SettingSpec.radio(BG_MODE_KEY, LYRIC, "settings.lyricBgMode.title", 0,
                         "settings.lyricBgMode.dynamic", "settings.lyricBgMode.static")

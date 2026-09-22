@@ -179,6 +179,15 @@ public class LyricRenderer {
      */
     private List<LyricTimeline.Group> groups = Collections.emptyList();
     /**
+     * Where a line with no assigned voice sits across the column: 0 left (the
+     * classic layout, lyrics beside the cover), 0.5 centred (the full-width
+     * layout, where a left-aligned line on a wide window would leave the right
+     * two thirds empty). Duet lines ignore it and keep their own side — that
+     * split is what the channel is for. A float rather than a flag so the host
+     * can ease it while the layout animates between the two.
+     */
+    private float mainAlign;
+    /**
      * Index into {@link #groups} per line. Sized to lines.size().
      */
     private int[] lineToGroup = new int[0];
@@ -1020,8 +1029,7 @@ public class LyricRenderer {
 
             LyricLine.VocalChannel ch = line.vocalChannel;
             boolean isBg = LyricTimeline.isBackground(ch);
-            boolean alignRight = ch == LyricLine.VocalChannel.DUET_RIGHT
-                    || ch == LyricLine.VocalChannel.BACKGROUND_RIGHT;
+            float align = alignOf(ch);
 
             Font font = isBg ? bgFont : lyricFont;
             float rowHeight = isBg ? rowHeightBg : rowHeightLyric;
@@ -1073,10 +1081,11 @@ public class LyricRenderer {
             if (starts == null || cachedShapedRows[i] == null) continue;
             int subRowCount = Math.max(1, starts.length - 1);
 
-            // Track widest sub-row so right-aligned sub-lines line up with
-            // the visual right edge of the lyric block.
+            // The block the drawn rows actually occupy, so a sub-line (translation
+            // / romaji) lines up under its own text however the line is aligned.
             float maxRowWidth = 0f;
-            float maxRowRightX = leftX; // for sub-line right-anchor
+            float blockLeftX = Float.MAX_VALUE;
+            float blockRightX = leftX;
 
             // BG lines now occupy their own pre-reserved slot in the
             // layout (lineHeights[i] = real height). Anchor stays at the
@@ -1090,7 +1099,7 @@ public class LyricRenderer {
             // by the scroll spring's progress so the zoom lands exactly as the line
             // settles, and anchored at the line's CENTRE so growing it never shifts
             // its centre (that downward push at arrival was the "bounce").
-            float anchorX = alignRight ? (leftX + columnWidth) : leftX;
+            float anchorX = leftX + columnWidth * align;
             float scale;
             float anchorY;
             if (isBg) {
@@ -1146,9 +1155,7 @@ public class LyricRenderer {
                 // would sit the text one space in from the column's left edge.
                 float lead = shapedRow.leadingWidth;
                 float visWidth = shapedRow.width - lead;
-                float rowX = alignRight
-                        ? Math.max(leftX, leftX + columnWidth - visWidth)
-                        : leftX;
+                float rowX = Math.max(leftX, leftX + (columnWidth - visWidth) * align);
 
                 float wrapRowH = (r == 0) ? rowHeight : (isBg ? rowHeightBgWrap : rowHeightLyricWrap);
                 float rowBaselineY = lineYTop + rowHeight + r * wrapRowH - descent - 4f;
@@ -1157,24 +1164,24 @@ public class LyricRenderer {
                         ascent, descent, positionMs, baseAlpha, activeK, animatablePerToken, spring,
                         glowOn, shadowOn, wordGlowSupported);
 
-                if (visWidth > maxRowWidth) {
-                    maxRowWidth = visWidth;
-                    maxRowRightX = rowX + visWidth;
-                }
+                if (visWidth > maxRowWidth) maxRowWidth = visWidth;
+                if (rowX < blockLeftX) blockLeftX = rowX;
+                if (rowX + visWidth > blockRightX) blockRightX = rowX + visWidth;
             }
 
-            // Sub-lines anchor to the lyric block's right edge (right-align)
-            // or to leftX (left-align). Y must match the wrapped block's real
+            // Sub-lines sit inside the block the rows above actually occupy and
+            // follow the same alignment. Y must match the wrapped block's real
             // stacked height (first row full, extra rows at the wrap height) —
             // using subRowCount*rowHeight overshoots and pushes translation /
             // romaji too far below a multi-row line.
+            if (blockLeftX > blockRightX) blockLeftX = leftX; // nothing drawn
             float subY = lineYTop + rowHeight
                     + (subRowCount - 1) * (isBg ? rowHeightBgWrap : rowHeightLyricWrap) + 4f
                     + (subRowCount > 1 ? WRAP_SUB_GAP : 0f);
-            subY = drawSubline(leftX, lineSubHeight, showRomaji, i, alignRight,
-                    baseAlpha, maxRowRightX, subY, cachedRomajiRows, shadowOn);
-            subY = drawSubline(leftX, lineSubHeight, showTranslation, i, alignRight,
-                    baseAlpha, maxRowRightX, subY, cachedTranslationRows, shadowOn);
+            subY = drawSubline(blockLeftX, lineSubHeight, showRomaji, i, align,
+                    baseAlpha, blockRightX, subY, cachedRomajiRows, shadowOn);
+            subY = drawSubline(blockLeftX, lineSubHeight, showTranslation, i, align,
+                    baseAlpha, blockRightX, subY, cachedTranslationRows, shadowOn);
 
             canvas.restore();
         }
@@ -1217,28 +1224,42 @@ public class LyricRenderer {
                 float prevTextBottom = nextTop - slotH;
                 float nextTextTop = nextTop + nextTextOffset;
                 float anchorY = (prevTextBottom + nextTextTop) * 0.5f - INTERLUDE_DOT_RADIUS;
-                // Place the dots on the side the upcoming line is aligned to: left for
-                // MAIN / left-duet, right for right-channel lines.
+                // Place the dots where the upcoming line will be: left for a
+                // left-duet, right for a right-channel line, and with the main
+                // lines wherever those are aligned.
                 LyricLine.VocalChannel nextCh = lines.get(interludeNext.from).vocalChannel;
-                boolean dotsRight = nextCh == LyricLine.VocalChannel.DUET_RIGHT
-                        || nextCh == LyricLine.VocalChannel.BACKGROUND_RIGHT;
+                float dotsAlign = alignOf(nextCh);
                 float dotsWidth = 2f * INTERLUDE_DOT_RADIUS + 2f * INTERLUDE_DOT_SPACING;
-                float dotsX = dotsRight ? Math.max(leftX, leftX + columnWidth - dotsWidth) : leftX;
+                float dotsX = Math.max(leftX, leftX + (columnWidth - dotsWidth) * dotsAlign);
                 renderInterludeDots(canvas, dotsX, anchorY,
                         positionMs - interludeStartMs, interludeDur);
             }
         }
     }
 
-    private float drawSubline(float leftX, float subLineHeight,
-                              boolean showRomaji, int i, boolean alignRight,
-                              float baseAlpha, float maxRowRightX, float subY,
+    /** @see #mainAlign */
+    public void setMainAlign(float align) {
+        mainAlign = Math.max(0f, Math.min(1f, align));
+    }
+
+    /** Horizontal alignment for a line, 0 left / 0.5 centred / 1 right. */
+    private float alignOf(LyricLine.VocalChannel ch) {
+        if (ch == LyricLine.VocalChannel.DUET_RIGHT
+                || ch == LyricLine.VocalChannel.BACKGROUND_RIGHT) return 1f;
+        if (ch == LyricLine.VocalChannel.DUET_LEFT
+                || ch == LyricLine.VocalChannel.BACKGROUND_LEFT) return 0f;
+        return mainAlign;
+    }
+
+    private float drawSubline(float blockLeftX, float subLineHeight,
+                              boolean showRomaji, int i, float align,
+                              float baseAlpha, float blockRightX, float subY,
                               ShapedText[][] cachedRomajiRows, boolean shadowOn) {
         ShapedText[] romajiRows = cachedRomajiRows[i];
         if (romajiRows != null && showRomaji) {
             for (ShapedText romajiRow : romajiRows) {
-                rowRenderer.drawSubLine(romajiRow, leftX, maxRowRightX, subY,
-                        baseAlpha * 0.75f, alignRight, shadowOn);
+                rowRenderer.drawSubLine(romajiRow, blockLeftX, blockRightX, subY,
+                        baseAlpha * 0.75f, align, shadowOn);
                 subY += subLineHeight;
             }
         }

@@ -20,6 +20,11 @@ Item {
     // OR of the automatic no-lyrics/instrumental detection and the user's manual
     // lyrics<->cover toggle (the button below / tapping the cover to return).
     property bool coverOnly: player.lyricsCoverOnly || player.coverModeManual
+    // Host-eased progress of the full-width layout change, 0 (cover + lyrics in
+    // the right half) .. 1 (lyrics across the page, chrome along the bottom).
+    // Eased in LyricCompositor rather than by a Behavior here so this chrome and
+    // the host-drawn column move on exactly the same value.
+    property real fullWidthK: player.lyricFullWidth
     property bool offsetPanelOpen: false
     // Top row inset for the three title buttons. Desktop overrides this to 6
     // (Main.qml hides the custom title bar while the lyric page is open, so the
@@ -445,7 +450,12 @@ Item {
     // so the inner column must be as wide as the transport row — not the cover.
     Item {
         id: landscapeChrome
-        visible: overlay.landscape
+        objectName: "lyricLandscapeChrome"
+        // Crossfades with wideChrome below on the host's eased full-width value.
+        // Hidden outright once faded, so its cover and controls stop hit-testing
+        // over a page whose chrome now lives at the bottom.
+        opacity: 1 - overlay.fullWidthK
+        visible: overlay.landscape && opacity > 0.01
         anchors.left: parent.left
         anchors.top: parent.top
         anchors.bottom: parent.bottom
@@ -562,40 +572,107 @@ Item {
                 color: "#B3FFFFFF"
                 fontSize: 11
             }
-            Row {
+            LyricTransportRow {
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.bottom: parent.bottom
-                spacing: Math.max(4, Math.min(18, (col.width - 200) / 4))
-                IconButton {
-                    type: "standard"
-                    icon: player.playMode === 1 ? "shuffle"
-                          : (player.playMode === 2 ? "repeat_one" : "repeat")
-                    contentColor: player.playMode === 0 ? "#99FFFFFF" : "#FF82B1FF"
-                    onClicked: player.cyclePlayMode()
-                }
-                IconButton {
-                    type: "standard"; icon: "skip_previous"
-                    contentColor: "#FFFFFFFF"
-                    onClicked: player.prev()
-                }
-                IconButton {
-                    type: "filled"
-                    icon: player.playing ? "pause" : "play_arrow"
-                    onClicked: player.toggle()
-                }
-                IconButton {
-                    type: "standard"; icon: "skip_next"
-                    contentColor: "#FFFFFFFF"
-                    onClicked: player.next()
-                }
-                IconButton {
-                    type: "standard"
-                    enabled: player.currentLikeable
-                    icon: player.currentLiked ? "favorite" : "favorite_border"
-                    contentColor: player.currentLiked ? "#FFFF5277" : "#99FFFFFF"
-                    onClicked: player.toggleLike()
-                }
+                gap: Math.max(4, Math.min(18, (col.width - 200) / 4))
             }
+        }
+    }
+
+    // --- landscape, full width: no cover, lyrics across the whole page, and the
+    // chrome reduced to a band along the bottom with the progress bar last.
+    // Crossfades with landscapeChrome above on player.lyricFullWidth, which the
+    // HOST eases (LyricCompositor) — the lyric column widens and its unassigned
+    // lines drift to centre on that same value, so the band and the lyrics move
+    // as one gesture instead of two animations racing each other.
+    //
+    // Its own Item rather than a reshaped landscapeChrome: that one spans the
+    // full height, and a full-width copy of it would sit over the host lyric
+    // column. This reserves only the band the host excludes from its own
+    // scroll/seek region (L_FULLWIDTH_BOTTOM).
+    Item {
+        id: wideChrome
+        objectName: "lyricWideChrome"
+        readonly property real k: overlay.fullWidthK
+        visible: overlay.landscape && k > 0.01
+        opacity: k
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: 152
+        // Rise into place as it fades in.
+        y: parent.height - height + (1 - k) * 28
+
+        MarqueeText {
+            id: wTitle
+            anchors.left: parent.left
+            anchors.leftMargin: 28
+            anchors.top: parent.top
+            anchors.topMargin: 18
+            width: Math.max(140, parent.width * 0.24)
+            text: player.title
+            textColor: "#FFFFFFFF"
+            fontFamily: Theme.typography.titleLarge.family
+            fontSize: 19
+        }
+        MarqueeText {
+            id: wArtist
+            anchors.left: wTitle.left
+            anchors.top: wTitle.bottom
+            anchors.topMargin: 3
+            width: wTitle.width
+            text: player.artist
+            textColor: "#B3FFFFFF"
+            fontSize: 13
+        }
+        MouseArea {
+            anchors.fill: wArtist
+            enabled: player.playingArtistIdsCsv !== "" || player.playingArtistId !== 0
+            hoverEnabled: enabled
+            cursorShape: Qt.PointingHandCursor
+            onClicked: player.openPlayingArtist()
+        }
+
+        LyricTransportRow {
+            id: wTransport
+            objectName: "lyricWideTransport"
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top: parent.top
+            anchors.topMargin: 16
+            gap: 20
+        }
+
+        Text {
+            anchors.right: parent.right
+            anchors.rightMargin: 28
+            anchors.verticalCenter: wTransport.verticalCenter
+            text: overlay.fmt(player.positionMs) + " / " + overlay.fmt(player.durationMs)
+            color: "#B3FFFFFF"
+            fontSize: 12
+        }
+
+        LyricProgress {
+            id: wProgress
+            objectName: "lyricWideProgress"
+            anchors.left: parent.left
+            anchors.leftMargin: 28
+            anchors.right: parent.right
+            anchors.rightMargin: 28
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: 30
+            wavy: settings.value("lyricProgressStyle") === 0
+            visible: player.lyricSlide > 0.001
+            indeterminate: player.loading
+            value: player.lyricProgress
+        }
+        MouseArea {
+            anchors.fill: wProgress
+            anchors.topMargin: -12
+            anchors.bottomMargin: -12
+            onPressed: if (player.durationMs > 0)
+                           player.seek(Math.round(mouseX / width * player.durationMs))
+            onPositionChanged: if (pressed && player.durationMs > 0)
+                                   player.seek(Math.round(Math.max(0, Math.min(width, mouseX)) / width * player.durationMs))
         }
     }
 

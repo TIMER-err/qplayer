@@ -51,6 +51,10 @@ public final class LyricCompositor {
         default boolean temperaImages() { return false; }
         default int lyricFontSize() { return 28; }
         default boolean resolvedDarkValue() { return true; }
+        /** Wide-window layout: no cover, lyrics across the whole page, transport
+         *  and progress along the bottom. Desktop-only setting, so this stays
+         *  false on hosts that don't offer the row. */
+        default boolean lyricFullWidth() { return false; }
     }
 
     // Reserved height (logical px) for the lyric-page transport bar at the bottom
@@ -61,6 +65,20 @@ public final class LyricCompositor {
     // nearly the full height. Kept in sync with LyricOverlay.qml and lyricsScrollable.
     private static final float L_LANDSCAPE_TOP = 24f;
     private static final float L_LANDSCAPE_BOTTOM = 24f;
+    // Full-width layout: no cover, so the QML chrome becomes a band along the
+    // bottom (title/artist, transport, progress) and the column reserves its
+    // height instead of the left half's width. Kept in sync with LyricOverlay.qml.
+    private static final float L_FULLWIDTH_BOTTOM = 152f;
+    // Time constant (seconds) for the change between the two layouts.
+    //
+    // The column does NOT tween its width across it. The renderer's layout cache is
+    // keyed on the column width and rebuilds at 8 lines a frame, so a width that
+    // moves every frame restarts that rebuild every frame and the lyrics never
+    // finish shaping — the whole transition would be blank. Instead the geometry
+    // snaps once, at the halfway point, under a fade: the column dips out, re-wraps
+    // while it is invisible, and comes back in the new layout, which is the same
+    // move the page already makes when switching between cover and lyrics.
+    private static final float FULLWIDTH_TAU = 0.10f;
     // Carve-out for LyricOverlay's top-right icon button row (offset-adjust +
     // cover-mode toggle, two 40px IconButtons side by side with ~6px gaps/margins):
     // in landscape the scrollable band starts only L_LANDSCAPE_TOP below the top,
@@ -70,6 +88,10 @@ public final class LyricCompositor {
     // to also cover the cover-mode button added to its left.
     private static final float OFFSET_BTN_CORNER_W = 108f;
     private static final float OFFSET_BTN_CORNER_H = 52f;
+    // The same carve-out on the other side, for the close button. Only needed in
+    // the full-width layout: everywhere else the scrollable band starts at the
+    // half-width mark, which already leaves that corner to QML.
+    private static final float BACK_BTN_CORNER_W = 56f;
 
     private final LyricRenderer lyricRenderer = new LyricRenderer();
     private final FluidBackground fluidBg = new FluidBackground(System.nanoTime());
@@ -148,6 +170,13 @@ public final class LyricCompositor {
     private float lyColW = -1f, lyColH = -1f, lyColTopY = -1f, lyColLeft = -1f;
     // Last published cover-only flag, read by lyricsScrollable off the input thread.
     private boolean coverOnlyCached;
+    // Eased 0..1 between the classic (lyrics in the right half) and full-width
+    // layouts. Drives the QML chrome crossfade and the column's fade; the column's
+    // GEOMETRY follows fullWidthApplied instead, which flips once at the midpoint.
+    private float fullWidthEase;
+    // The layout actually in force. Read by lyricsScrollable off the input thread.
+    private volatile boolean fullWidthApplied;
+    private long fullWidthNs;
     private Object lyKeyTitle, lyKeyUrl;
     private String lyCoverKey;
 
@@ -217,9 +246,14 @@ public final class LyricCompositor {
             if (x >= surfaceWLogical - OFFSET_BTN_CORNER_W && y <= topInset + OFFSET_BTN_CORNER_H) {
                 return false;
             }
+            boolean wide = fullWidthApplied;
+            if (wide && x <= BACK_BTN_CORNER_W && y <= topInset + OFFSET_BTN_CORNER_H) {
+                return false;
+            }
             float topY = topInset + L_LANDSCAPE_TOP;
-            float bottomY = surfaceHeightLogical - L_LANDSCAPE_BOTTOM;
-            return x >= surfaceWLogical * 0.5f && y >= topY && y <= bottomY;
+            float bottomY = surfaceHeightLogical
+                    - (wide ? L_FULLWIDTH_BOTTOM : L_LANDSCAPE_BOTTOM);
+            return x >= (wide ? 0f : surfaceWLogical * 0.5f) && y >= topY && y <= bottomY;
         }
         // Portrait's counterpart to the landscape branch's coverOnlyCached check
         // above: a cover-only track/view has no lyric column here either, and
@@ -412,13 +446,50 @@ public final class LyricCompositor {
         boolean coverOnly = Boolean.TRUE.equals(controller.lyricsCoverOnly.peek())
                 || Boolean.TRUE.equals(controller.coverModeManual.peek());
         coverOnlyCached = coverOnly;
+        // Full-width is a wide-window layout, and it has nothing to say about a
+        // track with no lyrics — that view is the cover, which this mode removes.
+        boolean fullWidth = landscape && !coverOnly
+                && settings != null && settings.lyricFullWidth();
+        float fullWidthTarget = fullWidth ? 1f : 0f;
+        long fullWidthNow = System.nanoTime();
+        if (lyricSlide < 0.99f || fullWidthNs == 0L) {
+            // Don't run the layout change underneath the page's own open/close
+            // slide: one movement at a time reads as deliberate, two as a glitch.
+            fullWidthEase = fullWidthTarget;
+            fullWidthApplied = fullWidth;
+        } else {
+            float dt = (fullWidthNow - fullWidthNs) / 1_000_000_000f;
+            if (dt > 0.05f) dt = 0.05f;
+            if (dt > 0f) {
+                fullWidthEase += (fullWidthTarget - fullWidthEase)
+                        * (1f - (float) Math.exp(-dt / FULLWIDTH_TAU));
+            }
+            if (Math.abs(fullWidthEase - fullWidthTarget) < 0.002f) {
+                fullWidthEase = fullWidthTarget;
+            }
+            // Swap the layout at the bottom of the fade, where nothing is visible.
+            fullWidthApplied = fullWidthEase >= 0.5f;
+        }
+        fullWidthNs = fullWidthNow;
+        // The QML chrome rides the host's own eased value rather than a Behavior of
+        // its own, so the bottom band and the column cannot drift out of step.
+        controller.lyricFullWidth.set((double) fullWidthEase);
+        // How visible the column is mid-swap: 1 settled either way, 0 at the
+        // halfway point where the geometry changes under it.
+        float fullWidthSwap = Math.abs(2f * fullWidthEase - 1f);
+        // Unassigned lines centre in the full-width layout; a left-aligned line
+        // would leave two thirds of a wide window empty. Duet lines keep their own
+        // side either way — that split is the whole point of the channel.
+        lyricRenderer.setMainAlign(fullWidthApplied ? 0.5f : 0f);
+
         float pad = 28f;
         float colLeft, colTopY, colW, colH;
         if (landscape) {
-            colLeft = w * 0.5f;
+            colLeft = fullWidthApplied ? 0f : w * 0.5f;
             colTopY = topInset + L_LANDSCAPE_TOP;
             colW = (w - colLeft) - 2f * pad;
-            colH = h - colTopY - L_LANDSCAPE_BOTTOM;
+            colH = h - colTopY
+                    - (fullWidthApplied ? L_FULLWIDTH_BOTTOM : L_LANDSCAPE_BOTTOM);
         } else {
             colLeft = 0f;
             colTopY = lyricTopY(topInset);
@@ -504,10 +575,18 @@ public final class LyricCompositor {
             }
             // Alpha-composite the whole column at lyricShow, and zoom it 0.95 -> 1 about
             // its own centre — matching the QML cover's zoom on the opposite side.
-            int alpha = Math.round(Math.max(0f, Math.min(1f, lyricShow)) * 255f);
+            // fullWidthSwap dips to 0 while the layout changes underneath. The
+            // column is still RENDERED at alpha 0 rather than skipped, so the
+            // renderer's incremental re-wrap runs during the invisible window and
+            // the lyrics are already shaped when they fade back in.
+            int alpha = Math.round(
+                    Math.max(0f, Math.min(1f, lyricShow * fullWidthSwap)) * 255f);
             lyLayerPaint.setAlpha(alpha);
             int lc = canvas.saveLayer(colRect, alpha < 255 ? lyLayerPaint : null);
-            float s = 0.95f + 0.05f * lyricShow;
+            // Two zooms on one scale: the cover↔lyrics switch's 0.95→1, and a much
+            // smaller dip through the layout swap so the fade reads as the column
+            // stepping back and returning rather than just blinking.
+            float s = (0.95f + 0.05f * lyricShow) * (0.985f + 0.015f * fullWidthSwap);
             float cx = colLeft + (w - colLeft) * 0.5f;
             float cy = colTopY + colH * 0.5f;
             int zc = canvas.save();
