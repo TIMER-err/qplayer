@@ -347,11 +347,14 @@ public final class DesktopWindow {
      *  bundled-font selection uses directly. Read once per view spawn, hence the
      *  "restart to apply" note in Settings. */
     public static void loadFonts(QmlView v, ResourceLoader resources) {
-        byte[] reg = null, med = null;
+        // An imported font is already a file we own, so ask the font indexes
+        // before going to the platform's own installed-font lookup.
+        byte[] reg = Fonts.activeFamilyFile(400);
+        byte[] med = Fonts.activeFamilyFile(700);
         String family = Fonts.activeFamilyName();
         if (family != null) {
-            reg = findSystemFontFile(family, false);
-            med = findSystemFontFile(family, true);
+            if (reg == null) reg = findSystemFontFile(family, false);
+            if (med == null) med = findSystemFontFile(family, true);
         }
         if (reg == null) reg = CompressedResources.load(resources, "fonts/PingFangSC-Regular.otf");
         if (med == null) med = CompressedResources.load(resources, "fonts/PingFangSC-Medium.otf");

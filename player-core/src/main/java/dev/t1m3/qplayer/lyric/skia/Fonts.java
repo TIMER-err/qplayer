@@ -105,17 +105,21 @@ public final class Fonts {
         byte[] read(String family, int weight);
     }
 
-    private static FileIndex fileIndex;
+    // More than one, because they answer different questions: the platform's own
+    // font files, and the ones the user imported.
+    private static final java.util.List<FileIndex> fileIndexes =
+            new java.util.concurrent.CopyOnWriteArrayList<>();
     // Typefaces parsed out of FileIndex bytes, keyed "family/weight". A font file
     // is a few MiB and a theme CJK face far more, so the parse happens once.
     private static final Map<String, Typeface> indexFaces = new HashMap<>();
 
-    /** Install the host's font-file index. Safe to call before or after
-     *  {@link #init}; re-resolves the current selection so a font that only this
-     *  index knows about can be applied straight away. */
-    public static void setFileIndex(FileIndex index) {
+    /** Add a font-file index. Safe to call before or after {@link #init};
+     *  re-resolves the current selection so a font that only this index knows
+     *  about can be applied straight away. */
+    public static void addFileIndex(FileIndex index) {
+        if (index == null) return;
         synchronized (LOCK) {
-            fileIndex = index;
+            if (!fileIndexes.contains(index)) fileIndexes.add(index);
             reloadFileIndexLocked();
         }
     }
@@ -139,22 +143,53 @@ public final class Fonts {
     }
 
     /** A face for {@code family} built from the host's font files, or null when
-     *  there is no index or it has no file for that family. */
+     *  no index has a file for that family. */
     private static Typeface indexFace(String family, int weight) {
-        if (fileIndex == null || family == null || family.isEmpty()) return null;
+        if (fileIndexes.isEmpty() || family == null || family.isEmpty()) return null;
         if (SYSTEM.equals(family) || BUNDLED.equals(family)) return null;
         String key = family + '/' + weight;
         if (indexFaces.containsKey(key)) return indexFaces.get(key);
         Typeface face = null;
         try {
             FontMgr mgr = FontMgr.getDefault();
-            byte[] bytes = fileIndex.read(family, weight);
+            byte[] bytes = indexBytes(family, weight);
             if (mgr != null && bytes != null) face = atWeight(make(mgr, bytes), weight);
         } catch (Throwable ignored) {
             // An unreadable or unparseable file is just a family we can't offer.
         }
         indexFaces.put(key, face);
         return face;
+    }
+
+    /** The first index that has a file for {@code family} wins. */
+    private static byte[] indexBytes(String family, int weight) {
+        for (FileIndex index : fileIndexes) {
+            try {
+                byte[] bytes = index.read(family, weight);
+                if (bytes != null && bytes.length > 0) return bytes;
+            } catch (Throwable ignored) {
+                // A broken index must not hide the others.
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The font FILE behind the active selection, for hosts whose UI text layer
+     * takes bytes rather than a Typeface (qml4j's {@code uiTypefaces}).
+     *
+     * @param weight an OpenType weight class; 400 for body text, 700 for bold
+     * @return the bytes, or null when the selection is the bundled face or no
+     *         index has a file for it (the host then uses its own platform
+     *         lookup, or the bundled font)
+     */
+    public static byte[] activeFamilyFile(int weight) {
+        String family;
+        synchronized (LOCK) {
+            family = activeFamily;
+        }
+        if (family == null || family.isEmpty()) return null;
+        return indexBytes(family, weight);
     }
 
     /** Whether {@code face} really belongs to {@code family}. Android's
@@ -360,15 +395,13 @@ public final class Fonts {
                 }
             }
         }
-        FileIndex index = fileIndex;
-        if (index != null) {
+        for (FileIndex index : fileIndexes) {
             try {
                 String[] extra = index.families();
-                if (extra != null) {
-                    for (String name : extra) {
-                        if (name != null && !name.isEmpty()) {
-                            unique.putIfAbsent(name.toLowerCase(java.util.Locale.ROOT), name);
-                        }
+                if (extra == null) continue;
+                for (String name : extra) {
+                    if (name != null && !name.isEmpty()) {
+                        unique.putIfAbsent(name.toLowerCase(java.util.Locale.ROOT), name);
                     }
                 }
             } catch (Throwable ignored) {
@@ -450,7 +483,7 @@ public final class Fonts {
             Typeface t = family != null ? mgr.matchFamilyStyle(family, FontStyle.NORMAL.withWeight(target)) : null;
             // A family only the host's file index knows about resolves to some
             // unrelated face here, so re-read it from the file for this weight.
-            if (family != null && fileIndex != null && !isFamily(t, family)) {
+            if (family != null && !fileIndexes.isEmpty() && !isFamily(t, family)) {
                 Typeface fromFile = indexFace(family, target);
                 if (fromFile != null) t = fromFile;
             }
@@ -687,7 +720,7 @@ public final class Fonts {
                     if (byWeight != null) base = byWeight;
                 } else {
                     base = mgr.matchFamilyStyle(family, FontStyle.NORMAL.withWeight(target));
-                    if (fileIndex != null && !isFamily(base, family)) {
+                    if (!fileIndexes.isEmpty() && !isFamily(base, family)) {
                         Typeface fromFile = indexFace(family, target);
                         if (fromFile != null) base = fromFile;
                     }

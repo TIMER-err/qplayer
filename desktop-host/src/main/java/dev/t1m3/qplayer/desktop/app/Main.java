@@ -160,6 +160,10 @@ public final class Main {
             case REGULAR -> "Regular";
             case MEDIUM -> "Medium";
         } + ".otf"));
+        // Fonts the user imported as a file are selectable alongside the
+        // installed ones. Registered before the selection is applied so one that
+        // was chosen last run resolves on the first try.
+        Fonts.addFileIndex(dev.t1m3.qplayer.lyric.skia.ImportedFonts.instance());
         Fonts.warmupFromConfig();
         byte[] qmlBytes = resources.load("Main.qml");
         if (qmlBytes == null) throw new IllegalStateException("Main.qml not found on classpath");
@@ -241,6 +245,17 @@ public final class Main {
                         controller.setPlaylistCover(playlistKey, selected))));
         controller.setPluginPicker(() -> DesktopFilePicker.pickPlugin(
                 controller::inspectPluginPackage));
+        settings.setFontPicker(() -> DesktopFilePicker.pickFont(selected -> {
+            byte[] bytes;
+            try {
+                bytes = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(selected));
+            } catch (Throwable error) {
+                dev.t1m3.qplayer.util.Logger.warn("reading picked font failed: {}", error.toString());
+                return;
+            }
+            String name = new java.io.File(selected).getName();
+            window.postRenderTask(() -> settings.importFontBytes(bytes, name));
+        }));
         // Playlist import/export. The controller does its file I/O on its own
         // worker, so the chosen path is handed over as-is rather than bounced
         // through the render thread like the QML-observable pickers above.

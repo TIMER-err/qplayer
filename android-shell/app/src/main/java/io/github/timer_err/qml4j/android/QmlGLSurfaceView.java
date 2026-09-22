@@ -613,16 +613,12 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                     // thread started at Activity create, and blocking here on the
                     // default font would put its cost straight into cold start.
                     if (s != null && !s.fontSelectionOf("").isEmpty()) {
-                        AndroidFontIndex index = AndroidFontIndex.instance();
-                        index.awaitReady(3000);
+                        AndroidFontIndex.instance().awaitReady(3000);
                         // The selection was first resolved before the index had
                         // been populated; redo it now that the files are known.
                         dev.t1m3.qplayer.lyric.skia.Fonts.reloadFileIndex();
-                        String family = dev.t1m3.qplayer.lyric.skia.Fonts.activeFamilyName();
-                        if (family != null) {
-                            reg = index.read(family, 400);
-                            med = index.read(family, 700);
-                        }
+                        reg = dev.t1m3.qplayer.lyric.skia.Fonts.activeFamilyFile(400);
+                        med = dev.t1m3.qplayer.lyric.skia.Fonts.activeFamilyFile(700);
                     }
                     if (reg == null) reg = CompressedResources.load(resources, "fonts/PingFangSC-Regular.otf");
                     if (med == null) med = CompressedResources.load(resources, "fonts/PingFangSC-Medium.otf");

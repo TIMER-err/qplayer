@@ -17,6 +17,7 @@ import java.nio.file.Paths;
  * state/        queue, custom playlist, search history, lyric offsets
  * indexes/      rebuildable offline metadata indexes
  * runtime/      single-instance lock/port
+ * fonts/        font files the user imported
  * plugins/      installed source plugins, one version directory per plugin
  * cache/        audio, artwork, lyrics and local-library extraction cache
  * logs/         rolling desktop logs
@@ -112,6 +113,13 @@ public final class AppDirs {
 
     public static Path pluginsDir() {
         return basePath().resolve("plugins");
+    }
+
+    /** Font files the user imported. User data, not a cache: the file is copied
+     *  here because the original may live behind a content:// URI we can't reopen
+     *  later, and because eviction must never take away a font in use. */
+    public static Path fontsDir() {
+        return basePath().resolve("fonts");
     }
 
     /** Root containing every cache category, including {@code local/}. */

@@ -55,6 +55,13 @@ final class DesktopFilePicker {
                 I18n.tr("picker.pluginFiles"), new String[]{"qplug"}, onPicked);
     }
 
+    static void pickFont(Consumer<String> onPicked) {
+        File downloads = new File(System.getProperty("user.home", "."), "Downloads");
+        show(I18n.tr("picker.importFont"), initialDirectory(downloads.getAbsolutePath()), false,
+                I18n.tr("picker.fontFiles"),
+                dev.t1m3.qplayer.lyric.skia.ImportedFonts.EXTENSIONS, onPicked);
+    }
+
     private static final String[] PLAYLIST_EXTENSIONS = {"qpl", "json"};
 
     static void pickPlaylist(Consumer<String> onPicked) {

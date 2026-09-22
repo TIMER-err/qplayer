@@ -78,6 +78,7 @@ public final class QPlayerActivity extends Activity {
     private static final int REQ_COVER_PICK = 3;
     private static final int REQ_WEB_LOGIN = 4;
     private static final int REQ_PLUGIN_PICK = 5;
+    private static final int REQ_FONT_PICK = 6;
 
     /** Canonical playlist id awaiting a picked cover image, set right before
      *  launching the gallery picker and consumed in {@link #onActivityResult}. */
@@ -174,6 +175,7 @@ public final class QPlayerActivity extends Activity {
         }));
         controller.setInstaller(this::downloadAndInstallUpdate);
         controller.setCoverPicker(this::pickPlaylistCover);
+        settings.setFontPicker(this::pickFontFile);
         controller.setPluginPicker(this::pickPluginPackage);
         controller.setWebLoginLauncher(this::openWebLogin);
 
@@ -244,7 +246,13 @@ public final class QPlayerActivity extends Activity {
                 // elsewhere is neither listed nor resolvable by name. Register the
                 // file index before the scene is built: it is also how the QML
                 // UI's own typeface is located (uiTypefaces takes bytes).
-                dev.t1m3.qplayer.lyric.skia.Fonts.setFileIndex(AndroidFontIndex.instance());
+                dev.t1m3.qplayer.lyric.skia.Fonts.addFileIndex(AndroidFontIndex.instance());
+                // A system-wide font from a theme store is replaced inside the
+                // framework and its file is not shared with apps, under a path
+                // that differs per vendor — importing the file is the only way
+                // that works on every ROM.
+                dev.t1m3.qplayer.lyric.skia.Fonts.addFileIndex(
+                        dev.t1m3.qplayer.lyric.skia.ImportedFonts.instance());
                 lyricFontsInitialized = true;
             }
             dev.t1m3.qplayer.lyric.skia.Fonts.warmupFromConfig();
@@ -633,6 +641,28 @@ public final class QPlayerActivity extends Activity {
         }
     }
 
+    /** Launch the system document picker for a font file ({@link SettingsCore.FontPicker}
+     *  host hook). A font from a theme store is replaced inside the framework
+     *  rather than shared with apps, so importing the file is the only way to
+     *  use one that works on every vendor's skin. */
+    private void pickFontFile() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        // Most providers report no MIME type for a font, so the type filter has
+        // to stay wide or the file simply cannot be selected.
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{
+            "font/ttf", "font/otf", "font/collection", "application/x-font-ttf",
+            "application/x-font-opentype", "application/octet-stream", "*/*"
+        });
+        try {
+            startActivityForResult(intent, REQ_FONT_PICK);
+        } catch (Throwable error) {
+            dev.t1m3.qplayer.util.Logger.error(
+                    "no document provider to pick a font: {}", error.toString());
+        }
+    }
+
     private void pickPluginPackage() {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
@@ -677,6 +707,31 @@ public final class QPlayerActivity extends Activity {
             }
             return;
         }
+        if (requestCode == REQ_FONT_PICK) {
+            if (resultCode != Activity.RESULT_OK || data == null || data.getData() == null) return;
+            android.net.Uri uri = data.getData();
+            new Thread(() -> {
+                try (InputStream input = getContentResolver().openInputStream(uri)) {
+                    if (input == null) return;
+                    ByteArrayOutputStream buf = new ByteArrayOutputStream();
+                    byte[] chunk = new byte[64 * 1024];
+                    int n;
+                    while ((n = input.read(chunk)) > 0) buf.write(chunk, 0, n);
+                    byte[] bytes = buf.toByteArray();
+                    String name = queryDisplayName(uri, "font.ttf");
+                    QmlGLSurfaceView view = glView;
+                    SettingsCore s = settings;
+                    // Storing and selecting the font touches QML-observable state.
+                    if (view != null && s != null) {
+                        view.queueEvent(() -> s.importFontBytes(bytes, name));
+                    }
+                } catch (Throwable error) {
+                    dev.t1m3.qplayer.util.Logger.warn(
+                            "read picked font failed: {}", error.toString());
+                }
+            }, "qplayer-font-pick").start();
+            return;
+        }
         if (requestCode == REQ_PLUGIN_PICK) {
             if (resultCode != Activity.RESULT_OK || data == null || data.getData() == null) return;
             android.net.Uri uri = data.getData();
@@ -719,6 +774,10 @@ public final class QPlayerActivity extends Activity {
     /** Best-effort display name for a picked content:// image (used as the upload
      *  filename); falls back to a generic name when the provider doesn't report one. */
     private String queryDisplayName(android.net.Uri uri) {
+        return queryDisplayName(uri, "cover.jpg");
+    }
+
+    private String queryDisplayName(android.net.Uri uri, String fallback) {
         try (android.database.Cursor c = getContentResolver().query(uri, null, null, null, null)) {
             if (c != null && c.moveToFirst()) {
                 int idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
@@ -729,7 +788,7 @@ public final class QPlayerActivity extends Activity {
             }
         } catch (Throwable ignored) {
         }
-        return "cover.jpg";
+        return fallback;
     }
 
     /** Draw the app behind the system bars (edge-to-edge) with transparent bars. */

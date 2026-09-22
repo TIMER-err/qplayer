@@ -63,6 +63,13 @@ Item {
                 onClicked: { control.choose("system"); picker.close() }
             }
             SuperArrow {
+                objectName: "importFontFile"
+                Layout.fillWidth: true
+                title: i18n.t("font.picker.import")
+                summary: i18n.t("font.picker.import.summary")
+                onClicked: { settings.openFontImport(); picker.close() }
+            }
+            SuperArrow {
                 objectName: "openFontFamilyList"
                 Layout.fillWidth: true
                 title: i18n.t("font.picker.installed")

@@ -6,6 +6,7 @@ import io.github.timer_err.qml4j.engine.binding.Property;
 import dev.t1m3.qplayer.bridge.PlayerController;
 import dev.t1m3.qplayer.i18n.I18n;
 import dev.t1m3.qplayer.lyric.skia.Fonts;
+import dev.t1m3.qplayer.lyric.skia.ImportedFonts;
 import dev.t1m3.qplayer.lyric.skia.LyricCompositor;
 import dev.t1m3.qplayer.lyric.skia.LyricConfig;
 
@@ -113,6 +114,53 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
 
     public void setDirectoryPicker(DirectoryPicker picker) {
         this.directoryPicker = picker;
+    }
+
+    /** Host hook for choosing a font file. The host opens its own chooser and
+     *  hands the bytes back through {@link #importFontBytes} on the QML/render
+     *  thread — it is not a {@code Consumer<String>} like the directory picker
+     *  because Android's picker returns a content:// URI, not a path. */
+    @FunctionalInterface
+    public interface FontPicker {
+        void pick();
+    }
+
+    private volatile FontPicker fontPicker;
+
+    public void setFontPicker(FontPicker picker) {
+        this.fontPicker = picker;
+    }
+
+    /** Raised by the picker dialog's "import from file" row. */
+    public void openFontImport() {
+        FontPicker picker = fontPicker;
+        if (picker != null) picker.pick();
+    }
+
+    /**
+     * Store a font file the user picked and switch to it.
+     *
+     * <p>Selecting it immediately is the point of the gesture: nobody imports a
+     * font to then hunt for it in a list of two hundred. It is applied to
+     * whichever font source the picker was opened for ({@link #fontPickerTarget},
+     * still set — the dialog closes when the chooser opens, and the host's
+     * chooser answers much later). Must run on the QML/render thread.
+     */
+    public void importFontBytes(byte[] bytes, String filename) {
+        String family = ImportedFonts.instance().importFont(bytes, filename);
+        if (family == null || family.isEmpty()) {
+            toast(I18n.tr("font.import.failed"));
+            return;
+        }
+        Fonts.reloadFileIndex();
+        refreshFontFamilies();
+        setFontSelectionFor(fontPickerTarget.peek(), family);
+        toast(I18n.tr("font.import.done", family));
+    }
+
+    private void toast(String message) {
+        PlayerController c = controller;
+        if (c != null) c.toast.set(message);
     }
 
     /**
