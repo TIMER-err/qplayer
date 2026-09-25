@@ -1,5 +1,6 @@
 package dev.t1m3.qplayer.desktop.app;
 
+import ca.weblite.webview.JavascriptFunction;
 import ca.weblite.webview.swing.WebViewComponent;
 import com.google.gson.Gson;
 import dev.t1m3.qplayer.bridge.WatchmanProbeScript;
@@ -14,8 +15,8 @@ import java.awt.event.WindowEvent;
 import java.util.concurrent.CompletableFuture;
 
 /** Runs one 易盾 Watchman probe in the installed system browser engine. The frame
- * is attached and laid out so the native browser receives a real browsing context,
- * but remains a one-pixel non-focusable utility surface outside the work area. */
+ * stays attached and laid out so the native browser receives a real browsing context,
+ * but remains non-focusable and outside the work area. */
 final class DesktopWatchmanProbe {
     private static final Gson GSON = new Gson();
     private static final long TIMEOUT_MS = 45_000L;
@@ -61,6 +62,7 @@ final class DesktopWatchmanProbe {
         private final JFrame frame;
         private final Timer readinessPoll;
         private final long startedAt = System.currentTimeMillis();
+        private final String readinessCheck;
         private final String bootstrap;
         private boolean injected;
         private boolean finished;
@@ -69,13 +71,12 @@ final class DesktopWatchmanProbe {
                 String productNumber, String businessId) {
             this.result = result;
             webView = WebViewComponent.create();
-            webView.addJavascriptCallback("qplayerWatchmanDone", this::receive);
             webView.setUrl(originUrl);
             webView.setPreferredSize(new Dimension(900, 700));
-            bootstrap = "document.open();document.write('<!doctype html><html><head>"
-                    + "<meta charset=\"utf-8\"></head><body></body></html>');document.close();"
-                    + WatchmanProbeScript.javascript(
-                            originUrl, scriptUrl, productNumber, businessId);
+            bootstrap = WatchmanProbeScript.javascript(
+                    originUrl, scriptUrl, productNumber, businessId);
+            readinessCheck = "return !!document.documentElement && location.href.indexOf("
+                    + GSON.toJson(originUrl) + ") === 0;";
 
             frame = new JFrame();
             frame.setUndecorated(true);
@@ -107,11 +108,24 @@ final class DesktopWatchmanProbe {
                 return;
             }
             if (injected) return;
-            webView.evalAsync("return document.readyState === 'complete';").whenComplete((state, error) -> {
+            webView.evalAsync(readinessCheck).whenComplete((state, error) -> {
                 if (finished || injected || error != null || !"true".equals(state)) return;
                 injected = true;
-                try { webView.eval(bootstrap); }
-                catch (Throwable failure) { fail(failure); }
+                try {
+                    webView.eval("document.open();document.write('<!doctype html><html><head>"
+                            + "<meta charset=\"utf-8\"></head><body></body></html>');document.close();");
+                    // document.open() removes JavaScript wrappers. Install the typed function
+                    // afterward: legacy addJavascriptCallback forwards the native RPC envelope,
+                    // not its first string argument.
+                    webView.addJavascriptFunction("qplayerWatchmanDone",
+                            (JavascriptFunction) payload -> {
+                        receive(payload);
+                        return "";
+                    });
+                    webView.eval(bootstrap);
+                } catch (Throwable failure) {
+                    fail(failure);
+                }
             });
         }
 
