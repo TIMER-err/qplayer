@@ -167,6 +167,7 @@ Calls are asynchronous: `qplayer.call(method, arguments)` returns a Promise.
 | `queue.replace` | `queueWrite` | validates plugin Song DTOs before replacing the queue |
 | `notifications.toast` | `notifications` | host Snackbar/Toast, including over the lyric page |
 | `clipboard.write` | `clipboard` | platform clipboard |
+| `webAuth.runScript` | `webAuth` | opens an allowlisted HTTPS origin in the platform system WebView, runs up to 256 KiB of plugin JavaScript, and returns the string passed to `qplayerWebAuthDone(value)` (up to 64 KiB); arguments: `originUrl`, `script` |
 
 `http.request` negotiates `Accept-Encoding: gzip` on the plugin's behalf and hands
 back the decoded body, dropping `Content-Encoding`/`Content-Length` from the
@@ -190,6 +191,15 @@ also require `webAuth` and provide their HTTPS login URL, HTTPS cookie URL, and 
 signals completion; QPlayer opens the platform system WebView and returns only the
 captured credential to that plugin. The plugin persists it through
 `credentials.put`; QPlayer never interprets provider-specific cookies.
+
+`webAuth.runScript` is a provider-neutral browser surface. QPlayer validates
+`originUrl`, creates a bounded off-screen, non-focusable system WebView, exposes
+only the `qplayerWebAuthDone(string)` completion function, and destroys the
+session after one result or a timeout. The plugin owns all provider SDK URLs,
+initialization, environment-probe logic, and result parsing. Browser subresource
+requests are made by the platform WebView rather than `http.request`, so the
+`webAuth` permission must be treated as authority to run browser code at the
+granted origin.
 
 Credentials are AES-GCM encrypted under a shared installation data key but are
 enveloped and stored under a cryptographically separated plugin/key namespace.

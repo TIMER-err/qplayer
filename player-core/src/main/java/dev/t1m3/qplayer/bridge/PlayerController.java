@@ -127,6 +127,7 @@ public final class PlayerController {
     private volatile ColorExtractor colorExtractor;
     private volatile java.util.function.Consumer<String> clipboard;
     private volatile WebLoginLauncher webLoginLauncher;
+    private volatile WebAuthScriptLauncher webAuthScriptLauncher;
     private volatile boolean monetEnabled = true;
     private static final String DEFAULT_SEED = "#6750A4";
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
@@ -1313,6 +1314,8 @@ public final class PlayerController {
                 sink.accept(text);
                 return CompletableFuture.completedFuture(Boolean.TRUE);
             }
+            case "webAuth.runScript":
+                return runWebAuthScript(pluginId, args);
             default:
                 return failedPluginCall("host method is not implemented: " + method);
         }
@@ -1399,6 +1402,34 @@ public final class PlayerController {
         String value = raw == null ? "" : String.valueOf(raw);
         if (value.length() > limit) throw new IllegalArgumentException("plugin text is too long");
         return value;
+    }
+
+    private CompletableFuture<Object> runWebAuthScript(String pluginId,
+                                                       Map<String, Object> arguments) {
+        String originUrl = pluginText(arguments.get("originUrl"), 2048);
+        String script = pluginText(arguments.get("script"), 256 * 1024);
+        if (originUrl.isEmpty() || !pluginHostApi.allowsReturnedUrl(pluginId, originUrl)) {
+            throw new SecurityException("web auth URL is outside the plugin network grant");
+        }
+        if (script.isEmpty()) throw new IllegalArgumentException("web auth script is empty");
+        WebAuthScriptLauncher launcher = webAuthScriptLauncher;
+        if (launcher == null) return failedPluginCall("system WebView is unavailable");
+        CompletableFuture<String> launched;
+        try {
+            launched = launcher.run(originUrl, script);
+        } catch (Throwable error) {
+            CompletableFuture<Object> failed = new CompletableFuture<>();
+            failed.completeExceptionally(error);
+            return failed;
+        }
+        if (launched == null) return failedPluginCall("system WebView did not start");
+        return launched.thenApply(value -> {
+            if (value == null) throw new IllegalStateException("system WebView returned null");
+            if (value.length() > 64 * 1024) {
+                throw new IllegalArgumentException("system WebView result is too long");
+            }
+            return value;
+        });
     }
 
     private static long boundedPluginLong(Object raw, long min, long max) {
@@ -2117,6 +2148,16 @@ public final class PlayerController {
     public interface WebLoginLauncher {
         void launch(String loginUrl, String cookieUrl, String credentialCookieName,
                     String providerName);
+    }
+
+    @FunctionalInterface
+    public interface WebAuthScriptLauncher {
+        CompletableFuture<String> run(String originUrl, String script);
+    }
+
+    /** Install the shell's bounded system-WebView JavaScript bridge. */
+    public void setWebAuthScriptLauncher(WebAuthScriptLauncher launcher) {
+        this.webAuthScriptLauncher = launcher;
     }
 
     /** Install the shell's in-process system WebView login launcher. */
@@ -8537,8 +8578,17 @@ public final class PlayerController {
         return d > 0 ? d : 0L;
     }
 
+    /** Message for a toast/dialog. Async failures arrive wrapped in a
+     *  CompletionException whose own message is "<cause class>: <cause message>",
+     *  which put a Java class name in front of every plugin error the user saw. */
     private static String safeMessage(Throwable error) {
-        String message = error == null ? null : error.getMessage();
+        Throwable root = error;
+        while ((root instanceof java.util.concurrent.CompletionException
+                || root instanceof java.util.concurrent.ExecutionException)
+                && root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        String message = root == null ? null : root.getMessage();
         return message == null || message.trim().isEmpty() ? I18n.tr("error.unknown") : message;
     }
 

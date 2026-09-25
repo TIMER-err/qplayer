@@ -21,6 +21,9 @@ trust and review every requested permission.
   artwork, and cached-audio downloads re-check every redirect. Direct platform
   playback validates the initial stream URL, while redirects performed internally
   by the platform media stack follow that platform's networking model.
+- `webAuth` is a separate browser-code grant. The host validates the top-level HTTPS
+  origin and bounds script/result size and lifetime, but browser subresources and
+  requests do not pass through the `http.request` domain/DNS/redirect policy.
 - Persistent storage and encrypted credentials are namespaced by validated plugin
   ID and hashed logical key. A credential envelope embeds plugin ID and key, so a
   copied ciphertext fails namespace authentication.

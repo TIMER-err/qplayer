@@ -89,6 +89,7 @@ public final class QPlayerActivity extends Activity {
     private QmlGLSurfaceView glView;
     private MetadataReader reader;
     private android.os.Handler mainHandler;
+    private AndroidWebAuthScript webAuthScript;
     /** The content root (glView's FrameLayout parent), used to force the window
      *  insets to re-dispatch after the system bars are hidden/shown. */
     private android.view.View rootView;
@@ -178,6 +179,8 @@ public final class QPlayerActivity extends Activity {
         settings.setFontPicker(this::pickFontFile);
         controller.setPluginPicker(this::pickPluginPackage);
         controller.setWebLoginLauncher(this::openWebLogin);
+        webAuthScript = new AndroidWebAuthScript(this);
+        controller.setWebAuthScriptLauncher(webAuthScript::run);
 
         // Playback control runs on the main thread (alive in the background, unlike
         // the GL render thread); the service mirrors state to the media session and
@@ -1096,6 +1099,10 @@ public final class QPlayerActivity extends Activity {
             controller.lyricsOpen.removeListener(lyricsOpenListener);
             lyricsOpenListener = null;
         }
+        if (webAuthScript != null) {
+            webAuthScript.shutdown();
+            webAuthScript = null;
+        }
         // Release the controller when idle (not playing). This covers both:
         //   - owner Activities on normal exit
         //   - non-owner Activities (PiP recreations) that outlive the owner
@@ -1122,6 +1129,7 @@ public final class QPlayerActivity extends Activity {
             controller.setCoverPicker(null);
             controller.setPluginPicker(null);
             controller.setWebLoginLauncher(null);
+            controller.setWebAuthScriptLauncher(null);
             controller.setExitListener(null);
         }
         rootView = null;

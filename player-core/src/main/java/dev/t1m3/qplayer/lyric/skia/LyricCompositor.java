@@ -668,7 +668,7 @@ public final class LyricCompositor {
         if (sigma == blurSigmaApplied && blurFilter != null) return;
         blurSigmaApplied = sigma;
         if (blurFilter != null) blurFilter.close();
-        blurFilter = ImageFilter.makeBlur(sigma, sigma, FilterTileMode.CLAMP);
+        blurFilter = ImageFilter.makeBlur(sigma, sigma, FilterTileMode.DECAL);
         blurBasePaint.setImageFilter(blurFilter);
     }
 

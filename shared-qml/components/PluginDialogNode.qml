@@ -17,9 +17,12 @@ Item {
     property bool busy: false
     // Current text of this slot, when it is an input.
     property string inputValue: ""
-    // Live state of this slot, when it is a switch. Read straight off the
-    // control so an untouched switch still reports what it is showing.
-    readonly property bool switchValue: nodeType === "switch" && toggle.checked
+    // Current state of this slot, when it is a switch. Pushed from the control
+    // (and re-seeded from the description) rather than bound to it: qml4j
+    // re-evaluates a derived binding on the next dirty-queue flush, so a
+    // binding read inside the switch's own click handler -- which is exactly
+    // when PluginDialog.submit runs -- still reports the pre-click state.
+    property bool switchValue: false
 
     // The dialog this slot belongs to. Buttons call host.submit(id) directly:
     // no signal in shared-qml carries parameters, and qml4j has no precedent for
@@ -60,7 +63,10 @@ Item {
     }
     visible: node !== null
     onNodeChanged: {
-        if (slot.nodeType === "switch") toggle.checked = slot.node.checked === true
+        if (slot.nodeType === "switch") {
+            toggle.checked = slot.node.checked === true;
+            slot.switchValue = slot.node.checked === true;
+        }
         if (slot.nodeType === "input" && slot.node.id !== slot.appliedInputId) {
             slot.appliedInputId = slot.node.id;
             field.text = slot.node.value || "";
@@ -105,13 +111,18 @@ Item {
     // plugin's on/off state never has to be drawn as a pair of buttons.
     SuperSwitch {
         id: toggle
+        objectName: "pluginNodeSwitch"
         width: parent.width
         visible: slot.nodeType === "switch"
         title: slot.node ? slot.node.label : ""
         summary: slot.node && slot.node.desc ? slot.node.desc : ""
         checked: slot.node && slot.node.checked === true
         enabled: slot.node ? slot.node.enabled !== false && !slot.busy : false
-        onClicked: if (slot.host) slot.host.submit(slot.node.id)
+        onClicked: {
+            slot.switchValue = toggle.checked;
+            if (slot.host)
+                slot.host.submit(slot.node.id)
+        }
     }
 
     Button {
