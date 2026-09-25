@@ -3,8 +3,10 @@ package dev.t1m3.qplayer.android.ui;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.graphics.Bitmap;
+import android.graphics.Color;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceError;
@@ -82,6 +84,13 @@ final class AndroidWebAuthScript {
             settings.setAllowFileAccess(false);
             settings.setAllowContentAccess(false);
             settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+            webView.setBackgroundColor(Color.TRANSPARENT);
+            webView.setAlpha(0f);
+            webView.setFocusable(false);
+            webView.setFocusableInTouchMode(false);
+            webView.setClickable(false);
+            webView.setImportantForAccessibility(
+                    View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
             webView.addJavascriptInterface(new ResultBridge(), BRIDGE_NAME);
             webView.setWebViewClient(new WebViewClient() {
                 @Override public void onPageStarted(WebView view, String url, Bitmap favicon) {
@@ -110,7 +119,8 @@ final class AndroidWebAuthScript {
             float density = activity.getResources().getDisplayMetrics().density;
             int width = Math.round(360f * density);
             int height = Math.round(640f * density);
-            webView.setTranslationX(-width - density);
+            webView.setTranslationX(-100_000f);
+            webView.setTranslationY(-100_000f);
             root.addView(webView, new ViewGroup.LayoutParams(width, height));
             main.postDelayed(timeout, TIMEOUT_MS);
             webView.loadDataWithBaseURL(originUrl,

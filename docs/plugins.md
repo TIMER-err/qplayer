@@ -173,12 +173,13 @@ captured credential to that plugin. The plugin persists it through
 `credentials.put`; QPlayer never interprets provider-specific cookies.
 
 `webAuth.runScript` is a provider-neutral browser surface. QPlayer validates
-`originUrl`, creates a bounded off-screen system WebView, exposes only the
-`qplayerWebAuthDone(string)` completion function, and destroys the session after
-one result or a timeout. The plugin owns all provider SDK URLs, initialization,
-environment-probe logic, and result parsing. Browser subresource requests are made
-by the platform WebView rather than `http.request`, so the `webAuth` permission
-must be treated as authority to run browser code at the granted origin.
+`originUrl`, creates a bounded off-screen, non-focusable system WebView, exposes
+only the `qplayerWebAuthDone(string)` completion function, and destroys the
+session after one result or a timeout. The plugin owns all provider SDK URLs,
+initialization, environment-probe logic, and result parsing. Browser subresource
+requests are made by the platform WebView rather than `http.request`, so the
+`webAuth` permission must be treated as authority to run browser code at the
+granted origin.
 
 Credentials are AES-GCM encrypted under a shared installation data key but are
 enveloped and stored under a cryptographically separated plugin/key namespace.
