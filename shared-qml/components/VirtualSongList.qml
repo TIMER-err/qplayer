@@ -68,6 +68,13 @@ Flickable {
     // published row is rebuilt into a fresh JS array. One gesture across fifty
     // rows meant fifty of those.
     property bool reorderable: false
+    // Global index whose drag handle/remove button are revealed (see SongRow's
+    // controlsRevealed) — right-click/long-press toggles it. -1 when nothing is
+    // revealed. Reset whenever reordering stops being possible or the list
+    // itself changes shape, so it never keeps pointing at a stale row.
+    property int revealedIndex: -1
+    onReorderableChanged: revealedIndex = -1
+    onCountChanged: revealedIndex = -1
     property int moveFrom: -1
     property int moveTo: -1
     signal moveRequested()
@@ -114,6 +121,7 @@ Flickable {
         view._dragFrom = -1
         view._dropIndex = -1
         view._autoScrollStep = 0
+        view.revealedIndex = -1
         if (from < 0) return
         if (to >= 0 && to !== from) {
             view.moveFrom = from
@@ -259,6 +267,8 @@ Flickable {
                 onActivated: { view.activatedIndex = index; view.activated() }
                 onRemoveRequested: { view.removeIndex = index; view.removeRequested() }
                 reorderable: view.reorderable
+                controlsRevealed: view.reorderable ? (view.revealedIndex === index) : true
+                onRevealToggled: view.revealedIndex = (view.revealedIndex === index) ? -1 : index
                 // The carried row is drawn once, by the floating copy below, so
                 // its slot in the list simply empties out.
                 visible: view._dragFrom !== index

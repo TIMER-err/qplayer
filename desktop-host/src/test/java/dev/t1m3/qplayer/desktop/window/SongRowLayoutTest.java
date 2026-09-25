@@ -290,9 +290,12 @@ public class SongRowLayoutTest {
                     + "  Item { id: drop; objectName: \"drop\"; x: list._dropIndex; width: -1 }\n"
                     + "  Item { id: held; objectName: \"held\"; x: list._dragFrom;"
                     + " width: list._dragFloatY }\n"
+                    + "  Component.onCompleted: list.revealedIndex = 0\n"
                     + "}");
             settle(view);
 
+            // The grip only shows once its row is revealed (long-press/right-click) —
+            // Component.onCompleted above stands in for that gesture on row 0.
             // The grip sits 16px in from the right edge (nothing removable here) and
             // is centred in the row, so this lands on row 0's handle.
             float gripX = 900f - 16f - 22f;

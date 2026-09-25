@@ -34,6 +34,12 @@ Rectangle {
     // Shows a drag handle that starts a reorder. Only the handle does — the rest
     // of the row keeps its tap and long-press behaviour.
     property bool reorderable: false
+    // Gates the drag handle / remove button while reorderable: sitting right next
+    // to each other at the row's edge, they were an easy misclick during normal
+    // scrolling. While reorderable, they only show once revealed (see
+    // revealToggled below); every other list keeps them always on.
+    property bool controlsRevealed: true
+    signal revealToggled()
     /** Finger position in the list's content coordinates, published for the list
      *  to turn into a target row (it owns rowH and the model). */
     property real reorderContentY: 0
@@ -309,7 +315,13 @@ Rectangle {
             if (row._menuArmed) { row._menuArmed = false; return }
             row.activated()
         }
-        onLongPressed: { row._menuArmed = true; row._openMenu() }
+        onLongPressed: {
+            row._menuArmed = true
+            // While reorderable, a long-press/right-click reveals the drag handle
+            // and remove button instead of the context menu — see controlsRevealed.
+            if (row.reorderable) row.revealToggled()
+            else row._openMenu()
+        }
     }
 
     // Tap only the actually-painted artist text. The separate probe measures the
@@ -359,7 +371,7 @@ Rectangle {
     Item {
         id: dragHandle
         objectName: "songRowDragHandle"
-        visible: row.reorderable
+        visible: row.reorderable && row.controlsRevealed
         width: 44
         height: 44
         x: Math.max(0, row.width - width - (row.removable ? 72 : 16))
@@ -388,7 +400,7 @@ Rectangle {
             y: 0
             width: parent.width
             height: parent.height
-            enabled: row.reorderable
+            enabled: row.reorderable && row.controlsRevealed
             // The row lives in a Flickable: without this the first few pixels of
             // a vertical drag are taken for scrolling and the reorder never starts.
             preventStealing: true
@@ -417,7 +429,7 @@ Rectangle {
     // Explicit geometry follows recycled queue rows without a new anchor pass.
     IconButton {
         objectName: "queueRemoveButton"
-        visible: row.removable
+        visible: row.removable && (!row.reorderable || row.controlsRevealed)
         width: 40
         height: 40
         x: Math.max(0, row.width - width - 16)
