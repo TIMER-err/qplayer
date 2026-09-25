@@ -3298,13 +3298,19 @@ public final class PlayerController {
                 com.google.gson.JsonObject o = el.getAsJsonObject();
                 Track t = new Track();
                 String src = o.has("source") ? o.get("source").getAsString() : "NETEASE";
+                boolean persistedAsPlugin = "PLUGIN".equals(src);
                 t.source = "LOCAL".equals(src) ? Track.Source.LOCAL
                         : "CUSTOM_API".equals(src) ? Track.Source.CUSTOM_API
-                        : "PLUGIN".equals(src) ? Track.Source.PLUGIN
+                        : persistedAsPlugin ? Track.Source.PLUGIN
                         : Track.Source.NETEASE;
                 t.neteaseId = o.has("neteaseId") ? o.get("neteaseId").getAsLong() : 0;
                 if (o.has("mediaId") && !o.get("mediaId").isJsonNull()) {
                     t.applyCanonicalId(o.get("mediaId").getAsString());
+                    // See loadQueue(): a "netease" provider id is also how an
+                    // installed netease plugin addresses songs; don't let
+                    // applyCanonicalId() downgrade a plugin-sourced record onto the
+                    // legacy built-in client.
+                    if (persistedAsPlugin) t.source = Track.Source.PLUGIN;
                 }
                 t.title    = o.has("title")    && !o.get("title").isJsonNull()    ? o.get("title").getAsString()    : "";
                 t.artist   = o.has("artist")   && !o.get("artist").isJsonNull()   ? o.get("artist").getAsString()   : "";
@@ -6022,14 +6028,21 @@ public final class PlayerController {
                 com.google.gson.JsonObject o = el.getAsJsonObject();
                 Track t = new Track();
                 String src = o.has("source") ? o.get("source").getAsString() : "NETEASE";
+                boolean persistedAsPlugin = "PLUGIN".equals(src);
                 t.source = "LOCAL".equals(src) ? Track.Source.LOCAL
                         : "CUSTOM_API".equals(src) ? Track.Source.CUSTOM_API
-                        : "PLUGIN".equals(src) ? Track.Source.PLUGIN
+                        : persistedAsPlugin ? Track.Source.PLUGIN
                         : Track.Source.NETEASE;
                 t.neteaseId = o.has("neteaseId") ? o.get("neteaseId").getAsLong() : 0;
                 t.customId  = o.has("customId")  && !o.get("customId").isJsonNull()  ? o.get("customId").getAsString()  : null;
                 if (o.has("mediaId") && !o.get("mediaId").isJsonNull()) {
                     t.applyCanonicalId(o.get("mediaId").getAsString());
+                    // A provider id named "netease" is also how an installed netease
+                    // plugin addresses songs; applyCanonicalId() maps that provider to
+                    // the legacy built-in Source.NETEASE unconditionally, which would
+                    // silently route a plugin-sourced queue entry back onto the old
+                    // built-in client on every restart (see toTrackPlugin()).
+                    if (persistedAsPlugin) t.source = Track.Source.PLUGIN;
                 } else {
                     t.canonicalId();
                 }

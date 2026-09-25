@@ -215,15 +215,21 @@ public final class LocalPlaylistStore {
                 // or a legacy numeric id for them.
                 dev.t1m3.qplayer.model.Track track = new dev.t1m3.qplayer.model.Track();
                 String source = string(object, "source");
+                boolean persistedAsPlugin = "PLUGIN".equals(source);
                 track.source = "LOCAL".equals(source) ? dev.t1m3.qplayer.model.Track.Source.LOCAL
                         : "CUSTOM_API".equals(source) ? dev.t1m3.qplayer.model.Track.Source.CUSTOM_API
-                        : "PLUGIN".equals(source) ? dev.t1m3.qplayer.model.Track.Source.PLUGIN
+                        : persistedAsPlugin ? dev.t1m3.qplayer.model.Track.Source.PLUGIN
                         : dev.t1m3.qplayer.model.Track.Source.NETEASE;
                 track.neteaseId = object.has("neteaseId") ? object.get("neteaseId").getAsLong() : 0L;
                 String mediaId = string(object, "mediaId");
                 if (!mediaId.isEmpty()) {
                     try {
                         track.applyCanonicalId(mediaId);
+                        // See PlaylistTrack.toTrack(): a "netease" provider id is
+                        // also how an installed netease plugin addresses songs, and
+                        // applyCanonicalId() would otherwise downgrade a
+                        // plugin-sourced record onto the old built-in client.
+                        if (persistedAsPlugin) track.source = dev.t1m3.qplayer.model.Track.Source.PLUGIN;
                     } catch (IllegalArgumentException ignored) {
                         // fall through to the derived id below
                     }

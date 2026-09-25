@@ -82,11 +82,22 @@ public final class PlaylistTrack {
      */
     public Track toTrack() {
         Track track = new Track();
-        track.source = parseSource(source);
+        Track.Source persistedSource = parseSource(source);
+        track.source = persistedSource;
         track.neteaseId = neteaseId;
         if (mediaId != null && !mediaId.isEmpty()) {
             try {
                 track.applyCanonicalId(mediaId);
+                // A provider id named "netease" is also how an installed netease
+                // plugin's songs are addressed. applyCanonicalId() maps that
+                // provider to the legacy built-in Source.NETEASE unconditionally,
+                // which would silently downgrade a plugin-sourced record back onto
+                // QPlayer's old built-in client the moment it round-trips through a
+                // local playlist (see PlayerController.toTrackPlugin()). Restore
+                // what was actually persisted.
+                if (persistedSource == Track.Source.PLUGIN) {
+                    track.source = Track.Source.PLUGIN;
+                }
             } catch (IllegalArgumentException ignored) {
                 // Keep the stored source; a record with a broken id still shows its
                 // metadata rather than disappearing from the playlist.
