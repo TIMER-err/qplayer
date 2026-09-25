@@ -302,11 +302,28 @@ public final class PluginRuntime implements AutoCloseable {
         BaseFunction reject = new BaseFunction() {
             @Override public Object call(Context ignored, Scriptable s, Scriptable t, Object[] args) {
                 target.completeExceptionally(new PluginExecutionException(
-                        args.length > 0 ? Context.toString(args[0]) : "plugin promise rejected"));
+                        rejectionMessage(args.length > 0 ? args[0] : null)));
                 return Undefined.instance;
             }
         };
         ((Function) then).call(cx, scope, (Scriptable) value, new Object[]{resolve, reject});
+    }
+
+    /** A rejected plugin promise usually carries a JS {@code Error} whose message is
+     *  the user-facing reason the source reported ("操作过于频繁…"). Stringifying the
+     *  Error itself would prefix it with "Error: " and that whole string then ends up
+     *  in a toast, so read the message property when there is one. */
+    private static String rejectionMessage(Object rejected) {
+        if (rejected instanceof Scriptable) {
+            Object message = ScriptableObject.getProperty((Scriptable) rejected, "message");
+            if (message != null && message != Scriptable.NOT_FOUND && message != Undefined.instance) {
+                String text = Context.toString(message).trim();
+                if (!text.isEmpty()) return text;
+            }
+        }
+        if (rejected == null) return "plugin promise rejected";
+        String text = Context.toString(rejected).trim();
+        return text.isEmpty() ? "plugin promise rejected" : text;
     }
 
     private PluginPermission requiredPermission(String method) {

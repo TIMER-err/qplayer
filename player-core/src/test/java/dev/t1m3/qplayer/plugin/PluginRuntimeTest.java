@@ -121,6 +121,24 @@ public class PluginRuntimeTest {
     }
 
     @Test
+    public void reportsARejectedErrorsOwnMessage() throws Exception {
+        Files.write(temporary.getRoot().toPath().resolve("main.js"), (
+                "module.exports = { handlers: {\n"
+                + " deny: function() { return Promise.reject(new Error('操作过于频繁，请稍后再试')); }\n"
+                + "} };\n").getBytes(StandardCharsets.UTF_8));
+        try (PluginRuntime runtime = PluginRuntime.start(
+                temporary.getRoot().toPath(), manifest(), noOpHost())) {
+            try {
+                runtime.invoke("deny", Collections.emptyMap()).get(2, TimeUnit.SECONDS);
+            } catch (java.util.concurrent.ExecutionException expected) {
+                assertEquals("操作过于频繁，请稍后再试", expected.getCause().getMessage());
+                return;
+            }
+        }
+        throw new AssertionError("a rejected promise should fail the call");
+    }
+
+    @Test
     public void acceptsThousandsOfSongLikeResults() throws Exception {
         Files.write(temporary.getRoot().toPath().resolve("main.js"), (
                 "module.exports = { handlers: {\n"

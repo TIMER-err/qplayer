@@ -234,9 +234,18 @@ Rectangle {
         app.syncingPageState = false
     }
 
+    function dismissTextInput() {
+        // SearchPage stays instantiated beneath route pages. Clear its TextInput
+        // focus before a drill-in; otherwise a tap that is not consumed by the
+        // detail page can reactivate the still-focused Android IME.
+        app.forceActiveFocus()
+        Qt.inputMethod.hide()
+    }
+
     // Top-level destinations opened from the app chrome replace the previous
     // path. Drill-ins use pushPage() so Back can restore their source page.
     function replacePage(which, entityId) {
+        app.dismissTextInput()
         var departing = app.topRouteValue()
         var leavingRoot = app.navigationStack.length === 0 && which !== ""
         var animateReplace = app.pageTransitionPreset === 0 && departing
@@ -255,6 +264,7 @@ Rectangle {
     }
 
     function pushPage(which, entityId) {
+        app.dismissTextInput()
         if (which === "") return
         app.ensurePageLoaded(which)
         var id = entityId || 0
@@ -704,6 +714,7 @@ Rectangle {
                 y: rootPageMotion.contentY
                 scale: rootPageMotion.contentScale
                 opacity: rootPageMotion.contentOpacity
+                enabled: app.currentOverlay === ""
 
                 // Pages stacked + toggled by visibility (was a StackLayout). The
                 // engine doesn't recurse into an invisible child's subtree during

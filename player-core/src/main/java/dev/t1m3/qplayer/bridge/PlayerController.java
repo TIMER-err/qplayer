@@ -8384,8 +8384,17 @@ public final class PlayerController {
         return d > 0 ? d : 0L;
     }
 
+    /** Message for a toast/dialog. Async failures arrive wrapped in a
+     *  CompletionException whose own message is "<cause class>: <cause message>",
+     *  which put a Java class name in front of every plugin error the user saw. */
     private static String safeMessage(Throwable error) {
-        String message = error == null ? null : error.getMessage();
+        Throwable root = error;
+        while ((root instanceof java.util.concurrent.CompletionException
+                || root instanceof java.util.concurrent.ExecutionException)
+                && root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        String message = root == null ? null : root.getMessage();
         return message == null || message.trim().isEmpty() ? I18n.tr("error.unknown") : message;
     }
 
