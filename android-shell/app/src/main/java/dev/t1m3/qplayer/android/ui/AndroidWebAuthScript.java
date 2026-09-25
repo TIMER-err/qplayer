@@ -13,27 +13,22 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
-import dev.t1m3.qplayer.bridge.WatchmanProbeScript;
-
-import org.json.JSONObject;
-
 import java.util.concurrent.CompletableFuture;
 
-/** One attached Android system-WebView session for an 易盾 environment probe. */
-final class AndroidWatchmanProbe {
+/** One attached Android system-WebView session for plugin-provided JavaScript. */
+final class AndroidWebAuthScript {
     private static final long TIMEOUT_MS = 45_000L;
-    private static final String BRIDGE_NAME = "QPlayerWatchman";
+    private static final String BRIDGE_NAME = "QPlayerWebAuth";
 
     private final Activity activity;
     private final Handler main = new Handler(Looper.getMainLooper());
     private Session active;
 
-    AndroidWatchmanProbe(Activity activity) {
+    AndroidWebAuthScript(Activity activity) {
         this.activity = activity;
     }
 
-    CompletableFuture<String> request(String originUrl, String scriptUrl,
-                                      String productNumber, String businessId) {
+    CompletableFuture<String> run(String originUrl, String script) {
         CompletableFuture<String> result = new CompletableFuture<>();
         activity.runOnUiThread(() -> {
             if (activity.isFinishing() || activity.isDestroyed()) {
@@ -42,11 +37,11 @@ final class AndroidWatchmanProbe {
             }
             if (active != null) {
                 result.completeExceptionally(
-                        new IllegalStateException("another WebView probe is already running"));
+                        new IllegalStateException("another WebView script is already running"));
                 return;
             }
             try {
-                active = new Session(result, originUrl, scriptUrl, productNumber, businessId);
+                active = new Session(result, originUrl, script);
                 active.start();
             } catch (Throwable error) {
                 active = null;
@@ -67,7 +62,7 @@ final class AndroidWatchmanProbe {
 
     private final class Session {
         private final CompletableFuture<String> result;
-        private final String bootstrap;
+        private final String script;
         private final String originUrl;
         private final WebView webView;
         private final Runnable timeout;
@@ -75,14 +70,11 @@ final class AndroidWatchmanProbe {
         private boolean finished;
 
         @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
-        Session(CompletableFuture<String> result, String originUrl, String scriptUrl,
-                String productNumber, String businessId) {
+        Session(CompletableFuture<String> result, String originUrl, String script) {
             this.result = result;
             this.originUrl = originUrl;
-            bootstrap = "window.qplayerWatchmanDone=function(payload){window."
-                    + BRIDGE_NAME + ".done(payload);};"
-                    + WatchmanProbeScript.javascript(
-                            originUrl, scriptUrl, productNumber, businessId);
+            this.script = "window.qplayerWebAuthDone=function(payload){window."
+                    + BRIDGE_NAME + ".done(String(payload));};" + script;
             webView = new WebView(activity);
             WebSettings settings = webView.getSettings();
             settings.setJavaScriptEnabled(true);
@@ -99,17 +91,18 @@ final class AndroidWatchmanProbe {
                 @Override public void onPageFinished(WebView view, String url) {
                     if (finished || injected) return;
                     injected = true;
-                    view.evaluateJavascript(bootstrap, null);
+                    view.evaluateJavascript(Session.this.script, null);
                 }
 
                 @Override public void onReceivedError(WebView view, WebResourceRequest request,
                                                       WebResourceError error) {
                     if (request.isForMainFrame()) {
-                        fail(new IllegalStateException("system WebView failed to create the probe page"));
+                        fail(new IllegalStateException(
+                                "system WebView failed to create the script page"));
                     }
                 }
             });
-            timeout = () -> fail(new IllegalStateException("watchman WebView probe timed out"));
+            timeout = () -> fail(new IllegalStateException("system WebView script timed out"));
         }
 
         void start() {
@@ -133,24 +126,16 @@ final class AndroidWatchmanProbe {
 
         private void receive(String payload) {
             if (finished) return;
-            try {
-                JSONObject parsed = new JSONObject(payload);
-                String token = parsed.optString("token", "");
-                if (!token.isEmpty()) {
-                    succeed(token);
-                    return;
-                }
-                String error = parsed.optString("error", "");
-                fail(new IllegalStateException(error.isEmpty()
-                        ? "watchman returned an empty token" : error));
-            } catch (Throwable error) {
-                fail(new IllegalStateException("watchman returned an invalid result", error));
+            if (payload == null) {
+                fail(new IllegalStateException("WebView script returned null"));
+            } else {
+                succeed(payload);
             }
         }
 
-        private void succeed(String token) {
+        private void succeed(String value) {
             close();
-            result.complete(token);
+            result.complete(value);
         }
 
         private void fail(Throwable error) {
