@@ -152,6 +152,7 @@ Item {
     // from there and would overlap a button placed underneath).
     IconButton {
         id: coverModeBtn
+        objectName: "lyricCoverModeBtn"
         visible: !overlay.coverOnly
         anchors.top: parent.top
         anchors.topMargin: overlay.topPad
@@ -161,6 +162,30 @@ Item {
         icon: "image"
         contentColor: "#FFFFFFFF"
         onClicked: player.setCoverMode(true)
+    }
+
+    // Full-width layout: a way of looking at this page, so it is toggled here
+    // rather than from the settings list. Same top row, left of the cover switch.
+    // Only where the layout exists at all: a window wider than it is tall, on a
+    // host that has the setting (desktop — settings.has is false on Android).
+    IconButton {
+        id: fullWidthBtn
+        objectName: "lyricFullWidthBtn"
+        visible: overlay.landscape && !overlay.coverOnly
+                 && settings.has("lyricFullWidth")
+        anchors.top: parent.top
+        anchors.topMargin: overlay.topPad
+        anchors.right: coverModeBtn.left
+        anchors.rightMargin: 6
+        type: "standard"
+        // NOT `on`: that is a reserved word in the QML grammar (`Behavior on x`),
+        // and a property of that name fails to parse.
+        property bool wide: settings.value("lyricFullWidth") === true
+        icon: fullWidthBtn.wide ? "fullscreen_exit" : "fullscreen"
+        contentColor: fullWidthBtn.wide ? "#FF82B1FF" : "#FFFFFFFF"
+        // No confirmation toast: the page rearranging itself IS the feedback, and
+        // a snackbar for it would cover the progress bar it just moved down there.
+        onClicked: settings.setValue("lyricFullWidth", !fullWidthBtn.wide)
     }
 
     MouseArea {
@@ -451,12 +476,13 @@ Item {
     Item {
         id: landscapeChrome
         objectName: "lyricLandscapeChrome"
-        // Crossfades with wideChrome below on the host's eased full-width value.
-        // Hidden outright once faded, so its cover and controls stop hit-testing
-        // over a page whose chrome now lives at the bottom.
-        opacity: 1 - overlay.fullWidthK
-        visible: overlay.landscape && opacity > 0.01
-        anchors.left: parent.left
+        // Leaves by sliding off the left edge on the host's eased full-width
+        // value, the way the cover column slides when switching cover<->lyrics,
+        // rather than dissolving in place. Hidden outright once gone, so its
+        // cover and controls stop hit-testing over a page whose chrome has moved
+        // to the bottom.
+        visible: overlay.landscape && overlay.fullWidthK < 0.995
+        x: -width * overlay.fullWidthK
         anchors.top: parent.top
         anchors.bottom: parent.bottom
         width: overlay.coverOnly ? overlay.width : overlay.width / 2
@@ -595,13 +621,14 @@ Item {
         id: wideChrome
         objectName: "lyricWideChrome"
         readonly property real k: overlay.fullWidthK
-        visible: overlay.landscape && k > 0.01
-        opacity: k
+        visible: overlay.landscape && k > 0.005
         anchors.left: parent.left
         anchors.right: parent.right
         height: 152
-        // Rise into place as it fades in.
-        y: parent.height - height + (1 - k) * 28
+        // Pushes up from below the bottom edge — a plain translation, no fade, so
+        // it arrives the same way the cover column travels rather than
+        // materialising in place.
+        y: parent.height - height * k
 
         MarqueeText {
             id: wTitle

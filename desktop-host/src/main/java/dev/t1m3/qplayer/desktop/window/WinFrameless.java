@@ -58,10 +58,23 @@ final class WinFrameless {
     private static final int SWP_FRAMECHANGED = 0x0020;
     private static final int SWP_NOOWNERZORDER = 0x0200;
 
-    // LyricOverlay.qml: 40px IconButtons, 6px from the top/outer edge.  The
-    // right-hand cover + offset controls are separated by another 6px.
+    // LyricOverlay.qml: 40px IconButtons, 6px from the top/outer edge and 6px
+    // from each other.
     private static final double LYRIC_BUTTON_SIZE_LOGICAL_PX = 40;
     private static final double LYRIC_BUTTON_MARGIN_LOGICAL_PX = 6;
+    /**
+     * How many buttons LyricOverlay puts in the page's top-RIGHT corner
+     * (full-width, cover mode, lyric offset).
+     *
+     * <p>This has to be grown with that row. A button past the last reserved
+     * slot sits over the caption strip, where Windows answers the press itself
+     * as a window drag — the click never reaches the app at all, so the button
+     * renders perfectly and does absolutely nothing, with nothing in any log and
+     * no QML test able to see it (a dispatched pointer bypasses WM_NCHITTEST).
+     * Reserving a slot for a button that happens to be hidden only costs a small
+     * non-draggable gap, so all of them are always reserved.
+     */
+    private static final int LYRIC_RIGHT_BUTTON_COUNT = 3;
 
     interface U32 extends StdCallLibrary {
         U32 I = Native.load("user32", U32.class, W32APIOptions.UNICODE_OPTIONS);
@@ -292,11 +305,15 @@ final class WinFrameless {
         double size = LYRIC_BUTTON_SIZE_LOGICAL_PX * scale;
         if (y < margin || y >= margin + size) return false;
 
-        boolean back = x >= margin && x < margin + size;
+        // Close, on the left.
+        if (x >= margin && x < margin + size) return true;
+        // The right-hand row, counted inwards from the window edge.
         double fromRight = windowWidth - x;
-        boolean offset = fromRight > margin && fromRight <= margin + size;
-        boolean cover = fromRight > margin * 2 + size
-                && fromRight <= margin * 2 + size * 2;
-        return back || offset || cover;
+        for (int i = 0; i < LYRIC_RIGHT_BUTTON_COUNT; i++) {
+            double start = margin * (i + 1) + size * i;
+            double end = start + size;
+            if (fromRight > start && fromRight <= end) return true;
+        }
+        return false;
     }
 }

@@ -217,11 +217,13 @@ public final class SettingsCatalog {
         // Wide-window layout: no cover, lyrics across the whole page, transport
         // and progress along the bottom. Desktop only — it needs a window much
         // wider than it is tall to read well, which a phone never is.
-        out.add(SettingSpec.toggle("lyricFullWidth", LYRIC,
-                        "settings.lyricFullWidth.title", false)
-                .desc("settings.lyricFullWidth.desc")
+        //
+        // Stored like any setting but with no row of its own: it is a way of
+        // LOOKING at the lyric page, so it is toggled from the page itself,
+        // next to the cover/lyrics switch, rather than from a list two screens
+        // away. Same reasoning as the lyric timing offset.
+        out.add(SettingSpec.hidden("lyricFullWidth", SettingSpec.SWITCH, false)
                 .onlyOn(DESKTOP)
-                .group("lyricDisplay")
                 .build());
 
         out.add(SettingSpec.radio(BG_MODE_KEY, LYRIC, "settings.lyricBgMode.title", 0,

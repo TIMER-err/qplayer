@@ -78,15 +78,16 @@ public final class LyricCompositor {
     // snaps once, at the halfway point, under a fade: the column dips out, re-wraps
     // while it is invisible, and comes back in the new layout, which is the same
     // move the page already makes when switching between cover and lyrics.
-    private static final float FULLWIDTH_TAU = 0.10f;
+    private static final float FULLWIDTH_TAU = 0.14f;
     // Carve-out for LyricOverlay's top-right icon button row (offset-adjust +
     // cover-mode toggle, two 40px IconButtons side by side with ~6px gaps/margins):
     // in landscape the scrollable band starts only L_LANDSCAPE_TOP below the top,
     // which clips the bottom of that row. Without this the buttons' own pointer-down
     // is intermittently swallowed by the tap-to-seek/drag-to-scroll gesture below
-    // instead of reaching the real QML controls. Widened from 56 (one button) to 108
-    // to also cover the cover-mode button added to its left.
-    private static final float OFFSET_BTN_CORNER_W = 108f;
+    // instead of reaching the real QML controls. Grown with the row: 56 for one
+    // button, 108 once the cover-mode button joined it, now 154 for three
+    // (3 x 40px + two 6px gaps + the 6px margin, plus slack).
+    private static final float OFFSET_BTN_CORNER_W = 154f;
     private static final float OFFSET_BTN_CORNER_H = 52f;
     // The same carve-out on the other side, for the close button. Only needed in
     // the full-width layout: everywhere else the scrollable band starts at the
@@ -477,6 +478,16 @@ public final class LyricCompositor {
         // How visible the column is mid-swap: 1 settled either way, 0 at the
         // halfway point where the geometry changes under it.
         float fullWidthSwap = Math.abs(2f * fullWidthEase - 1f);
+        // Where the column is DRAWN slides continuously between the two layouts
+        // even though the layout itself snaps at the halfway point: the drawn
+        // origin follows the eased value, and the offset from the snapped origin
+        // is a plain canvas translation. Both halves therefore describe the same
+        // absolute travel, so the column glides across the page instead of
+        // dissolving in place, and the alpha dip only has to hide the re-wrap at
+        // the instant the two halves meet.
+        float classicLeftEdge = w * 0.5f;
+        float drawnLeftEdge = classicLeftEdge * (1f - fullWidthEase);
+        float columnSlide = drawnLeftEdge - (fullWidthApplied ? 0f : classicLeftEdge);
         // Unassigned lines centre in the full-width layout; a left-aligned line
         // would leave two thirds of a wide window empty. Duet lines keep their own
         // side either way — that split is the whole point of the channel.
@@ -558,7 +569,12 @@ public final class LyricCompositor {
                 lyColW = w;
                 lyColH = colH;
             }
-            Rect colRect = lyColRect;
+            // While the column is sliding between layouts it reaches outside its
+            // own snapped box, and the layer bounds would cut it off mid-travel.
+            // Widen them to the page for those few frames only — a permanently
+            // page-wide layer would cost the composite every frame.
+            Rect colRect = fullWidthSwap < 0.999f
+                    ? Rect.makeXYWH(0f, colTopY, w, colH) : lyColRect;
             // Reuse predMs (computed above for the QML progress bar), NOT
             // controller.position() directly — that's raw backend.position(), which
             // is 0 while paused/not-yet-resumed (e.g. right after a session restore)
@@ -579,20 +595,24 @@ public final class LyricCompositor {
             // column is still RENDERED at alpha 0 rather than skipped, so the
             // renderer's incremental re-wrap runs during the invisible window and
             // the lyrics are already shaped when they fade back in.
-            int alpha = Math.round(
-                    Math.max(0f, Math.min(1f, lyricShow * fullWidthSwap)) * 255f);
+            // sqrt, so the dip is spent almost entirely at the seam: the column
+            // stays readable for most of the travel and only blinks where the
+            // line wrapping actually changes.
+            int alpha = Math.round(Math.max(0f, Math.min(1f,
+                    lyricShow * (float) Math.sqrt(fullWidthSwap))) * 255f);
             lyLayerPaint.setAlpha(alpha);
             int lc = canvas.saveLayer(colRect, alpha < 255 ? lyLayerPaint : null);
-            // Two zooms on one scale: the cover↔lyrics switch's 0.95→1, and a much
-            // smaller dip through the layout swap so the fade reads as the column
-            // stepping back and returning rather than just blinking.
-            float s = (0.95f + 0.05f * lyricShow) * (0.985f + 0.015f * fullWidthSwap);
+            float s = 0.95f + 0.05f * lyricShow;
             float cx = colLeft + (w - colLeft) * 0.5f;
             float cy = colTopY + colH * 0.5f;
             int zc = canvas.save();
             canvas.translate(cx, cy);
             canvas.scale(s, s);
             canvas.translate(-cx, -cy);
+            // The layout swap travels instead of dissolving: this is the offset
+            // between where the column is drawn and where its snapped layout puts
+            // it, and it is 0 the moment the transition settles.
+            if (columnSlide != 0f) canvas.translate(columnSlide, 0f);
             LyricSkia.setCanvas(canvas);
             if (Boolean.TRUE.equals(LyricConfig.instance.edgeBlur.getValue())) {
                 drawProgressiveBlurColumn(canvas, colRect, colLeft + pad, colTopY, colW, colH, pos);
