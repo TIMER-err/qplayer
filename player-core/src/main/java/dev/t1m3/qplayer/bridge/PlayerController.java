@@ -127,6 +127,7 @@ public final class PlayerController {
     private volatile ColorExtractor colorExtractor;
     private volatile java.util.function.Consumer<String> clipboard;
     private volatile WebLoginLauncher webLoginLauncher;
+    private volatile WatchmanTokenLauncher watchmanTokenLauncher;
     private volatile boolean monetEnabled = true;
     private static final String DEFAULT_SEED = "#6750A4";
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
@@ -1304,6 +1305,8 @@ public final class PlayerController {
                 sink.accept(text);
                 return CompletableFuture.completedFuture(Boolean.TRUE);
             }
+            case "webAuth.watchmanToken":
+                return requestWatchmanToken(pluginId, args);
             default:
                 return failedPluginCall("host method is not implemented: " + method);
         }
@@ -1390,6 +1393,43 @@ public final class PlayerController {
         String value = raw == null ? "" : String.valueOf(raw);
         if (value.length() > limit) throw new IllegalArgumentException("plugin text is too long");
         return value;
+    }
+
+    private CompletableFuture<Object> requestWatchmanToken(String pluginId,
+                                                            Map<String, Object> arguments) {
+        String originUrl = pluginText(arguments.get("originUrl"), 2048);
+        String scriptUrl = pluginText(arguments.get("scriptUrl"), 2048);
+        String productNumber = pluginText(arguments.get("productNumber"), 128);
+        String businessId = pluginText(arguments.get("businessId"), 128);
+        if (originUrl.isEmpty() || scriptUrl.isEmpty()
+                || !pluginHostApi.allowsReturnedUrl(pluginId, originUrl)
+                || !pluginHostApi.allowsReturnedUrl(pluginId, scriptUrl)) {
+            throw new SecurityException("web auth URL is outside the plugin network grant");
+        }
+        if (!productNumber.matches("[A-Za-z0-9_-]{1,128}")
+                || !businessId.matches("[A-Za-z0-9_-]{1,128}")) {
+            throw new IllegalArgumentException("invalid watchman identifier");
+        }
+        WatchmanTokenLauncher launcher = watchmanTokenLauncher;
+        if (launcher == null) return failedPluginCall("system WebView is unavailable");
+        CompletableFuture<String> launched;
+        try {
+            launched = launcher.request(originUrl, scriptUrl, productNumber, businessId);
+        } catch (Throwable error) {
+            CompletableFuture<Object> failed = new CompletableFuture<>();
+            failed.completeExceptionally(error);
+            return failed;
+        }
+        if (launched == null) return failedPluginCall("system WebView did not start");
+        return launched.thenApply(token -> {
+            if (token == null || token.isEmpty()) {
+                throw new IllegalStateException("watchman returned an empty token");
+            }
+            if (token.length() > 16 * 1024) {
+                throw new IllegalArgumentException("watchman token is too long");
+            }
+            return token;
+        });
     }
 
     private static long boundedPluginLong(Object raw, long min, long max) {
@@ -2108,6 +2148,17 @@ public final class PlayerController {
     public interface WebLoginLauncher {
         void launch(String loginUrl, String cookieUrl, String credentialCookieName,
                     String providerName);
+    }
+
+    @FunctionalInterface
+    public interface WatchmanTokenLauncher {
+        CompletableFuture<String> request(String originUrl, String scriptUrl,
+                                          String productNumber, String businessId);
+    }
+
+    /** Install the shell's bounded system-WebView bridge for anti-cheat probes. */
+    public void setWatchmanTokenLauncher(WatchmanTokenLauncher launcher) {
+        this.watchmanTokenLauncher = launcher;
     }
 
     /** Install the shell's in-process system WebView login launcher. */

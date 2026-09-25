@@ -156,6 +156,7 @@ Calls are asynchronous: `qplayer.call(method, arguments)` returns a Promise.
 | `queue.replace` | `queueWrite` | validates plugin Song DTOs before replacing the queue |
 | `notifications.toast` | `notifications` | host Snackbar/Toast, including over the lyric page |
 | `clipboard.write` | `clipboard` | platform clipboard |
+| `webAuth.watchmanToken` | `webAuth` | loads an allowlisted HTTPS SDK in the platform system WebView and returns one Watchman token; arguments: `originUrl`, `scriptUrl`, `productNumber`, `businessId` |
 
 Network URLs returned for playback and artwork are checked again by the host.
 Host-fetched artwork and cached audio enforce the policy on every redirect. A
@@ -170,6 +171,11 @@ also require `webAuth` and provide their HTTPS login URL, HTTPS cookie URL, and 
 signals completion; QPlayer opens the platform system WebView and returns only the
 captured credential to that plugin. The plugin persists it through
 `credentials.put`; QPlayer never interprets provider-specific cookies.
+
+`webAuth.watchmanToken` is deliberately narrower than arbitrary WebView script
+execution. Both URLs must be present in the plugin's `networkDomains`; the host
+loads the SDK in a real browser context, runs `initWatchman`, waits for its
+environment probe, and returns only the token to the calling plugin.
 
 Credentials are AES-GCM encrypted under a shared installation data key but are
 enveloped and stored under a cryptographically separated plugin/key namespace.

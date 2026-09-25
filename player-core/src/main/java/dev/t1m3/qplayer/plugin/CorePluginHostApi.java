@@ -227,6 +227,7 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
         if (method.startsWith("queue.")) return PluginPermission.QUEUE_WRITE;
         if (method.startsWith("notifications.")) return PluginPermission.NOTIFICATIONS;
         if (method.startsWith("clipboard.")) return PluginPermission.CLIPBOARD;
+        if (method.startsWith("webAuth.")) return PluginPermission.WEB_AUTH;
         return null;
     }
 

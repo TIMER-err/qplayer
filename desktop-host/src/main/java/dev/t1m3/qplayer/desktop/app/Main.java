@@ -130,6 +130,7 @@ public final class Main {
                 controller::completeWebLogin,
                 controller::failWebLogin,
                 controller::cancelWebLogin));
+        controller.setWatchmanTokenLauncher(DesktopWatchmanProbe::request);
 
         // Settings: the catalog, the value plumbing and every side effect live in
         // player-core (shared with Android). The host contributes a store, the
@@ -334,6 +335,7 @@ public final class Main {
         if (systemMedia != null) systemMedia.shutdown();
         tray.shutdown();
         DesktopWebLogin.shutdown();
+        DesktopWatchmanProbe.shutdown();
         try {
             controller.shutdown();
         } catch (Throwable ignored) {
