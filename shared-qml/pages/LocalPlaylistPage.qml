@@ -72,7 +72,8 @@ Rectangle {
                 objectName: "localPlaylistSyncButton"
                 Layout.alignment: Qt.AlignVCenter
                 type: "standard"
-                visible: page.subscriptions && page.subscriptions.length > 0
+                // Folded into the overflow menu below 600px — see localPlaylistOverflowButton.
+                visible: page.subscriptions && page.subscriptions.length > 0 && page.width >= 600
                 enabled: !player.localPlaylistSyncing
                 icon: "sync"
                 contentColor: player.localPlaylistSyncing
@@ -83,7 +84,7 @@ Rectangle {
                 objectName: "localPlaylistExportButton"
                 Layout.alignment: Qt.AlignVCenter
                 type: "standard"
-                visible: player.playlistTransferAvailable
+                visible: player.playlistTransferAvailable && page.width >= 600
                 icon: "file_download"
                 onClicked: player.requestLocalPlaylistExport(page.playlistId)
             }
@@ -105,6 +106,7 @@ Rectangle {
                 objectName: "localPlaylistCoverButton"
                 Layout.alignment: Qt.AlignVCenter
                 type: "standard"
+                visible: page.width >= 600
                 icon: "image"
                 onClicked: {
                     coverMenu.rebuild()
@@ -114,6 +116,7 @@ Rectangle {
             IconButton {
                 Layout.alignment: Qt.AlignVCenter
                 type: "standard"
+                visible: page.width >= 600
                 icon: "edit"
                 onClicked: {
                     renameField.text = player.localPlaylistTitle
@@ -123,8 +126,26 @@ Rectangle {
             IconButton {
                 Layout.alignment: Qt.AlignVCenter
                 type: "standard"
+                visible: page.width >= 600
                 icon: "delete"
                 onClicked: deleteDialog.open()
+            }
+            // A narrow (mobile) header has no room for six action icons next to
+            // back/home and the title — they crowded together and were easy to
+            // misclick. Below 600px the five less-frequently-tapped ones collapse
+            // behind a single overflow menu; only sort (state you glance at while
+            // browsing) stays inline.
+            IconButton {
+                id: overflowButton
+                objectName: "localPlaylistOverflowButton"
+                Layout.alignment: Qt.AlignVCenter
+                type: "standard"
+                visible: page.width < 600
+                icon: "more_vert"
+                onClicked: {
+                    overflowMenu.rebuild()
+                    overflowMenu.open(overflowButton, 0, overflowButton.height)
+                }
             }
         }
 
@@ -321,6 +342,47 @@ Rectangle {
                 fontSize: 16
                 color: Theme.color.onSurfaceVariantColor
             }
+
+            // A hand-scroll back to the top of a hundred-plus-song playlist is a
+            // lot of dragging (or flicking blind past a custom-ordered list, where
+            // scrollbars aren't a thing here). Only worth the screen space once
+            // there is actually somewhere far to come back from.
+            NumberAnimation {
+                id: scrollToTopAnim
+                target: tracks
+                property: "contentY"
+                to: 0
+                duration: 220
+                easing.type: Easing.OutCubic
+            }
+            Rectangle {
+                id: scrollTopFab
+                objectName: "localPlaylistScrollTopButton"
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.margins: 16
+                width: 48
+                height: 48
+                radius: width / 2
+                color: Theme.color.primary
+                z: 5
+                visible: opacity > 0
+                opacity: (page.tracksList && page.tracksList.length > 100
+                          && tracks.contentY > tracks.height) ? 1 : 0
+                Behavior on opacity { NumberAnimation { duration: 150 } }
+                Text {
+                    anchors.centerIn: parent
+                    text: "vertical_align_top"
+                    font.family: Theme.iconFont.name
+                    font.pixelSize: 24
+                    color: Theme.color.onPrimaryColor
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    enabled: scrollTopFab.opacity > 0
+                    onClicked: scrollToTopAnim.start()
+                }
+            }
         }
     }
 
@@ -383,6 +445,53 @@ Rectangle {
                 })
             }
             coverMenu.model = items
+        }
+    }
+
+    // Mobile-width stand-in for the five icon buttons hidden above 600px — see
+    // localPlaylistOverflowButton. Same actions, just gathered behind one tap.
+    Menu {
+        id: overflowMenu
+        outlined: true
+        function rebuild() {
+            var items = []
+            if (page.subscriptions && page.subscriptions.length > 0) {
+                items.push({
+                    text: player.localPlaylistSyncing
+                          ? i18n.t("playlist.local.syncing") : i18n.t("common.refresh"),
+                    icon: "sync",
+                    action: function() { player.refreshLocalPlaylist(page.playlistId) }
+                })
+            }
+            if (player.playlistTransferAvailable) {
+                items.push({
+                    text: i18n.t("playlist.local.export"), icon: "file_download",
+                    action: function() { player.requestLocalPlaylistExport(page.playlistId) }
+                })
+            }
+            items.push({
+                text: i18n.t("playlist.local.pickCover"), icon: "image",
+                action: function() { player.pickLocalPlaylistCover(page.playlistId) }
+            })
+            if (player.localPlaylistCustomCover) {
+                items.push({
+                    text: i18n.t("playlist.local.clearCover"), icon: "hide_image",
+                    action: function() { player.clearLocalPlaylistCover(page.playlistId) }
+                })
+            }
+            items.push({ type: "separator" })
+            items.push({
+                text: i18n.t("playlist.local.rename"), icon: "edit",
+                action: function() {
+                    renameField.text = player.localPlaylistTitle
+                    renameDialog.open()
+                }
+            })
+            items.push({
+                text: i18n.t("common.delete"), icon: "delete",
+                action: function() { deleteDialog.open() }
+            })
+            overflowMenu.model = items
         }
     }
 
