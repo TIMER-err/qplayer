@@ -174,6 +174,19 @@ bash       desktop-host/dist/package-macos.sh      # macOS   → target/QPlayer.
 > 打 `v*` tag 时，`.github/workflows/release.yml` 会在三平台 CI 上完成上述构建并附到
 > GitHub Release。
 
+### Linux
+
+**AppImage 使用指南**
+
+不论是第一次安装 QPlayer 还是更新 QPlayer 都可使用（注意 AppImage 不便实现自动更新，QPlayer 发布新版本后请手动使用下列命令更新）。
+
+```sh
+# 将您新下载的 AppImage 文件替换到系统路径
+mv ~/下载/QPlayer*.AppImage ~/.local/bin/qplayer.AppImage
+# 赋予执行权限
+chmod +x ~/.local/bin/qplayer.AppImage
+```
+
 ## 发版
 
 版本号位于**两处**，需保持一致：
