@@ -19,6 +19,10 @@ public final class PluginAccountService {
     private static final int MAX_LABEL_CHARS = 4096;
     private static final int MAX_INSTRUCTIONS_CHARS = 64 * 1024;
     private static final int MAX_QR_CONTENT_CHARS = 64 * 1024;
+    // Generous for an actual QR (a few KB), not for an arbitrary image.
+    private static final int MAX_QR_IMAGE_BASE64_CHARS = 300_000;
+    private static final byte[] PNG_SIGNATURE =
+            {(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
     private final PluginManager manager;
     private final CorePluginHostApi hostApi;
 
@@ -134,6 +138,7 @@ public final class PluginAccountService {
                 "login message", false);
         challenge.qrContent = bounded(value.get("qrContent"), MAX_QR_CONTENT_CHARS,
                 "login QR content", false);
+        challenge.qrImageBase64 = qrImage(value.get("qrImageBase64"));
         challenge.expiresAtMs = boundedLong(value.get("expiresAtMs"), 0L,
                 Long.MAX_VALUE, "login expiry");
         if (value.get("account") instanceof Map) {
@@ -197,6 +202,34 @@ public final class PluginAccountService {
             return number == Math.rint(number) ? Long.toString(value.longValue()) : value.toString();
         }
         return optional(raw);
+    }
+
+    /** Validates a plugin-supplied QR image: bounded, valid base64, and actually a
+     *  PNG — the host hands this straight to an Image element, so it is worth
+     *  rejecting anything that is not the format it claims to be up front. */
+    static String qrImage(Object raw) {
+        String value = optional(raw);
+        if (value.isEmpty()) return "";
+        if (value.length() > MAX_QR_IMAGE_BASE64_CHARS) {
+            throw new PluginExecutionException("login QR image is too large");
+        }
+        byte[] bytes;
+        try {
+            bytes = java.util.Base64.getDecoder().decode(value);
+        } catch (IllegalArgumentException e) {
+            throw new PluginExecutionException("login QR image is not valid base64");
+        }
+        if (bytes.length < PNG_SIGNATURE.length || !startsWithPngSignature(bytes)) {
+            throw new PluginExecutionException("login QR image must be a PNG");
+        }
+        return value;
+    }
+
+    private static boolean startsWithPngSignature(byte[] bytes) {
+        for (int i = 0; i < PNG_SIGNATURE.length; i++) {
+            if (bytes[i] != PNG_SIGNATURE[i]) return false;
+        }
+        return true;
     }
 
     private static String bounded(Object raw, int maximum, String label, boolean required) {

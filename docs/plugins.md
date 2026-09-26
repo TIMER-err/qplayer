@@ -159,7 +159,7 @@ Calls are asynchronous: `qplayer.call(method, arguments)` returns a Promise.
 |---|---|---|
 | `storage.get/put/delete` | none | 1 MiB, hashed key, plugin namespace |
 | `credentials.get/put/delete` | `credentials` | encrypted, plugin namespace |
-| `http.request` | `network` | HTTPS/domain/method/DNS/redirect policy; bounded body. Send text as `body`, bytes as `bodyBase64` (mutually exclusive); read them back as `body`/`bodyBase64` |
+| `http.request` | `network` | HTTPS/domain/method/DNS/redirect policy; bounded body. Send text as `body`, bytes as `bodyBase64` (mutually exclusive); read them back as `body`/`bodyBase64`. Redirects are followed by default (up to 5 hops); pass `followRedirects: false` to get the first 3xx response itself instead, with `Location` among the returned `headers` |
 | `crypto.*` | none | digest, random, AES, HMAC, modular exponentiation, X25519 |
 | `compression.gunzip` | none | bounded decompression |
 | `playback.read` | `playbackRead` | current native song id, provider-owned queue, clock, transition state and revisions |
@@ -191,6 +191,13 @@ also require `webAuth` and provide their HTTPS login URL, HTTPS cookie URL, and 
 signals completion; QPlayer opens the platform system WebView and returns only the
 captured credential to that plugin. The plugin persists it through
 `credentials.put`; QPlayer never interprets provider-specific cookies.
+
+A `qr`-type challenge (returned from `begin`/`poll`) normally sets `qrContent`,
+a plain string QPlayer encodes into a QR itself. When a provider's QR instead
+encodes a server-side token that only exists inside an image its own endpoint
+renders — nothing the plugin can recover as text — it can set `qrImageBase64`
+(base64 PNG, capped at 300,000 base64 characters) instead; QPlayer validates
+the PNG signature and displays it as-is. If both are set, the image wins.
 
 `webAuth.runScript` is a provider-neutral browser surface. QPlayer validates
 `originUrl`, creates a bounded off-screen, non-focusable system WebView, exposes

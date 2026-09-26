@@ -347,6 +347,11 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
         // that asks for a thousand tracks otherwise pays for every byte of it.
         // A plugin that sets its own Accept-Encoding keeps the raw bytes.
         boolean hostNegotiatedGzip = !hasHeader(requestHeaders, "Accept-Encoding");
+        // Some OAuth-style exchanges (a login redirect chain carrying a one-time
+        // code in its Location header, say) need the redirect itself, not wherever
+        // it eventually leads. Default stays true: every existing caller wants the
+        // final page and none of them pass this.
+        boolean followRedirects = !Boolean.FALSE.equals(args.get("followRedirects"));
 
         for (int redirect = 0; redirect <= MAX_REDIRECTS; redirect++) {
             URL url = validateNetworkUrl(manifest, current);
@@ -368,7 +373,7 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
                 try (OutputStream output = connection.getOutputStream()) { output.write(body); }
             }
             int status = connection.getResponseCode();
-            if (status >= 300 && status < 400) {
+            if (status >= 300 && status < 400 && followRedirects) {
                 String location = connection.getHeaderField("Location");
                 connection.disconnect();
                 if (location == null || redirect == MAX_REDIRECTS) {
@@ -384,6 +389,9 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
                 }
                 continue;
             }
+            // A caller that opted out of following still gets the redirect itself
+            // here (status 3xx, Location among the headers below) rather than
+            // whatever the body-reading branch below expects.
             InputStream raw = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
             byte[] response;
             try {

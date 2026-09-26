@@ -137,14 +137,27 @@ Item {
                             anchors.centerIn: parent
                             width: 48; height: 48
                             indeterminate: true
-                            visible: dialog.active && !qrCanvas.visible
+                            visible: dialog.active && !qrCanvas.visible && !qrImg.visible
+                        }
+                        // Some providers' QR encodes a token that only exists inside an
+                        // image their own endpoint returns (see qrImagePath) — shown
+                        // as-is instead of the host re-encoding qrContent into a matrix.
+                        Image {
+                            id: qrImg
+                            objectName: "loginQrImage"
+                            anchors.centerIn: parent
+                            width: Math.max(0, parent.width - 20); height: width
+                            fillMode: Image.PreserveAspectFit
+                            visible: player.qrImagePath.length > 0 && width > 0
+                            source: visible ? player.qrImagePath : ""
                         }
                         Canvas {
                             id: qrCanvas
                             objectName: "loginQrCanvas"
                             anchors.centerIn: parent
                             width: Math.max(0, parent.width - 20); height: width
-                            visible: dialog.ready && dialog.qr && dialog.qr.length > 0 && width > 0
+                            visible: !qrImg.visible
+                                     && dialog.ready && dialog.qr && dialog.qr.length > 0 && width > 0
                             onWidthChanged: requestPaint()
                             onPaint: {
                                 if (!dialog.ready || width <= 0 || height <= 0) return;

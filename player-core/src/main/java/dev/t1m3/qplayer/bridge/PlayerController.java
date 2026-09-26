@@ -8605,6 +8605,19 @@ public final class PlayerController {
     /** QR module matrix (true=dark) as nested Lists so QML can index [y][x]. */
     public final Property<List<List<Boolean>>> qrImage =
             new Property<>(Collections.<List<Boolean>>emptyList());
+    /** Absolute path to a QR image a plugin rendered itself (see
+     *  LoginChallenge#qrImageBase64) — shown as-is instead of {@link #qrImage}
+     *  when non-empty. Some providers' QR encodes a server token that only
+     *  exists inside the image the provider's own endpoint returns; there is no
+     *  text for the host to re-encode. qml4j's Image has no data: URI support
+     *  (confirmed against its ImageLoader — only http(s) and local paths), so
+     *  the bytes are written to the cache dir and referenced by path, the same
+     *  way a downloaded cover art file is. A fresh, distinctly-named file per
+     *  challenge is required too: qml4j only redecodes an Image when its source
+     *  STRING changes, so overwriting one fixed filename would leave a refreshed
+     *  QR showing the previous (now stale, or already-expired) picture. */
+    public final Property<String> qrImagePath = new Property<>("");
+    private volatile java.nio.file.Path pendingQrImageFile;
     /** 0 loading / 800 expired / 801 waiting / 802 scanned / 803 success. */
     public final Property<Integer> qrStatus = new Property<>(0);
     /** Whether this shell can embed the official website in a system WebView. */
@@ -8723,7 +8736,10 @@ public final class PlayerController {
 
     /** Mint a login key + matrix off-thread; publishes to {@link #qrImage}/{@link #qrStatus}. */
     public void startQrLogin() {
-        post(() -> qrStatus.set(0));
+        post(() -> {
+            qrStatus.set(0);
+            qrImagePath.set("");
+        });
         if (!pendingPluginLoginProvider.isEmpty() && !pluginQrMethodId.isEmpty()) {
             final String provider = pendingPluginLoginProvider;
             pluginAccounts.begin(provider, pluginQrMethodId).whenComplete((challenge, error) -> post(() -> {
@@ -8790,7 +8806,10 @@ public final class PlayerController {
         if (challenge.id != null && !challenge.id.isEmpty()) {
             pendingPluginLoginChallenge = challenge.id;
         }
-        if (challenge.qrContent != null && !challenge.qrContent.isEmpty()) {
+        if (challenge.qrImageBase64 != null && !challenge.qrImageBase64.isEmpty()) {
+            writeQrImageFile(challenge.qrImageBase64);
+        } else if (challenge.qrContent != null && !challenge.qrContent.isEmpty()) {
+            qrImagePath.set("");
             qrImage.set(QrMatrix.encode(challenge.qrContent));
         }
         switch (challenge.status) {
@@ -8818,6 +8837,26 @@ public final class PlayerController {
                         ? I18n.tr("login.error.failed") : challenge.message);
                 break;
             default: qrStatus.set(801); break;
+        }
+    }
+
+    /** Writes a plugin-supplied QR PNG to the cache dir under a fresh name (see
+     *  {@link #qrImagePath}) and deletes whichever one preceded it. */
+    private void writeQrImageFile(String base64Png) {
+        java.nio.file.Path previous = pendingQrImageFile;
+        try {
+            java.nio.file.Path dir = AppDirs.cacheDir();
+            java.nio.file.Files.createDirectories(dir);
+            java.nio.file.Path file = dir.resolve("login-qr-" + System.nanoTime() + ".png");
+            java.nio.file.Files.write(file, java.util.Base64.getDecoder().decode(base64Png));
+            pendingQrImageFile = file;
+            qrImagePath.set(file.toAbsolutePath().toString());
+        } catch (Throwable e) {
+            Logger.warn("failed to write login QR image: {}", safeMessage(e));
+            return;
+        }
+        if (previous != null) {
+            try { java.nio.file.Files.deleteIfExists(previous); } catch (Throwable ignored) { }
         }
     }
 
