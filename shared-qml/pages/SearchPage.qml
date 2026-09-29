@@ -56,17 +56,19 @@ Item {
         anchors.fill: parent
         spacing: 0
 
-        ColumnLayout {
+        // Nested ColumnLayout + fillWidth is unreliable in qml4j, and the
+        // search field then collapsed to the leading 24px icon so the label
+        // sat in a column the width of the glyph. Size both controls off the
+        // page instead of asking the inner layout to distribute width.
+        Item {
             Layout.fillWidth: true
-            Layout.leftMargin: 16
-            Layout.rightMargin: 16
-            Layout.topMargin: 12
-            Layout.bottomMargin: 12
-            spacing: 12
+            Layout.preferredHeight: 134
             TextField {
                 id: query
                 objectName: "searchQuery"
-                Layout.fillWidth: true
+                x: 16
+                y: 12
+                width: Math.max(0, page.width - 32)
                 label: i18n.t(searchBar.modeIndex === 1 ? "search.hint.albums"
                     : searchBar.modeIndex === 2 ? "search.hint.artists" : "search.hint.songs")
                 leadingIcon: "search"
@@ -83,8 +85,10 @@ Item {
             TabRowWithContour {
                 equalWidth: false
                 id: searchBar
-                Layout.fillWidth: true
-                Layout.preferredHeight: 42
+                x: 16
+                y: 80
+                width: Math.max(0, page.width - 32)
+                height: 42
                 property int modeIndex: selectedTabIndex
                 tabs: [i18n.t("search.mode.songs"), i18n.t("search.mode.albums"), i18n.t("search.mode.artists")]
                 onTabSelected: (index) => {

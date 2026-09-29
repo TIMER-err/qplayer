@@ -14,6 +14,7 @@ import dev.t1m3.qplayer.store.StorageFiles;
 import io.github.timer_err.qml4j.engine.QmlEngine;
 import io.github.timer_err.qml4j.engine.binding.DirtyQueue;
 import io.github.timer_err.qml4j.render.QmlView;
+import io.github.timer_err.qml4j.render.items.core.Item;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -123,6 +124,45 @@ public class LocalPlaylistUiTest {
             assertNotNull("and its own sort",
                     view.findByObjectName("localPlaylistSortButton"));
             assertEquals("mixed", harness.player.localPlaylistTitle.peek());
+        }
+    }
+
+    /**
+     * The empty search page (and the empty local-playlist tab) stack a 64px
+     * icon above a title. If that column's width follows the icon, the caption
+     * wraps to a glyph-wide strip down the middle of the page.
+     */
+    @Test
+    public void anEmptyStateCaptionIsWiderThanItsIcon() throws Exception {
+        try (Harness harness = new Harness(temporary.newFolder().toPath())) {
+            QmlView view = harness.load("import QtQuick\nimport \"components\"\n"
+                    + "Item { width: 400; height: 400\n"
+                    + "  EmptyState { anchors.centerIn: parent; icon: \"search\"\n"
+                    + "    title: \"Search\"; message: \"Type a song, album or artist\" }\n"
+                    + "}");
+            Item badge = view.findByObjectName("emptyStateBadge");
+            Item title = view.findByObjectName("emptyStateTitle");
+            assertNotNull(badge);
+            assertNotNull(title);
+            assertEquals(64f, badge.width.peekFloat(), 0.5f);
+            assertTrue("empty-state title must not match the 64px icon, got "
+                            + title.width.peekFloat(),
+                    title.width.peekFloat() >= 240f);
+        }
+    }
+
+    @Test
+    public void theSearchFieldIsWiderThanItsLeadingIcon() throws Exception {
+        try (Harness harness = new Harness(temporary.newFolder().toPath())) {
+            QmlView view = harness.load("import QtQuick\nimport \"pages\"\n"
+                    + "Item { width: 400; height: 800\n"
+                    + "  SearchPage { objectName: \"searchPage\"; anchors.fill: parent }\n"
+                    + "}");
+            Item field = view.findByObjectName("searchQuery");
+            assertNotNull(field);
+            assertTrue("the search field must span the page, not the 24px icon, got "
+                            + field.width.peekFloat(),
+                    field.width.peekFloat() >= 300f);
         }
     }
 
