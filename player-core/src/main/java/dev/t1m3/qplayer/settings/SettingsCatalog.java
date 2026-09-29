@@ -89,6 +89,12 @@ public final class SettingsCatalog {
     /** Background opacity percent while the pointer is away from the window —
      *  the state it is in almost all the time during normal playback. */
     public static final String DESKTOP_LYRIC_IDLE_OPACITY_KEY = "desktopLyricIdleOpacity";
+    /** Which Monet scheme (light/dark) the floating window's text extracts its
+     *  colours from — independent of the app's own darkMode, since the window
+     *  floats over arbitrary desktop content, not the app's own backdrop.
+     *  MODE_SYSTEM here means "whatever the app resolved", not literally the
+     *  OS state; reuses MODE_SYSTEM/MODE_LIGHT/MODE_DARK from darkMode above. */
+    public static final String DESKTOP_LYRIC_COLOR_SCHEME_KEY = "desktopLyricColorScheme";
 
     /** Daily picks above the recommendation grid instead of below it. */
     public static final String HOME_DAILY_FIRST_KEY = "homeDailyFirst";
@@ -319,6 +325,19 @@ public final class SettingsCatalog {
                 .onlyOn(DESKTOP)
                 .dependsOn("desktopLyricEnabled")
                 .group("desktopLyricText")
+                .build());
+        // The window floats over whatever is on screen, not the app's own
+        // backdrop, so a text colour picked for the app's current theme can be
+        // the wrong one for what happens to be underneath. This decouples the
+        // two; the two colour rows below still win over either when set.
+        out.add(SettingSpec.segmented(DESKTOP_LYRIC_COLOR_SCHEME_KEY, DESKTOP_LYRIC,
+                        "settings.desktopLyricColorScheme.title", MODE_SYSTEM,
+                        "settings.desktopLyricColorScheme.app", "settings.desktopLyricColorScheme.light",
+                        "settings.desktopLyricColorScheme.dark")
+                .desc("settings.desktopLyricColorScheme.desc")
+                .onlyOn(DESKTOP)
+                .dependsOn("desktopLyricEnabled")
+                .group("desktopLyricInk")
                 .build());
         out.add(SettingSpec.color(DESKTOP_LYRIC_SUNG_COLOR_KEY, DESKTOP_LYRIC,
                         "settings.desktopLyricSungColor.title", "")

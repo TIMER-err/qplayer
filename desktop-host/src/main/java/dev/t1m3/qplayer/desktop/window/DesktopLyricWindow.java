@@ -43,12 +43,13 @@ public final class DesktopLyricWindow {
     private static final String UNSUNG_COLOR_KEY = "desktopLyricUnsungColor";
     private static final String IDLE_OPACITY_KEY = "desktopLyricIdleOpacity";
     private static final String SCALE_KEY = "desktopLyricScale";
+    private static final String COLOR_SCHEME_KEY = "desktopLyricColorScheme";
 
     /** The settings keys whose changes {@link #reloadAppearance()} picks up. The
      *  host registers one listener per key against this list. */
     public static final String[] APPEARANCE_KEYS = {
         FONT_KEY, FONT_SIZE_KEY, FONT_WEIGHT_KEY, SHADOW_KEY, OUTLINE_KEY,
-        SUNG_COLOR_KEY, UNSUNG_COLOR_KEY, IDLE_OPACITY_KEY,
+        SUNG_COLOR_KEY, UNSUNG_COLOR_KEY, IDLE_OPACITY_KEY, COLOR_SCHEME_KEY,
     };
     /** The settings keys whose changes {@link #reloadWindowSize()} picks up —
      *  separate from APPEARANCE_KEYS because this one needs a native
@@ -66,7 +67,8 @@ public final class DesktopLyricWindow {
     record Appearance(String fontFamily, int fontSize, int fontWeight,
                       boolean shadow, boolean outline,
                       String sungColor, String unsungColor,
-                      float idleBackgroundOpacity) {
+                      float idleBackgroundOpacity,
+                      int colorScheme) {
     }
     static final int WIDTH = 900;
     static final int HEIGHT = 180;
@@ -325,10 +327,19 @@ public final class DesktopLyricWindow {
             prepared = LyricTimeline.prepare(lines, linear);
         }
         Appearance look = appearance;
-        Object paletteScheme = DesktopLyricPalette.scheme(dark);
+        // The window floats over arbitrary desktop content, not the app's own
+        // backdrop, so "follow the app theme" is only the default — the user
+        // can pin it to whichever scheme actually contrasts with what they
+        // usually have on screen instead.
+        boolean effectiveDark = switch (look.colorScheme()) {
+            case dev.t1m3.qplayer.settings.SettingsCatalog.MODE_LIGHT -> false;
+            case dev.t1m3.qplayer.settings.SettingsCatalog.MODE_DARK -> true;
+            default -> dark;
+        };
+        Object paletteScheme = DesktopLyricPalette.scheme(effectiveDark);
         if (palette == null || paletteScheme != lastPaletteScheme) {
             lastPaletteScheme = paletteScheme;
-            palette = DesktopLyricPalette.capture(paletteScheme, dark,
+            palette = DesktopLyricPalette.capture(paletteScheme, effectiveDark,
                     look.sungColor(), look.unsungColor());
         }
         snapshot.set(new DesktopLyricSnapshot(prepared,
@@ -362,7 +373,9 @@ public final class DesktopLyricWindow {
                 store.getBool(OUTLINE_KEY, true),
                 store.getString(SUNG_COLOR_KEY, ""),
                 store.getString(UNSUNG_COLOR_KEY, ""),
-                store.getInt(IDLE_OPACITY_KEY, 45) / 100f);
+                store.getInt(IDLE_OPACITY_KEY, 45) / 100f,
+                store.getInt(COLOR_SCHEME_KEY,
+                        dev.t1m3.qplayer.settings.SettingsCatalog.MODE_SYSTEM));
         palette = null;
         DesktopLyricRenderThread thread = renderThread;
         if (thread != null) java.util.concurrent.locks.LockSupport.unpark(thread);
