@@ -29,6 +29,7 @@ public final class DesktopLyricState extends QObject {
     private boolean shadow = true;
     private boolean outline = true;
     private DesktopLyricPalette palette = DesktopLyricPalette.capture(true);
+    private float idleBackgroundOpacity = 0.45f;
     private long positionMs;
 
     DesktopLyricState(DesktopLyricWindow owner) {
@@ -46,6 +47,7 @@ public final class DesktopLyricState extends QObject {
         shadow = snapshot.shadow;
         outline = snapshot.outline;
         palette = snapshot.palette;
+        idleBackgroundOpacity = snapshot.idleBackgroundOpacity;
         playing.set(snapshot.playing);
         mousePassthrough.set(owner.isMousePassthrough());
         pointerInside.set(owner.isPointerInside() && !owner.isMousePassthrough());
@@ -91,6 +93,10 @@ public final class DesktopLyricState extends QObject {
 
     DesktopLyricPalette palette() {
         return palette;
+    }
+
+    float idleBackgroundOpacityValue() {
+        return idleBackgroundOpacity;
     }
 
     public void previous() {

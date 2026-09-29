@@ -25,6 +25,6 @@ public class DesktopLyricStateTest {
     private static DesktopLyricSnapshot snapshot(String title, String artist, boolean playing) {
         return new DesktopLyricSnapshot(null, title, artist,
                 0L, false, 0L, 0L, "", 26, 2, true, true,
-                playing, DesktopLyricSnapshot.EMPTY.palette);
+                playing, DesktopLyricSnapshot.EMPTY.palette, 0.45f);
     }
 }

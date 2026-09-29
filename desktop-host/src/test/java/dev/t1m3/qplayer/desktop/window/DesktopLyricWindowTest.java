@@ -49,4 +49,21 @@ public class DesktopLyricWindowTest {
         assertArrayEquals(new int[]{100, 50},
                 DesktopLyricWindow.clampToWorkArea(9999, 9999, tiny));
     }
+
+    /** A resized (but still ratio-locked) window needs its own footprint in the
+     *  clamp math, not the fixed 900x180 design size — otherwise a larger window
+     *  could clamp to a position that leaves its far edge off-screen, and a
+     *  smaller one would be over-restricted. */
+    @Test
+    public void aResizedWindowClampsToItsOwnFootprintNotTheDesignSize() {
+        int[] workArea = {0, 0, 1920, 1040};
+        // A 180%-scaled window (1620x324) dragged past the bottom-right must stop
+        // flush with ITS OWN edge, not the default 900x180 one.
+        assertArrayEquals(new int[]{1920 - 1620, 1040 - 324},
+                DesktopLyricWindow.clampToWorkArea(5000, 5000, workArea, 1620, 324));
+        // The existing 3-arg overload keeps assuming the default design size.
+        assertArrayEquals(
+                new int[]{1920 - DesktopLyricWindow.WIDTH, 1040 - DesktopLyricWindow.HEIGHT},
+                DesktopLyricWindow.clampToWorkArea(5000, 5000, workArea));
+    }
 }

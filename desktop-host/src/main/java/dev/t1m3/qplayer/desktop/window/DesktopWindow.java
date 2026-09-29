@@ -238,6 +238,12 @@ public final class DesktopWindow {
                 if (target != null) target.reloadAppearance();
             }));
         }
+        for (String key : DesktopLyricWindow.SIZE_KEYS) {
+            settings.onChange(key, value -> postMainTask(() -> {
+                DesktopLyricWindow target = lyricWindow;
+                if (target != null) target.reloadWindowSize();
+            }));
+        }
     }
 
     public void setFirstFrameListener(Runnable r) {

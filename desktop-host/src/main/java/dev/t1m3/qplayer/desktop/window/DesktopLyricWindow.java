@@ -41,13 +41,19 @@ public final class DesktopLyricWindow {
     private static final String OUTLINE_KEY = "desktopLyricOutline";
     private static final String SUNG_COLOR_KEY = "desktopLyricSungColor";
     private static final String UNSUNG_COLOR_KEY = "desktopLyricUnsungColor";
+    private static final String IDLE_OPACITY_KEY = "desktopLyricIdleOpacity";
+    private static final String SCALE_KEY = "desktopLyricScale";
 
     /** The settings keys whose changes {@link #reloadAppearance()} picks up. The
      *  host registers one listener per key against this list. */
     public static final String[] APPEARANCE_KEYS = {
         FONT_KEY, FONT_SIZE_KEY, FONT_WEIGHT_KEY, SHADOW_KEY, OUTLINE_KEY,
-        SUNG_COLOR_KEY, UNSUNG_COLOR_KEY,
+        SUNG_COLOR_KEY, UNSUNG_COLOR_KEY, IDLE_OPACITY_KEY,
     };
+    /** The settings keys whose changes {@link #reloadWindowSize()} picks up —
+     *  separate from APPEARANCE_KEYS because this one needs a native
+     *  glfwSetWindowSize call on the main thread, not just a re-read. */
+    public static final String[] SIZE_KEYS = { SCALE_KEY };
 
     /**
      * Desktop lyrics' own typography and colours, read as one immutable snapshot.
@@ -59,7 +65,8 @@ public final class DesktopLyricWindow {
      */
     record Appearance(String fontFamily, int fontSize, int fontWeight,
                       boolean shadow, boolean outline,
-                      String sungColor, String unsungColor) {
+                      String sungColor, String unsungColor,
+                      float idleBackgroundOpacity) {
     }
     static final int WIDTH = 900;
     static final int HEIGHT = 180;
@@ -120,6 +127,22 @@ public final class DesktopLyricWindow {
     private double cursorY;
     private double dragCursorX0;
     private double dragCursorY0;
+    /** Actual native window size — WIDTH/HEIGHT above stay the fixed 900x180
+     *  design space every QML/hit-test coordinate is authored in; the renderer
+     *  already scales that design onto whatever framebuffer size results (it
+     *  was written for DPI scaling, which is the same problem), so this is the
+     *  only piece resizing genuinely needs. Aspect ratio is always kept at
+     *  WIDTH:HEIGHT — ratio-locked. */
+    private volatile int windowWidth = WIDTH;
+    private volatile int windowHeight = HEIGHT;
+    private boolean resizingWindow;
+    private int resizeStartWidth;
+    private double resizeCursorScreenX0;
+    private static final int MIN_SCALE_PERCENT = 70;
+    private static final int MAX_SCALE_PERCENT = 160;
+    /** How close to the bottom-right corner (native px) starts a resize drag
+     *  instead of a window move. */
+    private static final int RESIZE_GRIP_SIZE = 20;
 
     DesktopLyricWindow(SettingsStore store, ResourceLoader resources,
                        GraphicsBackend.Kind kind, DiskCompiledSceneCache qmlCompilationCache,
@@ -204,6 +227,7 @@ public final class DesktopLyricWindow {
     /** Main thread: creates the native surface using the selected app backend. */
     void create() {
         if (window != MemoryUtil.NULL) return;
+        applyScaleFromStore();
         positioningSupported = GLFW.glfwGetPlatform() != GLFW.GLFW_PLATFORM_WAYLAND;
         GLFW.glfwDefaultWindowHints();
         GLFW.glfwWindowHint(GLFW.GLFW_VISIBLE, GLFW.GLFW_FALSE);
@@ -226,7 +250,7 @@ public final class DesktopLyricWindow {
             GLFW.glfwWindowHint(GLFW.GLFW_STENCIL_BITS, 8);
             GLFW.glfwWindowHint(GLFW.GLFW_ALPHA_BITS, 8);
         }
-        window = GLFW.glfwCreateWindow(WIDTH, HEIGHT, "QPlayer Lyrics",
+        window = GLFW.glfwCreateWindow(windowWidth, windowHeight, "QPlayer Lyrics",
                 MemoryUtil.NULL, MemoryUtil.NULL);
         GLFW.glfwDefaultWindowHints();
         if (window == MemoryUtil.NULL) {
@@ -261,9 +285,9 @@ public final class DesktopLyricWindow {
         } else if (positioningSupported) centerBottom();
         if (positioningSupported) installDragHandlers();
         x11InputRegionSupported = AuxiliaryWindowStyle.setX11InputRegion(window,
-                mousePassthrough, (int) UNLOCK_LEFT, (int) BOTTOM_HIT_TOP,
-                (int) (UNLOCK_RIGHT - UNLOCK_LEFT),
-                (int) (BOTTOM_HIT_BOTTOM - BOTTOM_HIT_TOP), WIDTH, HEIGHT);
+                mousePassthrough, toNativeX(UNLOCK_LEFT), toNativeY(BOTTOM_HIT_TOP),
+                toNativeX(UNLOCK_RIGHT) - toNativeX(UNLOCK_LEFT),
+                toNativeY(BOTTOM_HIT_BOTTOM) - toNativeY(BOTTOM_HIT_TOP), windowWidth, windowHeight);
         if (x11InputRegionSupported) nativeMousePassthrough = mousePassthrough;
         else updateMousePassthroughRegion();
         boolean requestedEnabled = store.getBool(ENABLED_KEY, false);
@@ -314,7 +338,7 @@ public final class DesktopLyricWindow {
                 look.fontFamily(), look.fontSize(), look.fontWeight(),
                 look.shadow(), look.outline(),
                 Boolean.TRUE.equals(controller.playing.peek()),
-                palette));
+                palette, look.idleBackgroundOpacity()));
         boolean firstSnapshot = !snapshotPublished;
         snapshotPublished = true;
         if (firstSnapshot) {
@@ -337,7 +361,8 @@ public final class DesktopLyricWindow {
                 store.getBool(SHADOW_KEY, true),
                 store.getBool(OUTLINE_KEY, true),
                 store.getString(SUNG_COLOR_KEY, ""),
-                store.getString(UNSUNG_COLOR_KEY, ""));
+                store.getString(UNSUNG_COLOR_KEY, ""),
+                store.getInt(IDLE_OPACITY_KEY, 45) / 100f);
         palette = null;
         DesktopLyricRenderThread thread = renderThread;
         if (thread != null) java.util.concurrent.locks.LockSupport.unpark(thread);
@@ -517,7 +542,21 @@ public final class DesktopLyricWindow {
         if (monitor == MemoryUtil.NULL) return;
         GLFWVidMode mode = GLFW.glfwGetVideoMode(monitor);
         if (mode != null) GLFW.glfwSetWindowPos(window,
-                (mode.width() - WIDTH) / 2, mode.height() - HEIGHT - 96);
+                (mode.width() - windowWidth) / 2, mode.height() - windowHeight - 96);
+    }
+
+    /** Every QML/hit-test constant is authored for the fixed 900x180 design
+     *  size; the actual native window can now be a different size, so a raw
+     *  native cursor coordinate has to be mapped into that design space before
+     *  it means anything to isControlPoint/isUnlockPoint or a dispatched QML
+     *  pointer event. */
+    private double toLogicalX(double nativeX) { return nativeX * WIDTH / (double) windowWidth; }
+    private double toLogicalY(double nativeY) { return nativeY * HEIGHT / (double) windowHeight; }
+    private int toNativeX(float logicalX) { return Math.round(logicalX * windowWidth / (float) WIDTH); }
+    private int toNativeY(float logicalY) { return Math.round(logicalY * windowHeight / (float) HEIGHT); }
+
+    private boolean isResizeGrip(double nativeX, double nativeY) {
+        return nativeX >= windowWidth - RESIZE_GRIP_SIZE && nativeY >= windowHeight - RESIZE_GRIP_SIZE;
     }
 
     private void installDragHandlers() {
@@ -536,10 +575,22 @@ public final class DesktopLyricWindow {
                     cursorX = currentX.get(0);
                     cursorY = currentY.get(0);
                 }
-                if (isControlPoint(cursorX, cursorY)) {
+                if (isResizeGrip(cursorX, cursorY)) {
+                    resizingWindow = true;
+                    resizeStartWidth = windowWidth;
+                    try (MemoryStack stack = MemoryStack.stackPush()) {
+                        IntBuffer windowX = stack.mallocInt(1);
+                        GLFW.glfwGetWindowPos(win, windowX, null);
+                        resizeCursorScreenX0 = windowX.get(0) + cursorX;
+                    }
+                    return;
+                }
+                double logicalX = toLogicalX(cursorX);
+                double logicalY = toLogicalY(cursorY);
+                if (isControlPoint(logicalX, logicalY)) {
                     controlsPressed = true;
-                    final float eventX = (float) cursorX;
-                    final float eventY = (float) cursorY;
+                    final float eventX = (float) logicalX;
+                    final float eventY = (float) logicalY;
                     postInput(view -> view.dispatchPointerDown(eventX, eventY));
                     return;
                 }
@@ -547,10 +598,13 @@ public final class DesktopLyricWindow {
                 dragCursorX0 = cursorX;
                 dragCursorY0 = cursorY;
             } else if (action == GLFW.GLFW_RELEASE) {
-                if (controlsPressed) {
+                if (resizingWindow) {
+                    resizingWindow = false;
+                    persistScale();
+                } else if (controlsPressed) {
                     controlsPressed = false;
-                    final float eventX = (float) cursorX;
-                    final float eventY = (float) cursorY;
+                    final float eventX = (float) toLogicalX(cursorX);
+                    final float eventY = (float) toLogicalY(cursorY);
                     postInput(view -> view.dispatchPointerUp(eventX, eventY));
                 } else if (dragging) {
                     dragging = false;
@@ -562,8 +616,21 @@ public final class DesktopLyricWindow {
         GLFW.glfwSetCursorPosCallback(window, (win, x, y) -> {
             cursorX = x;
             cursorY = y;
+            if (resizingWindow) {
+                try (MemoryStack stack = MemoryStack.stackPush()) {
+                    IntBuffer windowX = stack.mallocInt(1);
+                    GLFW.glfwGetWindowPos(win, windowX, null);
+                    double cursorScreenX = windowX.get(0) + x;
+                    int requestedWidth = (int) Math.round(
+                            resizeStartWidth + (cursorScreenX - resizeCursorScreenX0));
+                    applyWindowSize(requestedWidth);
+                }
+                return;
+            }
             if (!dragging) {
-                postInput(view -> view.dispatchPointerMove((float) x, (float) y));
+                double logicalX = toLogicalX(x);
+                double logicalY = toLogicalY(y);
+                postInput(view -> view.dispatchPointerMove((float) logicalX, (float) logicalY));
                 return;
             }
             // Cursor coordinates are window-local. Read the CURRENT window origin,
@@ -586,7 +653,8 @@ public final class DesktopLyricWindow {
                 int cursorScreenX = (int) Math.round(windowX.get(0) + x);
                 int cursorScreenY = (int) Math.round(windowY.get(0) + y);
                 int[] clamped = clampToWorkArea(targetX, targetY,
-                        workAreaAt(cursorScreenX, cursorScreenY, targetX, targetY));
+                        workAreaAt(cursorScreenX, cursorScreenY, targetX, targetY),
+                        windowWidth, windowHeight);
                 GLFW.glfwSetWindowPos(win, clamped[0], clamped[1]);
                 // Re-anchor the grab point to where the cursor now sits relative to
                 // the window that was actually placed. While clamped, the pointer
@@ -597,6 +665,67 @@ public final class DesktopLyricWindow {
                 dragCursorY0 = cursorScreenY - clamped[1];
             }
         });
+    }
+
+    private static int scaleToWidth(int percent) {
+        return Math.round(WIDTH * percent / 100f);
+    }
+
+    /** Main thread: read the persisted scale before the window is created. */
+    private void applyScaleFromStore() {
+        int percent = Math.max(MIN_SCALE_PERCENT,
+                Math.min(MAX_SCALE_PERCENT, store.getInt(SCALE_KEY, 100)));
+        windowWidth = scaleToWidth(percent);
+        windowHeight = Math.round(windowWidth * (float) HEIGHT / WIDTH);
+    }
+
+    /** Main thread: re-read desktopLyricScale after a settings-page change. The
+     *  corner drag below persists the same key directly instead of going
+     *  through here, so the two ways of resizing never fight each other —
+     *  each just writes the value the other reads. */
+    void reloadWindowSize() {
+        if (window == MemoryUtil.NULL) return;
+        int percent = Math.max(MIN_SCALE_PERCENT,
+                Math.min(MAX_SCALE_PERCENT, store.getInt(SCALE_KEY, 100)));
+        applyWindowSize(scaleToWidth(percent));
+    }
+
+    /** Main thread: resizes the native window to requestedWidth (clamped),
+     *  height following the fixed WIDTH:HEIGHT ratio, then re-clamps the
+     *  window position (growing it can push the far edge off-screen) and
+     *  refreshes the X11 input region for the new size. */
+    private void applyWindowSize(int requestedWidth) {
+        int clampedWidth = Math.max(scaleToWidth(MIN_SCALE_PERCENT),
+                Math.min(scaleToWidth(MAX_SCALE_PERCENT), requestedWidth));
+        int clampedHeight = Math.round(clampedWidth * (float) HEIGHT / WIDTH);
+        if (clampedWidth == windowWidth && clampedHeight == windowHeight) return;
+        windowWidth = clampedWidth;
+        windowHeight = clampedHeight;
+        if (window == MemoryUtil.NULL) return;
+        GLFW.glfwSetWindowSize(window, windowWidth, windowHeight);
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            IntBuffer xb = stack.mallocInt(1);
+            IntBuffer yb = stack.mallocInt(1);
+            GLFW.glfwGetWindowPos(window, xb, yb);
+            int[] clamped = clampToWorkArea(xb.get(0), yb.get(0),
+                    bestWorkArea(xb.get(0), yb.get(0)), windowWidth, windowHeight);
+            if (clamped[0] != xb.get(0) || clamped[1] != yb.get(0)) {
+                GLFW.glfwSetWindowPos(window, clamped[0], clamped[1]);
+            }
+        }
+        if (x11InputRegionSupported) {
+            AuxiliaryWindowStyle.setX11InputRegion(window, mousePassthrough,
+                    toNativeX(UNLOCK_LEFT), toNativeY(BOTTOM_HIT_TOP),
+                    toNativeX(UNLOCK_RIGHT) - toNativeX(UNLOCK_LEFT),
+                    toNativeY(BOTTOM_HIT_BOTTOM) - toNativeY(BOTTOM_HIT_TOP),
+                    windowWidth, windowHeight);
+        }
+    }
+
+    private void persistScale() {
+        int percent = Math.max(MIN_SCALE_PERCENT, Math.min(MAX_SCALE_PERCENT,
+                Math.round(windowWidth * 100f / WIDTH)));
+        store.putInt(SCALE_KEY, percent);
     }
 
     private void postInput(Consumer<QmlView> event) {
@@ -620,7 +749,7 @@ public final class DesktopLyricWindow {
             DoubleBuffer x = stack.mallocDouble(1);
             DoubleBuffer y = stack.mallocDouble(1);
             GLFW.glfwGetCursorPos(window, x, y);
-            return isUnlockPoint(x.get(0), y.get(0));
+            return isUnlockPoint(toLogicalX(x.get(0)), toLogicalY(y.get(0)));
         }
     }
 
@@ -634,7 +763,7 @@ public final class DesktopLyricWindow {
             DoubleBuffer x = stack.mallocDouble(1);
             DoubleBuffer y = stack.mallocDouble(1);
             GLFW.glfwGetCursorPos(window, x, y);
-            return x.get(0) >= 0d && x.get(0) < WIDTH && y.get(0) >= 0d && y.get(0) < HEIGHT;
+            return x.get(0) >= 0d && x.get(0) < windowWidth && y.get(0) >= 0d && y.get(0) < windowHeight;
         }
     }
 
@@ -686,11 +815,18 @@ public final class DesktopLyricWindow {
         }
     }
 
-    /** Visible for tests: clamps the window rect at (x, y) fully inside one work area. */
+    /** Visible for tests: clamps the window rect at (x, y) fully inside one work
+     *  area, assuming the default 900x180 box size. */
     static int[] clampToWorkArea(int x, int y, int[] wa) {
+        return clampToWorkArea(x, y, wa, WIDTH, HEIGHT);
+    }
+
+    /** Same as above, for a box of an arbitrary (ratio-locked) size — what an
+     *  actual resized window needs instead of the fixed design size. */
+    static int[] clampToWorkArea(int x, int y, int[] wa, int boxWidth, int boxHeight) {
         int wx = wa[0], wy = wa[1], ww = wa[2], wh = wa[3];
-        int maxX = wx + Math.max(WIDTH, ww) - WIDTH;
-        int maxY = wy + Math.max(HEIGHT, wh) - HEIGHT;
+        int maxX = wx + Math.max(boxWidth, ww) - boxWidth;
+        int maxY = wy + Math.max(boxHeight, wh) - boxHeight;
         return new int[]{
             Math.max(wx, Math.min(x, maxX)),
             Math.max(wy, Math.min(y, maxY)),
@@ -727,8 +863,8 @@ public final class DesktopLyricWindow {
     private int[] clampAndSnap(int x, int y) {
         int[] wa = bestWorkArea(x, y);
         int wx = wa[0], wy = wa[1], ww = wa[2], wh = wa[3];
-        int maxX = wx + Math.max(WIDTH, ww) - WIDTH;
-        int maxY = wy + Math.max(HEIGHT, wh) - HEIGHT;
+        int maxX = wx + Math.max(windowWidth, ww) - windowWidth;
+        int maxY = wy + Math.max(windowHeight, wh) - windowHeight;
         int snappedX = x <= wx + SNAP_PX ? wx
                 : x >= maxX - SNAP_PX ? maxX
                 : Math.max(wx, Math.min(x, maxX));
@@ -755,9 +891,9 @@ public final class DesktopLyricWindow {
                     IntBuffer mh = stack.mallocInt(1);
                     GLFW.glfwGetMonitorWorkarea(m, mx, my, mw, mh);
                     int overlapW = Math.max(0,
-                            Math.min(x + WIDTH, mx.get(0) + mw.get(0)) - Math.max(x, mx.get(0)));
+                            Math.min(x + windowWidth, mx.get(0) + mw.get(0)) - Math.max(x, mx.get(0)));
                     int overlapH = Math.max(0,
-                            Math.min(y + HEIGHT, my.get(0) + mh.get(0)) - Math.max(y, my.get(0)));
+                            Math.min(y + windowHeight, my.get(0) + mh.get(0)) - Math.max(y, my.get(0)));
                     long overlap = (long) overlapW * overlapH;
                     if (overlap > bestOverlap) {
                         bestOverlap = overlap;

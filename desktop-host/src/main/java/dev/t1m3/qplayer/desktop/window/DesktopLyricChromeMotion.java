@@ -13,7 +13,6 @@ final class DesktopLyricChromeMotion {
     static final long DURATION_NANOS = 160_000_000L;
     private static final float HIDDEN_SCALE_X = 1.04f;
     private static final float HIDDEN_SCALE_Y = 1.20f;
-    private static final float BACKGROUND_HIDDEN_ALPHA = 0.28f;
     private static final float BACKGROUND_SHOWN_ALPHA = 0.92f;
 
     private boolean initialized;
@@ -22,7 +21,10 @@ final class DesktopLyricChromeMotion {
     private float startProgress;
     private float progress;
 
-    Frame update(boolean shown, long nowNanos) {
+    /** User-configurable via settings.desktopLyricIdleOpacity; see
+     *  DesktopLyricWindow.Appearance.idleBackgroundOpacity. */
+    Frame update(boolean shown, long nowNanos, float hiddenAlpha) {
+        float clampedHiddenAlpha = Math.max(0f, Math.min(1f, hiddenAlpha));
         if (!initialized) {
             initialized = true;
             targetShown = shown;
@@ -41,8 +43,8 @@ final class DesktopLyricChromeMotion {
                 progress,
                 1f + (HIDDEN_SCALE_X - 1f) * hidden,
                 1f + (HIDDEN_SCALE_Y - 1f) * hidden,
-                BACKGROUND_HIDDEN_ALPHA
-                        + (BACKGROUND_SHOWN_ALPHA - BACKGROUND_HIDDEN_ALPHA) * progress);
+                clampedHiddenAlpha
+                        + (BACKGROUND_SHOWN_ALPHA - clampedHiddenAlpha) * progress);
     }
 
     private float valueAt(long nowNanos) {

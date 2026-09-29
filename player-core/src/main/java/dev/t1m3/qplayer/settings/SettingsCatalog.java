@@ -83,6 +83,12 @@ public final class SettingsCatalog {
      *  for the rest), so the default look is unchanged. */
     public static final String DESKTOP_LYRIC_SUNG_COLOR_KEY = "desktopLyricSungColor";
     public static final String DESKTOP_LYRIC_UNSUNG_COLOR_KEY = "desktopLyricUnsungColor";
+    /** Percent of the window's 900x180 base size (aspect ratio fixed); the
+     *  same value a corner-drag on the floating window itself writes. */
+    public static final String DESKTOP_LYRIC_SCALE_KEY = "desktopLyricScale";
+    /** Background opacity percent while the pointer is away from the window —
+     *  the state it is in almost all the time during normal playback. */
+    public static final String DESKTOP_LYRIC_IDLE_OPACITY_KEY = "desktopLyricIdleOpacity";
 
     /** Daily picks above the recommendation grid instead of below it. */
     public static final String HOME_DAILY_FIRST_KEY = "homeDailyFirst";
@@ -265,6 +271,29 @@ public final class SettingsCatalog {
         out.add(SettingSpec.toggle(DESKTOP_LYRIC_LOCKED_KEY, DESKTOP_LYRIC,
                         "settings.desktopLyricLocked.title", false)
                 .desc("settings.desktopLyricLocked.desc")
+                .onlyOn(DESKTOP)
+                .dependsOn("desktopLyricEnabled")
+                .group("desktopLyricGeneral")
+                .build());
+        // The window itself can also be dragged from its bottom-right corner —
+        // this slider and that drag write the same value, so either one moves
+        // the other. Percent of the 900x180 base size, aspect ratio fixed: an
+        // arbitrarily stretched pill never looked intentional in practice.
+        out.add(SettingSpec.slider(DESKTOP_LYRIC_SCALE_KEY, DESKTOP_LYRIC,
+                        "settings.desktopLyricScale.title", 100, 70, 160, 5)
+                .unit("%").dots()
+                .onlyOn(DESKTOP)
+                .dependsOn("desktopLyricEnabled")
+                .group("desktopLyricGeneral")
+                .build());
+        // Default (45) is deliberately higher than the old hidden-state 28% it
+        // replaces: at 28% the backdrop was close enough to invisible that
+        // legibility depended entirely on the outline/shadow settings below,
+        // against whatever happened to be on screen underneath.
+        out.add(SettingSpec.slider(DESKTOP_LYRIC_IDLE_OPACITY_KEY, DESKTOP_LYRIC,
+                        "settings.desktopLyricIdleOpacity.title", 45, 15, 90, 5)
+                .desc("settings.desktopLyricIdleOpacity.desc")
+                .unit("%").dots()
                 .onlyOn(DESKTOP)
                 .dependsOn("desktopLyricEnabled")
                 .group("desktopLyricGeneral")

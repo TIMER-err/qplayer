@@ -93,7 +93,8 @@ final class DesktopLyricRenderThread extends Thread {
                         view.tickAnimations(frameStart);
                         dirty.flush();
                         DesktopLyricChromeMotion.Frame chrome = chromeMotion.update(
-                                owner.isPointerInside() && !owner.isMousePassthrough(), frameStart);
+                                owner.isPointerInside() && !owner.isMousePassthrough(), frameStart,
+                                state.idleBackgroundOpacityValue());
                         size = owner.framebufferSize();
                         backend.resize(size.width(), size.height());
                         Canvas canvas = backend.acquireCanvas();
