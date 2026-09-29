@@ -39,6 +39,31 @@ Rectangle {
     // Swallow taps on empty areas so they don't reach the page beneath.
     MouseArea { anchors.fill: parent }
 
+    readonly property bool compactHeader: page.width < 600
+    readonly property bool canHeart: player.loggedIn && !player.playlistLoading
+                                     && tracks.list && tracks.list.length > 0
+                                     && (player.openSourcePlaylistId === ""
+                                         || player.sourceHeartRecommendationAvailable)
+    readonly property bool canFollow: !player.playlistLoading && player.openSourcePlaylistId !== ""
+    readonly property bool canSubscribe: player.loggedIn && !player.playlistLoading && !player.playlistOwned
+                                         && (player.openSourcePlaylistId === ""
+                                             || player.sourcePlaylistMutationAvailable)
+    // Owned is already source-specific; don't also require the *primary*
+    // account's loggedIn, or a QQ playlist hides its cover action while
+    // NetEase is the primary source.
+    readonly property bool canChangeCover: !player.playlistLoading && player.playlistOwned
+                                           && (player.openSourcePlaylistId === ""
+                                               ? player.loggedIn : player.sourcePlaylistCoverAvailable)
+    readonly property bool canDelete: player.loggedIn && !player.playlistLoading && player.playlistDeletable
+    readonly property bool hasHeaderActions: page.canHeart || page.canFollow || page.canSubscribe
+                                             || page.canChangeCover || page.canDelete
+
+    function startHeart() {
+        if (player.openSourcePlaylistId !== "")
+            player.startMediaIntelligenceMode(player.openSourcePlaylistId)
+        else player.startIntelligenceMode(player.openPlaylistId)
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
@@ -68,20 +93,13 @@ Rectangle {
             IconButton {
                 Layout.alignment: Qt.AlignVCenter
                 type: "standard"
-                visible: player.loggedIn && !player.playlistLoading
-                         && tracks.list && tracks.list.length > 0
-                         && (player.openSourcePlaylistId === ""
-                             || player.sourceHeartRecommendationAvailable)
+                visible: page.canHeart && !page.compactHeader
                 enabled: !player.intelligenceLoading
                 icon: "auto_awesome"
                 contentColor: player.intelligenceLoading
                               ? Theme.color.primary
                               : Theme.color.onSurfaceVariantColor
-                onClicked: {
-                    if (player.openSourcePlaylistId !== "")
-                        player.startMediaIntelligenceMode(player.openSourcePlaylistId)
-                    else player.startIntelligenceMode(player.openPlaylistId)
-                }
+                onClicked: page.startHeart()
             }
             // Pull this whole playlist into a local one, which then follows it.
             // Unlike collecting below, this works signed out and across sources —
@@ -91,7 +109,7 @@ Rectangle {
                 objectName: "followIntoLocalButton"
                 Layout.alignment: Qt.AlignVCenter
                 type: "standard"
-                visible: !player.playlistLoading && player.openSourcePlaylistId !== ""
+                visible: page.canFollow && !page.compactHeader
                 icon: "library_add"
                 onClicked: {
                     followMenu.rebuild()
@@ -104,9 +122,7 @@ Rectangle {
             IconButton {
                 Layout.alignment: Qt.AlignVCenter
                 type: "standard"
-                visible: player.loggedIn && !player.playlistLoading && !player.playlistOwned
-                         && (player.openSourcePlaylistId === ""
-                             || player.sourcePlaylistMutationAvailable)
+                visible: page.canSubscribe && !page.compactHeader
                 icon: player.playlistSubscribed ? "bookmark" : "bookmark_border"
                 contentColor: player.playlistSubscribed ? Theme.color.primary : Theme.color.onSurfaceColor
                 onClicked: player.togglePlaylistSubscribe()
@@ -117,11 +133,10 @@ Rectangle {
             // keeps its system gallery picker, while desktop opens a cross-platform
             // image file chooser.
             IconButton {
+                objectName: "playlistDetailCoverButton"
                 Layout.alignment: Qt.AlignVCenter
                 type: "standard"
-                visible: player.loggedIn && !player.playlistLoading && player.playlistOwned
-                         && (player.openSourcePlaylistId === ""
-                             || player.sourcePlaylistCoverAvailable)
+                visible: page.canChangeCover && !page.compactHeader
                 icon: "image"
                 onClicked: player.pickPlaylistCover()
             }
@@ -130,9 +145,21 @@ Rectangle {
             IconButton {
                 Layout.alignment: Qt.AlignVCenter
                 type: "standard"
-                visible: player.loggedIn && !player.playlistLoading && player.playlistDeletable
+                visible: page.canDelete && !page.compactHeader
                 icon: "delete"
                 onClicked: deleteDialog.open()
+            }
+            IconButton {
+                id: overflowButton
+                objectName: "playlistDetailOverflowButton"
+                Layout.alignment: Qt.AlignVCenter
+                type: "standard"
+                visible: page.compactHeader && page.hasHeaderActions
+                icon: "more_vert"
+                onClicked: {
+                    overflowMenu.rebuild()
+                    overflowMenu.open(overflowButton, 0, overflowButton.height)
+                }
             }
         }
 
@@ -150,17 +177,24 @@ Rectangle {
                 radius: 20
                 source: player.playlistCoverPath
                 icon: "queue_music"
+                MouseArea {
+                    anchors.fill: parent
+                    enabled: page.canChangeCover
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: player.pickPlaylistCover()
+                }
             }
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 8
                 Text {
                     Layout.fillWidth: true
+                    width: Math.max(0, page.width - 48 - (page.width >= 600 ? 128 : 96))
                     text: player.playlistTitle
                     font.pixelSize: page.width >= 600 ? 28 : 22
                     font.weight: Font.DemiBold
                     color: Theme.color.onSurfaceColor
-                    wrapMode: Text.Wrap
+                    wrapMode: Text.WrapAnywhere
                     maximumLineCount: 2
                     elide: Text.ElideRight
                 }
@@ -248,6 +282,91 @@ Rectangle {
                 fontSize: 16
                 color: Theme.color.onSurfaceVariantColor
             }
+
+            // Same "back to top" as the local-playlist page: only worth the
+            // screen space once a hundred-plus-track playlist has actually
+            // scrolled somewhere far to come back from.
+            NumberAnimation {
+                id: scrollToTopAnim
+                target: tracks
+                property: "contentY"
+                to: 0
+                duration: 220
+                easing.type: Easing.OutCubic
+            }
+            Rectangle {
+                id: scrollTopFab
+                objectName: "playlistDetailScrollTopButton"
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.margins: 16
+                width: 48
+                height: 48
+                radius: width / 2
+                color: Theme.color.primary
+                z: 5
+                visible: opacity > 0
+                opacity: (page.filteredTracks && page.filteredTracks.length > 100
+                          && tracks.contentY > tracks.height) ? 1 : 0
+                Behavior on opacity { NumberAnimation { duration: 150 } }
+                Text {
+                    anchors.centerIn: parent
+                    text: "vertical_align_top"
+                    font.family: Theme.iconFont.name
+                    font.pixelSize: 24
+                    color: Theme.color.onPrimaryColor
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    enabled: scrollTopFab.opacity > 0
+                    onClicked: scrollToTopAnim.start()
+                }
+            }
+        }
+    }
+
+    Menu {
+        id: overflowMenu
+        outlined: true
+        function rebuild() {
+            var items = []
+            if (page.canHeart) {
+                items.push({
+                    text: i18n.t("playlist.heart"), icon: "auto_awesome",
+                    action: function() { page.startHeart() }
+                })
+            }
+            if (page.canFollow) {
+                items.push({
+                    text: i18n.t("playlist.local.addPlaylistTo"), icon: "library_add",
+                    action: function() {
+                        followMenu.rebuild()
+                        followMenu.open(overflowButton, 0, overflowButton.height)
+                    }
+                })
+            }
+            if (page.canSubscribe) {
+                items.push({
+                    text: player.playlistSubscribed
+                          ? i18n.t("menu.unsubscribePlaylist") : i18n.t("playlist.subscribe"),
+                    icon: player.playlistSubscribed ? "bookmark" : "bookmark_border",
+                    action: function() { player.togglePlaylistSubscribe() }
+                })
+            }
+            if (page.canChangeCover) {
+                items.push({
+                    text: i18n.t("playlist.local.pickCover"), icon: "image",
+                    action: function() { player.pickPlaylistCover() }
+                })
+            }
+            if (page.canDelete) {
+                items.push({ type: "separator" })
+                items.push({
+                    text: i18n.t("common.delete"), icon: "delete",
+                    action: function() { deleteDialog.open() }
+                })
+            }
+            overflowMenu.model = items
         }
     }
 
