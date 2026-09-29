@@ -152,7 +152,12 @@ SmoothRectangle {
     }
     IconButton {
         id: likeBtn
-        visible: mini.width >= 440
+        // A phone in portrait sits well under the old 440/520 thresholds (rail
+        // width 0, so mini.width is close to the full screen width minus
+        // margins — commonly ~330-410px), which hid like/shuffle on every
+        // normal phone, not just a squeezed desktop window. Lowered so both
+        // show there; only a genuinely tiny window still drops them.
+        visible: mini.width >= 280
         width: visible ? 40 : 0
         anchors.right: playBtn.left
         anchors.verticalCenter: parent.verticalCenter
@@ -166,7 +171,7 @@ SmoothRectangle {
     }
     IconButton {
         id: modeBtn
-        visible: mini.width >= 520
+        visible: mini.width >= 320
         width: visible ? 40 : 0
         anchors.right: likeBtn.left
         anchors.verticalCenter: parent.verticalCenter
