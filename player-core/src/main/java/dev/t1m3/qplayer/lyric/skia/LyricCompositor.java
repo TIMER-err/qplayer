@@ -614,7 +614,19 @@ public final class LyricCompositor {
             // it, and it is 0 the moment the transition settles.
             if (columnSlide != 0f) canvas.translate(columnSlide, 0f);
             LyricSkia.setCanvas(canvas);
-            if (Boolean.TRUE.equals(LyricConfig.instance.edgeBlur.getValue())) {
+            // Progressive blur is three nested saveLayers plus rendering the column
+            // TWICE (see drawProgressiveBlurColumn) - fine as a steady-state cost,
+            // but the cover<->lyrics switch already has the QML cover's own shadow/
+            // blur layer and this column's own zoom/alpha compositing animating at
+            // the same time, and this engine has no dirty-rect rendering (every
+            // animating subtree fully repaints every frame - see the qml4j gotchas
+            // notes on two heavy things animating at once). Skip the extra blur
+            // passes for the ~200-300ms the switch is actually moving; it settles
+            // back on within a couple of frames of the target being reached, which
+            // reads as smoothing out through the fast part of the motion rather
+            // than a visible pop.
+            boolean transitionSettled = lyricShow == zoomTarget && fullWidthSwap >= 0.999f;
+            if (transitionSettled && Boolean.TRUE.equals(LyricConfig.instance.edgeBlur.getValue())) {
                 drawProgressiveBlurColumn(canvas, colRect, colLeft + pad, colTopY, colW, colH, pos);
             } else {
                 lyricRenderer.render(canvas, colLeft + pad, colTopY, colW, colH, pos);

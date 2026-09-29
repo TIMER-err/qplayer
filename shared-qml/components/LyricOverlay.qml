@@ -79,7 +79,14 @@ Item {
         iconSize: 72
         fadeIn: true
         playing: player.playing
-        layer.enabled: visible
+        // Off while the zoom/fade below is actually moving: this shadow is a real
+        // GPU blur pass (layer.effect, not a no-op — see the qml4j gotchas notes),
+        // and the host lyric column is doing its own zoom/alpha compositing on
+        // exactly the same switch at the same time. Two heavy things animating at
+        // once is what janks in this engine (no dirty-rect rendering — every
+        // animating subtree fully repaints every frame), not either one alone, so
+        // drop this one until both Behaviors below have actually reached their target.
+        layer.enabled: visible && opacity >= 0.999 && baseScale >= 0.999
         layer.effect: MultiEffect {
             shadowEnabled: true
             shadowColor: "#CC000000"
@@ -515,7 +522,15 @@ Item {
                 fadeIn: true
                 playing: player.playing
                 source: player.coverPath
+                // Same reasoning as the portrait cover: this is a real GPU blur
+                // pass, and landscapeChrome's width/coverSize (the cover<->lyrics
+                // switch here, since this column itself never fades out) animate
+                // at the same time the host lyric column is doing its own zoom -
+                // drop the shadow until both have actually reached their target.
                 layer.enabled: visible
+                    && Math.abs(landscapeChrome.width
+                        - (overlay.coverOnly ? overlay.width : overlay.width / 2)) < 0.5
+                    && Math.abs(landscapeChrome.coverSize - landscapeChrome.targetCoverSize) < 0.5
                 layer.effect: MultiEffect {
                     shadowEnabled: true
                     shadowColor: "#CC000000"
