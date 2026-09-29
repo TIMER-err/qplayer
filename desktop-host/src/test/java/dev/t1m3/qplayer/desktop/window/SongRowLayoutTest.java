@@ -439,6 +439,105 @@ public class SongRowLayoutTest {
         }
     }
 
+    /**
+     * The real local-playlist configuration has both removable and reorderable
+     * on at once — the one place the misclick fix's reveal-gating applies.
+     * Reported live against this exact combination: the remove button landed
+     * off-centre once revealed, and dragging collided the title onto the
+     * artist line. The button must stay visible (and therefore properly
+     * anchored — see the fix comment on queueRemoveButton) throughout, toggling
+     * opacity/enabled instead; this checks it is centred both before and after
+     * a reveal, and that a drag through a revealed row does not collide the
+     * two text lines anywhere in the sequence.
+     */
+    @Test
+    public void aRevealedRemovableReorderableRowSurvivesADrag() throws Exception {
+        String oldBase = AppDirs.base();
+        String oldCache = AppDirs.cacheBase();
+        PlayerController player = null;
+        QmlView view = null;
+        try {
+            Path base = temporary.newFolder().toPath();
+            AppDirs.setBase(base.toString());
+            AppDirs.setCacheBase(base.resolve("cache").toString());
+            AudioBackend backend = (AudioBackend) Proxy.newProxyInstance(
+                    AudioBackend.class.getClassLoader(), new Class<?>[]{AudioBackend.class},
+                    (proxy, method, args) -> {
+                        if (method.getReturnType() == boolean.class) return false;
+                        if (method.getReturnType() == long.class) return 0L;
+                        return null;
+                    });
+            player = new PlayerController(backend, track -> { });
+            SettingsCore settings = new SettingsCore();
+            settings.load(new JsonSettingsStore(), SettingsCatalog.DESKTOP);
+            view = QmlView.withStockTypes(new QmlEngine())
+                    .resources(new ClasspathResourceLoader())
+                    .context("player", player).context("settings", settings)
+                    .context("i18n", I18n.instance());
+            view.load("import QtQuick\nimport \"components\"\n"
+                    + "Item { width: 900; height: 400\n"
+                    + "  VirtualSongList { id: list; width: 900; height: 400; isLocal: true\n"
+                    + "    reorderable: true; removable: true; rowH: 64\n"
+                    + "    list: [{title: \"a\", artist: \"x\"}, {title: \"b\", artist: \"y\"},\n"
+                    + "           {title: \"c\", artist: \"z\"}, {title: \"d\", artist: \"w\"}]\n"
+                    + "    onMoveRequested: {} }\n"
+                    + "  Component.onCompleted: list.revealedIndex = 0\n"
+                    + "}");
+            settle(view);
+            Item row0 = view.findByObjectName("virtualSongRow");
+            Item remove = findIn(row0, "queueRemoveButton");
+            assertNotNull(remove);
+            // visible stays true regardless of reveal state now — see the fix
+            // comment on queueRemoveButton — so it always gets a real measure
+            // pass and its IconButton glyph anchors resolve correctly.
+            assertTrue("the remove button stays visible so it can be measured",
+                    remove.visible.peek());
+            assertEquals("the revealed remove button is centred in the row (row height 64)",
+                    32f, remove.y.peekFloat() + remove.height.peekFloat() / 2f, 0.5f);
+
+            // The grip sits left of the (also revealed) remove button now.
+            float gripX = 900f - 72f - 22f;
+            assertTrue("a drag starts", view.dispatchPointerDown(gripX, 32f));
+            settle(view);
+            view.dispatchPointerMove(gripX, 160f);
+            settle(view);
+
+            Item carried = view.findByObjectName("reorderFloatingRow");
+            Item carriedTitle = findIn(carried, "songRowTitle");
+            Item carriedArtist = findIn(carried, "songRowArtist");
+            assertTrue("the carried row's two lines must not collide: title ends at "
+                            + (carriedTitle.y.peekFloat() + carriedTitle.height.peekFloat())
+                            + ", artist starts at " + carriedArtist.y.peekFloat(),
+                    carriedTitle.y.peekFloat() + carriedTitle.height.peekFloat()
+                            <= carriedArtist.y.peekFloat());
+
+            view.dispatchPointerUp(gripX, 160f);
+            settle(view);
+
+            // The row that was carried is now a real delegate again at its new
+            // index — this is the one the floating-row check above never covers.
+            Item settledTitle = view.findByObjectName("songRowTitle");
+            Item settledArtist = view.findByObjectName("songRowArtist");
+            assertNotNull(settledTitle);
+            assertNotNull(settledArtist);
+            assertTrue("after the drop settles, the two lines still must not collide: "
+                            + "title ends at "
+                            + (settledTitle.y.peekFloat() + settledTitle.height.peekFloat())
+                            + ", artist starts at " + settledArtist.y.peekFloat(),
+                    settledTitle.y.peekFloat() + settledTitle.height.peekFloat()
+                            <= settledArtist.y.peekFloat());
+        } finally {
+            if (view != null) {
+                try { view.dispose(); } catch (Throwable ignored) { }
+            }
+            if (player != null) {
+                try { player.shutdown(); } catch (Throwable ignored) { }
+            }
+            AppDirs.setBase(oldBase);
+            AppDirs.setCacheBase(oldCache);
+        }
+    }
+
     private static float probeX(QmlView view, String objectName) {
         Item probe = view.findByObjectName(objectName);
         assertNotNull("missing probe " + objectName, probe);

@@ -170,11 +170,12 @@ Rectangle {
                 spacing: 8
                 Text {
                     Layout.fillWidth: true
+                    width: Math.max(0, page.width - 48 - (page.width >= 600 ? 128 : 96))
                     text: player.localPlaylistTitle
                     font.pixelSize: page.width >= 600 ? 28 : 22
                     font.weight: Font.DemiBold
                     color: Theme.color.onSurfaceColor
-                    wrapMode: Text.Wrap
+                    wrapMode: Text.WrapAnywhere
                     maximumLineCount: 2
                     elide: Text.ElideRight
                 }

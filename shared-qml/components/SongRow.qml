@@ -229,7 +229,11 @@ Rectangle {
         id: titleText
         objectName: "songRowTitle"
         x: 74
-        y: row.height / 2 - height - 1
+        // Fixed slots, not `height/2 - height`. The reorder floating copy is
+        // born visible: false under cachedLayout, so it never gets the measure
+        // that would give `height` a real line; subtracting 0 then parks the
+        // title on the artist line for the whole drag.
+        y: row.height / 2 - 20
         width: Math.max(0, row.width - x - row._rightReserve)
         text: row.rowTitle
         elide: Text.ElideRight
@@ -241,7 +245,7 @@ Rectangle {
         id: artistText
         objectName: "songRowArtist"
         x: titleText.x
-        y: row.height / 2 + 2
+        y: row.height / 2 + 4
         width: titleText.width
         text: row.rowArtist
         elide: Text.ElideRight
@@ -427,9 +431,18 @@ Rectangle {
     }
 
     // Explicit geometry follows recycled queue rows without a new anchor pass.
+    // Stays visible: true whenever removable (never toggled by reveal) —
+    // IconButton centres its glyph with anchors.centerIn, which needs a real
+    // measure pass to resolve, and a node realized with visible: false never
+    // gets one under cachedLayout (same reason the drag handle's glyph is a
+    // manually-sized Text instead of an anchored Icon). Toggling visible here
+    // instead of the row was born with the button never properly centred once
+    // revealed. opacity + enabled hide/disable it without skipping that pass.
     IconButton {
         objectName: "queueRemoveButton"
-        visible: row.removable && (!row.reorderable || row.controlsRevealed)
+        visible: row.removable
+        opacity: (!row.reorderable || row.controlsRevealed) ? 1 : 0
+        enabled: !row.reorderable || row.controlsRevealed
         width: 40
         height: 40
         x: Math.max(0, row.width - width - 16)
