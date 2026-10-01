@@ -18,6 +18,7 @@
   <img src="https://img.shields.io/badge/graphics-OpenGL%20%2F%20Vulkan-CC3333" alt="OpenGL / Vulkan">
   <img src="https://img.shields.io/badge/UI-QML%20%2F%20Material%203-7C6CF0" alt="QML / Material 3">
   <img src="https://img.shields.io/badge/engine-qml4j-465BA6" alt="qml4j">
+  <a href="https://appimage.github.io/QPlayer/"><img src="https://img.shields.io/badge/AppImage-listed-2F7ED8?logo=appimage&amp;logoColor=white" alt="Listed in the AppImage application directory"></a>
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0"></a>
 </p>
 
