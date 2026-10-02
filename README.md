@@ -137,6 +137,27 @@ cd android-shell && ./gradlew :app:assembleDebug
 
 **桌面**
 
+Linux 从源码运行和发布版 AppImage 都依赖系统提供的原生库；AppImage 内置 JVM
+和 Java 依赖，但不会捆绑宿主的图形与 WebView 栈：
+
+- OpenGL/EGL、Vulkan Loader、Fontconfig 与 C++ 运行库：Skija/LWJGL 渲染；
+- GLib/GIO、GTK 3、Cairo 与 X11：MPRIS、系统托盘和 WebView；
+- WebKitGTK 4.1 与 `glib-networking`：登录 WebView 及其 HTTPS/TLS 后端；
+- `libsecret` 提供的 `secret-tool`：使用 Secret Service/KWallet 保护登录凭据。
+  没有它时播放器仍可运行，但只使用当前用户可读的本地密钥。
+
+不同发行版的包名可能不同；Debian/Ubuntu 常见名称为 `libgl1`、`libegl1`、
+`libvulkan1`、`libfontconfig1`、`libgtk-3-0`、`libcairo2`、`libx11-6`、
+`libwebkit2gtk-4.1-0`、`glib-networking`、`libstdc++6` 和
+`libsecret-tools`（新版本可能带 `t64` 后缀）。
+
+NixOS 不会把这些库放进全局动态链接器搜索路径。启动 Maven/Java 时需将
+`libglvnd`、`vulkan-loader`、`fontconfig`、`glib`、`gtk3`、`cairo`、
+`libx11`、`webkitgtk_4_1` 和 `stdenv.cc.cc.lib` 的 `lib` 目录加入
+`LD_LIBRARY_PATH`，并把 `${glib-networking}/lib/gio/modules` **追加**到
+`GIO_EXTRA_MODULES`（保留 dconf 等已有模块）；`libsecret` 还需位于
+`PATH`，使 QPlayer 能找到 `secret-tool`。
+
 ```sh
 # 构建一次(player-core / desktop-host)
 mvn -q -pl player-core,desktop-host -am install

@@ -251,12 +251,12 @@
             <classifier>no-natives</classifier>
         </dependency>
 
-        <!-- MIT-licensed fork of swingwebview. It embeds the installed system
-             browser engine in the existing JVM and exposes native CookieManager
-             access so HttpOnly MUSIC_U can be handed to player-core securely. -->
+        <!-- Upstream swingwebview embeds the installed system browser engine in
+             the existing JVM and exposes native CookieManager access so HttpOnly
+             MUSIC_U can be handed to player-core securely. -->
         <dependency>
-            <groupId>io.github.timer-err</groupId>
-            <artifactId>swingwebview</artifactId>
+            <groupId>ca.weblite</groupId>
+            <artifactId>webview</artifactId>
             <version>${swingwebview.version}</version>
         </dependency>
 
@@ -335,9 +335,9 @@
                     </plugin>
 
                     <!-- Runtime classpath (player-core, qml4j, Skija, LWJGL + its
-                         natives jars, log4j, JNA, the decoders) into target/app/lib.
-                         Skija/LWJGL extract their own natives from these jars at
-                         runtime, exactly as they do on a dev `exec:exec` run. -->
+                         native jars, log4j, JNA, swingwebview, and the decoders) into
+                         target/app/lib. Skija/LWJGL/swingwebview extract their native
+                         libraries from these jars at runtime. -->
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-dependency-plugin</artifactId>
