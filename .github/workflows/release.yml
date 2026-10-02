@@ -19,7 +19,13 @@ on:
     tags: ['v*']
   release:
     types: [published]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version embedded in manually built desktop artifacts
+        required: false
+        default: '0.0.0'
+        type: string
 
 # Push-a-tag and publish-a-release can both fire for the same version; collapse
 # them into one run per ref instead of building everything twice.
@@ -187,7 +193,7 @@ jobs:
         # so the in-app update check reports the real version, matching the tag.
         shell: bash
         env:
-          QPLAYER_VERSION: ${{ github.event.release.tag_name || github.ref_name }}
+          QPLAYER_VERSION: ${{ github.event.release.tag_name || (github.ref_type == 'tag' && github.ref_name) || inputs.version || '0.0.0' }}
         run: |
           VER="${QPLAYER_VERSION#v}"
           mvn -B -DskipTests -Dqplayer.app.version="${VER:-0.0.0}" \
@@ -198,7 +204,7 @@ jobs:
         # result: AppImage / zip / dmg. QPLAYER_VERSION is the bundle version they
         # bake into the launcher metadata.
         env:
-          QPLAYER_VERSION: ${{ github.event.release.tag_name || github.ref_name }}
+          QPLAYER_VERSION: ${{ github.event.release.tag_name || (github.ref_type == 'tag' && github.ref_name) || inputs.version || '0.0.0' }}
         run: ${{ matrix.package }}
 
       - name: Rename artifact

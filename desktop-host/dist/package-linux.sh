@@ -41,8 +41,9 @@ jpackage --type app-image \
   "${JAVA_OPTION_ARGS[@]}" \
   --jlink-options "--strip-native-commands --strip-debug --no-man-pages --no-header-files --compress=zip-6 --dedup-legal-notices=error-if-not-same-content"
 
-# AppDir = the jpackage image + the three things appimagetool insists on at the
-# root: AppRun, a .desktop entry and a matching icon.
+# AppDir = the jpackage image plus AppRun and freedesktop metadata. appimagetool
+# requires the launcher, desktop entry and icon at the root; copies under usr/
+# let AppStream consumers associate the installed metadata with the application.
 mv "$T/pkg/qplayer" "$T/AppDir"
 rmdir "$T/pkg"
 
@@ -60,7 +61,7 @@ exec "$HERE/bin/qplayer" "$@"
 EOF
 chmod +x "$T/AppDir/AppRun"
 
-cat > "$T/AppDir/qplayer.desktop" <<'EOF'
+cat > "$T/AppDir/dev.t1m3.qplayer.desktop" <<'EOF'
 [Desktop Entry]
 Name=QPlayer
 Exec=qplayer
@@ -70,6 +71,12 @@ Categories=AudioVideo;Audio;Player;
 EOF
 cp docs/icon.png "$T/AppDir/qplayer.png" 2>/dev/null || \
   cp shared-qml/app-icon.png "$T/AppDir/qplayer.png" 2>/dev/null || true
+install -Dm644 "$T/AppDir/dev.t1m3.qplayer.desktop" \
+  "$T/AppDir/usr/share/applications/dev.t1m3.qplayer.desktop"
+install -Dm644 "$T/AppDir/qplayer.png" \
+  "$T/AppDir/usr/share/icons/hicolor/512x512/apps/qplayer.png"
+install -Dm644 "$DIST/dev.t1m3.qplayer.appdata.xml" \
+  "$T/AppDir/usr/share/metainfo/dev.t1m3.qplayer.appdata.xml"
 
 TOOL="${APPIMAGETOOL:-$T/appimagetool}"
 if [ ! -x "$TOOL" ]; then
@@ -80,7 +87,7 @@ fi
 # APPIMAGE_EXTRACT_AND_RUN avoids needing FUSE (CI runners lack it).
 OUTPUT="$T/QPlayer-x86_64.AppImage"
 STAGED_OUTPUT="$T/QPlayer-x86_64.new.AppImage"
-ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 "$TOOL" --no-appstream "$T/AppDir" "$STAGED_OUTPUT"
+ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 "$TOOL" "$T/AppDir" "$STAGED_OUTPUT"
 # Replacing by rename also works while an older AppImage is running; writing the
 # final executable in place fails with ETXTBSY and leaves no new test artifact.
 mv -f "$STAGED_OUTPUT" "$OUTPUT"
