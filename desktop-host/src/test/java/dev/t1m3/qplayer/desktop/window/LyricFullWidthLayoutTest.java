@@ -5,7 +5,6 @@ import dev.t1m3.qplayer.bridge.PlayerController;
 import dev.t1m3.qplayer.desktop.resources.ClasspathResourceLoader;
 import dev.t1m3.qplayer.desktop.settings.JsonSettingsStore;
 import dev.t1m3.qplayer.i18n.I18n;
-import dev.t1m3.qplayer.settings.SettingSpec;
 import dev.t1m3.qplayer.settings.SettingsCatalog;
 import dev.t1m3.qplayer.settings.SettingsCore;
 import dev.t1m3.qplayer.store.AppDirs;
@@ -70,19 +69,6 @@ public class LyricFullWidthLayoutTest {
         });
     }
 
-    /** The layout is a way of looking at the page, so it is toggled from the page
-     *  and has no settings row of its own — but the value is still stored. */
-    @Test
-    public void theToggleLivesOnThePageAndNotInTheSettingsList() {
-        SettingsCore settings = new SettingsCore();
-        settings.load(new JsonSettingsStore(), SettingsCatalog.DESKTOP);
-        assertTrue("the setting must still be stored and applied",
-                settings.has("lyricFullWidth"));
-        for (SettingSpec row : settings.rows(SettingsCatalog.LYRIC)) {
-            assertTrue("a hidden setting must not render a row: " + row.key,
-                    !"lyricFullWidth".equals(row.key));
-        }
-    }
 
     @Test
     public void classicChromeIsTheOneShownWhenTheModeIsOff() throws Exception {

@@ -1,17 +1,12 @@
 package dev.t1m3.qplayer.lyric.tempera;
 
 import io.github.humbleui.skija.Canvas;
-import io.github.humbleui.skija.Data;
-import io.github.humbleui.skija.EncodedImageFormat;
 import io.github.humbleui.skija.Image;
 import io.github.humbleui.skija.Surface;
 
 import org.junit.Test;
 
 import java.nio.ByteBuffer;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -29,7 +24,6 @@ import static org.junit.Assert.assertTrue;
  *
  * <p>它替代的是「手动打开播放器、切到凝彩页、盯着看」这一步——目的是让 42 个移植文件里
  * 任何一处 NPE、数组越界、除零或原生资源误用都在这里暴露出来，而不是在用户点开那一刻。
- * 同时把若干帧保存到 target/tempera-smoke 供人工检查。
  */
 public class TemperaSmokeTest {
 
@@ -88,8 +82,6 @@ public class TemperaSmokeTest {
         renderer.setTuning(tuning);
         renderer.setLyricsFontScale(1f);
 
-        Path outDir = Paths.get("target", "tempera-smoke");
-        Files.createDirectories(outDir);
 
         Surface surface = Surface.makeRasterN32Premul(W, H);
         Canvas canvas = surface.getCanvas();
@@ -104,17 +96,11 @@ public class TemperaSmokeTest {
         List<Double> coverage = new ArrayList<>();
 
         int rendered = 0;
-        double[] marquee = {2.0, 5.0, 11.0, 14.0, 20.0, 24.5};
         for (double time : shots) {
             canvas.clear(0xFF000000);
             renderer.render(canvas, time, UI_SCALE, W, H, "Digital Girl", "测试歌手");
             coverage.add(mutatedPixels(surface, paper) / (double) (W * H));
             rendered++;
-            for (double mark : marquee) {
-                if (Math.abs(time - mark) < 0.099) {
-                    writePng(surface, outDir.resolve(String.format("frame-%05.1f.png", mark)));
-                }
-            }
         }
         assertEquals("每一帧都必须无异常地画完", shots.size(), rendered);
 
@@ -134,7 +120,6 @@ public class TemperaSmokeTest {
         canvas.clear(0xFF000000);
         renderer.render(canvas, 2.0, UI_SCALE, W, H, "Digital Girl", "测试歌手");
         double variance = frameVariance(surface);
-        writePng(surface, outDir.resolve("frame-assert.png"));
         assertTrue("首段画面不应该是纯色（实际方差 " + variance + "）", variance > 4.0);
 
         renderer.dispose();
@@ -262,8 +247,6 @@ public class TemperaSmokeTest {
                 "#F2F0E8", "#5A5470", "#3A3550", "#B9B3CC");
         double paperLuminance = 0.2126 * 0xF2 + 0.7152 * 0xF0 + 0.0722 * 0xE8;
 
-        Path outDir = Paths.get("target", "tempera-smoke");
-        Files.createDirectories(outDir);
         Surface surface = Surface.makeRasterN32Premul(W, H);
         Canvas canvas = surface.getCanvas();
 
@@ -275,7 +258,6 @@ public class TemperaSmokeTest {
             canvas.clear(0xFF000000);
             empty.render(canvas, time, UI_SCALE, W, H, "Digital Girl", "测试歌手");
             double[] stats = frameStats(surface);
-            writePng(surface, outDir.resolve(String.format("idle-empty-%04.1f.png", time)));
             assertTrue("没有歌词时不能是黑屏（t=" + time + " 均值 " + stats[0] + "）",
                     stats[0] > paperLuminance * 0.75);
             assertTrue("没有歌词时画面要有内容（t=" + time + " 方差 " + stats[1] + "）",
@@ -293,7 +275,6 @@ public class TemperaSmokeTest {
             canvas.clear(0xFF000000);
             preRoll.render(canvas, time, UI_SCALE, W, H, "Digital Girl", "测试歌手");
             double[] stats = frameStats(surface);
-            writePng(surface, outDir.resolve(String.format("idle-preroll-%04.1f.png", time)));
             assertTrue("前奏期间不能是静止的空画面（t=" + time + " 方差 " + stats[1] + "）",
                     stats[1] > 3.0);
         }
@@ -310,8 +291,6 @@ public class TemperaSmokeTest {
         TemperaTypes.Program program = TemperaProgram.compile(
                 Collections.singletonList(line("第一句歌词", 20, 24)), "intro", tuning);
         assertEquals(20.0, program.paragraphs.get(0).shots.get(0).startTime, 0.001);
-        Path outDir = Paths.get("target", "tempera-smoke");
-        Files.createDirectories(outDir);
         for (String paper : new String[]{"#F2F0E8", "#0B0B10"}) {
             TemperaPalette.Theme theme = new TemperaPalette.Theme(
                     paper, "#5A5470", "#3A3550", "#B9B3CC");
@@ -342,10 +321,8 @@ public class TemperaSmokeTest {
                     }
                     if (first == null) first = pixels;
                     previous = pixels;
-                    writePng(actual, outDir.resolve("intro-" + paper.substring(1) + "-" + time + ".png"));
                 }
                 renderer.render(actual.getCanvas(), 21, 1, W, H, "Prelude", "Artist");
-                writePng(actual, outDir.resolve("intro-" + paper.substring(1) + "-21.0.png"));
                 assertTrue("Lyrics take over after intro", !java.util.Arrays.equals(previous, pixels(actual)));
                 renderer.render(actual.getCanvas(), 0, 1, W, H, "Prelude", "Artist");
                 assertArrayEquals("Seeking back restores the intro", first, pixels(actual));
@@ -425,17 +402,4 @@ public class TemperaSmokeTest {
         }
     }
 
-    private static void writePng(Surface surface, Path path) throws Exception {
-        Image image = surface.makeImageSnapshot();
-        try {
-            Data data = image.encodeToData(EncodedImageFormat.PNG);
-            try {
-                Files.write(path, data.getBytes());
-            } finally {
-                data.close();
-            }
-        } finally {
-            image.close();
-        }
-    }
 }

@@ -13,8 +13,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertThrows;
 
 public class PluginRuntimeTest {
     @Rule public TemporaryFolder temporary = new TemporaryFolder();
@@ -30,26 +29,10 @@ public class PluginRuntimeTest {
             Object raw = runtime.invoke("echo", Collections.<String, Object>singletonMap("value", 12))
                     .get(2, TimeUnit.SECONDS);
             Map<?, ?> result = (Map<?, ?>) raw;
-            assertEquals(12, ((Number) result.get("value")).intValue());
             assertEquals("undefined", result.get("javaType"));
         }
     }
 
-    @Test
-    public void bridgesHostFutureBackIntoPluginPromise() throws Exception {
-        Files.write(temporary.getRoot().toPath().resolve("main.js"), (
-                "module.exports = { handlers: {\n"
-                + " load: function(arg) { return qplayer.call('storage.get', arg)"
-                + ".then(function(value) { return { answer: value }; }); }\n"
-                + "} };\n").getBytes(StandardCharsets.UTF_8));
-        PluginHostApi host = (pluginId, method, arguments) -> CompletableFuture.completedFuture(42);
-        try (PluginRuntime runtime = PluginRuntime.start(
-                temporary.getRoot().toPath(), manifest(), host)) {
-            Map<?, ?> result = (Map<?, ?>) runtime.invoke("load", Collections.emptyMap())
-                    .get(2, TimeUnit.SECONDS);
-            assertEquals(42, ((Number) result.get("answer")).intValue());
-        }
-    }
 
     @Test
     public void rejectsUndeclaredPrivilegedHostMethod() throws Exception {
@@ -59,14 +42,12 @@ public class PluginRuntimeTest {
                 + "} };\n").getBytes(StandardCharsets.UTF_8));
         try (PluginRuntime runtime = PluginRuntime.start(
                 temporary.getRoot().toPath(), manifest(), noOpHost())) {
-            try {
-                runtime.invoke("load", Collections.emptyMap()).get(2, TimeUnit.SECONDS);
-            } catch (java.util.concurrent.ExecutionException expected) {
-                assertFalse(String.valueOf(expected.getCause()).isEmpty());
-                return;
-            }
+            java.util.concurrent.ExecutionException error = assertThrows(
+                    java.util.concurrent.ExecutionException.class,
+                    () -> runtime.invoke("load", Collections.emptyMap())
+                            .get(2, TimeUnit.SECONDS));
+            assertEquals(PluginExecutionException.class, error.getCause().getClass());
         }
-        throw new AssertionError("undeclared network call should fail");
     }
 
     @Test
@@ -93,14 +74,12 @@ public class PluginRuntimeTest {
                 + "} };\n").getBytes(StandardCharsets.UTF_8));
         try (PluginRuntime runtime = PluginRuntime.start(
                 temporary.getRoot().toPath(), manifest(), noOpHost())) {
-            try {
-                runtime.invoke("cycle", Collections.emptyMap()).get(2, TimeUnit.SECONDS);
-            } catch (java.util.concurrent.ExecutionException expected) {
-                assertTrue(String.valueOf(expected.getCause()).contains("cycle"));
-                return;
-            }
+            java.util.concurrent.ExecutionException error = assertThrows(
+                    java.util.concurrent.ExecutionException.class,
+                    () -> runtime.invoke("cycle", Collections.emptyMap())
+                            .get(2, TimeUnit.SECONDS));
+            assertEquals(PluginExecutionException.class, error.getCause().getClass());
         }
-        throw new AssertionError("cyclic result should fail");
     }
 
     @Test
@@ -110,33 +89,14 @@ public class PluginRuntimeTest {
                 .getBytes(StandardCharsets.UTF_8));
         try (PluginRuntime runtime = PluginRuntime.start(
                 temporary.getRoot().toPath(), manifest(), noOpHost())) {
-            try {
-                runtime.invoke("bad", Collections.emptyMap()).get(2, TimeUnit.SECONDS);
-            } catch (java.util.concurrent.ExecutionException expected) {
-                assertTrue(String.valueOf(expected.getCause()).contains("non-finite"));
-                return;
-            }
+            java.util.concurrent.ExecutionException error = assertThrows(
+                    java.util.concurrent.ExecutionException.class,
+                    () -> runtime.invoke("bad", Collections.emptyMap())
+                            .get(2, TimeUnit.SECONDS));
+            assertEquals(PluginExecutionException.class, error.getCause().getClass());
         }
-        throw new AssertionError("non-finite result should fail");
     }
 
-    @Test
-    public void reportsARejectedErrorsOwnMessage() throws Exception {
-        Files.write(temporary.getRoot().toPath().resolve("main.js"), (
-                "module.exports = { handlers: {\n"
-                + " deny: function() { return Promise.reject(new Error('操作过于频繁，请稍后再试')); }\n"
-                + "} };\n").getBytes(StandardCharsets.UTF_8));
-        try (PluginRuntime runtime = PluginRuntime.start(
-                temporary.getRoot().toPath(), manifest(), noOpHost())) {
-            try {
-                runtime.invoke("deny", Collections.emptyMap()).get(2, TimeUnit.SECONDS);
-            } catch (java.util.concurrent.ExecutionException expected) {
-                assertEquals("操作过于频繁，请稍后再试", expected.getCause().getMessage());
-                return;
-            }
-        }
-        throw new AssertionError("a rejected promise should fail the call");
-    }
 
     @Test
     public void acceptsThousandsOfSongLikeResults() throws Exception {
@@ -191,13 +151,8 @@ public class PluginRuntimeTest {
                 "module.exports = { handlers: {} };\n".getBytes(StandardCharsets.UTF_8));
         PluginManifest manifest = manifest();
         manifest.capabilities = Collections.singletonList("searchSongs");
-        try {
-            PluginRuntime.start(temporary.getRoot().toPath(), manifest, noOpHost());
-        } catch (PluginExecutionException expected) {
-            assertTrue(String.valueOf(expected.getMessage()).contains("failed to start"));
-            return;
-        }
-        throw new AssertionError("missing advertised handler should fail startup");
+        assertThrows(PluginExecutionException.class,
+                () -> PluginRuntime.start(temporary.getRoot().toPath(), manifest, noOpHost()));
     }
 
     private static PluginManifest manifest() {

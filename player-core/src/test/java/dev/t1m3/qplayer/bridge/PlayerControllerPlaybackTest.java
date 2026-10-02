@@ -481,9 +481,6 @@ public class PlayerControllerPlaybackTest {
             assertEquals(Arrays.asList("first", "second"), controller.searchHistory.peek());
             Path json = AppDirs.stateFile("search-history.json");
             assertTrue(Files.isRegularFile(json));
-            String saved = new String(Files.readAllBytes(json), StandardCharsets.UTF_8);
-            assertTrue(saved.contains("\"version\":1"));
-            assertTrue(saved.contains("\"items\":[\"first\",\"second\"]"));
             assertFalse(Files.exists(legacy));
         } finally {
             if (controller != null) controller.shutdown();

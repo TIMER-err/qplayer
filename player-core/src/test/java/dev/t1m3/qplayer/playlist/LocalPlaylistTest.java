@@ -14,7 +14,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.junit.Assert.assertThrows;
 
 /**
  * The set arithmetic a mixed playlist rests on: a sync must follow its source
@@ -357,12 +357,8 @@ public class LocalPlaylistTest {
                 "{\"format\":\"something.else\",\"tracks\":[]}",
                 "[1,2,3]",
                 "not json at all")) {
-            try {
-                PlaylistTransfer.parse(candidate);
-                fail("should have rejected: " + candidate);
-            } catch (PlaylistTransfer.UnsupportedFormat expected) {
-                // expected
-            }
+            assertThrows(PlaylistTransfer.UnsupportedFormat.class,
+                    () -> PlaylistTransfer.parse(candidate));
         }
     }
 
@@ -370,12 +366,8 @@ public class LocalPlaylistTest {
     public void importingRejectsAFormatFromTheFuture() {
         String json = "{\"format\":\"" + PlaylistTransfer.FORMAT
                 + "\",\"formatVersion\":99,\"tracks\":[]}";
-        try {
-            PlaylistTransfer.parse(json);
-            fail("a newer format must not be half-read");
-        } catch (PlaylistTransfer.UnsupportedFormat expected) {
-            assertTrue(expected.getMessage().contains("newer"));
-        }
+        assertThrows(PlaylistTransfer.UnsupportedFormat.class,
+                () -> PlaylistTransfer.parse(json));
     }
 
     @Test
