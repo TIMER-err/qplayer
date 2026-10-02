@@ -42,8 +42,7 @@ Rectangle {
                     || app.currentOverlay === "album"
                     || app.currentOverlay === "account"
         }
-        // Home already owns the same action alongside its retry state.
-        return app.page === 1 || app.page === 2
+        return app.page === 0 || app.page === 1 || app.page === 2
     }
     property bool syncingPageState: false
     // forward: new top page enters over an unchanged previous page.
@@ -893,13 +892,23 @@ Rectangle {
                 }
             }
 
-            SourceSetupPrompt {
-                anchors.fill: parent
-                anchors.topMargin: app.currentOverlay === "" ? rootTopChrome.height : 0
-                visible: app.showSourceSetupPrompt
-                z: 3000
-            }
         }
+    }
+
+    // Keep the source setup affordance in root coordinates. Read the window
+    // width directly instead of rail.width/rail.right: those are animated,
+    // derived values, which qml4j can leave at their initial zero in a sibling
+    // binding. The prompt must use the final navigation footprint.
+    SourceSetupPrompt {
+        x: settings.leftInset
+           + (app.width >= 840 ? 216 : (app.width >= 600 ? 80 : 0))
+        y: settings.topInset
+           + (app.currentOverlay === "" ? rootTopChrome.height : 0)
+        width: Math.max(0, app.width - settings.leftInset - settings.rightInset
+                        - (app.width >= 840 ? 216 : (app.width >= 600 ? 80 : 0)))
+        height: Math.max(0, mini.y - y)
+        visible: app.showSourceSetupPrompt
+        z: 3000
     }
 
     MiniPlayer {

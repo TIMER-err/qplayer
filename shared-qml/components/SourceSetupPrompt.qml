@@ -12,7 +12,7 @@ Rectangle {
     MouseArea { anchors.fill: parent }
 
     EmptyState {
-        anchors.centerIn: parent
+        anchors.fill: parent
         icon: "extension"
         title: i18n.t("source.prompt.title")
         actionText: i18n.t("source.prompt.button")
