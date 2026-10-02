@@ -101,7 +101,20 @@ final class HttpByteSource implements SeekableByteSource {
                 }
             }
             synchronized (lock) {
-                complete = true;
+                // A CDN that cuts the connection short (anti-leech, a dropped edge
+                // node, a stale signed-url timeout mid-transfer) still ends the
+                // InputStream cleanly from read()'s point of view -- indistinguishable
+                // from a real end-of-file unless we cross-check against the
+                // Content-Length we were promised. Left unflagged, this reads as a
+                // short file to the decoder, which reads as a short *track* to the
+                // playback loop: a natural end-of-track fired well before the real
+                // song is over, i.e. an unexplained mid-song skip to the next track.
+                if (!closed && total >= 0 && downloaded < total) {
+                    error = new IOException("stream ended early: " + downloaded + "/" + total + " bytes");
+                    Logger.warn("audio: CDN truncated response, {} of {} bytes", downloaded, total);
+                } else {
+                    complete = true;
+                }
                 if (total < 0) total = downloaded;
                 lock.notifyAll();
             }

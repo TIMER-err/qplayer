@@ -5238,11 +5238,23 @@ public final class PlayerController {
         return -1;
     }
 
+    /** A real end-of-track reports a position within a few seconds of the known
+     *  duration (VBR frame-count estimates and container padding both introduce
+     *  slack). A much larger shortfall means the stream was cut short server-side
+     *  (CDN truncation, a dropped edge node) rather than actually finished. */
+    private static final long TRUNCATED_END_GUARD_MS = 5_000L;
+
     // Track finished on its own: repeat-one replays it, shuffle jumps randomly,
     // list-loop advances. Wired to backend.onComplete (not next()) so repeat-one
     // doesn't fight a user's manual skip. Already on the main thread (onComplete).
     private void autoAdvance() {
         if (queue.isEmpty()) return;
+        Track ending = currentTrack();
+        if (ending != null && ending.durationMs > 0
+                && ending.durationMs - Math.max(0L, backend.position()) > TRUNCATED_END_GUARD_MS
+                && retryStaleStreamUrl(ending)) {
+            return;
+        }
         pendingNaturalEnd = true;
         playbackEndRevision.incrementAndGet();
         if (!pluginAutoAdvanceBlocker.isEmpty()) return;
@@ -7023,44 +7035,47 @@ public final class PlayerController {
         }
     }
 
-    /** Handle a playback error from the audio backend. For netease tracks whose
-     *  cached streamUrl went stale (expired VIP link, region lock, etc.), clear
-     *  the cache and re-resolve. Everything else falls through to autoAdvance. */
+    /** Handle a playback error from the audio backend. For netease/plugin tracks
+     *  whose cached streamUrl went stale (expired VIP link, region lock, a
+     *  server-truncated response, etc.), clear the cache and re-resolve. Everything
+     *  else falls through to autoAdvance. */
     private void onPlaybackError() {
-        Track t = currentTrack();
-        // Retry a netease track once: clear the (likely stale) url and re-resolve.
-        // errorRetryId guards against an endless error→re-resolve loop when the
-        // fresh url also fails; it's reset when a track actually starts playing.
-        if (t != null && t.source == Track.Source.NETEASE && t.streamUrl != null
-                && t.neteaseId != errorRetryId) {
+        if (retryStaleStreamUrl(currentTrack())) return;
+        skipUnplayable(playIndex, I18n.tr("toast.play.audioFailed"));
+    }
+
+    /** Retry a track whose cached streamUrl may be bad (expired VIP link, region
+     *  lock, a CDN that cut the response short, ...): clear the url and re-resolve
+     *  from wherever playback actually stopped. errorRetryId/errorRetryMediaId
+     *  guard against an endless error→re-resolve loop when the fresh url also
+     *  fails; they're reset when a track actually starts playing.
+     *  @return true if a retry was launched (caller must not also skip/advance). */
+    private boolean retryStaleStreamUrl(Track t) {
+        if (t == null || t.streamUrl == null) return false;
+        int idx = playIndex;
+        long backendMs = Math.max(0L, backend.position());
+        Long shown = positionMs.peek();
+        long resumeMs = Math.max(backendMs, shown != null ? shown : 0L);
+        if (t.source == Track.Source.NETEASE && t.neteaseId != errorRetryId) {
             errorRetryId = t.neteaseId;
-            int idx = playIndex;
-            long backendMs = Math.max(0L, backend.position());
-            Long shown = positionMs.peek();
-            long resumeMs = Math.max(backendMs, shown != null ? shown : 0L);
             beginLyricClockLoad(resumeMs);
             Logger.warn("playback error on netease track {}, clearing stale url and retrying at {}ms",
                     t.neteaseId, resumeMs);
             t.streamUrl = null;
             resolveAndPlayNetease(t, idx, resumeMs, coverRevision.get());
-            return;
+            return true;
         }
-        if (t != null && t.source == Track.Source.PLUGIN && t.streamUrl != null
-                && !t.canonicalId().equals(errorRetryMediaId)) {
+        if (t.source == Track.Source.PLUGIN && !t.canonicalId().equals(errorRetryMediaId)) {
             errorRetryMediaId = t.canonicalId();
-            int idx = playIndex;
-            long backendMs = Math.max(0L, backend.position());
-            Long shown = positionMs.peek();
-            long resumeMs = Math.max(backendMs, shown != null ? shown : 0L);
             beginLyricClockLoad(resumeMs);
             Logger.warn("playback error on plugin track {}, clearing stale url and retrying at {}ms",
                     t.canonicalId(), resumeMs);
             t.streamUrl = null;
             t.streamHeaders.clear();
             resolveAndPlayPlugin(t, idx, resumeMs, coverRevision.get());
-            return;
+            return true;
         }
-        skipUnplayable(playIndex, I18n.tr("toast.play.audioFailed"));
+        return false;
     }
 
     /** Stop waiting on an unplayable queue entry and advance once. The failure
