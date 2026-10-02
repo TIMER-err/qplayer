@@ -63,9 +63,16 @@ Item {
     Image {
         id: img
         anchors.fill: parent
+        clip: true
         source: cover.decodeW > 0 ? cover.source : ""
         radius: cover.radius
-        fillMode: "PreserveAspectCrop"
+        // PreserveAspectCrop is broken on non-square source images in this engine
+        // (see CLAUDE.md's qml4j gotchas): it miscomputes the crop offset, so the
+        // image is scaled from its top-left corner instead of centred, and every
+        // artwork whose aspect ratio isn't exactly square overflows its box by a
+        // different amount. PreserveAspectFit + clip never overflows; the small
+        // letterbox bar an off-ratio cover gets is far less visible than that.
+        fillMode: "PreserveAspectFit"
         // Without this, qml4j's decoder (ImageLoader.decodeRaster) has no target
         // size to shrink to at LOAD time, so it keeps the full source resolution
         // (now up to 1024px for playlist/album covers) and the draw-time scale
