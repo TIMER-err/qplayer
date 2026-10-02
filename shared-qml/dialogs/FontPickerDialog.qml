@@ -101,7 +101,9 @@ Item {
             }
             Item {
                 Layout.fillWidth: true
-                Layout.preferredHeight: Math.min(360, Math.max(88, control.height - 240))
+                // Keep the dialog body itself below its scroll threshold. The
+                // virtual font list is the sole vertical scroll owner.
+                Layout.preferredHeight: Math.min(240, Math.max(88, control.height - 240))
                 Flickable {
                     id: listView
                     objectName: "fontFamilyList"

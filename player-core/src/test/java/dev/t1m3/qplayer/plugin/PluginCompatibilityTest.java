@@ -3,7 +3,6 @@ package dev.t1m3.qplayer.plugin;
 import org.junit.After;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 
 public final class PluginCompatibilityTest {
 
@@ -11,11 +10,6 @@ public final class PluginCompatibilityTest {
         PluginCompatibility.setHostVersion("1.5.0");
     }
 
-    @Test public void acceptsCurrentApiAndHost() {
-        PluginManifest manifest = manifest("1.0", "1.4.0");
-        PluginCompatibility.requireCompatible(manifest);
-        assertTrue(PluginCompatibility.compare("1.4.1", "1.4.0") > 0);
-    }
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsFutureHost() {

@@ -6,6 +6,19 @@ import "."
 ColumnLayout {
     id: section
     property var groupData
+    function rowVisible(spec) {
+        return spec && (spec.dependsOn.length === 0
+                        || settings.value(spec.dependsOn) === true)
+    }
+    property bool hasVisibleRows: {
+        var specs = section.groupData ? section.groupData.rows : null
+        if (!specs) return false
+        for (var i = 0; i < specs.length; i++) {
+            if (section.rowVisible(specs[i])) return true
+        }
+        return false
+    }
+    visible: hasVisibleRows
     spacing: 8
     SmallTitle {
         Layout.fillWidth: true
@@ -29,7 +42,7 @@ ColumnLayout {
                     Layout.rightMargin: preferenceRow ? 0 : 16
                     Layout.topMargin: preferenceRow ? 0 : 16
                     Layout.bottomMargin: preferenceRow ? 0 : 16
-                    visible: rowSpec.dependsOn.length === 0 || settings.value(rowSpec.dependsOn) === true
+                    visible: section.rowVisible(rowSpec)
                     sourceComponent: rowSpec.type === "switch" ? switchRow
                         : rowSpec.type === "stepper" ? stepperRow
                         : rowSpec.type === "slider" ? sliderRow

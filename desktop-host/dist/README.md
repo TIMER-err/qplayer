@@ -56,6 +56,11 @@ existing `target/classes` directory.
 - **Linux** additionally strips the symbol table that Temurin leaves in
   `libjvm.so` after `jlink --strip-debug`; this does not affect exported JNI/VM
   symbols and saves roughly 4 MiB in the uncompressed runtime.
+- **Linux** embeds [`dev.t1m3.qplayer.appdata.xml`](dev.t1m3.qplayer.appdata.xml)
+  under `usr/share/metainfo`, together with the desktop entry and icon. AppImage
+  catalogs read its localized description and the two showcase images in
+  `docs/screenshots`; catalog pages update after they ingest a newly published
+  AppImage.
 - **Building with a GraalVM JDK** works, but its `jvmcicompiler.dll`/`.so` adds
   ~48 MB to the runtime. CI uses Temurin.
 - The jpackage launcher passes the command line to `main()` rather than the JVM,

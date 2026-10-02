@@ -16,6 +16,7 @@ Item {
     readonly property string refreshState: refreshing ? "refreshing" : (_completed ? "complete" : (progress >= 1 ? "ready" : (progress > 0 ? "pulling" : "idle")))
     property var refreshTexts: ["Pull down to refresh", "Release to refresh", "Refreshing…", "Refresh complete"]
     property bool _gesture: false
+    property bool _pullEligible: false
     property bool _completed: false
     property bool _ready: false
     property real _completion: 0
@@ -29,8 +30,9 @@ Item {
     // on the host's unimplemented overscroll. Child controls keep native hit testing.
     function settlePull() {
         if (!_ready || viewport.moving) return
-        var requested = _gesture && enabled && !refreshing && !_completed && progress >= 1
+        var requested = _gesture && _pullEligible && enabled && !refreshing && !_completed && progress >= 1
         _gesture = false
+        _pullEligible = false
         if (requested) refreshRequested()
         if (refreshing) animateTo(maximumPull - indicatorHeight)
         else if (pullDistance > 0) animateTo(maximumPull)
@@ -77,11 +79,28 @@ Item {
         interactive: root.enabled && !root.refreshing && !root._completed
         clip: true
         onMovingChanged: {
-            if (moving) { rebound.stop(); root._gesture = true }
-            else settleTimer.restart()
+            if (moving) {
+                rebound.stop()
+                root._gesture = true
+                // Only a drag that begins at the logical top may enter the
+                // reserved pull header. Reaching the top during an existing
+                // scroll is ordinary navigation, not a refresh gesture.
+                root._pullEligible = contentY <= root.maximumPull + 0.5
+            } else {
+                settleTimer.restart()
+            }
         }
         onContentYChanged: {
-            if (root._ready && !moving && !rebound.running && !root.refreshing && !root._completed) settleTimer.restart()
+            if (!root._ready || rebound.running || root.refreshing || root._completed) return
+            // qml4j routes wheel input straight to contentY without setting
+            // moving. Snap that input, and ineligible drags, to the logical
+            // top instead of exposing and then animating the pull header.
+            if (contentY < root.maximumPull && !root._pullEligible) {
+                settleTimer.stop()
+                contentY = root.maximumPull
+            } else if (!moving) {
+                settleTimer.restart()
+            }
         }
         Item {
             width: viewport.width
@@ -120,5 +139,14 @@ Item {
             height: root.contentHeight
             y: root.maximumPull
         }
+    }
+    ScrollBar {
+        objectName: "pullToRefreshScrollBar"
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.right: parent.right
+        target: viewport
+        contentStart: root.maximumPull
+        z: 1000
     }
 }

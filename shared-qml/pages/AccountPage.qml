@@ -51,6 +51,7 @@ Rectangle {
         }
 
         Flickable {
+            id: accountScroller
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
@@ -377,6 +378,10 @@ Rectangle {
                 // one of them, and would be a second way to do what the single
                 // row's gear already does.
                 Item { Layout.preferredHeight: 8 }
+            }
+
+            ViewportScrollBar {
+                target: accountScroller
             }
         }
     }

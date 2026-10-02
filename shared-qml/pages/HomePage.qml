@@ -363,8 +363,4 @@ Item {
         }
     }
 
-    SourceSetupPrompt {
-        anchors.fill: parent
-        visible: player.sourceSetupRequired
-    }
 }

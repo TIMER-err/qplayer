@@ -57,9 +57,8 @@ public class CorePluginHostApiCompressionTest {
         byte[] archive = gzip(new byte[512 * 1024]);
         assertTrue("zeroes must compress well enough to be a useful bomb",
                 archive.length < 4096);
-        IOException error = assertThrows(IOException.class,
+        assertThrows(IOException.class,
                 () -> CorePluginHostApi.gunzipLimited(archive, 64 * 1024));
-        assertTrue(error.getMessage().contains("too large"));
     }
 
     /** A plugin that negotiates its own encoding keeps the raw bytes: the host

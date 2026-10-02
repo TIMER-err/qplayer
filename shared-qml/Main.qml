@@ -42,9 +42,8 @@ Rectangle {
                     || app.currentOverlay === "album"
                     || app.currentOverlay === "account"
         }
-        // Home already owns the same action alongside its retry state. 本地
-        // (device files) needs no source at all, so it is deliberately excluded.
-        return app.page === 1 || app.page === app.libraryPageIndex
+        // 本地 (device files) needs no source at all, so it is deliberately excluded.
+        return app.page === 0 || app.page === 1 || app.page === app.libraryPageIndex
     }
     property bool syncingPageState: false
     // forward: new top page enters over an unchanged previous page.
@@ -461,219 +460,68 @@ Rectangle {
     // forces a whole-tree settleLayout that frame (and on coinciding scroll
     // frames). Layout containers in the always-visible chrome re-ran their
     // measure/fill passes every one of those ticks; anchors keep it cheap.
-    // Wide-screen navigation rail (left), shown in place of the bottom bar once the
-    // window is wide enough; collapses to width 0 (and hides) on compact widths so
-    // the content reclaims the full width. Expands to a labelled rail at ≥ 840.
-    Item {
+    // Wide-screen navigation rail (left); split into its own component so
+    // Main.qml's generated Component.<init>() stays under the JVM's 64KB
+    // method-size limit (see AppNavigationRail.qml's header comment).
+    AppNavigationRail {
         id: rail
-        anchors.left: parent.left
-        anchors.leftMargin: settings.leftInset
-        anchors.top: parent.top
-        anchors.bottom: parent.bottom
-        visible: app.wide
-        width: app.wide ? (app.expanded ? 216 : 80) : 0
-        Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-        Rectangle { anchors.fill: parent; color: Theme.color.surface }
-        Item {
-            id: railBrand
-            width: parent.width
-            height: implicitHeight
-            // Desktop: the title bar already covers the topInset area, so the
-            // header only needs topInset (items start at topInset + 12).
-            // Mobile: 64px more for the logo.
-            implicitHeight: (!hostWindow.available) ? (64 + settings.topInset) : settings.topInset
-
-            Image {
-                id: railLogo
-                width: 32
-                height: 32
-                // topInset is the reserved system/custom-title-bar strip. Centre
-                // the brand in the 64px rail header below it so native desktop
-                // decorations cannot cover its top edge when topInset is 0.
-                y: settings.topInset + (parent.height - settings.topInset - height) / 2
-                x: app.expanded ? 24 : (parent.width - width) / 2
-                Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-                visible: (!hostWindow.available)
-                source: "app-icon.png"
-                // Decode straight to the drawn size in device pixels. Without this
-                // the 256px source is resampled to 32 at draw time with plain
-                // bilinear (SamplingMode.LINEAR), which at an 8:1 ratio aliases the
-                // disc's grooves badly; sourceSize routes it through the loader's
-                // mipmapped downscale instead. The artwork already carries its own
-                // rounded corners, so no radius here — clipping them a second time
-                // just re-aliases the edge.
-                sourceSize.width: Math.round(32 * player.pixelRatio)
-                sourceSize.height: Math.round(32 * player.pixelRatio)
-            }
-            Text {
-                anchors.left: railLogo.right
-                anchors.leftMargin: 12
-                anchors.verticalCenter: railLogo.verticalCenter
-                text: "QPlayer"
-                opacity: (app.expanded && (!hostWindow.available)) ? 1 : 0
-                visible: opacity > 0.01
-                Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-                color: Theme.color.onSurfaceColor
-                font.family: Theme.typography.titleMedium.family
-                font.pixelSize: Theme.typography.titleMedium.size
-            }
-        }
-        NavigationRail {
-            anchors.top: railBrand.bottom
-            anchors.bottom: railActions.top
-            width: parent.width
-            extended: app.expanded
-            selectOnClick: false
-            showToggle: false
-            expandedWidth: 216
-            currentIndex: app.page
-            model: app.navItems
-            sectionLabel: i18n.t("nav.section")
-            onItemClicked: (index, itemData) => app.switchTo(index)
-        }
-        Item {
-            id: railActions
-            width: parent.width
-            height: implicitHeight
-            anchors.bottom: parent.bottom
-            // Feature actions are contributed by plugins; the host only supplies
-            // stable navigation placement and an isolated UI launcher.
-            implicitHeight: 20 + app.footerActions().length * 48
-
-            Rectangle {
-                x: 12
-                y: 0
-                width: parent.width - 24
-                height: 1
-                color: Theme.color.outlineVariant
-            }
-
-            Repeater {
-                model: app.footerActions()
-
-                Item {
-                    id: footerAction
-                    x: 0
-                    y: 10 + index * 48
-                    width: parent.width
-                    height: 48
-
-                    Rectangle {
-                        id: footerState
-                        property color hoverColor: Theme.color.surfaceContainerHighest
-                        x: app.expanded ? 12 : (parent.width - 48) / 2
-                        y: 2
-                        width: app.expanded ? parent.width - 24 : 48
-                        height: 44
-                        radius: 22
-                        color: footerRipple.containsMouse
-                               ? hoverColor
-                               : Qt.rgba(hoverColor.r, hoverColor.g, hoverColor.b, 0)
-                        Behavior on color { ColorAnimation { duration: 140 } }
-                    }
-
-                    Text {
-                        x: app.expanded ? 28 : (parent.width - width) / 2
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: modelData.icon
-                        font.family: Theme.iconFont.name
-                        font.pixelSize: 22
-                        color: Theme.color.onSurfaceVariantColor
-                        Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-                    }
-
-                    Text {
-                        x: 64
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: parent.width - 76
-                        text: modelData.text
-                        color: Theme.color.onSurfaceColor
-                        font.family: Theme.typography.labelLarge.family
-                        font.pixelSize: Theme.typography.labelLarge.size
-                        elide: Text.ElideRight
-                        opacity: app.expanded ? 1 : 0
-                        visible: opacity > 0.01
-                        Behavior on opacity { NumberAnimation { duration: 160 } }
-                    }
-
-                    Ripple {
-                        id: footerRipple
-                        x: footerState.x
-                        y: footerState.y
-                        width: footerState.width
-                        height: footerState.height
-                        clipRadius: footerState.radius
-                        rippleColor: Theme.color.onSurfaceColor
-                        onClicked: {
-                            if (modelData.action === "download") {
-                                player.refreshCachedSongs()
-                                app.replacePage("cachedSongs", 0)
-                            } else if (modelData.action === "plugin") {
-                                player.requestPluginUi(modelData.pluginId,
-                                                       modelData.contributionId)
-                            } else if (modelData.action === "account") {
-                                // Also when signed out: the account page lists one
-                                // row per installed source and signing in lives
-                                // behind each row's gear, so gating this on
-                                // loggedIn would make that unreachable. With no
-                                // source installed at all the page is covered by
-                                // SourceSetupPrompt, which is the right answer
-                                // there anyway.
-                                app.replacePage("account", 0)
-                            } else {
-                                app.replacePage("settings", 0)
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        pageManager: app
     }
 
-    TopAppBar {
-        id: topBar
-        anchors.top: parent.top
-        anchors.topMargin: settings.topInset   // clear the status bar (edge-to-edge)
-        anchors.left: rail.right
-        anchors.right: parent.right
-        anchors.rightMargin: settings.rightInset
-        visible: app.currentOverlay === ""
-        height: visible ? 64 : 0
-        large: false
-        collapsedHeight: 64
-        titlePadding: 16
-        title: app.titles[app.page]
-        showNavigationIcon: false
+    // Root-page chrome shares the page motion instead of disappearing as soon as
+    // navigationStack changes. Keeping it outside pageWrap lets incoming routes
+    // use the full viewport without moving the outgoing root content upward.
+    Item {
+        id: rootTopChrome
+        property real baseLeft: rail.x + rail.width
+        x: baseLeft + rootPageMotion.contentX
+        y: settings.topInset + rootPageMotion.contentY
+        width: app.width - baseLeft - settings.rightInset
+        height: 64
+        scale: rootPageMotion.contentScale
+        opacity: rootPageMotion.contentOpacity
+        visible: opacity > 0.001
+        enabled: app.currentOverlay === ""
 
-        IconButton {
-            objectName: "openTempera"
-            visible: settings.has("temperaWholeLine")
-            type: "standard"
-            icon: "auto_awesome"
-            onClicked: player.setTemperaOpen(true)
-        }
-        IconButton {
-            // This setting only exists on desktop hosts. Its presence, rather than
-            // a responsive layout breakpoint, decides whether the action is shown.
-            visible: app.wide && settings.has("desktopLyricEnabled")
-            type: "standard"
-            icon: "subtitles"
-            contentColor: settings.value("desktopLyricEnabled")
-                          ? Theme.color.primary : Theme.color.onSurfaceVariantColor
-            onClicked: settings.setValue("desktopLyricEnabled",
-                                         !settings.value("desktopLyricEnabled"))
-        }
-        IconButton {
-            type: "standard"
-            icon: "queue_music"
-            onClicked: app.replacePage("queue", 0)
-        }
-        IconButton {
-            id: overflowAction
-            objectName: "compactOverflowAction"
-            visible: !app.wide
-            icon: "more_vert"
-            onClicked: compactMenu.open(overflowAction)
+        TopAppBar {
+            id: topBar
+            anchors.fill: parent
+            large: false
+            collapsedHeight: 64
+            titlePadding: 16
+            title: app.titles[app.page]
+            showNavigationIcon: false
+
+            IconButton {
+                objectName: "openTempera"
+                visible: settings.has("temperaWholeLine")
+                type: "standard"
+                icon: "auto_awesome"
+                onClicked: player.setTemperaOpen(true)
+            }
+            IconButton {
+                // This setting only exists on desktop hosts. Its presence, rather than
+                // a responsive layout breakpoint, decides whether the action is shown.
+                visible: app.wide && settings.has("desktopLyricEnabled")
+                type: "standard"
+                icon: "subtitles"
+                contentColor: settings.value("desktopLyricEnabled")
+                              ? Theme.color.primary : Theme.color.onSurfaceVariantColor
+                onClicked: settings.setValue("desktopLyricEnabled",
+                                             !settings.value("desktopLyricEnabled"))
+            }
+            IconButton {
+                type: "standard"
+                icon: "queue_music"
+                onClicked: app.replacePage("queue", 0)
+            }
+            IconButton {
+                id: overflowAction
+                objectName: "compactOverflowAction"
+                visible: !app.wide
+                icon: "more_vert"
+                onClicked: compactMenu.open(overflowAction)
+            }
         }
     }
     Menu {
@@ -699,10 +547,13 @@ Rectangle {
     }
 
 
-    // Content region. pageWrap clips root/route motion at its edges.
+    // Root content keeps a fixed app-bar offset while route pages use this full
+    // viewport. The two layers can therefore cross-fade/zoom without a one-frame
+    // layout jump or title/content overlap.
     Item {
         id: pageWrap
-        anchors.top: topBar.bottom
+        anchors.top: parent.top
+        anchors.topMargin: settings.topInset
         anchors.left: rail.right
         anchors.right: parent.right
         anchors.rightMargin: settings.rightInset
@@ -714,18 +565,15 @@ Rectangle {
             width: parent.width
             height: parent.height
 
-            // Root destinations have their own transform layer. Route loaders are
-            // siblings below, so the old root can Zoom Out while a new route Zooms
-            // In without the route inheriting its underlay's transform.
+            // Root destinations and their app bar use the same motion values.
+            // Route loaders are siblings, so an incoming full-page route does not
+            // inherit the outgoing root transform.
             Item {
                 id: rootPages
-                // Sized, not anchored: anchors.fill pins x/y at 0 and silently
-                // beats the motion bindings, which left every sliding preset
-                // looking like a plain cross-fade here.
                 width: parent.width
-                height: parent.height
+                height: parent.height - rootTopChrome.height
                 x: rootPageMotion.contentX
-                y: rootPageMotion.contentY
+                y: rootTopChrome.height + rootPageMotion.contentY
                 scale: rootPageMotion.contentScale
                 opacity: rootPageMotion.contentOpacity
                 enabled: app.currentOverlay === ""
@@ -897,15 +745,27 @@ Rectangle {
                 }
             }
 
-            SourceSetupPrompt {
-                anchors.fill: parent
-                visible: app.showSourceSetupPrompt
-                z: 3000
-            }
         }
     }
 
+    // Keep the source setup affordance in root coordinates. Read the window
+    // width directly instead of rail.width/rail.right: those are animated,
+    // derived values, which qml4j can leave at their initial zero in a sibling
+    // binding. The prompt must use the final navigation footprint.
+    SourceSetupPrompt {
+        x: settings.leftInset
+           + (app.width >= 840 ? 216 : (app.width >= 600 ? 80 : 0))
+        y: settings.topInset
+           + (app.currentOverlay === "" ? rootTopChrome.height : 0)
+        width: Math.max(0, app.width - settings.leftInset - settings.rightInset
+                        - (app.width >= 840 ? 216 : (app.width >= 600 ? 80 : 0)))
+        height: Math.max(0, mini.y - y)
+        visible: app.showSourceSetupPrompt
+        z: 3000
+    }
+
     MiniPlayer {
+        objectName: "miniPlayer"
         id: mini
         anchors.left: rail.right
         anchors.right: parent.right
@@ -1013,15 +873,23 @@ Rectangle {
         z: 20000
     }
 
-    // Windows-only custom title bar (see TitleBar.qml / WinFrameless.java /
-    // WindowChrome.java). hostWindow is registered on EVERY platform (a real,
-    // functional WindowChrome on Windows desktop, a no-op WindowChromeStub
-    // everywhere else -- Android's QmlGLSurfaceView and DesktopWindow both
-    // register it unconditionally) precisely so this component can gate purely
-    // on hostWindow.available rather than the identifier's mere existence --
-    // qml4j's compiler rejects an undeclared top-level identifier at compile
-    // time, even inside a typeof guard on a branch that never runs, so
-    // hostWindow being simply absent on some platforms is not an option here.
+    FullscreenExitIndicator {
+        id: fullscreenExitIndicator
+        objectName: "fullscreenExitIndicator"
+        fullscreen: hostWindow.fullscreen
+        holding: hostWindow.fullscreenExitHold
+        progress: hostWindow.fullscreenExitProgress
+        width: Math.min(260, parent.width - 32)
+        height: 128
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: 24
+        z: 30000
+    }
+
+    // Windows custom title bar. DesktopWindow now registers a live hostWindow
+    // bridge on every desktop OS for fullscreen state; available remains true
+    // only when these custom caption controls are active. Android registers the
+    // inert shape-compatible stub required by qml4j's compile-time name lookup.
     // High z so its caption buttons stay click-priority-correct over any
     // current/future full-window overlay -- the shared Theme.color.surface
     // token underneath means z-order never affects visual seamlessness, only
@@ -1040,7 +908,8 @@ Rectangle {
         // The lyric page is fully immersive on desktop: the custom bar hides while
         // it's open so LyricOverlay's own three title buttons can sit flush at the
         // top (see LyricOverlay.topPad). Symmetric with LyricOverlay.visible.
-        visible: hostWindow.available && !(player.lyricSlide > 0.001)
+        visible: hostWindow.available && !hostWindow.fullscreen
+                 && !(player.lyricSlide > 0.001)
                  && !player.temperaOpen && player.temperaOpacity <= 0.001
         height: settings.topInset
         z: 10000
@@ -1071,6 +940,7 @@ Rectangle {
             }
 
             Flickable {
+                id: logScroller
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.margins: 12
@@ -1083,6 +953,9 @@ Rectangle {
                     color: Theme.color.onSurfaceColor
                     fontSize: 12
                     wrapMode: Text.WrapAnywhere
+                }
+                ViewportScrollBar {
+                    target: logScroller
                 }
             }
         }

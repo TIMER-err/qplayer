@@ -185,6 +185,9 @@ Item {
                         visible: children.length > 0
                     }
                 }
+                ViewportScrollBar {
+                    target: bodyViewport
+                }
             }
             Column {
                 id: actions

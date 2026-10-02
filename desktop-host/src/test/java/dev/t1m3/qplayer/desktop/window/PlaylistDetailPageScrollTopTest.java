@@ -64,7 +64,7 @@ public class PlaylistDetailPageScrollTopTest {
             settle(view);
 
             assertNotNull(view.findByObjectName("playlistDetailPage"));
-            Item fab = view.findByObjectName("playlistDetailScrollTopButton");
+            Item fab = view.findByObjectName("playlistScrollTopButton");
             assertNotNull("the scroll-to-top button must exist even with an empty playlist", fab);
             assertNotNull(view.findByObjectName("playlistDetailSelectButton"));
             assertNotNull(view.findByObjectName("playlistDetailSelectBar"));

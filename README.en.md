@@ -18,6 +18,7 @@
   <img src="https://img.shields.io/badge/graphics-OpenGL%20%2F%20Vulkan-CC3333" alt="OpenGL / Vulkan">
   <img src="https://img.shields.io/badge/UI-QML%20%2F%20Material%203-7C6CF0" alt="QML / Material 3">
   <img src="https://img.shields.io/badge/engine-qml4j-465BA6" alt="qml4j">
+  <a href="https://appimage.github.io/QPlayer/"><img src="https://img.shields.io/badge/AppImage-listed-2F7ED8?logo=appimage&amp;logoColor=white" alt="Listed in the AppImage application directory"></a>
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0"></a>
 </p>
 
@@ -158,6 +159,33 @@ cd android-shell && ./gradlew :app:assembleDebug
 ```
 
 **Desktop**
+
+Both source runs and the released AppImage depend on native libraries supplied by
+the Linux system. The AppImage bundles the JVM and Java dependencies, but not the
+host graphics and WebView stack:
+
+- OpenGL/EGL, the Vulkan loader, Fontconfig and the C++ runtime for Skija/LWJGL rendering;
+- PipeWire, PulseAudio or ALSA client libraries for OpenAL Soft audio output;
+- GLib/GIO, GTK 3, Cairo and X11 for MPRIS, the system tray and WebView;
+- WebKitGTK 4.1 and `glib-networking` for the login WebView and its HTTPS/TLS
+  backend;
+- `secret-tool` from `libsecret` for protecting credentials with Secret
+  Service/KWallet. QPlayer still runs without it, but falls back to an
+  owner-readable local key.
+
+Package names vary by distribution. Common Debian/Ubuntu names are `libgl1`,
+`libegl1`, `libvulkan1`, `libfontconfig1`, `libpipewire-0.3-0`, `libpulse0`,
+`libasound2`, `libgtk-3-0`, `libcairo2`, `libx11-6`, `libwebkit2gtk-4.1-0`,
+`glib-networking`, `libstdc++6` and `libsecret-tools` (newer releases may use
+`t64` suffixes).
+
+NixOS does not expose these libraries through a global dynamic-linker search path.
+When launching Maven/Java, add the `lib` directories from `libglvnd`,
+`vulkan-loader`, `pipewire`, `libpulseaudio`, `alsa-lib`, `fontconfig`, `glib`,
+`gtk3`, `cairo`, `libx11`, `webkitgtk_4_1` and `stdenv.cc.cc.lib` to
+`LD_LIBRARY_PATH`. **Append** `${glib-networking}/lib/gio/modules` to
+`GIO_EXTRA_MODULES` so existing modules such as dconf remain available, and put
+`libsecret` on `PATH` so QPlayer can find `secret-tool`.
 
 ```sh
 # build once (player-core / desktop-host)

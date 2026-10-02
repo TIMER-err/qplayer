@@ -5,18 +5,15 @@ import io.github.timer_err.qml4j.engine.binding.Property;
 import org.lwjgl.glfw.GLFW;
 
 /**
- * QML-facing bridge for the custom title bar (Windows only -- a real,
- * functional instance is registered as the {@code hostWindow} context object
- * solely from {@link DesktopWindow}; every other platform/OS registers
- * {@link dev.t1m3.qplayer.bridge.WindowChromeStub} instead so {@code
- * hostWindow} is always a declared identifier, never an undeclared one --
- * qml4j's compiler rejects an unknown top-level identifier at COMPILE time,
- * even inside a {@code typeof x !== "undefined"} guard and even on a branch
- * that never actually runs, so a context object that's simply absent on some
- * platforms is not safe here the way it would be in real JS). {@code
- * shared-qml} reads {@code hostWindow.available} to tell the two apart.
- * Every method is called from QML on the render thread and must marshal the
- * actual GLFW call onto the main thread via {@link DesktopWindow#postMainTask}.
+ * QML-facing desktop window bridge. Every desktop platform receives a live
+ * instance so shared QML can observe exclusive-fullscreen state; {@link
+ * #available} remains true only for the Windows custom title bar. Android
+ * registers {@link dev.t1m3.qplayer.bridge.WindowChromeStub} with the same
+ * field/method shape because qml4j rejects unknown context identifiers while
+ * compiling, even on unreachable branches.
+ *
+ * <p>Methods may be called from QML on the render thread and therefore marshal
+ * GLFW work onto {@link DesktopWindow#postMainTask}.
  */
 public final class WindowChrome {
 
@@ -27,15 +24,19 @@ public final class WindowChrome {
     static final double BUTTON_WIDTH_LOGICAL_PX = 46;
     static final int BUTTON_COUNT = 3;
 
-    public final Property<Boolean> available = new Property<>(Boolean.TRUE);
+    public final Property<Boolean> available;
     public final Property<Boolean> maximized = new Property<>(Boolean.FALSE);
     public final Property<Boolean> focused = new Property<>(Boolean.TRUE);
+    public final Property<Boolean> fullscreen = new Property<>(Boolean.FALSE);
+    public final Property<Boolean> fullscreenExitHold = new Property<>(Boolean.FALSE);
+    public final Property<Double> fullscreenExitProgress = new Property<>(0.0);
     public final Property<Double> buttonWidthPx = new Property<>(BUTTON_WIDTH_LOGICAL_PX);
 
     private final DesktopWindow window;
 
-    WindowChrome(DesktopWindow window) {
+    WindowChrome(DesktopWindow window, boolean customTitleBarAvailable) {
         this.window = window;
+        this.available = new Property<>(customTitleBarAvailable);
     }
 
     /** Plain OS iconify -- matches the native minimize button's existing
@@ -53,6 +54,10 @@ public final class WindowChrome {
                 GLFW.glfwMaximizeWindow(w);
             }
         });
+    }
+
+    public void toggleFullscreen() {
+        window.postMainTask(window::toggleFullscreen);
     }
 
     /** Reuses the exact same hide-to-tray-if-available-else-quit decision the

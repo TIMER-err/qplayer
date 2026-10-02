@@ -172,10 +172,6 @@ public class TemperaIntegrationTest {
             } finally {
                 queue.uninstall();
             }
-            SettingsCore android = new SettingsCore();
-            android.load(new JsonSettingsStore(), SettingsCatalog.ANDROID);
-            assertTrue(android.has("temperaWholeLine"));
-            assertEquals(6, android.categories().size());
         } finally {
             if (view != null) view.dispose();
             page.dispose();

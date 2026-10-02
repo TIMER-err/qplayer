@@ -240,6 +240,10 @@ Item {
                             }
                         }
                     }
+
+                    ViewportScrollBar {
+                        target: viewport
+                    }
                 }
             }
         }

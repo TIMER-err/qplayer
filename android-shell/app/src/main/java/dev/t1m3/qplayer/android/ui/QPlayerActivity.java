@@ -176,7 +176,6 @@ public final class QPlayerActivity extends Activity {
         }));
         controller.setInstaller(this::downloadAndInstallUpdate);
         controller.setCoverPicker(this::pickPlaylistCover);
-        settings.setFontPicker(this::pickFontFile);
         controller.setPluginPicker(this::pickPluginPackage);
         controller.setWebLoginLauncher(this::openWebLogin);
         webAuthScript = new AndroidWebAuthScript(this);
@@ -212,6 +211,7 @@ public final class QPlayerActivity extends Activity {
         // SharedPreferences store, the platform id, and the actions/live text its
         // own rows need.
         settings = new SettingsCore();
+        settings.setFontPicker(this::pickFontFile);
         settings.attach(controller);
         systemBarsListener = dark ->
                 runOnUiThread(() -> applySystemBars(Boolean.TRUE.equals(dark)));

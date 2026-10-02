@@ -224,6 +224,7 @@ Item {
     }
 
     EmptyState {
+        objectName: "localEmptyState"
         anchors.centerIn: parent
         visible: player.libraryCount === 0
         icon: "folder_open"
@@ -291,6 +292,10 @@ Item {
                             onClicked: { page.groupValue = modelData; valueDialog.close() }
                         }
                     }
+                }
+
+                ViewportScrollBar {
+                    target: valueList
                 }
             }
         }

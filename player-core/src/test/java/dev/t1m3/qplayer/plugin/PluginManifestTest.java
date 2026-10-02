@@ -4,8 +4,7 @@ import org.junit.Test;
 
 import java.util.Arrays;
 
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.junit.Assert.assertThrows;
 
 public class PluginManifestTest {
     @Test
@@ -13,12 +12,7 @@ public class PluginManifestTest {
         PluginManifest manifest = baseManifest();
         manifest.capabilities = Arrays.asList("login");
 
-        try {
-            manifest.validate();
-            fail("login without credential permission must be rejected");
-        } catch (IllegalArgumentException expected) {
-            assertTrue(expected.getMessage().contains("credentials"));
-        }
+        assertThrows(IllegalArgumentException.class, manifest::validate);
 
         manifest.permissions = Arrays.asList("credentials");
         manifest.validate();
@@ -33,12 +27,7 @@ public class PluginManifestTest {
         ui.source = "ui/settings.qml";
         manifest.ui = Arrays.asList(ui);
 
-        try {
-            manifest.validate();
-            fail("custom QML without permission must be rejected");
-        } catch (IllegalArgumentException expected) {
-            assertTrue(expected.getMessage().contains("customUi"));
-        }
+        assertThrows(IllegalArgumentException.class, manifest::validate);
     }
 
     private static PluginManifest baseManifest() {

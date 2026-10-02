@@ -8,6 +8,10 @@ Rectangle {
     // API
     property Flickable target: null
     property int orientation: Qt.Vertical // Qt.Vertical or Qt.Horizontal
+    // Some viewports reserve leading scroll travel (PullToRefresh keeps its
+    // resting position below a hidden pull header). Treat that resting position
+    // as the logical start instead of drawing a partly-scrolled thumb.
+    property real contentStart: 0
     
     // Styling
     property color trackColor: "transparent"
@@ -20,19 +24,32 @@ Rectangle {
     implicitWidth: orientation === Qt.Vertical ? (isPressed ? 4 : 8) : parent.width
     implicitHeight: orientation === Qt.Vertical ? parent.height : (isPressed ? 4 : 8)
     
-    // Visibility logic
-    visible: target && (orientation === Qt.Vertical ? target.contentHeight > target.height : target.contentWidth > target.width)
+    // Visibility and range
+    readonly property real viewportSize: !target ? 0
+        : (orientation === Qt.Vertical ? target.height : target.width)
+    readonly property real contentSize: !target ? 0
+        : (orientation === Qt.Vertical ? target.contentHeight : target.contentWidth)
+    readonly property real maximumContentPosition: Math.max(contentStart,
+        contentSize - viewportSize)
+    readonly property real scrollRange: Math.max(0, maximumContentPosition - contentStart)
+    readonly property real contentPosition: !target ? contentStart
+        : (orientation === Qt.Vertical ? target.contentY : target.contentX)
+    visible: target && scrollRange > 0
     color: trackColor
-    
+
+    function setContentPosition(value) {
+        if (!target) return
+        var bounded = Math.max(contentStart, Math.min(value, maximumContentPosition))
+        if (orientation === Qt.Vertical) target.contentY = bounded
+        else target.contentX = bounded
+    }
+
     // Internal state
     property bool isPressed: scrollMouseArea.pressed
     property bool isMoving: target && target.moving
     property bool isHovered: scrollMouseArea.containsMouse
     property bool recentlyScrolled: false
-    property real observedPosition: !target ? 0
-                                    : (orientation === Qt.Vertical
-                                       ? target.contentY : target.contentX)
-
+    property real observedPosition: contentPosition
     onObservedPositionChanged: {
         recentlyScrolled = true
         scrollIdleTimer.restart()
@@ -86,42 +103,22 @@ Rectangle {
 
         function calculateSize() {
             if (!target) return 40
-            
-            var baseSize = 0
-            if (orientation === Qt.Vertical) {
-                var ratio = target.height / target.contentHeight
-                baseSize = Math.max(40, ratio * scrollBarTrack.height)
-            } else {
-                var ratio = target.width / target.contentWidth
-                baseSize = Math.max(40, ratio * scrollBarTrack.width)
-            }
-            
-            return baseSize + (isPressed ? 10 : 0) // Make it longer when pressed
+            var availableContent = Math.max(viewportSize, contentSize - contentStart)
+            var ratio = viewportSize / availableContent
+            var trackSize = orientation === Qt.Vertical
+                ? scrollBarTrack.height : scrollBarTrack.width
+            return Math.max(40, ratio * trackSize) + (isPressed ? 10 : 0)
         }
         
         function calculatePosition() {
-            if (!target) return 0
-            
-            if (orientation === Qt.Vertical) {
-                if (target.contentHeight <= target.height) return 0
-                // When pressed, the thumb height changes, so we must use the current thumb height
-                // to calculate bounds to avoid jumping.
-                // However, we are binding 'y' to this.
-                // If 'height' changes due to animation, we need the position to be stable relative to center or top?
-                // Standard behavior: The thumb expands from center or just expands.
-                // If we simply use the current height, the thumb will shift as it grows.
-                // Let's rely on standard scrollbar behavior: The visual thumb grows, but the logical center represents position.
-                // But for simple implementation, let's just use current height.
-                
-                var maxThumbY = scrollBarTrack.height - height
-                var scrollRatio = target.contentY / (target.contentHeight - target.height)
-                return Math.max(0, Math.min(scrollRatio * maxThumbY, maxThumbY))
-            } else {
-                if (target.contentWidth <= target.width) return 0
-                var maxThumbX = scrollBarTrack.width - width
-                var scrollRatio = target.contentX / (target.contentWidth - target.width)
-                return Math.max(0, Math.min(scrollRatio * maxThumbX, maxThumbX))
-            }
+            if (!target || scrollRange <= 0) return 0
+            var trackSize = orientation === Qt.Vertical
+                ? scrollBarTrack.height : scrollBarTrack.width
+            var thumbSize = orientation === Qt.Vertical ? height : width
+            var maxThumbPosition = Math.max(0, trackSize - thumbSize)
+            var scrollRatio = (contentPosition - contentStart) / scrollRange
+            return Math.max(0,
+                Math.min(scrollRatio * maxThumbPosition, maxThumbPosition))
         }
     }
 
@@ -146,58 +143,44 @@ Rectangle {
             if (!target) return
             dragProxy.x = 0
             dragProxy.y = 0
-            
-            var mousePos = (orientation === Qt.Vertical) ? mouse.y : mouse.x
-            var thumbPos = (orientation === Qt.Vertical) ? scrollBarThumb.y : scrollBarThumb.x
-            var thumbSize = (orientation === Qt.Vertical) ? scrollBarThumb.height : scrollBarThumb.width
-            
-            if (mousePos >= thumbPos && mousePos <= thumbPos + thumbSize) {
-                // Clicked on thumb
-                pressedPos = mousePos
-                initialContentPos = (orientation === Qt.Vertical) ? target.contentY : target.contentX
-            } else {
-                // Clicked on track: Jump
-                var trackSize = (orientation === Qt.Vertical) ? scrollBarTrack.height : scrollBarTrack.width
-                var maxThumbPos = trackSize - thumbSize
-                var clickRatio = Math.max(0, Math.min((mousePos - thumbSize / 2) / maxThumbPos, 1.0))
-                
-                if (orientation === Qt.Vertical) {
-                    var newContentY = clickRatio * (target.contentHeight - target.height)
-                    target.contentY = Math.max(0, Math.min(newContentY, target.contentHeight - target.height))
-                    initialContentPos = target.contentY
-                } else {
-                    var newContentX = clickRatio * (target.contentWidth - target.width)
-                    target.contentX = Math.max(0, Math.min(newContentX, target.contentWidth - target.width))
-                    initialContentPos = target.contentX
+
+            var mousePos = orientation === Qt.Vertical ? mouse.y : mouse.x
+            var thumbPos = orientation === Qt.Vertical
+                ? scrollBarThumb.y : scrollBarThumb.x
+            var thumbSize = orientation === Qt.Vertical
+                ? scrollBarThumb.height : scrollBarThumb.width
+
+            if (mousePos < thumbPos || mousePos > thumbPos + thumbSize) {
+                var trackSize = orientation === Qt.Vertical
+                    ? scrollBarTrack.height : scrollBarTrack.width
+                var maxThumbPosition = trackSize - thumbSize
+                if (maxThumbPosition > 0) {
+                    var clickRatio = Math.max(0,
+                        Math.min((mousePos - thumbSize / 2) / maxThumbPosition, 1))
+                    scrollBarTrack.setContentPosition(
+                        scrollBarTrack.contentStart
+                        + clickRatio * scrollBarTrack.scrollRange)
                 }
-                // Continue dragging from the jumped position instead of using
-                // the default 0/0 origin on the next pointer move.
-                pressedPos = mousePos
             }
+            // Continue dragging from either the original or jumped position.
+            pressedPos = mousePos
+            initialContentPos = scrollBarTrack.contentPosition
         }
         
         onPositionChanged: (mouse) => {
             if (!pressed || !target) return
-            
-            var mousePos = (orientation === Qt.Vertical) ? mouse.y : mouse.x
+
+            var mousePos = orientation === Qt.Vertical ? mouse.y : mouse.x
             var delta = mousePos - pressedPos
-            
-            var trackSize = (orientation === Qt.Vertical) ? scrollBarTrack.height : scrollBarTrack.width
-            var thumbSize = (orientation === Qt.Vertical) ? scrollBarThumb.height : scrollBarThumb.width
-            var maxThumbPos = trackSize - thumbSize
-            
-            if (maxThumbPos > 0) {
-                var relativeDelta = delta / maxThumbPos
-                
-                if (orientation === Qt.Vertical) {
-                    var maxContentY = target.contentHeight - target.height
-                    var newContentY = initialContentPos + (relativeDelta * maxContentY)
-                    target.contentY = Math.max(0, Math.min(newContentY, maxContentY))
-                } else {
-                    var maxContentX = target.contentWidth - target.width
-                    var newContentX = initialContentPos + (relativeDelta * maxContentX)
-                    target.contentX = Math.max(0, Math.min(newContentX, maxContentX))
-                }
+            var trackSize = orientation === Qt.Vertical
+                ? scrollBarTrack.height : scrollBarTrack.width
+            var thumbSize = orientation === Qt.Vertical
+                ? scrollBarThumb.height : scrollBarThumb.width
+            var maxThumbPosition = trackSize - thumbSize
+
+            if (maxThumbPosition > 0) {
+                scrollBarTrack.setContentPosition(initialContentPos
+                    + delta / maxThumbPosition * scrollBarTrack.scrollRange)
             }
         }
     }

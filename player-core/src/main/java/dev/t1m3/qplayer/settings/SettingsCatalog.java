@@ -169,7 +169,7 @@ public final class SettingsCatalog {
                 .group("home")
                 .build());
         out.add(SettingSpec.toggle(HOME_DAILY_FIRST_KEY, APPEARANCE,
-                        "settings.homeDailyFirst.title", true)
+                        "settings.homeDailyFirst.title", false)
                 .desc("settings.homeDailyFirst.desc")
                 .group("home")
                 .build());

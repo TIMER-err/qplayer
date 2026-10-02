@@ -14,6 +14,7 @@ import dev.t1m3.qplayer.lyric.skia.LyricCompositor;
 import dev.t1m3.qplayer.util.Logger;
 
 import org.lwjgl.glfw.GLFW;
+import org.lwjgl.PointerBuffer;
 import org.lwjgl.glfw.GLFWErrorCallback;
 import org.lwjgl.glfw.GLFWImage;
 import org.lwjgl.glfw.GLFWNativeWin32;
@@ -101,6 +102,14 @@ public final class DesktopWindow {
     private volatile boolean quitRequested;
     private volatile boolean hiddenToTray;
     private volatile boolean windowIconified;
+    private volatile boolean fullscreen;
+    private long fullscreenMonitor = MemoryUtil.NULL;
+    private int windowedX;
+    private int windowedY;
+    private int windowedWidth = INITIAL_W;
+    private int windowedHeight = INITIAL_H;
+    private boolean windowedBoundsValid;
+    private boolean fullscreenRestoreMaximized;
     // Cached on the main thread and replaced when graphics fallback recreates
     // the window. The render thread must not query GLFW's window state.
     private com.sun.jna.Pointer nativeWindow;
@@ -269,6 +278,173 @@ public final class DesktopWindow {
         postMainTask(this::applyWindowsDwmChrome);
     }
 
+    boolean isFullscreen() {
+        return fullscreen;
+    }
+
+    /** F11 uses an attached monitor, not a borderless maximized window. */
+    void toggleFullscreen() {
+        if (Thread.currentThread() != mainThread) {
+            postMainTask(this::toggleFullscreen);
+            return;
+        }
+        if (fullscreen) leaveFullscreen();
+        else enterFullscreen();
+    }
+
+    /** Called by the render-thread hold gesture once its deadline is reached. */
+    void requestExitFullscreen() {
+        postMainTask(() -> {
+            if (fullscreen) leaveFullscreen();
+        });
+    }
+
+    /** Render-thread publication for the QML hold-to-exit indicator. */
+    void setFullscreenExitHold(boolean active, double progress) {
+        WindowChrome chrome = windowChrome;
+        if (chrome == null) return;
+        chrome.fullscreenExitHold.set(active);
+        chrome.fullscreenExitProgress.set(Math.max(0.0, Math.min(1.0, progress)));
+    }
+
+    private void enterFullscreen() {
+        long monitor = monitorForWindow(window);
+        GLFWVidMode mode = monitor != MemoryUtil.NULL ? GLFW.glfwGetVideoMode(monitor) : null;
+        if (mode == null) return;
+
+        boolean maximized =
+                GLFW.glfwGetWindowAttrib(window, GLFW.GLFW_MAXIMIZED) == GLFW.GLFW_TRUE;
+        if (!maximized) captureWindowedBounds();
+        fullscreenRestoreMaximized = maximized;
+        fullscreen = true;
+        fullscreenMonitor = monitor;
+        GLFW.glfwSetWindowMonitor(window, monitor, 0, 0,
+                mode.width(), mode.height(), mode.refreshRate());
+        cacheRefreshRate(monitor);
+        publishFullscreenState(true);
+        Logger.info("entered exclusive fullscreen ({}x{} @ {} Hz)",
+                mode.width(), mode.height(), mode.refreshRate());
+    }
+
+    private void leaveFullscreen() {
+        if (!fullscreen) return;
+        int x = windowedBoundsValid ? windowedX : 100;
+        int y = windowedBoundsValid ? windowedY : 100;
+        int width = windowedBoundsValid ? windowedWidth : INITIAL_W;
+        int height = windowedBoundsValid ? windowedHeight : INITIAL_H;
+        boolean restoreMaximized = fullscreenRestoreMaximized;
+
+        GLFW.glfwSetWindowMonitor(window, MemoryUtil.NULL, x, y, width, height,
+                GLFW.GLFW_DONT_CARE);
+        fullscreen = false;
+        fullscreenMonitor = MemoryUtil.NULL;
+        fullscreenRestoreMaximized = false;
+        if (restoreMaximized) GLFW.glfwMaximizeWindow(window);
+        cacheRefreshRate(monitorForWindow(window));
+        publishFullscreenState(false);
+        Logger.info("left exclusive fullscreen");
+    }
+
+    private void publishFullscreenState(boolean active) {
+        postRenderTask(() -> {
+            WindowChrome chrome = windowChrome;
+            if (chrome != null) {
+                chrome.fullscreen.set(active);
+                if (!active) {
+                    chrome.fullscreenExitHold.set(false);
+                    chrome.fullscreenExitProgress.set(0.0);
+                }
+            }
+            if (settings != null && chrome != null
+                    && Boolean.TRUE.equals(chrome.available.peek())) {
+                Double bottom = settings.bottomInset.peek();
+                settings.setInsets(active ? 0.0 : TITLE_BAR_HEIGHT,
+                        bottom != null ? bottom : 0.0);
+            }
+        });
+    }
+
+    private void captureWindowedBounds() {
+        if (window == MemoryUtil.NULL || fullscreen
+                || GLFW.glfwGetWindowMonitor(window) != MemoryUtil.NULL
+                || GLFW.glfwGetWindowAttrib(window, GLFW.GLFW_MAXIMIZED) == GLFW.GLFW_TRUE
+                || GLFW.glfwGetWindowAttrib(window, GLFW.GLFW_ICONIFIED) == GLFW.GLFW_TRUE) {
+            return;
+        }
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            IntBuffer width = stack.mallocInt(1), height = stack.mallocInt(1);
+            if (GLFW.glfwGetPlatform() != GLFW.GLFW_PLATFORM_WAYLAND) {
+                IntBuffer x = stack.mallocInt(1), y = stack.mallocInt(1);
+                GLFW.glfwGetWindowPos(window, x, y);
+                windowedX = x.get(0);
+                windowedY = y.get(0);
+            }
+            GLFW.glfwGetWindowSize(window, width, height);
+            windowedWidth = Math.max(1, width.get(0));
+            windowedHeight = Math.max(1, height.get(0));
+            windowedBoundsValid = true;
+        }
+    }
+
+    private boolean canCacheWindowedBounds(long target) {
+        return !fullscreen
+                && GLFW.glfwGetWindowMonitor(target) == MemoryUtil.NULL
+                && GLFW.glfwGetWindowAttrib(target, GLFW.GLFW_MAXIMIZED) == GLFW.GLFW_FALSE
+                && GLFW.glfwGetWindowAttrib(target, GLFW.GLFW_ICONIFIED) == GLFW.GLFW_FALSE;
+    }
+
+    private long monitorForWindow(long target) {
+        long attached = GLFW.glfwGetWindowMonitor(target);
+        if (attached != MemoryUtil.NULL) return attached;
+        // Native Wayland deliberately has no global window coordinates. Fullscreen
+        // still works there, but monitor selection must fall back to the compositor's
+        // primary output instead of provoking GLFW_PLATFORM_ERROR via getWindowPos.
+        if (GLFW.glfwGetPlatform() == GLFW.GLFW_PLATFORM_WAYLAND) {
+            return GLFW.glfwGetPrimaryMonitor();
+        }
+        PointerBuffer monitors = GLFW.glfwGetMonitors();
+        if (monitors == null || !monitors.hasRemaining()) return GLFW.glfwGetPrimaryMonitor();
+
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            IntBuffer wx = stack.mallocInt(1), wy = stack.mallocInt(1);
+            IntBuffer ww = stack.mallocInt(1), wh = stack.mallocInt(1);
+            GLFW.glfwGetWindowPos(target, wx, wy);
+            GLFW.glfwGetWindowSize(target, ww, wh);
+            long bestMonitor = GLFW.glfwGetPrimaryMonitor();
+            long bestArea = -1;
+            for (int i = 0; i < monitors.limit(); i++) {
+                long monitor = monitors.get(i);
+                GLFWVidMode mode = GLFW.glfwGetVideoMode(monitor);
+                if (mode == null) continue;
+                IntBuffer mx = stack.mallocInt(1), my = stack.mallocInt(1);
+                GLFW.glfwGetMonitorPos(monitor, mx, my);
+                long overlapWidth = Math.max(0L, Math.min(
+                        (long) wx.get(0) + ww.get(0), (long) mx.get(0) + mode.width())
+                        - Math.max(wx.get(0), mx.get(0)));
+                long overlapHeight = Math.max(0L, Math.min(
+                        (long) wy.get(0) + wh.get(0), (long) my.get(0) + mode.height())
+                        - Math.max(wy.get(0), my.get(0)));
+                long area = overlapWidth * overlapHeight;
+                if (area > bestArea) {
+                    bestArea = area;
+                    bestMonitor = monitor;
+                }
+            }
+            return bestMonitor;
+        }
+    }
+
+    private boolean applyFullscreenMonitor() {
+        long monitor = fullscreenMonitor != MemoryUtil.NULL
+                ? fullscreenMonitor : monitorForWindow(window);
+        GLFWVidMode mode = monitor != MemoryUtil.NULL ? GLFW.glfwGetVideoMode(monitor) : null;
+        if (mode == null) return false;
+        fullscreenMonitor = monitor;
+        GLFW.glfwSetWindowMonitor(window, monitor, 0, 0,
+                mode.width(), mode.height(), mode.refreshRate());
+        return true;
+    }
+
     void drainRenderTasks() {
         Runnable r;
         while ((r = renderTasks.poll()) != null) {
@@ -280,11 +456,9 @@ public final class DesktopWindow {
         }
     }
 
-    /**
-     * Per-frame input animation (smooth wheel scrolling); render thread.
-     */
+    /** Per-frame input animations; render thread. */
     void tickInput() {
-        if (input != null) input.tickScroll();
+        if (input != null) input.tick();
     }
 
     int[] consumePendingResize() {
@@ -324,11 +498,9 @@ public final class DesktopWindow {
         }
         if (settings != null) v.context("settings", settings);
         v.context("i18n", dev.t1m3.qplayer.i18n.I18n.instance());
-        // hostWindow must always be registered, even on mac/Linux where there's no
-        // custom title bar -- qml4j's compiler rejects an undeclared top-level
-        // identifier at compile time, so shared-qml can't just have it be absent
-        // (see WindowChromeStub's javadoc). The real WindowChrome only exists on
-        // Windows (windowChrome != null); everywhere else gets the no-op stub.
+        // hostWindow must always be registered: desktop uses its live bridge for
+        // fullscreen state even when no custom title bar is present, while Android
+        // supplies the shape-compatible no-op stub.
         v.context("hostWindow", windowChrome != null
                 ? windowChrome : new dev.t1m3.qplayer.bridge.WindowChromeStub());
         loadFonts(v, resources);
@@ -512,7 +684,9 @@ public final class DesktopWindow {
             DesktopLyricWindow target = lyricWindow;
             if (target != null && target.isEnabled()) target.startRenderThread();
         });
-        if (windowChrome != null) postMainTask(this::nudgeResizeOnce);
+        if (windowChrome != null && Boolean.TRUE.equals(windowChrome.available.peek())) {
+            postMainTask(this::nudgeResizeOnce);
+        }
         Runnable r = firstFrameListener;
         if (r != null) {
             firstFrameListener = null;
@@ -597,14 +771,8 @@ public final class DesktopWindow {
         applyWindowsDwmChrome();
         boolean customWindowsTitleBar = isWindows()
                 && (settings == null || !settings.bool("windowDecorated"));
+        if (windowChrome == null) windowChrome = new WindowChrome(this, customWindowsTitleBar);
         if (customWindowsTitleBar) {
-            // windowChrome is reused across a Vulkan-fallback recreate (it only ever
-            // delegates through this DesktopWindow's own accessors, never captures a
-            // specific hwnd, so it stays valid) -- but frameless subclasses one
-            // specific hwnd's WNDPROC, so it MUST be a fresh instance every time
-            // createWindow() runs, or a stale one could receive a callback for an
-            // already-destroyed window.
-            if (windowChrome == null) windowChrome = new WindowChrome(this);
             // Keep GLFW's decorated HWND and replace only its non-client layout.
             // WS_CAPTION | WS_THICKFRAME therefore continue to provide DWM shadow,
             // resize, Snap, taskbar preview and Alt-Tab on both Windows 10 and 11.
@@ -613,13 +781,21 @@ public final class DesktopWindow {
             boolean windows11 = isWindows11OrLater();
             frameless = new WinFrameless();
             frameless.install(this, TITLE_BAR_HEIGHT, !windows11);
-            settings.setInsets(TITLE_BAR_HEIGHT, settings.bottomInset.peek());
-            windowChrome.available.set(true);
+            if (settings != null) {
+                settings.setInsets(fullscreen ? 0.0 : TITLE_BAR_HEIGHT,
+                        settings.bottomInset.peek());
+            }
         } else if (isWindows() && settings != null) {
             settings.setInsets(0, settings.bottomInset.peek());
         }
+        if (!fullscreen) captureWindowedBounds();
+        else if (!applyFullscreenMonitor()) {
+            fullscreen = false;
+            fullscreenMonitor = MemoryUtil.NULL;
+            publishFullscreenState(false);
+        }
         cacheFramebufferAndScale();
-        cacheRefreshRate();
+        cacheRefreshRate(fullscreen ? fullscreenMonitor : monitorForWindow(window));
         installCallbacks();
         input = new InputBridge(this);
         input.install(window);
@@ -776,8 +952,8 @@ public final class DesktopWindow {
         }
     }
 
-    private void cacheRefreshRate() {
-        long monitor = GLFW.glfwGetPrimaryMonitor();
+    private void cacheRefreshRate(long monitor) {
+        if (monitor == MemoryUtil.NULL) monitor = GLFW.glfwGetPrimaryMonitor();
         GLFWVidMode mode = monitor != MemoryUtil.NULL ? GLFW.glfwGetVideoMode(monitor) : null;
         int hz = mode != null ? mode.refreshRate() : 0;
         // Broken/virtual displays occasionally report zero or nonsense. Keep the
@@ -848,6 +1024,18 @@ public final class DesktopWindow {
         GLFW.glfwSetFramebufferSizeCallback(window, (win, w, h) -> {
             onNativeFramebufferResize(w, h);
         });
+        GLFW.glfwSetWindowPosCallback(window, (win, x, y) -> {
+            if (!canCacheWindowedBounds(win)) return;
+            windowedX = x;
+            windowedY = y;
+            windowedBoundsValid = true;
+        });
+        GLFW.glfwSetWindowSizeCallback(window, (win, width, height) -> {
+            if (!canCacheWindowedBounds(win) || width <= 0 || height <= 0) return;
+            windowedWidth = width;
+            windowedHeight = height;
+            windowedBoundsValid = true;
+        });
         GLFW.glfwSetWindowContentScaleCallback(window, (win, sx, sy) -> {
             if (sx > 0) { uiScale = sx; notifyScale(); }
         });
@@ -868,6 +1056,7 @@ public final class DesktopWindow {
         });
         GLFW.glfwSetWindowFocusCallback(window, (win, foc) -> {
             if (windowChrome != null) postRenderTask(() -> windowChrome.focused.set(foc));
+            if (!foc && input != null) input.cancelFullscreenExitHold();
         });
         GLFW.glfwSetWindowIconifyCallback(window, (win, iconified) -> {
             windowIconified = iconified;

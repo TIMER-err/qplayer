@@ -271,4 +271,8 @@ Flickable {
             sourceName: grid._dragRow ? (grid._dragRow.sourceName || "") : ""
         }
     }
+
+    ViewportScrollBar {
+        target: grid
+    }
 }

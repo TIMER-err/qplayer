@@ -201,6 +201,10 @@ Item {
                 }
             }
         }
+
+        ViewportScrollBar {
+            target: viewport
+        }
     }
     Loader {
         id: footerLoader

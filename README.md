@@ -18,6 +18,7 @@
   <img src="https://img.shields.io/badge/graphics-OpenGL%20%2F%20Vulkan-CC3333" alt="OpenGL / Vulkan">
   <img src="https://img.shields.io/badge/UI-QML%20%2F%20Miuix-7C6CF0" alt="QML / Miuix">
   <img src="https://img.shields.io/badge/engine-qml4j-465BA6" alt="qml4j">
+  <a href="https://appimage.github.io/QPlayer/"><img src="https://img.shields.io/badge/AppImage-listed-2F7ED8?logo=appimage&amp;logoColor=white" alt="已收录于 AppImage 应用目录"></a>
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0"></a>
 </p>
 
@@ -80,7 +81,7 @@ QPlayer 本体不包含在线音源，也不分发音源代码。安装 JavaScri
 
 **桌面端**　同一套 QML 与 `player-core` 运行在 LWJGL3 + GLFW 上，由 Skija 渲染。
 OpenGL 与 Vulkan 后端可在启动时切换；提供任务栏图标与系统托盘，托盘菜单镜像播放控制；
-最小化到托盘时销毁渲染线程与 GPU 资源、恢复时重建，播放与界面状态保留。
+最小化到托盘时销毁渲染线程与 GPU 资源、恢复时重建，播放与界面状态保留。`F11` 在当前显示器切换独占全屏，进入后会短暂提示“按住 Esc 退出全屏”；持续按住 `Esc` 1.2 秒会显示进度并退出，提前松开只取消操作。
 
 **插件安全**　签名 `.qplug` 包，内置源仓库与发布者公钥固定在程序内，安装时列出权限
 供用户确认，按插件隔离的 Rhino Realm、域名白名单与命名空间凭据库。插件对话框由插件
@@ -136,6 +137,28 @@ cd android-shell && ./gradlew :app:assembleDebug
 
 **桌面**
 
+Linux 从源码运行和发布版 AppImage 都依赖系统提供的原生库；AppImage 内置 JVM
+和 Java 依赖，但不会捆绑宿主的图形与 WebView 栈：
+
+- OpenGL/EGL、Vulkan Loader、Fontconfig 与 C++ 运行库：Skija/LWJGL 渲染；
+- GLib/GIO、GTK 3、Cairo 与 X11：MPRIS、系统托盘和 WebView；
+- WebKitGTK 4.1 与 `glib-networking`：登录 WebView 及其 HTTPS/TLS 后端；
+- `libsecret` 提供的 `secret-tool`：使用 Secret Service/KWallet 保护登录凭据。
+  没有它时播放器仍可运行，但只使用当前用户可读的本地密钥。
+
+不同发行版的包名可能不同；Debian/Ubuntu 常见名称为 `libgl1`、`libegl1`、
+`libvulkan1`、`libfontconfig1`、`libgtk-3-0`、`libcairo2`、`libx11-6`、
+`libwebkit2gtk-4.1-0`、`glib-networking`、`libstdc++6` 和
+`libsecret-tools`（新版本可能带 `t64` 后缀）。
+
+NixOS 不会把这些库放进全局动态链接器搜索路径。启动 Maven/Java 时需将
+`libglvnd`、`vulkan-loader`、`pipewire`、`libpulseaudio`、`alsa-lib`、
+`fontconfig`、`glib`、`gtk3`、`cairo`、`libx11`、`webkitgtk_4_1` 和
+`stdenv.cc.cc.lib` 的 `lib` 目录加入 `LD_LIBRARY_PATH`，并把
+`${glib-networking}/lib/gio/modules` **追加**到 `GIO_EXTRA_MODULES`（保留
+dconf 等已有模块）；`libsecret` 还需位于 `PATH`，使 QPlayer 能找到
+`secret-tool`。
+
 ```sh
 # 构建一次(player-core / desktop-host)
 mvn -q -pl player-core,desktop-host -am install
@@ -173,6 +196,19 @@ bash       desktop-host/dist/package-macos.sh      # macOS   → target/QPlayer.
 > macOS 的 `.dmg` 未签名，对外分发需自行 codesign + 公证，否则 Gatekeeper 会拦截。
 > 打 `v*` tag 时，`.github/workflows/release.yml` 会在三平台 CI 上完成上述构建并附到
 > GitHub Release。
+
+### Linux
+
+**AppImage 使用指南**
+
+不论是第一次安装 QPlayer 还是更新 QPlayer 都可使用（注意 AppImage 不便实现自动更新，QPlayer 发布新版本后请手动使用下列命令更新）。
+
+```sh
+# 将您新下载的 AppImage 文件替换到系统路径
+mv ~/下载/QPlayer*.AppImage ~/.local/bin/qplayer.AppImage
+# 赋予执行权限
+chmod +x ~/.local/bin/qplayer.AppImage
+```
 
 ## 发版
 

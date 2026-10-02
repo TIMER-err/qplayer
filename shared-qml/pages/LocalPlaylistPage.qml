@@ -96,7 +96,7 @@ Rectangle {
                 Layout.alignment: Qt.AlignVCenter
                 type: "standard"
                 visible: player.playlistTransferAvailable && page.width >= 600
-                icon: "file_download"
+                icon: "file_upload"
                 onClicked: player.requestLocalPlaylistExport(page.playlistId)
             }
             IconButton {
@@ -351,8 +351,8 @@ Rectangle {
                 anchors.centerIn: parent
                 visible: !page.tracksList || page.tracksList.length === 0
                 icon: "queue_music"
-                title: i18n.t("playlist.local.empty.title")
-                message: i18n.t("playlist.local.empty.desc")
+                title: i18n.t("playlist.local.tracksEmpty.title")
+                message: i18n.t("playlist.local.tracksEmpty.desc")
             }
 
             Text {
@@ -365,45 +365,12 @@ Rectangle {
                 color: Theme.color.onSurfaceVariantColor
             }
 
-            // A hand-scroll back to the top of a hundred-plus-song playlist is a
-            // lot of dragging (or flicking blind past a custom-ordered list, where
-            // scrollbars aren't a thing here). Only worth the screen space once
-            // there is actually somewhere far to come back from.
-            NumberAnimation {
-                id: scrollToTopAnim
-                target: tracks
-                property: "contentY"
-                to: 0
-                duration: 220
-                easing.type: Easing.OutCubic
-            }
-            Rectangle {
-                id: scrollTopFab
+            ScrollToTopFab {
                 objectName: "localPlaylistScrollTopButton"
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
                 anchors.margins: 16
-                width: 48
-                height: 48
-                radius: width / 2
-                color: Theme.color.primary
-                z: 5
-                visible: opacity > 0
-                opacity: (page.tracksList && page.tracksList.length > 100
-                          && tracks.contentY > tracks.height) ? 1 : 0
-                Behavior on opacity { NumberAnimation { duration: 150 } }
-                Text {
-                    anchors.centerIn: parent
-                    text: "vertical_align_top"
-                    font.family: Theme.iconFont.name
-                    font.pixelSize: 24
-                    color: Theme.color.onPrimaryColor
-                }
-                MouseArea {
-                    anchors.fill: parent
-                    enabled: scrollTopFab.opacity > 0
-                    onClicked: scrollToTopAnim.start()
-                }
+                target: tracks
             }
         }
 
@@ -534,7 +501,7 @@ Rectangle {
             }
             if (player.playlistTransferAvailable) {
                 items.push({
-                    text: i18n.t("playlist.local.export"), icon: "file_download",
+                    text: i18n.t("playlist.local.export"), icon: "file_upload",
                     action: function() { player.requestLocalPlaylistExport(page.playlistId) }
                 })
             }

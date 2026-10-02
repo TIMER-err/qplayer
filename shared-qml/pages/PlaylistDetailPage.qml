@@ -185,74 +185,6 @@ Rectangle {
             }
         }
 
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.leftMargin: 16
-            Layout.rightMargin: 16
-            Layout.topMargin: 8
-            Layout.bottomMargin: 20
-            visible: !player.playlistLoading
-            spacing: 16
-            CoverImage {
-                Layout.preferredWidth: page.width >= 600 ? 128 : 96
-                Layout.preferredHeight: width
-                radius: 20
-                source: player.playlistCoverPath
-                icon: "queue_music"
-                MouseArea {
-                    anchors.fill: parent
-                    enabled: page.canChangeCover
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: player.pickPlaylistCover()
-                }
-            }
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 8
-                Text {
-                    Layout.fillWidth: true
-                    width: Math.max(0, page.width - 48 - (page.width >= 600 ? 128 : 96))
-                    text: player.playlistTitle
-                    font.pixelSize: page.width >= 600 ? 28 : 22
-                    font.weight: Font.DemiBold
-                    color: Theme.color.onSurfaceColor
-                    wrapMode: Text.WrapAnywhere
-                    maximumLineCount: 2
-                    elide: Text.ElideRight
-                }
-                Text {
-                    text: i18n.t("common.songCount", page.filteredTracks ? page.filteredTracks.length : 0)
-                    font.pixelSize: 14
-                    color: Theme.color.onSurfaceVariantSummary
-                }
-                Button {
-                    text: i18n.t("playlist.playAll")
-                    icon: "play_arrow"
-                    enabled: page.filteredTracks && page.filteredTracks.length > 0
-                    onClicked: {
-                        var first = page.filteredTracks[0]
-                        var all = player.openSourcePlaylistId !== "" ? player.sourcePlaylistTracks : player.playlistTracks
-                        for (var i = 0; i < all.length; i++) {
-                            if (String(all[i].id) === String(first.id)) { player.playPlaylistTrack(i); return }
-                        }
-                    }
-                }
-            }
-        }
-
-        TextField {
-            id: pfField
-            Layout.fillWidth: true
-            Layout.leftMargin: 16
-            Layout.rightMargin: 16
-            Layout.bottomMargin: 8
-            visible: !player.playlistLoading
-            label: i18n.t("playlist.searchInside")
-            leadingIcon: "search"
-            text: page.filterText
-            onTextChanged: page.filterText = text
-        }
-
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -260,6 +192,87 @@ Rectangle {
             VirtualSongList {
                 id: tracks
                 anchors.fill: parent
+                // Playlist metadata and filtering belong to the scroll content.
+                // On a phone this gives the track list the full viewport after the
+                // first swipe instead of permanently reserving half the screen.
+                headerHeight: player.playlistLoading ? 0 : 212
+                header: Component {
+                    Item {
+                        width: tracks.width
+                        height: tracks.headerHeight
+                        visible: !player.playlistLoading
+
+                        CoverImage {
+                            id: playlistCover
+                            x: 16
+                            y: 8
+                            width: 128
+                            height: 128
+                            radius: 20
+                            source: player.playlistCoverPath
+                            icon: "queue_music"
+                        }
+
+                        Text {
+                            id: playlistName
+                            anchors.left: playlistCover.right
+                            anchors.leftMargin: 16
+                            anchors.right: parent.right
+                            anchors.rightMargin: 16
+                            anchors.top: playlistCover.top
+                            text: player.playlistTitle
+                            font.pixelSize: page.width >= 600 ? 28 : 22
+                            font.weight: Font.DemiBold
+                            color: Theme.color.onSurfaceColor
+                            wrapMode: Text.Wrap
+                            maximumLineCount: 2
+                            elide: Text.ElideRight
+                        }
+
+                        Text {
+                            anchors.left: playlistName.left
+                            anchors.right: playlistName.right
+                            anchors.top: playlistName.bottom
+                            anchors.topMargin: 4
+                            text: i18n.t("common.songCount",
+                                         page.filteredTracks ? page.filteredTracks.length : 0)
+                            font.pixelSize: 14
+                            color: Theme.color.onSurfaceVariantSummary
+                            elide: Text.ElideRight
+                        }
+
+                        Button {
+                            anchors.left: playlistName.left
+                            anchors.bottom: playlistCover.bottom
+                            text: i18n.t("playlist.playAll")
+                            icon: "play_arrow"
+                            verticalPadding: 8
+                            enabled: page.filteredTracks && page.filteredTracks.length > 0
+                            onClicked: {
+                                var first = page.filteredTracks[0]
+                                var all = player.openSourcePlaylistId !== ""
+                                          ? player.sourcePlaylistTracks : player.playlistTracks
+                                for (var i = 0; i < all.length; i++) {
+                                    if (String(all[i].id) === String(first.id)) {
+                                        player.playPlaylistTrack(i)
+                                        return
+                                    }
+                                }
+                            }
+                        }
+
+                        TextField {
+                            x: 16
+                            y: 148
+                            width: parent.width - 32
+                            height: implicitHeight
+                            label: i18n.t("playlist.searchInside")
+                            leadingIcon: "search"
+                            text: page.filterText
+                            onTextChanged: page.filterText = text
+                        }
+                    }
+                }
                 // Drop the row delegates when the detail page is closed (see
                 // QueuePage): an invisible detail otherwise keeps the whole
                 // playlist's SongRows alive after you return home.
@@ -306,44 +319,12 @@ Rectangle {
                 color: Theme.color.onSurfaceVariantColor
             }
 
-            // Same "back to top" as the local-playlist page: only worth the
-            // screen space once a hundred-plus-track playlist has actually
-            // scrolled somewhere far to come back from.
-            NumberAnimation {
-                id: scrollToTopAnim
-                target: tracks
-                property: "contentY"
-                to: 0
-                duration: 220
-                easing.type: Easing.OutCubic
-            }
-            Rectangle {
-                id: scrollTopFab
-                objectName: "playlistDetailScrollTopButton"
+            ScrollToTopFab {
+                objectName: "playlistScrollTopButton"
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
                 anchors.margins: 16
-                width: 48
-                height: 48
-                radius: width / 2
-                color: Theme.color.primary
-                z: 5
-                visible: opacity > 0
-                opacity: (page.filteredTracks && page.filteredTracks.length > 100
-                          && tracks.contentY > tracks.height) ? 1 : 0
-                Behavior on opacity { NumberAnimation { duration: 150 } }
-                Text {
-                    anchors.centerIn: parent
-                    text: "vertical_align_top"
-                    font.family: Theme.iconFont.name
-                    font.pixelSize: 24
-                    color: Theme.color.onPrimaryColor
-                }
-                MouseArea {
-                    anchors.fill: parent
-                    enabled: scrollTopFab.opacity > 0
-                    onClicked: scrollToTopAnim.start()
-                }
+                target: tracks
             }
         }
 

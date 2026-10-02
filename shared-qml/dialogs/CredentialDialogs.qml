@@ -34,7 +34,14 @@ Item {
         text: i18n.t("graphics.fallback.body")
         acceptText: i18n.t("common.gotIt")
         showRejectButton: false
-        Component.onCompleted: {
+        onAccepted: settings.graphicsFallbackNotice = false
+    }
+
+    Timer {
+        id: graphicsFallbackOpenTimer
+        interval: 1
+        repeat: false
+        onTriggered: {
             if (settings.graphicsFallbackNotice) graphicsFallbackDialog.open()
         }
     }
@@ -158,6 +165,10 @@ Item {
 
     property bool graphicsFallbackWatch: settings.graphicsFallbackNotice
     onGraphicsFallbackWatchChanged: {
-        if (settings.graphicsFallbackNotice) graphicsFallbackDialog.open()
+        if (settings.graphicsFallbackNotice) graphicsFallbackOpenTimer.restart()
+    }
+
+    Component.onCompleted: {
+        if (settings.graphicsFallbackNotice) graphicsFallbackOpenTimer.restart()
     }
 }

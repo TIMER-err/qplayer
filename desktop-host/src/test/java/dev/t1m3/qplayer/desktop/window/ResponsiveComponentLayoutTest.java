@@ -13,6 +13,7 @@ import io.github.timer_err.qml4j.render.QmlView;
 import io.github.timer_err.qml4j.render.items.core.Item;
 import org.junit.Test;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -36,6 +37,44 @@ public class ResponsiveComponentLayoutTest {
             assertNotNull(content);
             assertTrue("Wide dialog body must not collapse to a character-wide column",
                     content.width.peekFloat() >= 300f);
+        } finally {
+            view.dispose();
+        }
+    }
+
+    @Test
+    public void emptyStateCentersMeasuredContentAndTracksResizing() {
+        ClasspathResourceLoader resources = new ClasspathResourceLoader();
+        QmlView view = QmlView.withStockTypes(new QmlEngine()).resources(resources);
+        try {
+            view.load("import QtQuick\nimport QtQuick.Layouts\nimport \"components\"\n"
+                    + "Item { width: 348; height: 746\n"
+                    + "  ColumnLayout { anchors.fill: parent; spacing: 0\n"
+                    + "    Item { Layout.fillWidth: true; Layout.preferredHeight: 260 }\n"
+                    + "    Item { Layout.fillWidth: true; Layout.fillHeight: true\n"
+                    + "      EmptyState { objectName: \"emptyState\"; anchors.centerIn: parent\n"
+                    + "        title: \"No local playlists\"; message: \"Songs from any source can live here\" }\n"
+                    + "    }\n"
+                    + "  }\n"
+                    + "}");
+            settle(view);
+            Item state = view.findByObjectName("emptyState");
+            Item content = view.findByObjectName("emptyStateContent");
+            assertNotNull(state);
+            assertNotNull(content);
+            assertTrue("Empty-state copy must not collapse to the badge width",
+                    content.width.peekFloat() >= 280f);
+            assertEquals("Empty-state content must be horizontally centred",
+                    state.width.peekFloat() / 2f,
+                    content.x.peekFloat() + content.width.peekFloat() / 2f, 0.5f);
+            assertEquals("Empty-state content must be vertically centred after measuring",
+                    state.height.peekFloat() / 2f,
+                    content.y.peekFloat() + content.height.peekFloat() / 2f, 0.5f);
+
+            view.root().width.set(800);
+            settle(view);
+            assertEquals("Empty-state content must follow a wider parent",
+                    400f, content.x.peekFloat() + content.width.peekFloat() / 2f, 0.5f);
         } finally {
             view.dispose();
         }
