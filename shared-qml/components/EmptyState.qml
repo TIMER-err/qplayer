@@ -1,48 +1,62 @@
 import QtQuick
 import miuix.Core
 
-Column {
+Item {
     id: state
     property string icon: "music_note"
     property string title: ""
     property string message: ""
     property string actionText: ""
     signal actionRequested()
-    width: Math.max(0, Math.min(360, parent.width - 48))
-    spacing: 12
-    SmoothRectangle {
-        objectName: "emptyStateBadge"
-        width: 64
-        height: 64
+    // Occupy the available region and centre the actual content inside it. If this
+    // wrapper tracks content.implicitHeight, qml4j resolves centerIn while the
+    // height is still zero; when the Column is measured later, the placeholder
+    // hangs below the parent's vertical centre by half its final height.
+    width: parent ? parent.width : 0
+    height: parent ? parent.height : 0
+    Column {
+        id: content
+        objectName: "emptyStateContent"
+        width: Math.max(0, Math.min(360, state.width - 48))
+        height: implicitHeight
         x: (state.width - width) / 2
-        radius: 22
-        color: Theme.color.secondaryContainer
-        Icon { anchors.centerIn: parent; name: state.icon; width: 30; height: 30; color: Theme.color.primary }
-    }
-    Text {
-        width: state.width
-        text: state.title
-        visible: text.length > 0
-        horizontalAlignment: Text.AlignHCenter
-        wrapMode: Text.Wrap
-        font.pixelSize: 20
-        font.weight: Font.DemiBold
-        color: Theme.color.onSurfaceColor
-    }
-    Text {
-        width: state.width
-        text: state.message
-        visible: text.length > 0
-        horizontalAlignment: Text.AlignHCenter
-        wrapMode: Text.Wrap
-        font.pixelSize: 14
-        color: Theme.color.onSurfaceVariantSummary
-    }
-    Button {
-        x: (state.width - width) / 2
-        text: state.actionText
-        visible: text.length > 0
-        type: "filledTonal"
-        onClicked: state.actionRequested()
+        y: Math.max(0, (state.height - height) / 2)
+        spacing: 12
+
+        SmoothRectangle {
+            objectName: "emptyStateBadge"
+            width: 64
+            height: 64
+            x: (state.width - width) / 2
+            radius: 22
+            color: Theme.color.secondaryContainer
+            Icon { anchors.centerIn: parent; name: state.icon; width: 30; height: 30; color: Theme.color.primary }
+        }
+        Text {
+            width: state.width
+            text: state.title
+            visible: text.length > 0
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.Wrap
+            font.pixelSize: 20
+            font.weight: Font.DemiBold
+            color: Theme.color.onSurfaceColor
+        }
+        Text {
+            width: state.width
+            text: state.message
+            visible: text.length > 0
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.Wrap
+            font.pixelSize: 14
+            color: Theme.color.onSurfaceVariantSummary
+        }
+        Button {
+            x: (state.width - width) / 2
+            text: state.actionText
+            visible: text.length > 0
+            type: "filledTonal"
+            onClicked: state.actionRequested()
+        }
     }
 }

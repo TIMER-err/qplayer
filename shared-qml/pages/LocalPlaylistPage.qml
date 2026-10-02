@@ -85,7 +85,7 @@ Rectangle {
                 Layout.alignment: Qt.AlignVCenter
                 type: "standard"
                 visible: player.playlistTransferAvailable && page.width >= 600
-                icon: "file_download"
+                icon: "file_upload"
                 onClicked: player.requestLocalPlaylistExport(page.playlistId)
             }
             IconButton {
@@ -329,8 +329,8 @@ Rectangle {
                 anchors.centerIn: parent
                 visible: !page.tracksList || page.tracksList.length === 0
                 icon: "queue_music"
-                title: i18n.t("playlist.local.empty.title")
-                message: i18n.t("playlist.local.empty.desc")
+                title: i18n.t("playlist.local.tracksEmpty.title")
+                message: i18n.t("playlist.local.tracksEmpty.desc")
             }
 
             Text {
@@ -465,7 +465,7 @@ Rectangle {
             }
             if (player.playlistTransferAvailable) {
                 items.push({
-                    text: i18n.t("playlist.local.export"), icon: "file_download",
+                    text: i18n.t("playlist.local.export"), icon: "file_upload",
                     action: function() { player.requestLocalPlaylistExport(page.playlistId) }
                 })
             }

@@ -110,7 +110,7 @@ Item {
         anchors.bottomMargin: 88
         visible: page.showLocal && player.playlistTransferAvailable
         type: "standard"
-        icon: "file_upload"
+        icon: "file_download"
         onClicked: player.requestLocalPlaylistImport()
     }
 
