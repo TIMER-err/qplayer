@@ -122,6 +122,8 @@ public final class DesktopLyricWindow {
     private Object lastPaletteScheme;
     private DesktopLyricPalette palette;
     private volatile Appearance appearance;
+    /** Only live while colorScheme == MODE_CONTRAST; see updateContrastSampler. */
+    private volatile ScreenContrastSampler contrastSampler;
 
     private boolean dragging;
     private boolean controlsPressed;
@@ -302,6 +304,10 @@ public final class DesktopLyricWindow {
         // frame. Showing an uninitialized native backbuffer produces a black box.
         firstFrameReady = false;
         snapshotPublished = false;
+        // reloadAppearance() ran in the constructor, before this window existed —
+        // if contrast mode was already the persisted choice, start sampling now
+        // that there is finally a window to sample around.
+        updateContrastSampler();
     }
 
     /** Starts the independent desktop-lyric GPU/QML owner once. */
@@ -334,6 +340,12 @@ public final class DesktopLyricWindow {
         boolean effectiveDark = switch (look.colorScheme()) {
             case dev.t1m3.qplayer.settings.SettingsCatalog.MODE_LIGHT -> false;
             case dev.t1m3.qplayer.settings.SettingsCatalog.MODE_DARK -> true;
+            case dev.t1m3.qplayer.settings.SettingsCatalog.MODE_CONTRAST -> {
+                ScreenContrastSampler sampler = contrastSampler;
+                // Dark real background -> light text (the dark scheme's roles are
+                // light-toned by Material convention); light background -> dark text.
+                yield sampler != null && sampler.luminance() < 0.5f;
+            }
             default -> dark;
         };
         Object paletteScheme = DesktopLyricPalette.scheme(effectiveDark);
@@ -377,8 +389,29 @@ public final class DesktopLyricWindow {
                 store.getInt(COLOR_SCHEME_KEY,
                         dev.t1m3.qplayer.settings.SettingsCatalog.MODE_SYSTEM));
         palette = null;
+        updateContrastSampler();
         DesktopLyricRenderThread thread = renderThread;
         if (thread != null) java.util.concurrent.locks.LockSupport.unpark(thread);
+    }
+
+    /** Main thread: start/stop the screen sampler to match whether contrast
+     *  mode is actually selected. Idempotent — safe to call on every
+     *  reloadAppearance() even when nothing about the mode changed. */
+    private void updateContrastSampler() {
+        boolean wantSampler = window != MemoryUtil.NULL
+                && appearance.colorScheme() == dev.t1m3.qplayer.settings.SettingsCatalog.MODE_CONTRAST;
+        ScreenContrastSampler current = contrastSampler;
+        if (!wantSampler) {
+            if (current != null) {
+                current.stop();
+                contrastSampler = null;
+            }
+            return;
+        }
+        if (current != null) return; // already sampling this window
+        ScreenContrastSampler sampler = new ScreenContrastSampler(window, 400);
+        sampler.start();
+        contrastSampler = sampler;
     }
 
     /** Main thread. */
@@ -927,6 +960,10 @@ public final class DesktopLyricWindow {
     private void disposeWindow() {
         long handle = window;
         if (handle == MemoryUtil.NULL) return;
+        if (contrastSampler != null) {
+            contrastSampler.stop();
+            contrastSampler = null;
+        }
         Callbacks.glfwFreeCallbacks(handle);
         GLFW.glfwDestroyWindow(handle);
         window = MemoryUtil.NULL;

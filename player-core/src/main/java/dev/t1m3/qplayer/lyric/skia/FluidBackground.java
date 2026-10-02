@@ -4,6 +4,8 @@ import io.github.humbleui.skija.Bitmap;
 import io.github.humbleui.skija.BlendMode;
 import io.github.humbleui.skija.Canvas;
 import io.github.humbleui.skija.ColorAlphaType;
+import io.github.humbleui.skija.ColorFilter;
+import io.github.humbleui.skija.ColorMatrix;
 import io.github.humbleui.skija.ColorType;
 import io.github.humbleui.skija.DirectContext;
 import io.github.humbleui.skija.FilterTileMode;
@@ -125,6 +127,12 @@ public final class FluidBackground {
     private int staticW = -1;
     private int staticH = -1;
     private int activeStyle = -1;
+    // Live saturation multiplier over the final composite -- independent of the
+    // fixed contrast/saturation baked into the mesh/classic textures at decode
+    // time (see amllAdjust below), and applied to every style uniformly since
+    // it sits on the shared fluidPaint rather than in any one style's shader.
+    private int activeSaturationPct = 100;
+    private ColorFilter saturationFilter;
 
     public FluidBackground(long startNs) {
         this.startNs = startNs;
@@ -140,11 +148,20 @@ public final class FluidBackground {
      */
     public void render(Canvas canvas, DirectContext ctx, float uiScale, float w, float h,
                        byte[] coverBytes, String trackKey, long nowNs, boolean staticMode,
-                       int style) {
+                       int style, int saturationPct) {
         int selectedStyle = normalizeStyle(style);
         if (selectedStyle != activeStyle) {
             activeStyle = selectedStyle;
             invalidateStatic();
+        }
+        int clampedSaturation = Math.max(0, Math.min(200, saturationPct));
+        if (clampedSaturation != activeSaturationPct || saturationFilter == null) {
+            activeSaturationPct = clampedSaturation;
+            if (saturationFilter != null) saturationFilter.close();
+            saturationFilter = clampedSaturation == 100 ? null
+                    : ColorFilter.makeMatrix(saturationMatrix(clampedSaturation / 100f));
+            fluidPaint.setColorFilter(saturationFilter);
+            invalidateStatic(); // a cached static frame baked in the old saturation
         }
         boolean keyChanged = !Objects.equals(trackKey, coverKey);
         boolean nullButReady = cover == null && coverBytes != null && coverBytes.length > 0;
@@ -384,8 +401,23 @@ public final class FluidBackground {
         }
         releasePrev();
         invalidateStatic();
+        if (saturationFilter != null) { saturationFilter.close(); saturationFilter = null; }
         fluidPaint.close();
         coverKey = null;
+    }
+
+    /** Same 4x5 RGBA matrix Android's ColorMatrix.setSaturation uses: desaturate
+     *  toward each channel's NTSC luminance weight, scaled back up by {@code sat}. */
+    private static ColorMatrix saturationMatrix(float sat) {
+        float invSat = 1f - sat;
+        float r = 0.213f * invSat;
+        float g = 0.715f * invSat;
+        float b = 0.072f * invSat;
+        return new ColorMatrix(
+                r + sat, g,       b,       0f, 0f,
+                r,       g + sat, b,       0f, 0f,
+                r,       g,       b + sat, 0f, 0f,
+                0f,      0f,      0f,      1f, 0f);
     }
 
     // PixiRenderer starts every sprite at an independent random rotation. Keep those

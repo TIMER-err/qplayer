@@ -46,6 +46,8 @@ public final class LyricCompositor {
         boolean lyricBgStatic();
         /** Fluid renderer selected in settings; see SettingsCatalog.BG_STYLE_* values. */
         int lyricBgStyle();
+        /** Percent, 100 = unmodified, 0 = greyscale; see SettingsCatalog.BG_SATURATION_KEY. */
+        default int lyricBgSaturation() { return 100; }
         default boolean temperaWholeLine() { return false; }
         default int temperaGlyphSettleStretch() { return 50; }
         default boolean temperaImages() { return false; }
@@ -529,6 +531,7 @@ public final class LyricCompositor {
         boolean bgStatic = settings != null && settings.lyricBgStatic();
         int bgStyle = settings != null
                 ? settings.lyricBgStyle() : FluidBackground.STYLE_PIXI_RENDERER;
+        int bgSaturation = settings != null ? settings.lyricBgSaturation() : 100;
         if (backdropClipRect == null || backdropClipW != w || backdropClipH != h) {
             backdropClipRect = Rect.makeWH(w, h);
             backdropClipW = w;
@@ -537,7 +540,7 @@ public final class LyricCompositor {
         int bgClip = canvas.save();
         canvas.clipRect(backdropClipRect);
         fluidBg.render(canvas, ctx, uiScale, w, h, cover, lyCoverKey,
-                System.nanoTime(), bgStatic, bgStyle);
+                System.nanoTime(), bgStatic, bgStyle, bgSaturation);
         canvas.restoreToCount(bgClip);
 
         // 2) the lyrics column. The title (top band) and transport (bottom band) are
