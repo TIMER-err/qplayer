@@ -144,6 +144,7 @@ Item {
             property int totalH: hotRowsY + hotCount * rowH + 16
 
             Flickable {
+                id: hotScroller
                 anchors.fill: parent
                 clip: true
                 contentWidth: width
@@ -441,6 +442,10 @@ Item {
                         }
                     }
                 }
+
+                ViewportScrollBar {
+                    target: hotScroller
+                }
             }
         }
 
@@ -514,6 +519,10 @@ Item {
                         }
                     }
                 }
+
+                ViewportScrollBar {
+                    target: albumGrid
+                }
             }
 
             Flickable {
@@ -553,6 +562,10 @@ Item {
                             onClicked: player.openMediaArtist("" + modelData.id)
                         }
                     }
+                }
+
+                ViewportScrollBar {
+                    target: artistGrid
                 }
             }
         }

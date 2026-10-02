@@ -1068,6 +1068,7 @@ Rectangle {
             }
 
             Flickable {
+                id: logScroller
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.margins: 12
@@ -1080,6 +1081,9 @@ Rectangle {
                     color: Theme.color.onSurfaceColor
                     fontSize: 12
                     wrapMode: Text.WrapAnywhere
+                }
+                ViewportScrollBar {
+                    target: logScroller
                 }
             }
         }

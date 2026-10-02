@@ -198,6 +198,10 @@ Item {
                             }
                         }
                     }
+
+                    ViewportScrollBar {
+                        target: menuFlick
+                    }
                 }
             }
         }

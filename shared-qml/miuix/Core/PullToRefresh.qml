@@ -121,4 +121,13 @@ Item {
             y: root.maximumPull
         }
     }
+    ScrollBar {
+        objectName: "pullToRefreshScrollBar"
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.right: parent.right
+        target: viewport
+        contentStart: root.maximumPull
+        z: 1000
+    }
 }

@@ -87,4 +87,8 @@ Flickable {
             }
         }
     }
+
+    ViewportScrollBar {
+        target: grid
+    }
 }

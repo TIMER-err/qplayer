@@ -269,6 +269,14 @@ Rectangle {
                 fontSize: 16
                 color: Theme.color.onSurfaceVariantColor
             }
+
+            ScrollToTopFab {
+                objectName: "playlistScrollTopButton"
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.margins: 16
+                target: tracks
+            }
         }
     }
 

@@ -261,6 +261,10 @@ Rectangle {
                         }
                     }
                 }
+
+                ViewportScrollBar {
+                    target: scroller
+                }
             }
 
             LoadingIndicator {

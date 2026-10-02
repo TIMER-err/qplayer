@@ -72,6 +72,7 @@ Rectangle {
         }
 
         Flickable {
+            id: pluginSettingsScroller
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
@@ -266,6 +267,10 @@ Rectangle {
                         onClicked: page.back()
                     }
                 }
+            }
+
+            ViewportScrollBar {
+                target: pluginSettingsScroller
             }
         }
     }

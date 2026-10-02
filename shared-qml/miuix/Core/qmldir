@@ -4,6 +4,7 @@ Scaffold 1.0 Scaffold.qml
 Badge 1.0 Badge.qml
 BadgedBox 1.0 BadgedBox.qml
 ScrollBar 1.0 ScrollBar.qml
+ViewportScrollBar 1.0 ViewportScrollBar.qml
 ToolTip 1.0 ToolTip.qml
 TopAppBar 1.0 TopAppBar.qml
 FloatingToolbar 1.0 FloatingToolbar.qml

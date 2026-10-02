@@ -292,6 +292,10 @@ Item {
                         }
                     }
                 }
+
+                ViewportScrollBar {
+                    target: valueList
+                }
             }
         }
     }

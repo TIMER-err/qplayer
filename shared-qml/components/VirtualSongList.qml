@@ -350,4 +350,8 @@ Flickable {
                           && !!(view._dragRow && view._dragRow.cachedOffline)
         }
     }
+
+    ViewportScrollBar {
+        target: view
+    }
 }

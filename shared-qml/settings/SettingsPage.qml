@@ -275,6 +275,10 @@ Rectangle {
                     }
                 }
             }
+
+            ViewportScrollBar {
+                target: settingsFlickable
+            }
         }
     }
 

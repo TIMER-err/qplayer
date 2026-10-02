@@ -113,6 +113,7 @@ Item {
             
             // Content Container
             Flickable {
+                id: drawerViewport
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 contentHeight: itemsColumn.implicitHeight
@@ -150,6 +151,10 @@ Item {
                             }
                         }
                     }
+                }
+
+                ViewportScrollBar {
+                    target: drawerViewport
                 }
             }
 
