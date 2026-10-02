@@ -616,50 +616,60 @@ Rectangle {
         }
     }
 
-    TopAppBar {
-        id: topBar
-        anchors.top: parent.top
-        anchors.topMargin: settings.topInset   // clear the status bar (edge-to-edge)
-        anchors.left: rail.right
-        anchors.right: parent.right
-        anchors.rightMargin: settings.rightInset
-        visible: app.currentOverlay === ""
-        height: visible ? 64 : 0
-        large: false
-        collapsedHeight: 64
-        titlePadding: 16
-        title: app.titles[app.page]
-        showNavigationIcon: false
+    // Root-page chrome shares the page motion instead of disappearing as soon as
+    // navigationStack changes. Keeping it outside pageWrap lets incoming routes
+    // use the full viewport without moving the outgoing root content upward.
+    Item {
+        id: rootTopChrome
+        property real baseLeft: rail.x + rail.width
+        x: baseLeft + rootPageMotion.contentX
+        y: settings.topInset + rootPageMotion.contentY
+        width: app.width - baseLeft - settings.rightInset
+        height: 64
+        scale: rootPageMotion.contentScale
+        opacity: rootPageMotion.contentOpacity
+        visible: opacity > 0.001
+        enabled: app.currentOverlay === ""
 
-        IconButton {
-            objectName: "openTempera"
-            visible: settings.has("temperaWholeLine")
-            type: "standard"
-            icon: "auto_awesome"
-            onClicked: player.setTemperaOpen(true)
-        }
-        IconButton {
-            // This setting only exists on desktop hosts. Its presence, rather than
-            // a responsive layout breakpoint, decides whether the action is shown.
-            visible: app.wide && settings.has("desktopLyricEnabled")
-            type: "standard"
-            icon: "subtitles"
-            contentColor: settings.value("desktopLyricEnabled")
-                          ? Theme.color.primary : Theme.color.onSurfaceVariantColor
-            onClicked: settings.setValue("desktopLyricEnabled",
-                                         !settings.value("desktopLyricEnabled"))
-        }
-        IconButton {
-            type: "standard"
-            icon: "queue_music"
-            onClicked: app.replacePage("queue", 0)
-        }
-        IconButton {
-            id: overflowAction
-            objectName: "compactOverflowAction"
-            visible: !app.wide
-            icon: "more_vert"
-            onClicked: compactMenu.open(overflowAction)
+        TopAppBar {
+            id: topBar
+            anchors.fill: parent
+            large: false
+            collapsedHeight: 64
+            titlePadding: 16
+            title: app.titles[app.page]
+            showNavigationIcon: false
+
+            IconButton {
+                objectName: "openTempera"
+                visible: settings.has("temperaWholeLine")
+                type: "standard"
+                icon: "auto_awesome"
+                onClicked: player.setTemperaOpen(true)
+            }
+            IconButton {
+                // This setting only exists on desktop hosts. Its presence, rather than
+                // a responsive layout breakpoint, decides whether the action is shown.
+                visible: app.wide && settings.has("desktopLyricEnabled")
+                type: "standard"
+                icon: "subtitles"
+                contentColor: settings.value("desktopLyricEnabled")
+                              ? Theme.color.primary : Theme.color.onSurfaceVariantColor
+                onClicked: settings.setValue("desktopLyricEnabled",
+                                             !settings.value("desktopLyricEnabled"))
+            }
+            IconButton {
+                type: "standard"
+                icon: "queue_music"
+                onClicked: app.replacePage("queue", 0)
+            }
+            IconButton {
+                id: overflowAction
+                objectName: "compactOverflowAction"
+                visible: !app.wide
+                icon: "more_vert"
+                onClicked: compactMenu.open(overflowAction)
+            }
         }
     }
     Menu {
@@ -685,10 +695,13 @@ Rectangle {
     }
 
 
-    // Content region. pageWrap clips root/route motion at its edges.
+    // Root content keeps a fixed app-bar offset while route pages use this full
+    // viewport. The two layers can therefore cross-fade/zoom without a one-frame
+    // layout jump or title/content overlap.
     Item {
         id: pageWrap
-        anchors.top: topBar.bottom
+        anchors.top: parent.top
+        anchors.topMargin: settings.topInset
         anchors.left: rail.right
         anchors.right: parent.right
         anchors.rightMargin: settings.rightInset
@@ -700,18 +713,15 @@ Rectangle {
             width: parent.width
             height: parent.height
 
-            // Root destinations have their own transform layer. Route loaders are
-            // siblings below, so the old root can Zoom Out while a new route Zooms
-            // In without the route inheriting its underlay's transform.
+            // Root destinations and their app bar use the same motion values.
+            // Route loaders are siblings, so an incoming full-page route does not
+            // inherit the outgoing root transform.
             Item {
                 id: rootPages
-                // Sized, not anchored: anchors.fill pins x/y at 0 and silently
-                // beats the motion bindings, which left every sliding preset
-                // looking like a plain cross-fade here.
                 width: parent.width
-                height: parent.height
+                height: parent.height - rootTopChrome.height
                 x: rootPageMotion.contentX
-                y: rootPageMotion.contentY
+                y: rootTopChrome.height + rootPageMotion.contentY
                 scale: rootPageMotion.contentScale
                 opacity: rootPageMotion.contentOpacity
                 enabled: app.currentOverlay === ""
@@ -885,6 +895,7 @@ Rectangle {
 
             SourceSetupPrompt {
                 anchors.fill: parent
+                anchors.topMargin: app.currentOverlay === "" ? rootTopChrome.height : 0
                 visible: app.showSourceSetupPrompt
                 z: 3000
             }
