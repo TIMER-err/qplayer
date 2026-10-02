@@ -31,6 +31,9 @@ Rectangle {
     property string tag: ""
     property bool highlighted: false
     property bool removable: false
+    property bool selectMode: false
+    property bool selected: false
+    signal selectionToggled()
     // Shows a drag handle that starts a reorder. Only the handle does — the rest
     // of the row keeps its tap and long-press behaviour.
     property bool reorderable: false
@@ -89,6 +92,14 @@ Rectangle {
     // state — see VirtualSongList.showOfflineBadge — so it stays invisible during
     // normal online browsing instead of cluttering every row with a checkmark.
     property bool offlineReady: false
+    // Per-row favorite button (search results — a row here need not be playing,
+    // or even played yet, unlike the mini player's own heart which only ever
+    // reflects the current track). Off by default so every other caller is
+    // unaffected; VirtualSongList wires both from PlayerController per row.
+    property bool showLikeButton: false
+    property bool likeable: true
+    property bool liked: false
+    signal likeToggled()
     onSongChanged: {
         row._menuArmed = false
         if (menuLoader.item && menuLoader.item.opened) menuLoader.item.dismissImmediately()
@@ -217,6 +228,28 @@ Rectangle {
                 color: Theme.color.onPrimaryColor
             }
         }
+
+        Rectangle {
+            objectName: "songRowSelectMark"
+            visible: row.selectMode
+            width: 20
+            height: 20
+            radius: 10
+            x: parent.width - width + 2
+            y: parent.height - height + 2
+            color: row.selected ? Theme.color.primary : Theme.color.surfaceContainerHighest
+            border.width: row.selected ? 0 : 1.5
+            border.color: Theme.color.outline
+            Text {
+                width: parent.width
+                height: parent.height
+                horizontalAlignment: Text.AlignHCenter
+                text: row.selected ? "check" : ""
+                font.family: Theme.iconFont.name
+                font.pixelSize: 13
+                color: Theme.color.onPrimaryColor
+            }
+        }
     }
 
     // How much room the title/artist lines leave on the right: the remove "×"
@@ -224,6 +257,7 @@ Rectangle {
     // both), but sizing for whichever is present keeps text from sliding under it.
     property real _rightReserve: (row.removable ? 68 : (tagPill.visible ? (tagPill.width + 24) : 16))
                                  + (row.reorderable ? 44 : 0)
+                                 + (row.showLikeButton ? 40 : 0)
 
     Text {
         id: titleText
@@ -273,7 +307,7 @@ Rectangle {
         id: tagPill
         objectName: "songSourceBadge"
         visible: row.tag !== "" && !row.removable && width >= 32
-        x: Math.max(0, row.width - width - 12)
+        x: Math.max(0, row.width - width - 12 - (row.showLikeButton ? 40 : 0))
         y: (row.height - height) / 2
         radius: 8
         color: Theme.color.surfaceContainerHighest
@@ -317,9 +351,11 @@ Rectangle {
         longPressEnabled: row.menuEnabled && row.song !== null
         onClicked: {
             if (row._menuArmed) { row._menuArmed = false; return }
-            row.activated()
+            if (row.selectMode) row.selectionToggled()
+            else row.activated()
         }
         onLongPressed: {
+            if (row.selectMode) { row.selectionToggled(); return }
             row._menuArmed = true
             // While reorderable, a long-press/right-click reveals the drag handle
             // and remove button instead of the context menu — see controlsRevealed.
@@ -431,14 +467,18 @@ Rectangle {
     }
 
     // Explicit geometry follows recycled queue rows without a new anchor pass.
-    // Stays visible: true whenever removable (never toggled by reveal) —
-    // IconButton centres its glyph with anchors.centerIn, which needs a real
-    // measure pass to resolve, and a node realized with visible: false never
-    // gets one under cachedLayout (same reason the drag handle's glyph is a
-    // manually-sized Text instead of an anchored Icon). Toggling visible here
-    // instead of the row was born with the button never properly centred once
-    // revealed. opacity + enabled hide/disable it without skipping that pass.
-    IconButton {
+    // Stays visible: true whenever removable (never toggled by reveal) so the
+    // NORMAL in-list delegate gets measured from creation. That alone isn't
+    // enough for VirtualSongList's reorderFloatingRow, though: that whole row
+    // is always born visible:false (no drag yet) and, per the same cachedLayout
+    // rule, never gets a measure pass later no matter what ITS children's own
+    // visible says — so an IconButton's anchors.centerIn'd glyph inside it
+    // rendered pinned to the box's top-left ("X at the row's top edge") instead
+    // of centred, the whole time that row was the one being dragged. A plain
+    // self-sized Text sidesteps the anchor entirely — same trick as the drag
+    // handle's own glyph right below.
+    Item {
+        id: removeButton
         objectName: "queueRemoveButton"
         visible: row.removable
         opacity: (!row.reorderable || row.controlsRevealed) ? 1 : 0
@@ -447,9 +487,42 @@ Rectangle {
         height: 40
         x: Math.max(0, row.width - width - 16)
         y: (row.height - height) / 2
-        icon: "close"
+
+        Text {
+            width: parent.width
+            height: parent.height
+            horizontalAlignment: Text.AlignHCenter
+            text: "close"
+            font.family: Theme.iconFont.name
+            font.pixelSize: 22
+            color: removeArea.pressed ? Theme.color.primary : Theme.color.onSurfaceVariantColor
+        }
+
+        MouseArea {
+            id: removeArea
+            x: 0
+            y: 0
+            width: parent.width
+            height: parent.height
+            enabled: removeButton.enabled
+            onClicked: row.removeRequested()
+        }
+    }
+
+    // Always on when shown — not reveal-gated like the drag grip/remove button,
+    // since a search row is never reorderable/removable to begin with.
+    IconButton {
+        objectName: "songRowLikeButton"
+        visible: row.showLikeButton
+        enabled: row.likeable
+        width: 36
+        height: 36
+        x: Math.max(0, row.width - width - 12)
+        y: (row.height - height) / 2
         type: "standard"
-        onClicked: row.removeRequested()
+        icon: row.liked ? "favorite" : "favorite_border"
+        contentColor: row.liked ? "#FF5277" : Theme.color.onSurfaceVariantColor
+        onClicked: row.likeToggled()
     }
 
     // Whether this row is within (or near) the Flickable viewport.

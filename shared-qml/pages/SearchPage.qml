@@ -475,6 +475,7 @@ Item {
                 list: player.searchMode === "song" ? player.searchRows : null
                 songMenu: true
                 menuEligibilityFromModel: true
+                showLikeButton: true
                 loadMoreEnabled: player.searchHasMore && !player.searchLoading
                 onLoadMoreRequested: player.loadMoreSearch()
                 onActivated: player.playSearchRow(unifiedResults.activatedIndex)

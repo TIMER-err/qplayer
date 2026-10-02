@@ -23,6 +23,17 @@ Rectangle {
         tracks.contentY = 0
         page.filterText = ""
         page.showSources = false
+        page.exitSelectMode()
+    }
+
+    property bool selectMode: false
+    function toggleSelectMode() {
+        page.selectMode = !page.selectMode
+        if (!page.selectMode) tracks.clearSelection()
+    }
+    function exitSelectMode() {
+        page.selectMode = false
+        tracks.clearSelection()
     }
 
     property string filterText: ""
@@ -129,6 +140,15 @@ Rectangle {
                 visible: page.width >= 600
                 icon: "delete"
                 onClicked: deleteDialog.open()
+            }
+            IconButton {
+                objectName: "localPlaylistSelectButton"
+                Layout.alignment: Qt.AlignVCenter
+                type: "standard"
+                visible: page.tracksList && page.tracksList.length > 0
+                         && (page.width >= 600 || page.selectMode)
+                icon: page.selectMode ? "close" : "checklist"
+                onClicked: page.toggleSelectMode()
             }
             // A narrow (mobile) header has no room for six action icons next to
             // back/home and the title — they crowded together and were easy to
@@ -291,12 +311,13 @@ Rectangle {
                 isLocal: true
                 songMenu: true
                 removable: true
+                selectMode: page.selectMode
                 // Positions here are the playlist's own, not the live queue's.
                 highlightCurrent: false
                 // Dragging only makes sense while the rows are in the stored
                 // order, and the filter hides rows, which would make a dropped
                 // position mean something other than what it looks like.
-                reorderable: player.localPlaylistReorderable && page.filterText === ""
+                reorderable: !page.selectMode && player.localPlaylistReorderable && page.filterText === ""
                 onMoveRequested: player.moveLocalPlaylistTrack(
                                      page.playlistId, tracks.moveFrom, tracks.moveTo)
                 onReorderCommitted: player.commitLocalPlaylistOrder(page.playlistId)
@@ -385,6 +406,53 @@ Rectangle {
                 }
             }
         }
+
+        Rectangle {
+            objectName: "localPlaylistSelectBar"
+            Layout.fillWidth: true
+            Layout.preferredHeight: 56
+            visible: page.selectMode
+            color: Theme.color.surfaceContainer
+            Text {
+                anchors.left: parent.left
+                anchors.leftMargin: 16
+                anchors.verticalCenter: parent.verticalCenter
+                text: i18n.t("playlist.selectCount", tracks.selectedN)
+                color: Theme.color.onSurfaceColor
+                font.pixelSize: 14
+            }
+            Row {
+                anchors.right: parent.right
+                anchors.rightMargin: 8
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 4
+                IconButton {
+                    type: "standard"
+                    icon: "done_all"
+                    onClicked: tracks.selectAll()
+                }
+                IconButton {
+                    objectName: "localPlaylistUnlikeSelected"
+                    type: "standard"
+                    icon: "favorite_border"
+                    enabled: tracks.selectedN > 0
+                    onClicked: {
+                        player.unlikeMediaMany(tracks.selectedKey)
+                        page.exitSelectMode()
+                    }
+                }
+                IconButton {
+                    objectName: "localPlaylistDeleteSelected"
+                    type: "standard"
+                    icon: "delete"
+                    enabled: tracks.selectedN > 0
+                    onClicked: {
+                        player.removeMediaManyFromLocalPlaylist(page.playlistId, tracks.selectedKey)
+                        page.exitSelectMode()
+                    }
+                }
+            }
+        }
     }
 
     // Sorting is a view over the stored order. Tapping the active field flips the
@@ -468,6 +536,12 @@ Rectangle {
                 items.push({
                     text: i18n.t("playlist.local.export"), icon: "file_download",
                     action: function() { player.requestLocalPlaylistExport(page.playlistId) }
+                })
+            }
+            if (page.tracksList && page.tracksList.length > 0) {
+                items.push({
+                    text: i18n.t("playlist.select"), icon: "checklist",
+                    action: function() { page.toggleSelectMode() }
                 })
             }
             items.push({

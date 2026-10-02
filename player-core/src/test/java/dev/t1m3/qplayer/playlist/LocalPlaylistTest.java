@@ -418,4 +418,18 @@ public class LocalPlaylistTest {
         assertEquals("identity is stable across the round trip",
                 original.canonicalId(), restored.canonicalId());
     }
+
+    @Test
+    public void removeAllDropsOnlyTheNamedSongs() {
+        LocalPlaylist playlist = LocalPlaylist.create("mixed", 1L);
+        playlist.add(song("qq", "1", "a"));
+        playlist.add(song("qq", "2", "b"));
+        playlist.add(song("netease", "3", "c"));
+        int removed = playlist.removeAll(Arrays.asList(
+                MediaId.of("qq", MediaKind.SONG, "1").toString(),
+                MediaId.of("qq", MediaKind.SONG, "2").toString(),
+                "missing"));
+        assertEquals(2, removed);
+        assertEquals(Arrays.asList("c"), titles(playlist));
+    }
 }

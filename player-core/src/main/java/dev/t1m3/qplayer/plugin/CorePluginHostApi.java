@@ -340,8 +340,12 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
         if (!methods.contains(method)) throw new SecurityException("HTTP method is not declared: " + method);
         int timeout = number(args.get("timeoutMs"), 10_000);
         timeout = Math.max(1_000, Math.min(30_000, timeout));
-        byte[] body = requestBody(args);
+        Outgoing outgoing = outgoing(args);
+        byte[] body = outgoing.body;
         Map<String, String> requestHeaders = stringMap(args.get("headers"));
+        if (outgoing.contentType != null && !hasHeader(requestHeaders, "Content-Type")) {
+            requestHeaders.put("Content-Type", outgoing.contentType);
+        }
         // Negotiate compression for the plugin, the way any HTTP client does. A
         // playlist page is JSON that compresses better than 3:1, and a plugin
         // that asks for a thousand tracks otherwise pays for every byte of it.
@@ -651,6 +655,135 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
         if (!manifest.permissionSet().contains(permission)) {
             throw new SecurityException("plugin permission not declared: " + permission.wireName());
         }
+    }
+
+    /**
+     * {@code body} / {@code bodyBase64} / {@code multipart}, at most one of them.
+     *
+     * <p>Multipart exists so a plugin can upload a picked image without first
+     * decoding the file into a JS string and re-encoding the whole form — that
+     * path stalls the UI for a multi-megabyte cover and is what the QQ cover
+     * upload used to do.
+     */
+    static Outgoing outgoing(Map<String, Object> args) throws IOException {
+        if (args.containsKey("multipart")) {
+            if (args.containsKey("body") || args.containsKey("bodyBase64")) {
+                throw new IllegalArgumentException("pass either multipart or a body, not both");
+            }
+            return multipart(args.get("multipart"));
+        }
+        return new Outgoing(requestBody(args), null);
+    }
+
+    static final class Outgoing {
+        final byte[] body;
+        final String contentType;
+        Outgoing(byte[] body, String contentType) {
+            this.body = body;
+            this.contentType = contentType;
+        }
+    }
+
+    static Outgoing multipart(Object raw) throws IOException {
+        if (!(raw instanceof Map)) {
+            throw new IllegalArgumentException("multipart must be an object");
+        }
+        Map<?, ?> spec = (Map<?, ?>) raw;
+        String boundary = "----QPlayerForm" + Long.toUnsignedString(System.nanoTime(), 16);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        Object fields = spec.get("fields");
+        if (fields instanceof Map) {
+            Map<?, ?> map = (Map<?, ?>) fields;
+            if (map.size() > 32) {
+                throw new IllegalArgumentException("too many multipart fields");
+            }
+            for (Map.Entry<?, ?> item : map.entrySet()) {
+                String name = multipartName(String.valueOf(item.getKey()));
+                String value = item.getValue() == null ? "" : String.valueOf(item.getValue());
+                if (value.length() > 4096) {
+                    throw new IllegalArgumentException("multipart field is too large");
+                }
+                writeMultipartDisposition(out, boundary, name, null, null);
+                out.write(value.getBytes(StandardCharsets.UTF_8));
+                out.write(new byte[]{'\r', '\n'});
+            }
+        }
+        Object file = spec.get("file");
+        if (file instanceof Map) {
+            Map<?, ?> part = (Map<?, ?>) file;
+            String name = multipartName(stringOr(part, "field", "file"));
+            String filename = multipartFilename(stringOr(part, "filename", "upload.bin"));
+            String mime = multipartMime(stringOr(part, "mimeType", "application/octet-stream"));
+            byte[] data;
+            try {
+                data = Base64.getDecoder().decode(stringOr(part, "bodyBase64", ""));
+            } catch (IllegalArgumentException malformed) {
+                throw new IllegalArgumentException("multipart file bodyBase64 is not valid base64", malformed);
+            }
+            if (data.length == 0) {
+                throw new IllegalArgumentException("multipart file is empty");
+            }
+            if (data.length > MAX_HTTP_BYTES) {
+                throw new IOException("plugin HTTP request body is too large");
+            }
+            writeMultipartDisposition(out, boundary, name, filename, mime);
+            out.write(data);
+            out.write(new byte[]{'\r', '\n'});
+        }
+        out.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.US_ASCII));
+        byte[] body = out.toByteArray();
+        if (body.length > MAX_HTTP_BYTES) {
+            throw new IOException("plugin HTTP request body is too large");
+        }
+        return new Outgoing(body, "multipart/form-data; boundary=" + boundary);
+    }
+
+    private static void writeMultipartDisposition(ByteArrayOutputStream out, String boundary,
+                                                  String name, String filename, String mime)
+            throws IOException {
+        StringBuilder header = new StringBuilder();
+        header.append("--").append(boundary).append("\r\n");
+        header.append("Content-Disposition: form-data; name=\"").append(name).append('"');
+        if (filename != null) {
+            header.append("; filename=\"").append(filename).append('"');
+        }
+        header.append("\r\n");
+        if (mime != null) {
+            header.append("Content-Type: ").append(mime).append("\r\n");
+        }
+        header.append("\r\n");
+        out.write(header.toString().getBytes(StandardCharsets.US_ASCII));
+    }
+
+    private static String stringOr(Map<?, ?> map, String key, String fallback) {
+        Object value = map.get(key);
+        if (value == null) return fallback;
+        String text = String.valueOf(value).trim();
+        return text.isEmpty() ? fallback : text;
+    }
+
+    private static String multipartName(String value) {
+        if (value == null || !value.matches("[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}")) {
+            throw new IllegalArgumentException("invalid multipart field name");
+        }
+        return value;
+    }
+
+    private static String multipartFilename(String value) {
+        int slash = Math.max(value.lastIndexOf('/'), value.lastIndexOf('\\'));
+        String name = slash >= 0 ? value.substring(slash + 1) : value;
+        if (!name.matches("[A-Za-z0-9._-]{1,64}")) {
+            name = "cover.bin";
+        }
+        return name;
+    }
+
+    private static String multipartMime(String value) {
+        String mime = value.toLowerCase(Locale.ROOT);
+        if (!mime.matches("^[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+$") || mime.length() > 64) {
+            return "application/octet-stream";
+        }
+        return mime;
     }
 
     /**

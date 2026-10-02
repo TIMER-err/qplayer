@@ -81,4 +81,48 @@ public class CorePluginHostApiBodyTest {
                 () -> CorePluginHostApi.requestBody(map));
         assertTrue(error.getMessage().contains("too large"));
     }
+
+    @Test
+    public void multipartCarriesTheFileBytesUnchanged() throws Exception {
+        byte[] jpeg = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0, 0x00, 0x10};
+        Map<String, Object> file = new LinkedHashMap<>();
+        file.put("field", "data");
+        file.put("filename", "cover.jpg");
+        file.put("mimeType", "image/jpeg");
+        file.put("bodyBase64", Base64.getEncoder().encodeToString(jpeg));
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("uin", "123");
+        Map<String, Object> multipart = new LinkedHashMap<>();
+        multipart.put("fields", fields);
+        multipart.put("file", file);
+        CorePluginHostApi.Outgoing outgoing = CorePluginHostApi.outgoing(args("multipart", multipart));
+        assertTrue(outgoing.contentType.startsWith("multipart/form-data; boundary="));
+        String wire = new String(outgoing.body, StandardCharsets.ISO_8859_1);
+        assertTrue(wire.contains("name=\"uin\""));
+        assertTrue(wire.contains("123"));
+        assertTrue(wire.contains("filename=\"cover.jpg\""));
+        assertTrue(wire.contains("Content-Type: image/jpeg"));
+        int fileAt = indexOf(outgoing.body, jpeg);
+        assertTrue("the JPEG bytes must appear verbatim in the form", fileAt >= 0);
+    }
+
+    @Test
+    public void multipartAndBodyTogetherAreRejected() {
+        Map<String, Object> both = args("body", "text");
+        both.put("multipart", new LinkedHashMap<String, Object>());
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> CorePluginHostApi.outgoing(both));
+        assertTrue(error.getMessage().contains("not both"));
+    }
+
+    private static int indexOf(byte[] haystack, byte[] needle) {
+        outer:
+        for (int i = 0; i <= haystack.length - needle.length; i++) {
+            for (int j = 0; j < needle.length; j++) {
+                if (haystack[i + j] != needle[j]) continue outer;
+            }
+            return i;
+        }
+        return -1;
+    }
 }

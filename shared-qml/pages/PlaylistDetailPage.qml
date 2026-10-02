@@ -17,6 +17,7 @@ Rectangle {
     onPlaylistWatchChanged: {
         tracks.contentY = 0
         page.filterText = ""
+        page.exitSelectMode()
     }
 
     property string filterText: ""
@@ -56,7 +57,20 @@ Rectangle {
                                                ? player.loggedIn : player.sourcePlaylistCoverAvailable)
     readonly property bool canDelete: player.loggedIn && !player.playlistLoading && player.playlistDeletable
     readonly property bool hasHeaderActions: page.canHeart || page.canFollow || page.canSubscribe
-                                             || page.canChangeCover || page.canDelete
+                                             || page.canChangeCover || page.canDelete || page.canSelect
+    readonly property bool canSelect: !player.playlistLoading && page.filteredTracks
+                                      && page.filteredTracks.length > 0
+    property bool selectMode: false
+
+    function toggleSelectMode() {
+        page.selectMode = !page.selectMode
+        if (!page.selectMode) tracks.clearSelection()
+    }
+    function selectedCsv() { return tracks.selectedKey }
+    function exitSelectMode() {
+        page.selectMode = false
+        tracks.clearSelection()
+    }
 
     function startHeart() {
         if (player.openSourcePlaylistId !== "")
@@ -148,6 +162,14 @@ Rectangle {
                 visible: page.canDelete && !page.compactHeader
                 icon: "delete"
                 onClicked: deleteDialog.open()
+            }
+            IconButton {
+                objectName: "playlistDetailSelectButton"
+                Layout.alignment: Qt.AlignVCenter
+                type: "standard"
+                visible: page.canSelect && (!page.compactHeader || page.selectMode)
+                icon: page.selectMode ? "close" : "checklist"
+                onClicked: page.toggleSelectMode()
             }
             IconButton {
                 id: overflowButton
@@ -250,7 +272,8 @@ Rectangle {
                 showOfflineBadge: player.playlistOffline
                 // Own playlist, on a source that can save an order, and unfiltered —
                 // a drop position means nothing while rows are hidden.
-                reorderable: player.sourcePlaylistReorderable && page.filterText === ""
+                selectMode: page.selectMode
+                reorderable: !page.selectMode && player.sourcePlaylistReorderable && page.filterText === ""
                 onMoveRequested: player.moveSourcePlaylistTrack(tracks.moveFrom, tracks.moveTo)
                 onReorderCommitted: player.commitSourcePlaylistOrder()
                 onActivated: {
@@ -323,6 +346,54 @@ Rectangle {
                 }
             }
         }
+
+        Rectangle {
+            objectName: "playlistDetailSelectBar"
+            Layout.fillWidth: true
+            Layout.preferredHeight: 56
+            visible: page.selectMode
+            color: Theme.color.surfaceContainer
+            Text {
+                anchors.left: parent.left
+                anchors.leftMargin: 16
+                anchors.verticalCenter: parent.verticalCenter
+                text: i18n.t("playlist.selectCount", tracks.selectedN)
+                color: Theme.color.onSurfaceColor
+                font.pixelSize: 14
+            }
+            Row {
+                anchors.right: parent.right
+                anchors.rightMargin: 8
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 4
+                IconButton {
+                    type: "standard"
+                    icon: "done_all"
+                    onClicked: tracks.selectAll()
+                }
+                IconButton {
+                    objectName: "playlistDetailUnlikeSelected"
+                    type: "standard"
+                    icon: "favorite_border"
+                    enabled: tracks.selectedN > 0
+                    onClicked: {
+                        player.unlikeMediaMany(tracks.selectedKey)
+                        page.exitSelectMode()
+                    }
+                }
+                IconButton {
+                    objectName: "playlistDetailDeleteSelected"
+                    type: "standard"
+                    icon: "delete"
+                    visible: player.playlistOwned
+                    enabled: tracks.selectedN > 0
+                    onClicked: {
+                        player.removeMediaManyFromCurrentPlaylist(tracks.selectedKey)
+                        page.exitSelectMode()
+                    }
+                }
+            }
+        }
     }
 
     Menu {
@@ -351,6 +422,12 @@ Rectangle {
                           ? i18n.t("menu.unsubscribePlaylist") : i18n.t("playlist.subscribe"),
                     icon: player.playlistSubscribed ? "bookmark" : "bookmark_border",
                     action: function() { player.togglePlaylistSubscribe() }
+                })
+            }
+            if (page.canSelect) {
+                items.push({
+                    text: i18n.t("playlist.select"), icon: "checklist",
+                    action: function() { page.toggleSelectMode() }
                 })
             }
             if (page.canChangeCover) {

@@ -29,6 +29,7 @@ import dev.t1m3.qplayer.media.StreamDescriptor;
 import dev.t1m3.qplayer.model.Track;
 import dev.t1m3.qplayer.playlist.LocalPlaylist;
 import dev.t1m3.qplayer.playlist.LocalPlaylistStore;
+import dev.t1m3.qplayer.playlist.MyPlaylistOrderStore;
 import dev.t1m3.qplayer.playlist.PlaylistSubscription;
 import dev.t1m3.qplayer.playlist.PlaylistTrack;
 import dev.t1m3.qplayer.playlist.PlaylistTransfer;
@@ -978,6 +979,8 @@ public final class PlayerController {
         localPlaylistStore.load();
         publishLocalPlaylists();
         saveLocalPlaylists();
+        myPlaylistOrderStore.load();
+        librarySortMode.set(myPlaylistOrderStore.mode());
         legacySourceMigrationAvailable.set(detectLegacySourceMigration());
         publishPlugins();
         refreshPluginCatalog();
@@ -1145,11 +1148,14 @@ public final class PlayerController {
         for (PluginManifest manifest : providers) {
             final String providerId = manifest.id;
             final String providerName = manifest.name;
+            final boolean canCreatePlaylist = manifest.capabilitySet()
+                    .contains(ProviderCapability.PLAYLIST_MUTATION);
             pluginAccounts.account(providerId).whenComplete((account, error) -> post(() -> {
                 if (generation != sourceAccountsGeneration.get()) return;
                 SourceAccountRow row = new SourceAccountRow();
                 row.providerId = providerId;
                 row.sourceName = providerName;
+                row.canCreatePlaylist = canCreatePlaylist;
                 row.primary = providerId.equals(pluginRegistry.primaryProvider());
                 if (error == null && account != null) {
                     row.loggedIn = account.loggedIn;
@@ -1676,6 +1682,16 @@ public final class PlayerController {
     private PluginManifest primaryProviderWith(ProviderCapability capability) {
         PluginManifest provider = primaryProvider();
         return provider != null && provider.capabilitySet().contains(capability) ? provider : null;
+    }
+
+    private PluginManifest providerWithId(String providerId, ProviderCapability capability) {
+        if (providerId == null || providerId.isEmpty()) return null;
+        for (PluginManifest manifest : pluginManager.enabledProviders()) {
+            if (providerId.equals(manifest.id)) {
+                return manifest.capabilitySet().contains(capability) ? manifest : null;
+            }
+        }
+        return null;
     }
 
     private void refreshPrimaryPluginLoginMetadata() {
@@ -3397,6 +3413,11 @@ public final class PlayerController {
     // surface, the threading, and the network fetch.
 
     private final LocalPlaylistStore localPlaylistStore = new LocalPlaylistStore();
+    private final MyPlaylistOrderStore myPlaylistOrderStore = new MyPlaylistOrderStore();
+    /** "source" (server grouping, primary first) or "custom" (user-dragged). QML
+     *  drives the sort menu off this and only allows the drag gesture in custom. */
+    public final Property<String> librarySortMode =
+            new Property<>(MyPlaylistOrderStore.MODE_SOURCE);
     /** Don't re-pull a subscription that was refreshed this recently on open.
      *  The manual refresh button ignores it. */
     private static final long SUBSCRIPTION_SYNC_COOLDOWN_MS = 10 * 60 * 1000L;
@@ -3685,6 +3706,20 @@ public final class PlayerController {
         showToast(I18n.tr("toast.custom.removed"));
     }
 
+    /** QML selection mode: newline-separated canonical ids. */
+    public void removeMediaManyFromLocalPlaylist(String playlistId, String idsText) {
+        List<String> ids = splitIds(idsText);
+        if (ids.isEmpty()) return;
+        final int[] removed = { 0 };
+        boolean changed = localPlaylistStore.mutate(playlistId, playlist -> {
+            removed[0] = playlist.removeAll(ids);
+            return removed[0] > 0;
+        });
+        if (!changed) return;
+        afterLocalPlaylistChange(playlistId);
+        showToast(I18n.tr("toast.playlist.songsRemoved", removed[0]));
+    }
+
     public void playLocalPlaylistIndex(String playlistId, int index) {
         List<Track> rows = playlistId != null && playlistId.equals(openLocalPlaylistId.peek())
                 ? localPlaylistTracks.peek() : tracksOf(playlistId);
@@ -3714,13 +3749,20 @@ public final class PlayerController {
 
     // --- Local playlists: ordering -----------------------------------------
 
-    /** Change the sort of one playlist. Sorting is a view over the stored order,
-     *  so switching back to the custom sort restores the arrangement untouched. */
+    /** Change the sort of one playlist. A sort between two non-custom fields is
+     *  a view only — the stored order underneath is untouched. Entering custom
+     *  FROM one, though, bakes in whatever that sort was just displaying as the
+     *  new stored/draggable order: "start dragging from here", not "jump back
+     *  to however it was arranged before that sort". */
     public void setLocalPlaylistSort(String playlistId, String field, boolean descending) {
         final String safe = LocalPlaylist.isSortField(field) ? field : LocalPlaylist.SORT_CUSTOM;
         boolean changed = localPlaylistStore.mutate(playlistId, playlist -> {
             if (safe.equals(playlist.sortField) && playlist.sortDescending == descending) {
                 return false;
+            }
+            if (LocalPlaylist.SORT_CUSTOM.equals(safe)
+                    && !LocalPlaylist.SORT_CUSTOM.equals(playlist.sortField)) {
+                playlist.tracks = playlist.sortedTracks();
             }
             playlist.sortField = safe;
             playlist.sortDescending = descending;
@@ -4608,6 +4650,17 @@ public final class PlayerController {
             currentLikeable.set(pluginLikeable || t.neteaseId != 0);
         });
         updateCover(t, currentCoverRevision);
+
+        // Protect whatever is about to play from the audio-cache eviction this
+        // same track's own (re-)caching below can trigger — see DiskCache's
+        // currentlyPlayingKey doc for the mid-playback auto-skip this avoids.
+        if (t.source == Track.Source.NETEASE) {
+            diskCache.setCurrentlyPlaying(t.neteaseId);
+        } else if (t.source == Track.Source.PLUGIN) {
+            diskCache.setCurrentlyPlaying(t.canonicalId());
+        } else {
+            diskCache.clearCurrentlyPlaying();
+        }
 
         if (t.source == Track.Source.LOCAL) {
             String src = t.playable();
@@ -6831,6 +6884,11 @@ public final class PlayerController {
                 row.coverThumbPath = s.coverThumbPath;
                 row.id = s.id;
                 row.menuEnabled = s.id != 0;
+                // Same canonical form Track.canonicalId() derives for a NETEASE-source
+                // track — gives the like button one id shape to parse regardless of
+                // which of the three sources a row came from.
+                row.mediaId = s.id != 0 ? MediaId.of("netease",
+                        dev.t1m3.qplayer.media.MediaKind.SONG, Long.toString(s.id)).toString() : "";
                 rows.add(row);
             }
         }
@@ -7926,8 +7984,79 @@ public final class PlayerController {
             List<Playlist> slice = myPlaylistsBySource.get(providerId);
             if (slice != null) merged.addAll(slice);
         }
+        if (MyPlaylistOrderStore.MODE_CUSTOM.equals(librarySortMode.peek())) {
+            merged = applyMyPlaylistOrder(merged);
+        }
         sourceMyPlaylists.set(Collections.unmodifiableList(merged));
         playlistCount.set(merged.size());
+    }
+
+    /** Reorders {@code merged} (already grouped by source) against the stored
+     *  custom order: a stored id that is still present keeps that relative
+     *  position, anything not yet stored (a playlist followed since, or the very
+     *  first drag) keeps its source-grouped position among the rest. */
+    private List<Playlist> applyMyPlaylistOrder(List<Playlist> merged) {
+        List<String> order = myPlaylistOrderStore.order();
+        if (order.isEmpty()) return merged;
+        Map<String, Playlist> byId = new LinkedHashMap<>();
+        for (Playlist playlist : merged) byId.put(playlist.id, playlist);
+        List<Playlist> out = new ArrayList<>(merged.size());
+        for (String id : order) {
+            Playlist playlist = byId.remove(id);
+            if (playlist != null) out.add(playlist);
+        }
+        out.addAll(byId.values());
+        return out;
+    }
+
+    /** Sort-menu entry point: "source" reverts to the server's own grouping.
+     *  Switching into "custom" from anything else seeds it from whatever is on
+     *  screen right now — not a stale arrangement dragged into place in some
+     *  earlier session — so it reads as "start dragging from here" rather than
+     *  "jump back to where I left off". Once already in custom, re-picking it
+     *  is a no-op that leaves an in-progress drag alone. */
+    public void setLibrarySortMode(String mode) {
+        boolean enteringCustom = MyPlaylistOrderStore.MODE_CUSTOM.equals(mode)
+                && !MyPlaylistOrderStore.MODE_CUSTOM.equals(myPlaylistOrderStore.mode());
+        if (enteringCustom) {
+            List<Playlist> current = sourceMyPlaylists.peek();
+            List<String> ids = new ArrayList<>(current != null ? current.size() : 0);
+            if (current != null) for (Playlist playlist : current) ids.add(playlist.id);
+            myPlaylistOrderStore.setOrder(ids);
+        } else {
+            myPlaylistOrderStore.setMode(mode);
+        }
+        librarySortMode.set(myPlaylistOrderStore.mode());
+        publishMyPlaylists();
+        worker.submit(myPlaylistOrderStore::save);
+    }
+
+    /** Drag-to-reorder on 我的's grid/list: {@code from}/{@code to} are positions
+     *  in the currently published {@link #sourceMyPlaylists}. Persists at once —
+     *  the id list is tiny — and switches the sort mode to custom, same as
+     *  picking it from the menu would. */
+    public void moveMyPlaylist(int from, int to) {
+        List<Playlist> current = sourceMyPlaylists.peek();
+        if (current == null || from < 0 || from >= current.size()
+                || to < 0 || to >= current.size() || from == to) {
+            return;
+        }
+        List<Playlist> reordered = new ArrayList<>(current);
+        reordered.add(to, reordered.remove(from));
+        List<String> ids = new ArrayList<>(reordered.size());
+        for (Playlist playlist : reordered) ids.add(playlist.id);
+        myPlaylistOrderStore.setOrder(ids);
+        librarySortMode.set(myPlaylistOrderStore.mode());
+        sourceMyPlaylists.set(Collections.unmodifiableList(reordered));
+        worker.submit(myPlaylistOrderStore::save);
+    }
+
+    /** Drag-to-reorder on 本地歌单's grid/list — always available, since custom is
+     *  the only order a set of local playlists has. */
+    public void moveLocalPlaylistCard(int from, int to) {
+        if (!localPlaylistStore.move(from, to)) return;
+        saveLocalPlaylists();
+        publishLocalPlaylists();
     }
 
     /** {@link #loadMyPlaylists} couldn't reach the network (or has no live uid to
@@ -7961,12 +8090,24 @@ public final class PlayerController {
         });
     }
 
-    /** Create a new (public) playlist named {@code name}, then refresh 我的. */
-    public void createPlaylist(String name) {
-        PluginManifest provider = primaryProviderWith(ProviderCapability.PLAYLIST_MUTATION);
+    /** Create a new (public) playlist named {@code name} on {@code providerId}, then
+     *  refresh 我的. An empty {@code providerId} keeps the old behaviour of targeting
+     *  whichever source is currently primary, so the picker in the create dialog only
+     *  needs to pass something when the user chose a non-primary source. */
+    public void createPlaylist(String name, String providerId) {
+        final String normalized = name != null ? name.trim() : "";
+        if (normalized.isEmpty()) return;
+        final String targetProvider = providerId != null ? providerId.trim() : "";
+        PluginManifest provider;
+        if (!targetProvider.isEmpty()) {
+            provider = providerWithId(targetProvider, ProviderCapability.PLAYLIST_MUTATION);
+            SourceAccountRow account = sourceAccountsBySource.get(targetProvider);
+            if (provider == null || account == null || !account.loggedIn) return;
+        } else {
+            provider = primaryProviderWith(ProviderCapability.PLAYLIST_MUTATION);
+            if (provider != null && !loggedIn.peek()) return;
+        }
         if (provider != null) {
-            final String normalized = name != null ? name.trim() : "";
-            if (!loggedIn.peek() || normalized.isEmpty()) return;
             pluginProviders.createPlaylist(provider.id, normalized, false)
                     .whenComplete((id, error) -> post(() -> {
                         if (error == null && id != null && !id.isEmpty()) {
@@ -7976,12 +8117,10 @@ public final class PlayerController {
                     }));
             return;
         }
-        if (uid == 0 || name == null) return;
-        final String nm = name.trim();
-        if (nm.isEmpty()) return;
+        if (uid == 0) return;
         worker.submit(() -> {
             try {
-                long id = netease.createPlaylist(nm, false);
+                long id = netease.createPlaylist(normalized, false);
                 if (id != 0) {
                     post(() -> {
                         showToast(I18n.tr("toast.playlist.created"));
@@ -8085,7 +8224,7 @@ public final class PlayerController {
             return;
         }
         if (!pluginHasCapability(id.provider(), ProviderCapability.PLAYLIST_COVER)) {
-            showToast(I18n.tr("toast.cover.updateFailed"));
+            showToast(I18n.tr("toast.cover.unsupported"));
             return;
         }
         pluginProviders.setPlaylistCover(id, data, filename, mimeFromFilename(filename))
@@ -8102,7 +8241,9 @@ public final class PlayerController {
                         }
                         loadMyPlaylists();
                     } else {
-                        showToast(I18n.tr("toast.cover.updateFailed"));
+                        showToast(I18n.tr("toast.cover.updateFailedReason",
+                                error != null ? safeMessage(error)
+                                        : I18n.tr("toast.cover.updateFailed")));
                     }
                 }));
     }
@@ -8205,6 +8346,225 @@ public final class PlayerController {
         mutateMediaPlaylist(openSourcePlaylistId.peek(), songMediaId, false, true);
     }
 
+    public void removeMediaManyFromCurrentPlaylist(String idsText) {
+        List<String> ids = splitIds(idsText);
+        if (ids.isEmpty()) return;
+        String sourceId = openSourcePlaylistId.peek();
+        if (sourceId != null && !sourceId.isEmpty()) {
+            removeManyPluginPlaylistTracks(sourceId, ids);
+            return;
+        }
+        if (currentPlaylistId == 0L || uid == 0) return;
+        final long playlistId = currentPlaylistId;
+        worker.submit(() -> {
+            int removed = 0;
+            for (String raw : ids) {
+                long songId;
+                try { songId = Long.parseLong(raw.contains(":") ? MediaId.parse(raw).nativeId() : raw); }
+                catch (Exception ignored) { continue; }
+                try {
+                    if (netease.manipulatePlaylistTracks(playlistId, songId, false)) removed++;
+                } catch (Throwable e) {
+                    Logger.warn("batch remove {} from playlist {} failed: {}", songId, playlistId, e.getMessage());
+                }
+            }
+            final int count = removed;
+            post(() -> {
+                if (count > 0 && currentPlaylistId == playlistId) {
+                    Set<Long> gone = new HashSet<>();
+                    for (String raw : ids) {
+                        try { gone.add(Long.parseLong(raw.contains(":") ? MediaId.parse(raw).nativeId() : raw)); }
+                        catch (Exception ignored) {}
+                    }
+                    dropOpenPlaylistTracks(gone);
+                }
+                showToast(count > 0
+                        ? I18n.tr("toast.playlist.songsRemoved", count)
+                        : I18n.tr("toast.playlist.removeFailed"));
+            });
+        });
+    }
+
+    private void removeManyPluginPlaylistTracks(String playlistMediaId, List<String> songMediaIds) {
+        final MediaId playlistId;
+        try {
+            playlistId = MediaId.parse(playlistMediaId).requireKind(
+                    dev.t1m3.qplayer.media.MediaKind.PLAYLIST);
+        } catch (IllegalArgumentException error) {
+            showToast(I18n.tr("toast.id.media"));
+            return;
+        }
+        List<MediaId> songs = new ArrayList<>();
+        for (String raw : songMediaIds) {
+            try {
+                songs.add(MediaId.parse(raw).requireKind(dev.t1m3.qplayer.media.MediaKind.SONG));
+            } catch (IllegalArgumentException ignored) {}
+        }
+        if (songs.isEmpty()) return;
+        pluginProviders.mutatePlaylist(playlistId, "remove", songs, null)
+                .whenComplete((success, error) -> post(() -> {
+                    if (error == null && Boolean.TRUE.equals(success)) {
+                        Set<String> gone = new HashSet<>();
+                        for (MediaId song : songs) gone.add(song.toString());
+                        if (playlistId.toString().equals(openSourcePlaylistId.peek())) {
+                            dropOpenSourcePlaylistTracks(gone);
+                        }
+                        showToast(I18n.tr("toast.playlist.songsRemoved", gone.size()));
+                    } else {
+                        showToast(I18n.tr("toast.playlist.removeFailedReason", safeMessage(error)));
+                    }
+                }));
+    }
+
+    public void unlikeMediaMany(String idsText) {
+        List<String> ids = splitIds(idsText);
+        if (ids.isEmpty()) return;
+        worker.submit(() -> {
+            int count = 0;
+            for (String raw : ids) {
+                if (unlikeOne(raw)) count++;
+            }
+            final int removed = count;
+            post(() -> {
+                showToast(removed > 0
+                        ? I18n.tr("toast.playlist.songsUnliked", removed)
+                        : I18n.tr("toast.unlike.failed"));
+                // Same staleness as the single-song toggle: refresh once for the
+                // whole batch rather than once per song.
+                if (removed > 0) loadMyPlaylists();
+            });
+        });
+    }
+
+    private boolean unlikeOne(String raw) {
+        try {
+            MediaId id = MediaId.parse(raw).requireKind(dev.t1m3.qplayer.media.MediaKind.SONG);
+            if ("netease".equals(id.provider()) && !pluginHasCapability("netease", ProviderCapability.LIKE)) {
+                long songId = Long.parseLong(id.nativeId());
+                boolean ok = netease.like(songId, false) || netease.setFavorite(uid, songId, false);
+                if (ok) post(() -> {
+                    likedSet.remove(songId);
+                    likedCount.set(likedSet.size());
+                });
+                return ok;
+            }
+            if (!pluginHasCapability(id.provider(), ProviderCapability.LIKE)) return false;
+            Boolean success = pluginProviders.setLiked(id, false).get();
+            if (!Boolean.TRUE.equals(success)) return false;
+            post(() -> {
+                pluginLikedSet.remove(id.toString());
+                likedCount.set(pluginLikedSet.size());
+            });
+            return true;
+        } catch (Exception error) {
+            Logger.warn("unlike {} failed: {}", raw, error.getMessage());
+            return false;
+        }
+    }
+
+    // --- Liking an arbitrary row (search results, queue) --------------------
+    //
+    // toggleLike() above only ever resolves the CURRENT track; these three let a
+    // row that is not (or not yet) playing carry its own heart button. Same
+    // netease-legacy-vs-plugin routing as unlikeOne, generalized to toggle
+    // either direction instead of only unliking.
+
+    /** Whether {@code canonicalId} (a song media id) can be liked at all — the
+     *  row's heart button binds its visibility to this. */
+    public boolean isMediaLikeable(String canonicalId) {
+        if (canonicalId == null || canonicalId.isEmpty()) return false;
+        try {
+            MediaId id = MediaId.parse(canonicalId).requireKind(dev.t1m3.qplayer.media.MediaKind.SONG);
+            if ("netease".equals(id.provider()) && !pluginHasCapability("netease", ProviderCapability.LIKE)) {
+                return uid != 0;
+            }
+            return pluginHasCapability(id.provider(), ProviderCapability.LIKE);
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
+    }
+
+    /** Current liked state, for the heart's filled/outline glyph. */
+    public boolean isMediaLiked(String canonicalId) {
+        if (canonicalId == null || canonicalId.isEmpty()) return false;
+        try {
+            MediaId id = MediaId.parse(canonicalId).requireKind(dev.t1m3.qplayer.media.MediaKind.SONG);
+            if ("netease".equals(id.provider()) && !pluginHasCapability("netease", ProviderCapability.LIKE)) {
+                return likedSet.contains(Long.parseLong(id.nativeId()));
+            }
+            return pluginLikedSet.contains(id.toString());
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
+    }
+
+    public void toggleLikeMedia(String canonicalId) {
+        if (canonicalId == null || canonicalId.isEmpty()) return;
+        final MediaId id;
+        try {
+            id = MediaId.parse(canonicalId).requireKind(dev.t1m3.qplayer.media.MediaKind.SONG);
+        } catch (IllegalArgumentException error) {
+            return;
+        }
+        if ("netease".equals(id.provider()) && !pluginHasCapability("netease", ProviderCapability.LIKE)) {
+            final long songId;
+            try {
+                songId = Long.parseLong(id.nativeId());
+            } catch (NumberFormatException error) {
+                return;
+            }
+            final boolean target = !likedSet.contains(songId);
+            worker.submit(() -> {
+                try {
+                    boolean ok = netease.like(songId, target);
+                    if (!ok) ok = netease.setFavorite(uid, songId, target);
+                    if (ok) {
+                        post(() -> {
+                            if (target) likedSet.add(songId);
+                            else likedSet.remove(songId);
+                            likedCount.set(likedSet.size());
+                            Track c = currentTrack();
+                            if (c != null && c.neteaseId == songId) currentLiked.set(target);
+                            loadMyPlaylists();
+                        });
+                    } else {
+                        showToast(netease.isLoggedIn()
+                                ? I18n.tr(target ? "toast.like.failed" : "toast.unlike.failed")
+                                : I18n.tr("toast.signInRequired"));
+                    }
+                } catch (Throwable e) {
+                    Logger.warn("like toggle failed: {}", e.getMessage());
+                    post(() -> toast.set(I18n.tr("toast.like.failedReason", e.getMessage())));
+                }
+            });
+            return;
+        }
+        if (!pluginHasCapability(id.provider(), ProviderCapability.LIKE)) return;
+        final boolean target = !pluginLikedSet.contains(id.toString());
+        pluginProviders.setLiked(id, target).whenComplete((success, error) -> post(() -> {
+            if (error == null && Boolean.TRUE.equals(success)) {
+                if (target) pluginLikedSet.add(id.toString());
+                else pluginLikedSet.remove(id.toString());
+                likedCount.set(pluginLikedSet.size());
+                Track current = currentTrack();
+                if (current != null && id.toString().equals(current.canonicalId())) {
+                    currentLiked.set(target);
+                }
+                loadMyPlaylists();
+            } else showToast(I18n.tr(target ? "toast.like.failed" : "toast.unlike.failed"));
+        }));
+    }
+
+    private static List<String> splitIds(String raw) {
+        if (raw == null || raw.isEmpty()) return Collections.emptyList();
+        List<String> out = new ArrayList<>();
+        for (String line : raw.split("\n")) {
+            String id = line.trim();
+            if (!id.isEmpty()) out.add(id);
+        }
+        return out;
+    }
+
     private void mutateMediaPlaylist(String playlistMediaId, String songMediaId,
                                      boolean add, boolean refreshDetail) {
         final MediaId playlistId;
@@ -8241,22 +8601,25 @@ public final class PlayerController {
      * open (or the refresh button) reconciles anything else that changed server-side.
      */
     private void dropOpenSourcePlaylistTrack(String songMediaId) {
+        dropOpenSourcePlaylistTracks(Collections.singleton(songMediaId));
+    }
+
+    private void dropOpenSourcePlaylistTracks(Set<String> songMediaIds) {
+        if (songMediaIds == null || songMediaIds.isEmpty()) return;
         List<Song> current = sourcePlaylistTracks.peek();
         if (current == null || current.isEmpty()) return;
         List<Song> remaining = new ArrayList<>(current.size());
         for (Song song : current) {
-            if (!songMediaId.equals(song.id)) remaining.add(song);
+            if (!songMediaIds.contains(song.id)) remaining.add(song);
         }
         if (remaining.size() == current.size()) return;
         sourcePlaylistTracks.set(Collections.unmodifiableList(remaining));
-        // Keep the offline snapshot in step, or reopening without network would
-        // bring the song back. Off the render thread: the cache copies by JSON
-        // round trip, which is not free for a large playlist.
         final String playlistId = openSourcePlaylistId.peek();
+        final Set<String> gone = new HashSet<>(songMediaIds);
         worker.submit(() -> {
             Playlist cached = mediaPlaylistCacheIndex.get(playlistId);
             if (cached == null) return;
-            if (!cached.songs.removeIf(song -> songMediaId.equals(song.id))) return;
+            if (!cached.songs.removeIf(song -> gone.contains(song.id))) return;
             cached.trackCount = cached.songs.size();
             mediaPlaylistCacheIndex.upsert(cached);
             mediaPlaylistCacheIndex.save();
@@ -8353,11 +8716,16 @@ public final class PlayerController {
 
     /** {@link #dropOpenSourcePlaylistTrack} for the built-in netease playlist view. */
     private void dropOpenPlaylistTrack(long songId) {
+        dropOpenPlaylistTracks(Collections.singleton(songId));
+    }
+
+    private void dropOpenPlaylistTracks(Set<Long> songIds) {
+        if (songIds == null || songIds.isEmpty()) return;
         List<NeteaseSong> current = playlistTracks.peek();
         if (current == null || current.isEmpty()) return;
         List<NeteaseSong> remaining = new ArrayList<>(current.size());
         for (NeteaseSong song : current) {
-            if (song.id != songId) remaining.add(song);
+            if (!songIds.contains(song.id)) remaining.add(song);
         }
         if (remaining.size() == current.size()) return;
         playlistTracks.set(Collections.unmodifiableList(remaining));
@@ -8467,6 +8835,10 @@ public final class PlayerController {
                     if (current != null && id.toString().equals(current.canonicalId())) {
                         currentLiked.set(target);
                     }
+                    // The server's own "我喜欢" playlist gained/lost a song; its card
+                    // on 我的 shows a trackCount snapshot from the last full load, so
+                    // it needs a refresh to stop reading stale.
+                    loadMyPlaylists();
                 } else showToast(I18n.tr(target ? "toast.like.failed" : "toast.unlike.failed"));
             }));
             return;
@@ -8489,6 +8861,8 @@ public final class PlayerController {
                         likedCount.set(likedSet.size());
                         Track c = currentTrack();
                         if (c != null && c.neteaseId == id) currentLiked.set(target);
+                        // Same as the plugin branch above: "我喜欢的音乐" changed size.
+                        loadMyPlaylists();
                     });
                 } else {
                     showToast(netease.isLoggedIn()

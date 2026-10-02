@@ -123,6 +123,9 @@ public class LocalPlaylistUiTest {
                     view.findByObjectName("localPlaylistCoverButton"));
             assertNotNull("and its own sort",
                     view.findByObjectName("localPlaylistSortButton"));
+            assertNotNull("batch select lives on the page even with an empty list",
+                    view.findByObjectName("localPlaylistSelectButton"));
+            assertNotNull(view.findByObjectName("localPlaylistSelectBar"));
             assertEquals("mixed", harness.player.localPlaylistTitle.peek());
         }
     }
@@ -204,6 +207,307 @@ public class LocalPlaylistUiTest {
             assertNotNull(view.findByObjectName("libraryPage"));
             assertNotNull("the local/online split must render",
                     view.findByObjectName("libraryTabs"));
+        }
+    }
+
+    /** The libraryListView setting swaps PlaylistGrid for VirtualPlaylistList. */
+    @Test
+    public void theLibraryPageOffersAListView() throws Exception {
+        try (Harness harness = new Harness(temporary.newFolder().toPath())) {
+            harness.player.createLocalPlaylist("mixed");
+            harness.settings.setValue("libraryListView", true);
+            QmlView view = harness.load("import QtQuick\nimport \"pages\"\n"
+                    + "Item { width: 1134; height: 806\n"
+                    + "  LibraryPage { id: page; objectName: \"libraryPage\"; anchors.fill: parent\n"
+                    + "    Component.onCompleted: page.showLocal = true }\n"
+                    + "}");
+            assertNotNull(view.findByObjectName("libraryPage"));
+            assertNotNull("the list view renders in place of the grid",
+                    view.findByObjectName("virtualPlaylistList"));
+            assertNotNull("with at least one row for the seeded playlist",
+                    view.findByObjectName("virtualPlaylistListRow"));
+        }
+    }
+
+    /** Diagnostic: does a right-click on a reorderable row reveal the grip, or
+     *  fall through to the context menu? */
+    @Test
+    public void aRightClickOnAReorderableRowRevealsTheGrip() throws Exception {
+        try (Harness harness = new Harness(temporary.newFolder().toPath())) {
+            QmlView view = harness.load("import QtQuick\nimport \"components\"\n"
+                    + "Item { width: 900; height: 64\n"
+                    + "  PlaylistListRow { id: row; objectName: \"row\"; width: 900; height: 64\n"
+                    + "    playlistId: \"local:playlist:1\"; rowName: \"mixed\"; reorderable: true }\n"
+                    + "}");
+            assertTrue("a right click is accepted", view.dispatchPointerDown(450f, 32f, 2));
+            view.dispatchPointerUp(450f, 32f, 2);
+            settle(view);
+
+            Item grip = view.findByObjectName("playlistListRowDragHandle");
+            assertNotNull("a right click on a reorderable row must reveal the grip", grip);
+            assertTrue("the grip must actually be visible, not just exist",
+                    grip.visible.peek());
+        }
+    }
+
+    /** Same as above, but through VirtualPlaylistList's Repeater delegate — the
+     *  one extra hop LibraryPage actually uses. */
+    @Test
+    public void aRightClickInVirtualPlaylistListRevealsTheGrip() throws Exception {
+        try (Harness harness = new Harness(temporary.newFolder().toPath())) {
+            QmlView view = harness.load("import QtQuick\nimport \"components\"\n"
+                    + "Item { width: 900; height: 400\n"
+                    + "  VirtualPlaylistList { id: list; objectName: \"list\"; width: 900; height: 400\n"
+                    + "    reorderable: true\n"
+                    + "    list: [{id: \"local:playlist:1\", name: \"alpha\", trackCount: 1},\n"
+                    + "           {id: \"local:playlist:2\", name: \"bravo\", trackCount: 2}] }\n"
+                    + "}");
+            assertTrue("a right click is accepted", view.dispatchPointerDown(450f, 32f, 2));
+            view.dispatchPointerUp(450f, 32f, 2);
+            settle(view);
+
+            Item grip = view.findByObjectName("playlistListRowDragHandle");
+            assertNotNull("a right click on row 0 must reveal its grip", grip);
+            assertTrue("the grip must actually be visible, not just exist",
+                    grip.visible.peek());
+        }
+    }
+
+    /** Same again, but through the actual LibraryPage local-tab list view — the
+     *  real configuration the user is hitting the bug in. */
+    @Test
+    public void aRightClickOnTheLocalTabListRevealsTheGrip() throws Exception {
+        try (Harness harness = new Harness(temporary.newFolder().toPath())) {
+            harness.player.createLocalPlaylist("mixed");
+            harness.settings.setValue("libraryListView", true);
+            QmlView view = harness.load("import QtQuick\nimport \"pages\"\n"
+                    + "Item { width: 1134; height: 806\n"
+                    + "  LibraryPage { id: page; objectName: \"libraryPage\"; anchors.fill: parent\n"
+                    + "    Component.onCompleted: page.showLocal = true }\n"
+                    + "}");
+            assertNotNull(view.findByObjectName("virtualPlaylistListRow"));
+            // Header: 45 preferred height + 8 bottom margin, then row 0's own centre.
+            assertTrue("a right click is accepted", view.dispatchPointerDown(450f, 85f, 2));
+            view.dispatchPointerUp(450f, 85f, 2);
+            settle(view);
+
+            Item grip = view.findByObjectName("playlistListRowDragHandle");
+            assertNotNull("a right click on the local tab's row must reveal its grip", grip);
+            assertTrue("the grip must actually be visible, not just exist",
+                    grip.visible.peek());
+        }
+    }
+
+    /** The exact reported scenario: 我的 tab, list view, custom sort mode already
+     *  chosen from the menu (not the literal-true local tab). */
+    @Test
+    public void aRightClickOnTheMineTabListInCustomModeRevealsTheGrip() throws Exception {
+        try (Harness harness = new Harness(temporary.newFolder().toPath())) {
+            PlayerController player = harness.player;
+            // Otherwise VirtualPlaylistList's own `list:` binding falls back to
+            // the legacy player.myPlaylists (empty here) instead of sourceMyPlaylists —
+            // the same gate PlaylistGrid always had, satisfied for real by having
+            // an actual signed-in plugin.
+            player.sourceContentActive.set(true);
+            player.loggedIn.set(true);
+            // setLibrarySortMode republishes from myPlaylistsBySource (empty here),
+            // which would wipe a seed set before it — set the mode first.
+            player.setLibrarySortMode("custom");
+            assertEquals("custom", player.librarySortMode.peek());
+            player.sourceMyPlaylists.set(java.util.Arrays.asList(
+                    playlistCard("qq:playlist:1", "alpha"),
+                    playlistCard("netease:playlist:2", "bravo")));
+            harness.settings.setValue("libraryListView", true);
+
+            QmlView view = harness.load("import QtQuick\nimport \"pages\"\n"
+                    + "Item { width: 1134; height: 806\n"
+                    + "  LibraryPage { id: page; objectName: \"libraryPage\"; anchors.fill: parent }\n"
+                    + "}");
+            assertNotNull(view.findByObjectName("virtualPlaylistListRow"));
+
+            assertTrue("a right click is accepted", view.dispatchPointerDown(450f, 85f, 2));
+            view.dispatchPointerUp(450f, 85f, 2);
+            settle(view);
+
+            Item grip = view.findByObjectName("playlistListRowDragHandle");
+            assertNotNull("a right click on 我的's row in custom mode must reveal its grip", grip);
+            assertTrue("the grip must actually be visible, not just exist",
+                    grip.visible.peek());
+        }
+    }
+
+    /** The overflow button is the guaranteed way into the menu: always present,
+     *  a plain click (no long-press/right-click timing involved), and must not
+     *  fall through to opening the playlist or collide with the drag grip. */
+    @Test
+    public void theOverflowButtonSitsRightOfTheDragGripAndOpensTheMenuNotThePlaylist()
+            throws Exception {
+        try (Harness harness = new Harness(temporary.newFolder().toPath())) {
+            QmlView view = harness.load("import QtQuick\nimport \"components\"\n"
+                    + "Item { width: 900; height: 64\n"
+                    + "  PlaylistListRow { id: row; objectName: \"row\"; width: 900; height: 64\n"
+                    + "    playlistId: \"local:playlist:1\"; rowName: \"mixed\"; reorderable: true\n"
+                    + "    onActivated: opened.width = 1 }\n"
+                    + "  Item { id: opened; objectName: \"opened\"; width: 0 }\n"
+                    + "}");
+
+            Item grip = view.findByObjectName("playlistListRowDragHandle");
+            Item overflow = view.findByObjectName("playlistListRowOverflowButton");
+            assertNotNull(overflow);
+            assertNotNull(grip);
+            assertTrue("the overflow button is always present, not gated on a reveal",
+                    overflow.width.peekFloat() > 0f);
+            assertTrue("the grip must sit left of the overflow button, not overlap it",
+                    grip.x.peekFloat() + grip.width.peekFloat() <= overflow.x.peekFloat());
+
+            float ox = overflow.x.peekFloat() + overflow.width.peekFloat() / 2f;
+            float oy = overflow.y.peekFloat() + overflow.height.peekFloat() / 2f;
+            assertTrue("a plain click is accepted", view.dispatchPointerDown(ox, oy));
+            view.dispatchPointerUp(ox, oy);
+            settle(view);
+
+            assertEquals("clicking the overflow button must not open the playlist",
+                    0f, probeWidth(view, "opened"), 0.001f);
+        }
+    }
+
+    /** Grid drag math: moving card 0 to where card 4 sits (a different row AND
+     *  column) has to land on exactly that slot, and releasing has to report
+     *  the move/commit exactly once — the same contract VirtualPlaylistList's
+     *  1D drag has, now driven through the 2D index<->(row,col) conversion.
+     *  Drives _applyDragTarget/_endDrag directly rather than simulating a real
+     *  long-press: the pick-up gesture is a plain 480ms hold with no
+     *  synchronous trigger (unlike the list's right-click), so there is
+     *  nothing here to fire it without a real-time wait. */
+    @Test
+    public void aGridDragLandsAcrossRowsAndReportsOneMoveOnRelease() throws Exception {
+        try (Harness harness = new Harness(temporary.newFolder().toPath())) {
+            QmlView view = harness.load("import QtQuick\nimport \"components\"\n"
+                    + "Item { width: 900; height: 900\n"
+                    + "  PlaylistGrid { id: grid; objectName: \"grid\"; width: 900; height: 900\n"
+                    + "    reorderable: true; minTile: 200\n"
+                    + "    list: [{id:\"a\",name:\"a\",trackCount:1},{id:\"b\",name:\"b\",trackCount:2},\n"
+                    + "           {id:\"c\",name:\"c\",trackCount:3},{id:\"d\",name:\"d\",trackCount:4},\n"
+                    + "           {id:\"e\",name:\"e\",trackCount:5},{id:\"f\",name:\"f\",trackCount:6}]\n"
+                    + "    onMoveRequested: { moves.x = moves.x + 1\n"
+                    + "                       moves.width = grid.moveFrom; drop.width = grid.moveTo }\n"
+                    + "    onReorderCommitted: commits.x = commits.x + 1 }\n"
+                    + "  Item { id: moves; objectName: \"moves\"; x: 0; width: -1 }\n"
+                    + "  Item { id: commits; objectName: \"commits\"; x: 0 }\n"
+                    + "  Item { id: drop; objectName: \"drop\"; width: -1 }\n"
+                    + "  Item { id: liveDrop; objectName: \"liveDrop\"; width: -1 }\n"
+                    + "  Component.onCompleted: {\n"
+                    + "    grid._dragFrom = 0\n"
+                    + "    grid._dropIndex = 0\n"
+                    + "    grid._dragGrabOffsetX = grid.tile / 2\n"
+                    + "    grid._dragGrabOffsetY = grid.cardH / 2\n"
+                    + "    grid._applyDragTarget(grid._indexToX(4) + grid.tile / 2,\n"
+                    + "                          grid._indexToY(4) + grid.cardH / 2)\n"
+                    + "    liveDrop.width = grid._dropIndex\n"
+                    + "    grid._endDrag()\n"
+                    + "  }\n"
+                    + "}");
+            settle(view);
+
+            assertEquals("cols must actually be 3 for this test's geometry to hold",
+                    3f, colsOf(view), 0.001f);
+            assertEquals("the drag target lands on card 4's slot (a different row AND column)",
+                    4f, probeWidth(view, "liveDrop"), 0.001f);
+            assertEquals("releasing reports exactly one move", 1f, probeX(view, "moves"), 0.001f);
+            assertEquals("from card 0", 0f, probeWidth(view, "moves"), 0.001f);
+            assertEquals("to card 4", 4f, probeWidth(view, "drop"), 0.001f);
+            assertEquals("and commits once", 1f, probeX(view, "commits"), 0.001f);
+        }
+    }
+
+    private static float colsOf(QmlView view) {
+        Item grid = view.findByObjectName("grid");
+        assertNotNull(grid);
+        // cols is a plain QML int property with no Java reader; derive it the
+        // same way the grid itself does, off the same base Item fields.
+        float width = grid.width.peekFloat();
+        float pad = width >= 840f ? 28f : 16f;
+        float gap = 16f;
+        float minTile = 200f;
+        return (float) Math.max(2, Math.floor((width - 2 * pad + gap) / (minTile + gap)));
+    }
+
+    // ---- library card order -------------------------------------------------
+
+    private static List<String> cardNames(PlayerController player) {
+        List<String> out = new java.util.ArrayList<>();
+        for (dev.t1m3.qplayer.media.Playlist card : player.localPlaylists.peek()) out.add(card.name);
+        return out;
+    }
+
+    @Test
+    public void movingALocalPlaylistCardReordersAndPersists() throws Exception {
+        Path base = temporary.newFolder().toPath();
+        try (Harness harness = new Harness(base)) {
+            PlayerController player = harness.player;
+            player.createLocalPlaylist("alpha");
+            player.createLocalPlaylist("bravo");
+            player.createLocalPlaylist("charlie");
+            assertEquals(java.util.Arrays.asList("alpha", "bravo", "charlie"), cardNames(player));
+
+            player.moveLocalPlaylistCard(0, 2);
+            assertEquals(java.util.Arrays.asList("bravo", "charlie", "alpha"), cardNames(player));
+        }
+        try (Harness harness = new Harness(base)) {
+            assertEquals("the arrangement is what reopens",
+                    java.util.Arrays.asList("bravo", "charlie", "alpha"), cardNames(harness.player));
+        }
+    }
+
+    private static dev.t1m3.qplayer.media.Playlist playlistCard(String id, String name) {
+        dev.t1m3.qplayer.media.Playlist card = new dev.t1m3.qplayer.media.Playlist();
+        card.id = id;
+        card.name = name;
+        return card;
+    }
+
+    /** 我的's cross-source order: dragging switches the mode away from "source"
+     *  grouping, same as picking "custom" from the sort menu would. Seeds
+     *  sourceMyPlaylists directly — a real fetch needs an installed plugin, and
+     *  moveMyPlaylist only ever reorders whatever is already published there. */
+    @Test
+    public void movingAMyPlaylistCardSwitchesToCustomOrder() throws Exception {
+        try (Harness harness = new Harness(temporary.newFolder().toPath())) {
+            PlayerController player = harness.player;
+            assertEquals("source", player.librarySortMode.peek());
+            player.sourceMyPlaylists.set(java.util.Arrays.asList(
+                    playlistCard("qq:playlist:1", "alpha"),
+                    playlistCard("netease:playlist:2", "bravo"),
+                    playlistCard("qq:playlist:3", "charlie")));
+
+            player.moveMyPlaylist(0, 2);
+            assertEquals("custom", player.librarySortMode.peek());
+            List<String> names = new java.util.ArrayList<>();
+            for (dev.t1m3.qplayer.media.Playlist card : player.sourceMyPlaylists.peek()) {
+                names.add(card.name);
+            }
+            assertEquals(java.util.Arrays.asList("bravo", "charlie", "alpha"), names);
+        }
+    }
+
+    // Note: a test proving setLibrarySortMode("custom") seeds from the current
+    // list rather than a stale one would need a real non-empty
+    // myPlaylistsBySource (it only runs through publishMyPlaylists, which
+    // always rebuilds from that) — not reachable here without a fake plugin
+    // provider, so this is verified by code review + manual testing instead.
+
+    @Test
+    public void movingALocalPlaylistCardIgnoresAnOutOfRangeIndex() throws Exception {
+        try (Harness harness = new Harness(temporary.newFolder().toPath())) {
+            PlayerController player = harness.player;
+            player.createLocalPlaylist("alpha");
+            player.createLocalPlaylist("bravo");
+
+            player.moveLocalPlaylistCard(0, 5);
+            player.moveLocalPlaylistCard(-1, 1);
+            player.moveLocalPlaylistCard(1, 1);
+            assertEquals("every out-of-range or no-op move is refused",
+                    java.util.Arrays.asList("alpha", "bravo"), cardNames(player));
         }
     }
 
@@ -408,7 +712,7 @@ public class LocalPlaylistUiTest {
     }
 
     @Test
-    public void sortingReordersTheRowsWithoutLosingTheStoredOrder() throws Exception {
+    public void sortingIsAViewUntilCustomBakesInWhatWasShowing() throws Exception {
         try (Harness harness = new Harness(temporary.newFolder().toPath())) {
             PlayerController player = harness.player;
             String id = playlistOf(player, "charlie", "alpha", "bravo");
@@ -420,8 +724,9 @@ public class LocalPlaylistUiTest {
             assertEquals(java.util.Arrays.asList("charlie", "bravo", "alpha"), rowTitles(player));
 
             player.setLocalPlaylistSort(id, "", false);
-            assertEquals("the custom order comes back exactly as it was",
-                    java.util.Arrays.asList("charlie", "alpha", "bravo"), rowTitles(player));
+            assertEquals("entering custom bakes in the last sort shown, not the"
+                            + " arrangement from before any sort was picked",
+                    java.util.Arrays.asList("charlie", "bravo", "alpha"), rowTitles(player));
         }
     }
 
@@ -443,8 +748,9 @@ public class LocalPlaylistUiTest {
                     java.util.Arrays.asList("bravo", "charlie"), rowTitles(player));
 
             player.setLocalPlaylistSort(id, "", false);
-            assertEquals("and the stored order kept its remaining songs",
-                    java.util.Arrays.asList("charlie", "bravo"), rowTitles(player));
+            assertEquals("entering custom bakes in the title-sorted view that"
+                            + " removal just left on screen (minus the removed row)",
+                    java.util.Arrays.asList("bravo", "charlie"), rowTitles(player));
         }
     }
 
@@ -462,7 +768,9 @@ public class LocalPlaylistUiTest {
             // to whatever happens to sit at those stored indices.
             player.moveLocalPlaylistTrack(id, 0, 2);
             player.setLocalPlaylistSort(id, "", false);
-            assertEquals(java.util.Arrays.asList("charlie", "alpha", "bravo"), rowTitles(player));
+            assertEquals("the refused move left the title view unchanged, which"
+                            + " entering custom then bakes in",
+                    java.util.Arrays.asList("alpha", "bravo", "charlie"), rowTitles(player));
         }
     }
 
@@ -718,6 +1026,15 @@ public class LocalPlaylistUiTest {
                     Files.isRegularFile(base.resolve("state").resolve("custom-playlist.json"))
                             || Files.exists(AppDirs.stateFile("custom-playlist.json")));
         }
+    }
+
+    /** Read a probe Item's x, which the QML above uses to publish a value that
+     *  has nowhere else to go. */
+    private static float probeX(QmlView view, String objectName) {
+        io.github.timer_err.qml4j.render.items.core.Item probe =
+                view.findByObjectName(objectName);
+        assertNotNull("missing probe " + objectName, probe);
+        return probe.x.peekFloat();
     }
 
     /** Read a probe Item's width, which the QML above uses to publish a value

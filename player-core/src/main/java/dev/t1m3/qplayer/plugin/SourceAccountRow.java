@@ -7,6 +7,9 @@ public final class SourceAccountRow {
     public String sourceName = "";
     public boolean primary;
     public boolean loggedIn;
+    /** True when this source can create playlists (PLAYLIST_MUTATION), so the
+     *  new-playlist dialog can offer it as a target. */
+    public boolean canCreatePlaylist;
     public String displayName = "";
     public String avatarUrl = "";
     public int membershipTier;

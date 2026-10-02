@@ -42,8 +42,9 @@ Rectangle {
                     || app.currentOverlay === "album"
                     || app.currentOverlay === "account"
         }
-        // Home already owns the same action alongside its retry state.
-        return app.page === 1 || app.page === 2
+        // Home already owns the same action alongside its retry state. 本地
+        // (device files) needs no source at all, so it is deliberately excluded.
+        return app.page === 1 || app.page === app.libraryPageIndex
     }
     property bool syncingPageState: false
     // forward: new top page enters over an unchanged previous page.
@@ -130,11 +131,24 @@ Rectangle {
         else if (!lyricsOpenWatch && app.topPageType() === "lyrics")
             app.popPage()
     }
-    property var titles: [i18n.t("nav.home"), i18n.t("nav.search"),
-                          i18n.t("nav.library"), i18n.t("nav.local")]
+    // Derived from navItems below rather than listed separately, so the title
+    // bar can never drift out of sync with whatever order the nav actually has.
+    property var titles: {
+        var out = []
+        for (var i = 0; i < navItems.length; i++) out.push(navItems[i].text)
+        return out
+    }
     property bool showLocalTab: settings.value("showLocalTab")
+    // 本地 (device files) sits right after 搜索 when shown; 我的 (library) is
+    // bumped to the last slot to make room, otherwise it keeps its own slot.
+    // Every other page-index check in this file goes through these two instead
+    // of a literal 2/3, so the two pages' positions can be swapped in one place.
+    readonly property int libraryPageIndex: showLocalTab ? 3 : 2
+    readonly property int localPageIndex: showLocalTab ? 2 : -1
     onShowLocalTabChanged: {
-        if (!showLocalTab && app.page === 3) app.switchTo(0)
+        // This only runs on the true->false edge, so page 2 here still means
+        // what it meant the instant before showLocalTab flipped: 本地.
+        if (!showLocalTab && app.page === 2) app.switchTo(0)
     }
 
     // Responsive breakpoints: compact < 600, medium 600–839, expanded ≥ 840.
@@ -155,8 +169,8 @@ Rectangle {
         ? [
             { icon: "recommend",     text: i18n.t("nav.home") },
             { icon: "search",        text: i18n.t("nav.search") },
-            { icon: "library_music", text: i18n.t("nav.library") },
-            { icon: "folder",        text: i18n.t("nav.local") }
+            { icon: "folder",        text: i18n.t("nav.local") },
+            { icon: "library_music", text: i18n.t("nav.library") }
           ]
         : [
             { icon: "recommend",     text: i18n.t("nav.home") },
@@ -410,10 +424,10 @@ Rectangle {
             return
         }
         if (idx === 1) app.searchLoaded = true
-        if (idx === 2) app.libraryLoaded = true
-        if (idx === 3) app.localLoaded = true
+        if (idx === app.libraryPageIndex) app.libraryLoaded = true
+        if (idx === app.localPageIndex) app.localLoaded = true
         app.nextPage = idx;
-        if (idx === 2) player.loadMyPlaylists();
+        if (idx === app.libraryPageIndex) player.loadMyPlaylists();
         rootPageMotion.direction = idx > app.page ? 1 : -1;
         rootPageMotion.transition();
     }
@@ -737,7 +751,7 @@ Rectangle {
                 Loader {
                     anchors.fill: parent
                     active: app.libraryLoaded
-                    visible: app.page === 2
+                    visible: app.page === app.libraryPageIndex
                     sourceComponent: Component {
                         LibraryPage {
                             id: libraryPage
@@ -756,7 +770,7 @@ Rectangle {
                 Loader {
                     anchors.fill: parent
                     active: app.localLoaded
-                    visible: app.page === 3
+                    visible: app.page === app.localPageIndex
                     sourceComponent: Component { LocalPage {} }
                 }
             }

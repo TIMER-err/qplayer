@@ -35,6 +35,15 @@ Flickable {
     // instead -- correct for any local-file list, live queue or not.
     property bool highlightByFilePath: false
     property bool removable: false
+    property bool selectMode: false
+    property string selectedKey: ""
+    readonly property int selectedN: {
+        if (view.selectedKey === "") return 0
+        var n = 0
+        var parts = view.selectedKey.split("\n")
+        for (var i = 0; i < parts.length; i++) if (parts[i] !== "") n++
+        return n
+    }
     // Every real song row gets the same right-click/long-press menu. Callers can
     // still turn it off for a deliberately read-only list; ownedPlaylist unlocks
     // "remove from playlist" inside a playlist the user owns.
@@ -52,6 +61,9 @@ Flickable {
     // (see PlaylistDetailPage's player.playlistOffline binding) — not meaningful,
     // and would just clutter every row, during normal online browsing.
     property bool showOfflineBadge: false
+    // Per-row favorite button (SearchPage's unified list). Off by default so
+    // every other caller renders unchanged.
+    property bool showLikeButton: false
     property int rowH: 64
     property int activatedIndex: -1
     property int removeIndex: -1
@@ -99,6 +111,22 @@ Flickable {
     readonly property var _dragRow: view._dragFrom >= 0 && view.list
                                     && view._dragFrom < view.count
                                     ? view.list[view._dragFrom] : null
+    // Watchdog: something outside this gesture (an OS screenshot tool grabbing
+    // input, alt-tab, ...) can occasionally swallow the mouse-up before it
+    // reaches handleArea, which never fires onReorderReleased/onCanceled and
+    // leaves the carried row stuck forever — the only way out used to be
+    // restarting the app. Any real drag keeps producing onReorderDragged calls
+    // every frame the finger moves; if none land for a while, the gesture is
+    // abandoned, not just paused, so auto-release it.
+    property real _dragLastActivityMs: 0
+    Timer {
+        interval: 1000
+        repeat: true
+        running: view._dragFrom >= 0
+        onTriggered: {
+            if (Date.now() - view._dragLastActivityMs > 15000) view._endDrag()
+        }
+    }
 
     /** Turn a content-space cursor position into the slot the carried row would
      *  drop into. Shared by the drag itself and the auto-scroll tick. */
@@ -177,6 +205,51 @@ Flickable {
     property int loadMoreThresholdRows: 6
     signal activated()
     signal removeRequested()
+
+    function rowId(item) {
+        if (!item) return ""
+        if (item.mediaId) return "" + item.mediaId
+        if (item.id !== undefined && item.id !== null && ("" + item.id) !== "") return "" + item.id
+        if (item.filePath) return "" + item.filePath
+        return ""
+    }
+    function rowSelected(item) {
+        var id = view.rowId(item)
+        if (!id || view.selectedKey === "") return false
+        return ("\n" + view.selectedKey + "\n").indexOf("\n" + id + "\n") >= 0
+    }
+    function toggleSelected(item) {
+        var id = view.rowId(item)
+        if (!id) return
+        var parts = view.selectedKey === "" ? [] : view.selectedKey.split("\n")
+        var next = []
+        var found = false
+        for (var i = 0; i < parts.length; i++) {
+            if (parts[i] === id) found = true
+            else if (parts[i] !== "") next.push(parts[i])
+        }
+        if (!found) next.push(id)
+        view.selectedKey = next.join("\n")
+    }
+    function selectAll() {
+        var rows = view.list
+        var next = []
+        if (rows) {
+            for (var i = 0; i < rows.length; i++) {
+                var id = view.rowId(rows[i])
+                if (id) next.push(id)
+            }
+        }
+        view.selectedKey = next.join("\n")
+    }
+    function clearSelection() { view.selectedKey = "" }
+    function selectedCount() {
+        if (view.selectedKey === "") return 0
+        var n = 0
+        var parts = view.selectedKey.split("\n")
+        for (var i = 0; i < parts.length; i++) if (parts[i] !== "") n++
+        return n
+    }
     signal loadMoreRequested()
 
     property int count: list ? list.length : 0
@@ -257,18 +330,27 @@ Flickable {
                     ? (player.currentFilePath !== "" && modelData.filePath === player.currentFilePath)
                     : index === player.index)
                 offlineReady: view.showOfflineBadge && !!modelData.cachedOffline
-                removable: view.removable
+                removable: view.removable && !view.selectMode
                 song: view.songMenu && (!view.menuEligibilityFromModel || !!modelData.menuEnabled)
                       ? modelData : null
-                menuEnabled: view.songMenu
+                menuEnabled: view.songMenu && !view.selectMode
                              && (!view.menuEligibilityFromModel || !!modelData.menuEnabled)
                 inOwnedPlaylist: view.ownedPlaylist
                 inCacheList: view.cacheList
+                selectMode: view.selectMode
+                selected: view.selectMode && view.selectedKey !== ""
+                          && (("\n" + view.selectedKey + "\n").indexOf(
+                              "\n" + view.rowId(modelData) + "\n") >= 0)
+                onSelectionToggled: view.toggleSelected(modelData)
                 onActivated: { view.activatedIndex = index; view.activated() }
                 onRemoveRequested: { view.removeIndex = index; view.removeRequested() }
-                reorderable: view.reorderable
+                reorderable: view.reorderable && !view.selectMode
                 controlsRevealed: view.reorderable ? (view.revealedIndex === index) : true
                 onRevealToggled: view.revealedIndex = (view.revealedIndex === index) ? -1 : index
+                showLikeButton: view.showLikeButton
+                likeable: view.showLikeButton && player.isMediaLikeable(view.rowId(modelData))
+                liked: view.showLikeButton && player.isMediaLiked(view.rowId(modelData))
+                onLikeToggled: player.toggleLikeMedia(view.rowId(modelData))
                 // The carried row is drawn once, by the floating copy below, so
                 // its slot in the list simply empties out.
                 visible: view._dragFrom !== index
@@ -293,11 +375,13 @@ Flickable {
                     view._dragGrabOffset = reorderGrabOffset
                     view._dragFloatY = index * view.rowH
                     view._dragViewportY = reorderContentY - view.viewportY
+                    view._dragLastActivityMs = Date.now()
                 }
                 onReorderDragged: {
                     // A press always precedes this, but a delegate recycled onto
                     // another index mid-gesture must not re-seat the drag.
                     if (view._dragFrom < 0) return
+                    view._dragLastActivityMs = Date.now()
                     view._dragViewportY = reorderContentY - view.viewportY
                     view._updateAutoScroll(view._dragViewportY)
                     view._applyDragTarget(reorderContentY)

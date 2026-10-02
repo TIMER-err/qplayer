@@ -5,6 +5,7 @@ import dev.t1m3.qplayer.media.MediaKind;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -119,6 +120,18 @@ public final class LocalPlaylist {
         return index >= 0 && removeAt(index);
     }
 
+    public int removeAll(Collection<String> mediaIds) {
+        if (mediaIds == null || mediaIds.isEmpty()) return 0;
+        Set<String> wanted = new HashSet<>();
+        for (String id : mediaIds) {
+            if (id != null && !id.isEmpty()) wanted.add(id);
+        }
+        if (wanted.isEmpty()) return 0;
+        int before = tracks.size();
+        tracks.removeIf(track -> wanted.contains(track.mediaId));
+        return before - tracks.size();
+    }
+
     /** Move a song, e.g. from a drag in the playlist page. */
     public boolean move(int from, int to) {
         if (from < 0 || from >= tracks.size() || to < 0 || to >= tracks.size() || from == to) {
@@ -210,10 +223,14 @@ public final class LocalPlaylist {
     /**
      * The songs as the page should show them.
      *
-     * <p>Sorting deliberately does not touch {@link #tracks}: the stored order is
-     * what the user arranged by hand and what {@link #applySync} replaces a
-     * subscription's block within, so rewriting it to sort by title would destroy
-     * both. Switching back to {@link #SORT_CUSTOM} restores exactly what was there.
+     * <p>This method itself never touches {@link #tracks} — only a VIEW over
+     * it, computed fresh on every call. {@link #applySync} still replaces a
+     * subscription's block within the stored order directly, independent of
+     * whatever sort happens to be selected. Entering {@link #SORT_CUSTOM} from
+     * another field, though, does rewrite {@link #tracks} (see the caller in
+     * PlayerController.setLocalPlaylistSort) to bake in what this method was
+     * just returning, so dragging continues from what the user was looking at
+     * rather than resurrecting an older arrangement.
      *
      * <p>Ties fall back to the stored order, which makes every sort stable — two
      * songs with the same title keep their relative positions instead of swapping

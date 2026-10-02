@@ -499,6 +499,15 @@ public class SongRowLayoutTest {
             float gripX = 900f - 72f - 22f;
             assertTrue("a drag starts", view.dispatchPointerDown(gripX, 32f));
             settle(view);
+
+            Item carriedAtPickup = view.findByObjectName("reorderFloatingRow");
+            Item removeAtPickup = findIn(carriedAtPickup, "queueRemoveButton");
+            assertNotNull(removeAtPickup);
+            assertEquals("the very first frame of the pickup, before any move,"
+                            + " must also show it centred — y=" + removeAtPickup.y.peekFloat()
+                            + " height=" + removeAtPickup.height.peekFloat(),
+                    32f, removeAtPickup.y.peekFloat() + removeAtPickup.height.peekFloat() / 2f, 0.5f);
+
             view.dispatchPointerMove(gripX, 160f);
             settle(view);
 
@@ -510,6 +519,12 @@ public class SongRowLayoutTest {
                             + ", artist starts at " + carriedArtist.y.peekFloat(),
                     carriedTitle.y.peekFloat() + carriedTitle.height.peekFloat()
                             <= carriedArtist.y.peekFloat());
+            Item carriedRemove = findIn(carried, "queueRemoveButton");
+            assertNotNull(carriedRemove);
+            assertEquals("the carried row's remove button stays centred too (row height 64), "
+                            + "y=" + carriedRemove.y.peekFloat()
+                            + " height=" + carriedRemove.height.peekFloat(),
+                    32f, carriedRemove.y.peekFloat() + carriedRemove.height.peekFloat() / 2f, 0.5f);
 
             view.dispatchPointerUp(gripX, 160f);
             settle(view);

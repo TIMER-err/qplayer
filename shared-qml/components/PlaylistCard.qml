@@ -2,11 +2,13 @@ import QtQuick
 import miuix.Core
 import "."
 
-// Outlined playlist card shared by the home and library grids. Ripple is the
-// only pointer handler: a normal tap opens the playlist, while desktop right-
-// click and a stationary mobile long-press open the context menu at the press
-// position. Keeping one handler also prevents the release after a long-press
-// from leaking through and opening the playlist behind the menu.
+// Outlined playlist card shared by the home and library grids. Two pointer
+// handlers, mutually exclusive on `reorderable`: the plain Ripple (unchanged,
+// used everywhere reorderable is off — home, recommendations, artist pages)
+// opens the context menu on a long-press/right-click; the drag-capable one
+// (library grids only) uses that same gesture to pick the card up instead,
+// since the overflow button below is the guaranteed, unambiguous way into the
+// menu once dragging is a possibility on the card body itself.
 Item {
     id: card
 
@@ -26,6 +28,11 @@ Item {
     // you merely follow.
     property bool deletable: false
     property bool subscribed: false
+    // Library-grid opt-in for the always-there overflow button below. Off by
+    // default so a plain recommendation card (home, artist page — never
+    // reorderable, never at risk of the long-press ambiguity) stays exactly as
+    // it was rather than growing a button nobody there asked for.
+    property bool showOverflow: false
     property real tile: 160
     property bool _menuArmed: false
     onPlaylistIdChanged: {
@@ -35,6 +42,25 @@ Item {
     signal clicked()
     signal deleteRequested()
     signal unsubscribeRequested()
+
+    // Drag-to-reorder (library grids only). Same contract shape as
+    // PlaylistListRow's, but 2D: the grid needs both axes to convert a pointer
+    // position into a row/column drop target.
+    property bool reorderable: false
+    property real reorderContentX: 0
+    property real reorderContentY: 0
+    property real reorderGrabOffsetX: 0
+    property real reorderGrabOffsetY: 0
+    /** True for the card being carried: drawn once by the grid's own floating
+     *  copy, so this instance (still sitting in the Repeater) just visually
+     *  lifts in place until the model catches up on release. */
+    property bool dragging: false
+    signal reorderPressed()
+    signal reorderDragged()
+    signal reorderReleased()
+
+    scale: card.dragging ? 1.05 : 1.0
+    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
 
     implicitWidth: tile
     implicitHeight: tile + 72
@@ -56,7 +82,10 @@ Item {
         width: card.width
         height: card.height
         radius: 20
-        color: cardRipple.containsMouse ? Theme.color.surfaceContainerHigh : Theme.color.surfaceContainer
+        color: card.dragging ? Theme.color.surfaceContainerHighest
+             : (cardRipple.containsMouse ? Theme.color.surfaceContainerHigh : Theme.color.surfaceContainer)
+        borderWidth: card.dragging ? 2 : 0
+        borderColor: Theme.color.primary
 
         // A quiet state layer makes the whole tile read as interactive before the
         // press ripple starts, without washing out the cover artwork.
@@ -64,7 +93,7 @@ Item {
             anchors.fill: parent
             radius: parent.radius
             color: Theme.color.onSurfaceColor
-            opacity: cardRipple.containsMouse ? 0.04 : 0
+            opacity: card.dragging ? 0 : (cardRipple.containsMouse ? 0.04 : 0)
             Behavior on opacity {
                 NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
             }
@@ -119,6 +148,8 @@ Item {
         y: 0
         width: card.width
         height: card.height
+        visible: !card.reorderable
+        enabled: !card.reorderable
         clipRadius: 20
         rippleColor: Theme.color.onSurfaceColor
         longPressEnabled: true
@@ -133,6 +164,111 @@ Item {
             card._menuArmed = true
             cardMenu.rebuild()
             cardMenu.open(cardRipple, cardRipple.pressX, cardRipple.pressY)
+        }
+    }
+
+    // Reorderable cards get a plain MouseArea instead: a long-press (real hold,
+    // not right-click — a reflex right-click starting a drag would be a nasty
+    // surprise) picks the card up rather than opening the menu. No ripple while
+    // this is active; the lift itself (see the container's dragging state) is
+    // the feedback.
+    MouseArea {
+        id: dragArea
+        objectName: "playlistCardDragArea"
+        x: 0
+        y: 0
+        width: card.width
+        height: card.height
+        visible: card.reorderable
+        enabled: card.reorderable
+        preventStealing: true
+        property real _downX: 0
+        property real _downY: 0
+        property bool _longFired: false
+
+        Timer {
+            id: holdTimer
+            interval: 480
+            onTriggered: {
+                dragArea._longFired = true
+                card.reorderGrabOffsetX = dragArea._downX
+                card.reorderGrabOffsetY = dragArea._downY
+                card.reorderContentX = card.x + card.reorderGrabOffsetX
+                card.reorderContentY = card.y + card.reorderGrabOffsetY
+                card.reorderPressed()
+            }
+        }
+        onPressed: (mouse) => {
+            dragArea._downX = mouse.x
+            dragArea._downY = mouse.y
+            dragArea._longFired = false
+            holdTimer.restart()
+        }
+        onPositionChanged: (mouse) => {
+            if (dragArea._longFired) {
+                card.reorderContentX = card.x + mouse.x
+                card.reorderContentY = card.y + mouse.y
+                card.reorderDragged()
+                return
+            }
+            if (holdTimer.running) {
+                var dx = mouse.x - dragArea._downX
+                var dy = mouse.y - dragArea._downY
+                if (dx * dx + dy * dy > 100) holdTimer.stop()
+            }
+        }
+        onReleased: {
+            holdTimer.stop()
+            if (dragArea._longFired) {
+                card.reorderReleased()
+                dragArea._longFired = false
+                return
+            }
+            card.clicked()
+        }
+        onCanceled: {
+            holdTimer.stop()
+            if (dragArea._longFired) {
+                card.reorderReleased()
+                dragArea._longFired = false
+            }
+        }
+    }
+
+    // Always available regardless of reorderable/dragging state — same reasoning
+    // as PlaylistListRow's own overflow button: a guaranteed, unambiguous way
+    // into the menu that never depends on a long-press gesture landing right.
+    Item {
+        id: overflowButton
+        objectName: "playlistCardOverflowButton"
+        width: 32
+        height: 32
+        x: card.width - width - 10
+        y: 10
+        z: 3
+        visible: card.showOverflow && !card.dragging
+
+        Rectangle {
+            anchors.fill: parent
+            radius: width / 2
+            color: Theme.color.scrim
+            opacity: 0.45
+        }
+        Text {
+            width: parent.width
+            height: parent.height
+            horizontalAlignment: Text.AlignHCenter
+            text: "more_vert"
+            font.family: Theme.iconFont.name
+            font.pixelSize: 18
+            color: "white"
+        }
+        MouseArea {
+            anchors.fill: parent
+            onClicked: {
+                cardMenu.rebuild()
+                cardMenu.open(overflowButton, 0, overflowButton.height)
+            }
         }
     }
 

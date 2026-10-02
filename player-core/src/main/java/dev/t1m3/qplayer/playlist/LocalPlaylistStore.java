@@ -96,6 +96,17 @@ public final class LocalPlaylistStore {
         return copy(playlist);
     }
 
+    /** Reorder the playlists themselves (the library grid's own drag-to-reorder,
+     *  not a playlist's songs — see {@link LocalPlaylist#move} for that). */
+    public synchronized boolean move(int from, int to) {
+        if (from < 0 || from >= playlists.size() || to < 0 || to >= playlists.size() || from == to) {
+            return false;
+        }
+        playlists.add(to, playlists.remove(from));
+        dirty = true;
+        return true;
+    }
+
     public synchronized boolean delete(String id) {
         boolean removed = playlists.removeIf(p -> p.id.equals(id));
         if (removed) dirty = true;

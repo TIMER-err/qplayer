@@ -54,6 +54,12 @@ public final class SettingsCatalog {
     public static final int BG_STYLE_MESH_GRADIENT = 1;
     public static final int BG_STYLE_CLASSIC = 2;
 
+    /** Saturation percent applied to the fluid backdrop's final composite, every
+     *  style — 100 is the unmodified original, 0 is greyscale. Independent of the
+     *  cover-derived contrast/brightness baked into the mesh/classic textures at
+     *  decode time; this is a live multiplier over whichever style is active. */
+    public static final String BG_SATURATION_KEY = "lyricBgSaturation";
+
     // Dark-mode row values (the segmented control's indices).
     public static final int MODE_SYSTEM = 0;
     public static final int MODE_LIGHT = 1;
@@ -95,11 +101,21 @@ public final class SettingsCatalog {
      *  MODE_SYSTEM here means "whatever the app resolved", not literally the
      *  OS state; reuses MODE_SYSTEM/MODE_LIGHT/MODE_DARK from darkMode above. */
     public static final String DESKTOP_LYRIC_COLOR_SCHEME_KEY = "desktopLyricColorScheme";
+    /** Fourth option, meaningful only here (not part of the shared darkMode
+     *  trio above): pick light/dark text by periodically sampling the real
+     *  screen content behind the window instead of any fixed scheme. Desktop
+     *  (Windows) only — see ScreenContrastSampler. */
+    public static final int MODE_CONTRAST = 3;
 
     /** Daily picks above the recommendation grid instead of below it. */
     public static final String HOME_DAILY_FIRST_KEY = "homeDailyFirst";
     /** How many plain recommended playlists the home page asks a source for. */
     public static final String HOME_PLAYLIST_LIMIT_KEY = "homePlaylistLimit";
+    /** Playlist card width on 我的/本地歌单's grid, in dp; only affects the grid —
+     *  list mode (below) always uses a fixed row height instead. */
+    public static final String LIBRARY_CARD_SIZE_KEY = "libraryCardSize";
+    /** Grid of cover cards (false, default) vs. a compact row list. */
+    public static final String LIBRARY_LIST_VIEW_KEY = "libraryListView";
 
     private SettingsCatalog() {}
 
@@ -161,6 +177,17 @@ public final class SettingsCatalog {
                         "settings.homePlaylistLimit.title", 12, 4, 50, 2)
                 .desc("settings.homePlaylistLimit.desc")
                 .group("home")
+                .build());
+        out.add(SettingSpec.toggle(LIBRARY_LIST_VIEW_KEY, APPEARANCE,
+                        "settings.libraryListView.title", false)
+                .desc("settings.libraryListView.desc")
+                .group("library")
+                .build());
+        out.add(SettingSpec.slider(LIBRARY_CARD_SIZE_KEY, APPEARANCE,
+                        "settings.libraryCardSize.title", 200, 100, 260, 10)
+                .desc("settings.libraryCardSize.desc")
+                .unit("dp")
+                .group("library")
                 .build());
 
         // ---- 播放 -----------------------------------------------------------
@@ -250,6 +277,12 @@ public final class SettingsCatalog {
                 .desc("settings.lyricBgStyle.desc")
                 .group("background")
                 .build());
+        out.add(SettingSpec.slider(BG_SATURATION_KEY, LYRIC, "settings.lyricBgSaturation.title",
+                        100, 0, 200, 10)
+                .desc("settings.lyricBgSaturation.desc")
+                .unit("%").dots()
+                .group("background")
+                .build());
         out.add(SettingSpec.toggle("temperaWholeLine", LYRIC, "settings.temperaWholeLine.title", false)
                 .desc("settings.temperaWholeLine.desc")
                 .group("tempera")
@@ -333,7 +366,7 @@ public final class SettingsCatalog {
         out.add(SettingSpec.segmented(DESKTOP_LYRIC_COLOR_SCHEME_KEY, DESKTOP_LYRIC,
                         "settings.desktopLyricColorScheme.title", MODE_SYSTEM,
                         "settings.desktopLyricColorScheme.app", "settings.desktopLyricColorScheme.light",
-                        "settings.desktopLyricColorScheme.dark")
+                        "settings.desktopLyricColorScheme.dark", "settings.desktopLyricColorScheme.contrast")
                 .desc("settings.desktopLyricColorScheme.desc")
                 .onlyOn(DESKTOP)
                 .dependsOn("desktopLyricEnabled")

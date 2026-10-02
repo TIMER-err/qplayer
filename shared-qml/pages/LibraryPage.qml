@@ -26,31 +26,78 @@ Item {
     // since the grid's pendingPlaylist moves on with the next card interaction.
     property var pendingRemoval
 
+    // Sources the create dialog can target: logged in, and able to create playlists.
+    // Primary is always first (see PlayerController.refreshSourceAccounts), which
+    // keeps index 0 the same default the single-source flow always had.
+    property var creatableSources: {
+        var out = []
+        var list = player.sourceAccounts
+        for (var i = 0; i < list.length; i++) {
+            var row = list[i]
+            if (row.loggedIn && row.canCreatePlaylist) out.push(row)
+        }
+        return out
+    }
+    property int selectedSourceIndex: 0
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
 
-        TabRowWithContour {
-            objectName: "libraryTabs"
+        Item {
             Layout.fillWidth: true
             Layout.leftMargin: 16
             Layout.rightMargin: 16
             Layout.bottomMargin: 8
-            tabs: [i18n.t("library.tab.mine"), i18n.t("playlist.local.title")]
-            selectOnClick: false
-            selectedTabIndex: page.showLocal ? 1 : 0
-            onTabSelected: (index) => page.showLocal = (index === 1)
+            Layout.preferredHeight: 45
+
+            TabRowWithContour {
+                objectName: "libraryTabs"
+                anchors.left: parent.left
+                anchors.right: sortButton.left
+                anchors.rightMargin: sortButton.visible ? 8 : 0
+                height: parent.height
+                tabs: [i18n.t("library.tab.mine"), i18n.t("playlist.local.title")]
+                selectOnClick: false
+                selectedTabIndex: page.showLocal ? 1 : 0
+                onTabSelected: (index) => page.showLocal = (index === 1)
+            }
+
+            // Sort only applies to 我的: local playlists have no "source" to group
+            // by, and are always draggable in list view without picking a mode.
+            IconButton {
+                id: sortButton
+                objectName: "librarySortButton"
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                visible: !page.showLocal
+                type: "standard"
+                icon: "sort"
+                onClicked: { sortMenu.rebuild(); sortMenu.open(sortButton, 0, sortButton.height) }
+            }
         }
 
         Item {
+            id: contentArea
             Layout.fillWidth: true
             Layout.fillHeight: true
+            readonly property bool listView: settings.value("libraryListView") === true
+            readonly property real cardSize: settings.value("libraryCardSize") || 200
 
             PlaylistGrid {
                 id: localGrid
                 anchors.fill: parent
-                visible: page.showLocal
+                // enabled, not just visible: an inactive grid/list still sits at the
+                // same anchors.fill geometry as whichever one IS shown, and qml4j does
+                // not skip an invisible item's children during hit-testing — without
+                // this, a right-click landing on one of this grid's (unseen) cards
+                // opens ITS plain context menu instead of the visible list row's.
+                enabled: visible
+                visible: page.showLocal && !contentArea.listView
                 list: page.showLocal ? player.localPlaylists : null
+                minTile: contentArea.cardSize
+                // Same as the local list view — the only order these have.
+                reorderable: true
                 onOpenPlaylist: {
                     page.pendingPlaylist = localGrid.pendingPlaylist
                     page.openLocalPlaylist()
@@ -59,16 +106,40 @@ Item {
                     page.pendingRemoval = localGrid.pendingPlaylist
                     if (page.pendingRemoval) localDeleteDialog.open()
                 }
+                onMoveRequested: player.moveLocalPlaylistCard(localGrid.moveFrom, localGrid.moveTo)
+            }
+
+            VirtualPlaylistList {
+                id: localList
+                anchors.fill: parent
+                enabled: visible
+                visible: page.showLocal && contentArea.listView
+                list: page.showLocal ? player.localPlaylists : null
+                // The only order a set of local playlists has — no mode to pick.
+                reorderable: true
+                onOpenPlaylist: {
+                    page.pendingPlaylist = localList.pendingPlaylist
+                    page.openLocalPlaylist()
+                }
+                onDeletePlaylistRequested: {
+                    page.pendingRemoval = localList.pendingPlaylist
+                    if (page.pendingRemoval) localDeleteDialog.open()
+                }
+                onMoveRequested: player.moveLocalPlaylistCard(localList.moveFrom, localList.moveTo)
             }
 
             PlaylistGrid {
                 id: grid
                 anchors.fill: parent
-                visible: !page.showLocal && (player.loggedIn || page.hasPlaylists)
+                enabled: visible
+                visible: !page.showLocal && !contentArea.listView && (player.loggedIn || page.hasPlaylists)
                 list: !page.showLocal
                       ? ((player.sourceContentActive || page.hasPlaylists)
                          ? player.sourceMyPlaylists : player.myPlaylists)
                       : null
+                minTile: contentArea.cardSize
+                // Same rule as the list view: only draggable in custom mode.
+                reorderable: player.librarySortMode === "custom"
                 onOpenPlaylist: { page.pendingPlaylist = grid.pendingPlaylist; page.openPlaylist() }
                 // Deleting is destructive and confirms first; un-collecting is reversible
                 // and matches the detail page's own bookmark button, which acts at once.
@@ -80,6 +151,31 @@ Item {
                     var target = grid.pendingPlaylist
                     if (target) player.setMediaPlaylistSubscribed("" + target.id, false)
                 }
+                onMoveRequested: player.moveMyPlaylist(grid.moveFrom, grid.moveTo)
+            }
+
+            VirtualPlaylistList {
+                id: sourceList
+                anchors.fill: parent
+                enabled: visible
+                visible: !page.showLocal && contentArea.listView && (player.loggedIn || page.hasPlaylists)
+                list: !page.showLocal
+                      ? ((player.sourceContentActive || page.hasPlaylists)
+                         ? player.sourceMyPlaylists : player.myPlaylists)
+                      : null
+                // Only draggable in custom mode — same rule as the local song sort
+                // menu: a drag in the source-grouped view has nowhere stable to land.
+                reorderable: player.librarySortMode === "custom"
+                onOpenPlaylist: { page.pendingPlaylist = sourceList.pendingPlaylist; page.openPlaylist() }
+                onDeletePlaylistRequested: {
+                    page.pendingRemoval = sourceList.pendingPlaylist
+                    if (page.pendingRemoval) deleteDialog.open()
+                }
+                onUnsubscribePlaylistRequested: {
+                    var target = sourceList.pendingPlaylist
+                    if (target) player.setMediaPlaylistSubscribed("" + target.id, false)
+                }
+                onMoveRequested: player.moveMyPlaylist(sourceList.moveFrom, sourceList.moveTo)
             }
 
             EmptyState {
@@ -99,6 +195,33 @@ Item {
                 actionText: i18n.t("library.signInButton")
                 onActionRequested: page.requestLogin()
             }
+        }
+    }
+
+    // 我的's sort mode. "Custom" is the only mode a drag can land in — see
+    // reorderable on sourceList above — so picking either entry here also
+    // decides whether the list view's drag handles do anything.
+    Menu {
+        id: sortMenu
+        outlined: true
+        function rebuild() {
+            var modes = [
+                { key: "source", label: i18n.t("library.sort.source") },
+                { key: "custom", label: i18n.t("library.sort.custom") }
+            ]
+            var items = []
+            for (var i = 0; i < modes.length; i++) items.push(sortMenu._item(modes[i]))
+            sortMenu.model = items
+        }
+        function _item(entry) {
+            return {
+                text: entry.label,
+                icon: player.librarySortMode === entry.key ? "check" : "",
+                action: sortMenu._apply(entry.key)
+            }
+        }
+        function _apply(key) {
+            return function() { player.setLibrarySortMode(key) }
         }
     }
 
@@ -126,7 +249,7 @@ Item {
                                          || player.sourcePlaylistMutationAvailable))
         type: "standard"
         icon: "add"
-        onClicked: { nameField.text = ""; createDialog.open() }
+        onClicked: { nameField.text = ""; page.selectedSourceIndex = 0; createDialog.open() }
     }
 
     Dialog {
@@ -140,16 +263,45 @@ Item {
                               : i18n.t("library.create.title")
         acceptText: i18n.t("library.create.accept")
         rejectText: i18n.t("common.cancel")
-        onAccepted: page.showLocal ? player.createLocalPlaylist(nameField.text)
-                                   : player.createPlaylist(nameField.text)
+        onAccepted: {
+            if (page.showLocal) { player.createLocalPlaylist(nameField.text); return }
+            var sources = page.creatableSources
+            var targetProvider = ""
+            if (sources.length > 0) {
+                var idx = Math.max(0, Math.min(page.selectedSourceIndex, sources.length - 1))
+                targetProvider = sources[idx].providerId
+            }
+            player.createPlaylist(nameField.text, targetProvider)
+        }
 
-        TextField {
-            id: nameField
-            anchors.left: parent.left
-            anchors.right: parent.right
-            type: "outlined"
-            label: i18n.t("library.create.hint")
-            onAccepted: { createDialog.accepted(); createDialog.close() }
+        Column {
+            width: parent.width
+            spacing: 12
+
+            // Only shown once there is an actual choice to make: a single logged-in,
+            // playlist-capable source keeps the old one-field dialog unchanged.
+            TabRowWithContour {
+                id: sourcePicker
+                width: parent.width
+                visible: !page.showLocal && page.creatableSources.length > 1
+                tabs: {
+                    var out = []
+                    var sources = page.creatableSources
+                    for (var i = 0; i < sources.length; i++) out.push(sources[i].sourceName)
+                    return out
+                }
+                equalWidth: false
+                selectedTabIndex: page.selectedSourceIndex
+                onTabSelected: (index) => page.selectedSourceIndex = index
+            }
+
+            TextField {
+                id: nameField
+                width: parent.width
+                type: "outlined"
+                label: i18n.t("library.create.hint")
+                onAccepted: { createDialog.accepted(); createDialog.close() }
+            }
         }
     }
 
