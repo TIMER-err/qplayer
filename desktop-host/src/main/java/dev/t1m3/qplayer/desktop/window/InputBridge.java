@@ -26,6 +26,7 @@ import org.lwjgl.glfw.GLFW;
 final class InputBridge {
 
     private static final float LYRIC_TAP_SLOP = 12f;
+    private static final long FULLSCREEN_EXIT_HOLD_NANOS = 1_200_000_000L;
 
     private final DesktopWindow win;
 
@@ -57,6 +58,11 @@ final class InputBridge {
     private double pendingScrollX;
     private double pendingScrollY;
     private long lastScrollNanos;
+    // GLFW key callbacks run on the main thread; the per-frame progress update
+    // runs on the renderer, so the hold state is deliberately volatile.
+    private volatile boolean escapeHeld;
+    private volatile boolean escapePressedInFullscreen;
+    private volatile long escapeHoldStartedNanos;
 
     // Lyric-body gesture state (render-thread only).
     private boolean lyGrab;
@@ -98,6 +104,13 @@ final class InputBridge {
             });
         });
         GLFW.glfwSetKeyCallback(window, (w, key, scancode, action, mods) -> {
+            if (key == GLFW.GLFW_KEY_F11) {
+                if (action == GLFW.GLFW_PRESS) {
+                    cancelFullscreenExitHold();
+                    win.toggleFullscreen();
+                }
+                return;
+            }
             // Text-editing shortcuts: Ctrl (Win/Linux) or Cmd (macOS) + A/C/X/V. The
             // engine exposes copy/cut/paste as explicit calls (not part of dispatchKey)
             // and has no select-all at all, so the host must route the accelerators —
@@ -128,16 +141,12 @@ final class InputBridge {
                 });
                 return;
             }
-            // Esc mirrors the mobile back gesture: pop the top-most overlay/page (lyric,
-            // queue, settings, detail, ...) and finally request exit, via the same backTick
-            // the Android back button drives (PlayerController.pressBack -> QML handleBack).
-            // Host-side on the main thread; ignore auto-repeat + release so a held Esc pops
-            // only once. Not routed through dispatchKey — QML has no Escape handler.
+            // While fullscreen, Escape is intentionally not a normal Back press:
+            // holding it for the full interval exits, while an early release only
+            // cancels the indicator. Outside fullscreen it keeps the existing Back
+            // behavior. Repeat events never retrigger either path.
             if (key == GLFW.GLFW_KEY_ESCAPE) {
-                if (action == GLFW.GLFW_PRESS) {
-                    PlayerController controller = win.controller();
-                    if (controller != null) controller.pressBack();
-                }
+                handleEscape(action);
                 return;
             }
             // Space toggles play/pause, like a media player — but NOT while typing into a
@@ -170,6 +179,58 @@ final class InputBridge {
                 if (v != null && !s.isEmpty()) v.dispatchKey(0, s, true);
             });
         });
+    }
+
+    private void handleEscape(int action) {
+        if (action == GLFW.GLFW_RELEASE && escapePressedInFullscreen) {
+            escapeHeld = false;
+            escapePressedInFullscreen = false;
+            escapeHoldStartedNanos = 0L;
+            win.postRenderTask(() -> win.setFullscreenExitHold(false, 0.0));
+            return;
+        }
+        if (action != GLFW.GLFW_PRESS) return;
+        if (!win.isFullscreen()) {
+            PlayerController controller = win.controller();
+            if (controller != null) controller.pressBack();
+            return;
+        }
+        escapePressedInFullscreen = true;
+        escapeHeld = true;
+        escapeHoldStartedNanos = System.nanoTime();
+        win.postRenderTask(() -> win.setFullscreenExitHold(true, 0.0));
+    }
+
+    void cancelFullscreenExitHold() {
+        if (!escapeHeld && !escapePressedInFullscreen) return;
+        escapeHeld = false;
+        escapePressedInFullscreen = false;
+        escapeHoldStartedNanos = 0L;
+        win.postRenderTask(() -> win.setFullscreenExitHold(false, 0.0));
+    }
+
+    /** Called once per rendered frame. */
+    void tick() {
+        tickFullscreenExitHold();
+        tickScroll();
+    }
+
+    private void tickFullscreenExitHold() {
+        if (!escapeHeld) return;
+        if (!win.isFullscreen()) {
+            escapeHeld = false;
+            win.setFullscreenExitHold(false, 0.0);
+            return;
+        }
+        double progress = (System.nanoTime() - escapeHoldStartedNanos)
+                / (double) FULLSCREEN_EXIT_HOLD_NANOS;
+        if (progress >= 1.0) {
+            escapeHeld = false;
+            win.setFullscreenExitHold(true, 1.0);
+            win.requestExitFullscreen();
+            return;
+        }
+        win.setFullscreenExitHold(true, progress);
     }
 
     /** Called once per frame on the render thread: ease the accumulated wheel notches

@@ -111,6 +111,9 @@ public final class LyricCompositor {
     // The QML lyric-chrome subtree (objectName "lyricChrome"), rendered on top of
     // the host fluid; looked up once after the scene loads.
     private Item lyricChrome;
+    // Sibling of lyricChrome in Main.qml. Immersive host-drawn pages cover the
+    // normal root render, so this subtree is replayed once more as the final layer.
+    private Item fullscreenExitIndicator;
 
     // Wall-clock extrapolation of the coarse backend position for smooth lyric motion.
     // The clock uses PlayerController's actual-started state, not its play-button intent:
@@ -278,7 +281,8 @@ public final class LyricCompositor {
                           DirectContext ctx, float uiScale, int fbW, int fbH) {
         temperaPage.advanceFade(controller, System.nanoTime());
         view.dirtyQueue().flush();
-        if (temperaVisible(controller)) {
+        boolean temperaActive = temperaVisible(controller);
+        if (temperaActive) {
             configureTempera(settings);
             if (temperaChrome == null) temperaChrome = view.findByObjectName("temperaChrome");
             TemperaCompositor.composite(canvas, renderer, temperaChrome, temperaPage, controller,
@@ -289,6 +293,24 @@ public final class LyricCompositor {
             temperaPage.releaseResources();
             compositeLyrics(canvas, renderer, view, controller, settings, ctx, uiScale, fbW, fbH);
         }
+        boolean lyricActive = controller != null && controller.lyricSlide.peek() > 0.001;
+        if (temperaActive || lyricActive) {
+            drawFullscreenExitIndicator(canvas, renderer, view, uiScale, fbW, fbH);
+        }
+    }
+
+    private void drawFullscreenExitIndicator(Canvas canvas, Renderer renderer, QmlView view,
+                                             float uiScale, int fbW, int fbH) {
+        if (fullscreenExitIndicator == null) {
+            fullscreenExitIndicator = view.findByObjectName("fullscreenExitIndicator");
+        }
+        if (fullscreenExitIndicator == null) return;
+        renderer.layoutOnly(fullscreenExitIndicator);
+        int save = canvas.save();
+        canvas.scale(uiScale, uiScale);
+        renderer.renderSubtree(canvas, fullscreenExitIndicator,
+                fbW / uiScale, fbH / uiScale);
+        canvas.restoreToCount(save);
     }
 
     public boolean temperaVisible(PlayerController controller) {
@@ -741,6 +763,7 @@ public final class LyricCompositor {
     public void onSceneReloaded() {
         temperaChrome = null;
         lyricChrome = null;
+        fullscreenExitIndicator = null;
         renderedVersion = -1;
     }
 

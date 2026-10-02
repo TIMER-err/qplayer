@@ -156,7 +156,7 @@ final class WinFrameless {
                 window.onNativeFramebufferResize(
                         packed & 0xFFFF, (packed >>> 16) & 0xFFFF);
             }
-            if (msg == WM_NCCALCSIZE) return ncCalcSize(h, wParam, lParam);
+            if (msg == WM_NCCALCSIZE) return ncCalcSize(h, wParam, lParam, window);
             if (msg == WM_NCHITTEST) return hitTest(h, lParam, window, titleBarHeightLogicalPx);
             if (msg == WM_NCACTIVATE) return U32.I.DefWindowProcW(h, msg, wParam, new LPARAM(-1));
             if (msg == WM_DWMCOMPOSITIONCHANGED && this.extendLegacyDwmFrame) {
@@ -204,7 +204,9 @@ final class WinFrameless {
      *  overhangs the taskbar/screen edge by the invisible resize-border
      *  thickness a WS_THICKFRAME window still nominally has. This is the
      *  standard fix for that exact (very common) DIY-frameless-window bug. */
-    private LRESULT ncCalcSize(HWND hwnd, WPARAM wParam, LPARAM lParam) {
+    private LRESULT ncCalcSize(HWND hwnd, WPARAM wParam, LPARAM lParam,
+                               DesktopWindow window) {
+        if (window.isFullscreen()) return new LRESULT(0);
         if (U32.I.IsZoomed(hwnd)) {
             RECT work = monitorWorkArea(hwnd);
             if (work != null) {
@@ -249,6 +251,7 @@ final class WinFrameless {
      *  under the caption buttons, matching native convention (you can still
      *  grab-resize from the literal top pixel row above a close button). */
     private LRESULT hitTest(HWND hwnd, LPARAM lParam, DesktopWindow window, double titleBarHeightLogicalPx) {
+        if (window.isFullscreen()) return new LRESULT(HTCLIENT);
         RECT rect = new RECT();
         if (!U32.I.GetWindowRect(hwnd, rect)) return new LRESULT(HTCLIENT);
         int lp = lParam.intValue();

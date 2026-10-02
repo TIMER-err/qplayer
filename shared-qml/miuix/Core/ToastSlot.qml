@@ -1,14 +1,8 @@
 import QtQuick
-import QtQuick.Layouts
 import miuix.Core
 
-// One row of the toast stack, visually identical to the original Snackbar
-// (rounded rect, auto height, wrapping text, close icon). The host (ToastStack)
-// assigns it a toast via show() and the slot then owns it until it fades out on
-// its own timer (or via beginDismiss(), e.g. the close icon). A toast NEVER moves
-// between slots, so show() can safely cancel a running fade-out and a fade can
-// never overlap a reflow. Fixed instances because qml4j can't auto-arrange
-// dynamic children — no Repeater.
+// One fixed notification slot. ToastStack owns ordering; this component owns the
+// floating card, lifetime progress and interruptible entrance/exit motion.
 Item {
     id: row
 
@@ -16,103 +10,188 @@ Item {
     property var entry: null
     property string text: ""
     property int timeout: 4000
+    property real _offsetY: 14
+    property real _life: 0
 
     width: parent ? parent.width : 0
-    height: background.height
-
+    height: card.height
     visible: false
     opacity: 0
 
-    // Render a toast: fade in, arm the timer. Cancels any in-flight fade-out, so
-    // an evicted slot (host closed the oldest toast) snaps to the new one.
     function show() {
         hideAnim.stop()
-        visible = true
+        lifeAnim.stop()
+        _life = 0
+        if (!visible) {
+            opacity = 0
+            _offsetY = 14
+            card.scale = 0.96
+            visible = true
+        }
         showAnim.restart()
-        timer.restart()
+        if (timeout > 0) lifeAnim.restart()
     }
 
-    // Fade out; onFinished clears the slot so the host can reuse it.
     function beginDismiss() {
-        timer.stop()
+        if (!visible) return
+        lifeAnim.stop()
+        showAnim.stop()
         hideAnim.restart()
     }
 
-    NumberAnimation {
+    ParallelAnimation {
         id: showAnim
-        target: row
-        property: "opacity"
-        to: 1.0
-        duration: 200
-        easing.type: Easing.OutQuad
+        NumberAnimation {
+            target: row
+            property: "opacity"
+            to: 1
+            duration: 180
+            easing.type: Easing.OutCubic
+        }
+        NumberAnimation {
+            target: row
+            property: "_offsetY"
+            to: 0
+            duration: 220
+            easing.type: Easing.OutCubic
+        }
+        NumberAnimation {
+            target: card
+            property: "scale"
+            to: 1
+            duration: 220
+            easing.type: Easing.OutBack
+        }
     }
 
-    NumberAnimation {
+    ParallelAnimation {
         id: hideAnim
-        target: row
-        property: "opacity"
-        to: 0.0
-        duration: 150
-        easing.type: Easing.InQuad
         onFinished: {
             row.entry = null
             row.visible = false
         }
-    }
-
-    Timer {
-        id: timer
-        interval: row.timeout
-        repeat: false
-        onTriggered: {
-            if (row.entry && row.host) row.host.dismissSlot(row)
+        NumberAnimation {
+            target: row
+            property: "opacity"
+            to: 0
+            duration: 140
+            easing.type: Easing.InCubic
+        }
+        NumberAnimation {
+            target: row
+            property: "_offsetY"
+            to: 10
+            duration: 140
+            easing.type: Easing.InCubic
+        }
+        NumberAnimation {
+            target: card
+            property: "scale"
+            to: 0.97
+            duration: 140
+            easing.type: Easing.InCubic
         }
     }
 
-    Rectangle {
-        id: background
-        width: row.width
-        height: layout.implicitHeight + 28
-        color: Theme.color.inverseSurface
-        radius: 4
+    NumberAnimation {
+        id: lifeAnim
+        target: row
+        property: "_life"
+        from: 0
+        to: 1
+        duration: row.timeout
+        onFinished: row.beginDismiss()
+    }
 
-        RowLayout {
-            id: layout
+    Item {
+        id: card
+        x: (row.width - width) / 2
+        y: row._offsetY
+        width: Math.max(0, Math.min(520, row.width))
+        height: Math.max(68, message.implicitHeight + 28)
+        transformOrigin: Item.Center
+        scale: 0.96
+
+        Surface {
             anchors.fill: parent
-            anchors.margins: 14
-            spacing: 8
+            radius: 20
+            containerColor: Theme.color.surfaceContainerHighest
+            borderWidth: 1
+            borderColor: Theme.color.outlineVariant
+            shadowElevation: 6
+        }
 
-            Text {
-                text: row.text
-                color: Theme.color.inverseOnSurface
-                font.family: Theme.typography.bodyMedium.family
-                font.pixelSize: Theme.typography.bodyMedium.size
-                Layout.fillWidth: true
-                wrapMode: Text.Wrap
-                verticalAlignment: Text.AlignVCenter
+        Rectangle {
+            id: leading
+            x: 14
+            y: (parent.height - height) / 2
+            width: 40
+            height: 40
+            radius: 20
+            color: Theme.color.secondaryContainer
+
+            Icon {
+                anchors.centerIn: parent
+                name: "notifications"
+                width: 21
+                height: 21
+                color: Theme.color.primary
+            }
+        }
+
+        Text {
+            id: message
+            x: 66
+            y: (parent.height - implicitHeight) / 2
+            width: Math.max(0, parent.width - x - 52)
+            text: row.text
+            color: Theme.color.onSurfaceColor
+            font.family: Theme.typography.bodyMedium.family
+            font.pixelSize: Theme.typography.bodyMedium.size
+            wrapMode: Text.Wrap
+            maximumLineCount: 3
+            elide: Text.ElideRight
+        }
+
+        Item {
+            id: dismiss
+            x: parent.width - width - 10
+            y: (parent.height - height) / 2
+            width: 36
+            height: 36
+
+            Ripple {
+                anchors.fill: parent
+                clipRadius: 18
+                rippleColor: Theme.color.onSurfaceColor
+                onClicked: {
+                    if (row.entry && row.host) row.host.dismissSlot(row)
+                }
             }
 
-            // Close Icon
-            Item {
-                Layout.preferredWidth: 36
-                Layout.preferredHeight: 36
+            Icon {
+                anchors.centerIn: parent
+                name: "close"
+                width: 19
+                height: 19
+                color: Theme.color.onSurfaceVariantColor
+            }
+        }
 
-                Ripple {
-                    anchors.fill: parent
-                    clipRadius: 18
-                    rippleColor: Theme.color.inverseOnSurface
-                    onClicked: {
-                        if (row.entry && row.host) row.host.dismissSlot(row)
-                    }
-                }
+        Rectangle {
+            x: 20
+            y: parent.height - 4
+            width: parent.width - 40
+            height: 2
+            radius: 1
+            color: Theme.color.outlineVariant
+            clip: true
 
-                Text {
-                    anchors.centerIn: parent
-                    text: "close"
-                    font.family: Theme.iconFont.name
-                    font.pixelSize: 20
-                    color: Theme.color.inverseOnSurface
-                }
+            Rectangle {
+                width: parent.width * Math.max(0, 1 - row._life)
+                height: parent.height
+                radius: 1
+                color: Theme.color.primary
             }
         }
     }

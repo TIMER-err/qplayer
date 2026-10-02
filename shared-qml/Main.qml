@@ -1010,15 +1010,23 @@ Rectangle {
         z: 20000
     }
 
-    // Windows-only custom title bar (see TitleBar.qml / WinFrameless.java /
-    // WindowChrome.java). hostWindow is registered on EVERY platform (a real,
-    // functional WindowChrome on Windows desktop, a no-op WindowChromeStub
-    // everywhere else -- Android's QmlGLSurfaceView and DesktopWindow both
-    // register it unconditionally) precisely so this component can gate purely
-    // on hostWindow.available rather than the identifier's mere existence --
-    // qml4j's compiler rejects an undeclared top-level identifier at compile
-    // time, even inside a typeof guard on a branch that never runs, so
-    // hostWindow being simply absent on some platforms is not an option here.
+    FullscreenExitIndicator {
+        id: fullscreenExitIndicator
+        objectName: "fullscreenExitIndicator"
+        fullscreen: hostWindow.fullscreen
+        holding: hostWindow.fullscreenExitHold
+        progress: hostWindow.fullscreenExitProgress
+        width: Math.min(260, parent.width - 32)
+        height: 128
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: 24
+        z: 30000
+    }
+
+    // Windows custom title bar. DesktopWindow now registers a live hostWindow
+    // bridge on every desktop OS for fullscreen state; available remains true
+    // only when these custom caption controls are active. Android registers the
+    // inert shape-compatible stub required by qml4j's compile-time name lookup.
     // High z so its caption buttons stay click-priority-correct over any
     // current/future full-window overlay -- the shared Theme.color.surface
     // token underneath means z-order never affects visual seamlessness, only
@@ -1037,7 +1045,8 @@ Rectangle {
         // The lyric page is fully immersive on desktop: the custom bar hides while
         // it's open so LyricOverlay's own three title buttons can sit flush at the
         // top (see LyricOverlay.topPad). Symmetric with LyricOverlay.visible.
-        visible: hostWindow.available && !(player.lyricSlide > 0.001)
+        visible: hostWindow.available && !hostWindow.fullscreen
+                 && !(player.lyricSlide > 0.001)
                  && !player.temperaOpen && player.temperaOpacity <= 0.001
         height: settings.topInset
         z: 10000

@@ -19,9 +19,9 @@ Item {
     anchors.leftMargin: 16
     anchors.rightMargin: 16
     anchors.bottomMargin: 24
-    // Rows are auto-height; give the control a generous fixed height so the
-    // bottom-anchored slots always fit. Item doesn't clip, so overflow is fine.
-    height: maxVisible * 72 + (maxVisible - 1) * 8
+    // Multiline cards may exceed this reservation; Item deliberately does not
+    // clip, and the bottom-anchored chain continues upward without reflow.
+    height: maxVisible * 96 + (maxVisible - 1) * 10
 
     function show(msg) {
         if (msg === undefined || msg === null || msg === "") return
@@ -46,8 +46,8 @@ Item {
         return null
     }
 
-    // Slot 0 = BOTTOM (newest + the one evicted when the stack is full);
-    // anchors stack bottom-up so filled slots read top-to-bottom in display order.
+    // Slot 0 is filled first and therefore becomes the oldest/bottom card.
+    // Newer cards stack above it; a full stack reuses slot 0.
     ToastSlot {
         id: slot0
         anchors.bottom: parent.bottom
@@ -59,7 +59,7 @@ Item {
     ToastSlot {
         id: slot1
         anchors.bottom: slot0.top
-        anchors.bottomMargin: 8
+        anchors.bottomMargin: 10
         anchors.horizontalCenter: parent.horizontalCenter
         width: parent.width
         timeout: control.timeout
@@ -68,7 +68,7 @@ Item {
     ToastSlot {
         id: slot2
         anchors.bottom: slot1.top
-        anchors.bottomMargin: 8
+        anchors.bottomMargin: 10
         anchors.horizontalCenter: parent.horizontalCenter
         width: parent.width
         timeout: control.timeout
