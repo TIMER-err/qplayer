@@ -22,6 +22,11 @@ Flickable {
     objectName: "virtualSongList"
 
     property var list
+    // Optional content that scrolls ahead of row 0. Keep its height explicit:
+    // callers know their responsive geometry, while the virtualizer can offset
+    // rows and drag coordinates without instantiating an unbounded delegate list.
+    property Component header
+    property real headerHeight: 0
     property bool isLocal: false
     // Decoupled from isLocal: a list can use the local title/artist field mapping
     // (isLocal) without actually being the live queue (e.g. the custom-playlist tab),
@@ -104,11 +109,13 @@ Flickable {
      *  drop into. Shared by the drag itself and the auto-scroll tick. */
     function _applyDragTarget(contentPos) {
         if (view._dragFrom < 0 || view.count <= 0) return
+        var rowPos = contentPos - view.headerHeight
         var maxY = Math.max(0, (view.count - 1) * view.rowH)
-        view._dragFloatY = Math.max(0, Math.min(maxY, contentPos - view._dragGrabOffset))
+        var rowY = Math.max(0, Math.min(maxY, rowPos - view._dragGrabOffset))
+        view._dragFloatY = view.headerHeight + rowY
         // Measure from the carried row's middle, so the gap opens when the row
         // has actually covered its neighbour rather than when its top edge grazes it.
-        var target = Math.floor((view._dragFloatY + view.rowH / 2) / view.rowH)
+        var target = Math.floor((rowY + view.rowH / 2) / view.rowH)
         if (target < 0) target = 0
         if (target > view.count - 1) target = view.count - 1
         view._dropIndex = target
@@ -194,7 +201,8 @@ Flickable {
     // Global index of the topmost live row, clamped so the window never runs past
     // either end (and stays full at the tail, pinned to count-window).
     property int first: {
-        var f = Math.floor(viewportY / rowH) - buffer;
+        var rowViewportY = Math.max(0, viewportY - headerHeight)
+        var f = Math.floor(rowViewportY / rowH) - buffer;
         var maxFirst = count - window;
         if (f > maxFirst) f = maxFirst;
         if (f < 0) f = 0;
@@ -203,7 +211,7 @@ Flickable {
 
     clip: true
     contentWidth: width
-    contentHeight: count * rowH
+    contentHeight: headerHeight + count * rowH
 
     function requestMoreIfNeeded() {
         if (!loadMoreEnabled || contentHeight <= 0) return
@@ -218,6 +226,13 @@ Flickable {
         requestMoreIfNeeded()
     }
     onHeightChanged: requestMoreIfNeeded()
+
+    Loader {
+        width: view.width
+        height: view.headerHeight
+        active: view.header !== null
+        sourceComponent: view.header
+    }
 
     Item {
         width: view.width
@@ -240,7 +255,8 @@ Flickable {
                 // `y` also jumps when the window recycles this delegate onto another
                 // index, and that jump must stay instant. Dropped the moment the
                 // gesture ends so the settled row does not glide in from the gap.
-                y: index * view.rowH + (view._dragFrom >= 0 ? reorderShift : 0)
+                y: view.headerHeight + index * view.rowH
+                   + (view._dragFrom >= 0 ? reorderShift : 0)
                 rowTitle: view.isLocal ? modelData.title : modelData.name
                 rowArtist: modelData.artist
                 rowArtistId: modelData.artistMediaId || modelData.artistId || 0
@@ -291,7 +307,7 @@ Flickable {
                     view._dragFrom = index
                     view._dropIndex = index
                     view._dragGrabOffset = reorderGrabOffset
-                    view._dragFloatY = index * view.rowH
+                    view._dragFloatY = view.headerHeight + index * view.rowH
                     view._dragViewportY = reorderContentY - view.viewportY
                 }
                 onReorderDragged: {
