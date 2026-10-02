@@ -39,6 +39,16 @@ Item {
     property var _anchorItem: null
     property real _anchorXOffset: 0
     property real _anchorYOffset: 0
+    // Only a keyboard-driven close (Escape, or Enter on an arrow-key-selected
+    // item) should hand focus back to the anchor so Tab navigation keeps
+    // working. A pointer-driven close (clicking an item, clicking the scrim)
+    // must not: IconButton already clears its own focus on mouse press
+    // specifically so a tapped icon button shows no lingering highlight, and
+    // forceActiveFocus() here was undoing that unconditionally on every close
+    // -- the anchor button lit up right as the menu dismissed and stayed lit
+    // until something else took focus, backwards from what a mouse/touch user
+    // would expect (highlighted while idle, not while the menu is open).
+    property bool _restoreFocusOnClose: false
     
     // Theme Colors
     property var _colors: Theme.color
@@ -81,10 +91,10 @@ Item {
     Item {
         id: overlayLayer
         visible: false
-        Keys.onEscapePressed: { control.close(); event.accepted = true }
+        Keys.onEscapePressed: { control._restoreFocusOnClose = true; control.close(); event.accepted = true }
         Keys.onDownPressed: { control.moveSelection(1); event.accepted = true }
         Keys.onUpPressed: { control.moveSelection(-1); event.accepted = true }
-        Keys.onReturnPressed: { control.activateSelection(); event.accepted = true }
+        Keys.onReturnPressed: { control._restoreFocusOnClose = true; control.activateSelection(); event.accepted = true }
         
         // Helper to close menu
         function close() { 
@@ -438,6 +448,7 @@ Item {
             control._anchorItem = target
             control._anchorXOffset = xOffset !== undefined ? xOffset : 0
             control._anchorYOffset = yOffset !== undefined ? yOffset : 0
+            control._restoreFocusOnClose = false
 
             overlayLayer.visible = true
             overlayLayer.forceActiveFocus()
@@ -462,7 +473,8 @@ Item {
             control.activeSubMenu.dismissImmediately()
             control.activeSubMenu = null
         }
-        if (control._anchorItem) control._anchorItem.forceActiveFocus()
+        if (control._restoreFocusOnClose && control._anchorItem) control._anchorItem.forceActiveFocus()
+        control._restoreFocusOnClose = false
         control._anchorItem = null
         overlayLayer.forceClose()
         if (control.ownerMenu) {
