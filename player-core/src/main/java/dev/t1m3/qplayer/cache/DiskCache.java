@@ -70,6 +70,30 @@ public final class DiskCache {
     private final Set<String> activelyCachedIds = Collections.synchronizedSet(new HashSet<>());
     private volatile boolean activelyCachedDirty = false;
 
+    /** Cache key (same shape as an {@link #activelyCachedIds} entry — a bare
+     *  netease id, or the hashed key for a canonical media id) of whatever
+     *  track is actively playing right now, independent of the user's own
+     *  "缓存此歌曲" pins above. {@link #touch} bumps a file's mtime on every
+     *  read, and the audio eviction policy below deliberately evicts the
+     *  NEWEST unprotected file first — without this, simply playing a cached
+     *  song could make its own file the very next eviction's first victim,
+     *  deleting it out from under the still-open player mid-playback and
+     *  surfacing as a spurious "track completed" / auto-skip. Transient, not
+     *  persisted: only ever needs to protect whatever is playing right now. */
+    private volatile String currentlyPlayingKey;
+
+    public void setCurrentlyPlaying(long neteaseId) {
+        currentlyPlayingKey = neteaseId > 0 ? Long.toString(neteaseId) : null;
+    }
+
+    public void setCurrentlyPlaying(String mediaId) {
+        currentlyPlayingKey = mediaId != null && !mediaId.isEmpty() ? audioKey(mediaId) : null;
+    }
+
+    public void clearCurrentlyPlaying() {
+        currentlyPlayingKey = null;
+    }
+
     public DiskCache(long maxSizeMB) {
         this.maxSizeBytes = maxSizeMB * 1024L * 1024L;
     }
@@ -465,7 +489,12 @@ public final class DiskCache {
             File[] children = dir.listFiles();
             if (children == null) continue;
             for (File f : children) {
-                if (dir == audioDir && activelyCachedIds.contains(fileStem(f.getPath()))) continue; // protected
+                if (dir == audioDir) {
+                    String stem = fileStem(f.getPath());
+                    if (activelyCachedIds.contains(stem) || stem.equals(currentlyPlayingKey)) {
+                        continue; // protected
+                    }
+                }
                 files.add(f);
             }
         }
