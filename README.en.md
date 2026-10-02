@@ -165,6 +165,7 @@ the Linux system. The AppImage bundles the JVM and Java dependencies, but not th
 host graphics and WebView stack:
 
 - OpenGL/EGL, the Vulkan loader, Fontconfig and the C++ runtime for Skija/LWJGL rendering;
+- PipeWire, PulseAudio or ALSA client libraries for OpenAL Soft audio output;
 - GLib/GIO, GTK 3, Cairo and X11 for MPRIS, the system tray and WebView;
 - WebKitGTK 4.1 and `glib-networking` for the login WebView and its HTTPS/TLS
   backend;
@@ -173,17 +174,18 @@ host graphics and WebView stack:
   owner-readable local key.
 
 Package names vary by distribution. Common Debian/Ubuntu names are `libgl1`,
-`libegl1`, `libvulkan1`, `libfontconfig1`, `libgtk-3-0`, `libcairo2`,
-`libx11-6`, `libwebkit2gtk-4.1-0`, `glib-networking`, `libstdc++6` and
-`libsecret-tools` (newer releases may use `t64` suffixes).
+`libegl1`, `libvulkan1`, `libfontconfig1`, `libpipewire-0.3-0`, `libpulse0`,
+`libasound2`, `libgtk-3-0`, `libcairo2`, `libx11-6`, `libwebkit2gtk-4.1-0`,
+`glib-networking`, `libstdc++6` and `libsecret-tools` (newer releases may use
+`t64` suffixes).
 
 NixOS does not expose these libraries through a global dynamic-linker search path.
 When launching Maven/Java, add the `lib` directories from `libglvnd`,
-`vulkan-loader`, `fontconfig`, `glib`, `gtk3`, `cairo`, `libx11`,
-`webkitgtk_4_1` and `stdenv.cc.cc.lib` to `LD_LIBRARY_PATH`. **Append**
-`${glib-networking}/lib/gio/modules` to `GIO_EXTRA_MODULES` so existing modules
-such as dconf remain available, and put `libsecret` on `PATH` so QPlayer can find
-`secret-tool`.
+`vulkan-loader`, `pipewire`, `libpulseaudio`, `alsa-lib`, `fontconfig`, `glib`,
+`gtk3`, `cairo`, `libx11`, `webkitgtk_4_1` and `stdenv.cc.cc.lib` to
+`LD_LIBRARY_PATH`. **Append** `${glib-networking}/lib/gio/modules` to
+`GIO_EXTRA_MODULES` so existing modules such as dconf remain available, and put
+`libsecret` on `PATH` so QPlayer can find `secret-tool`.
 
 ```sh
 # build once (player-core / desktop-host)

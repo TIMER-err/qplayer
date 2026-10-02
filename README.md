@@ -152,11 +152,12 @@ Linux 从源码运行和发布版 AppImage 都依赖系统提供的原生库；A
 `libsecret-tools`（新版本可能带 `t64` 后缀）。
 
 NixOS 不会把这些库放进全局动态链接器搜索路径。启动 Maven/Java 时需将
-`libglvnd`、`vulkan-loader`、`fontconfig`、`glib`、`gtk3`、`cairo`、
-`libx11`、`webkitgtk_4_1` 和 `stdenv.cc.cc.lib` 的 `lib` 目录加入
-`LD_LIBRARY_PATH`，并把 `${glib-networking}/lib/gio/modules` **追加**到
-`GIO_EXTRA_MODULES`（保留 dconf 等已有模块）；`libsecret` 还需位于
-`PATH`，使 QPlayer 能找到 `secret-tool`。
+`libglvnd`、`vulkan-loader`、`pipewire`、`libpulseaudio`、`alsa-lib`、
+`fontconfig`、`glib`、`gtk3`、`cairo`、`libx11`、`webkitgtk_4_1` 和
+`stdenv.cc.cc.lib` 的 `lib` 目录加入 `LD_LIBRARY_PATH`，并把
+`${glib-networking}/lib/gio/modules` **追加**到 `GIO_EXTRA_MODULES`（保留
+dconf 等已有模块）；`libsecret` 还需位于 `PATH`，使 QPlayer 能找到
+`secret-tool`。
 
 ```sh
 # 构建一次(player-core / desktop-host)
