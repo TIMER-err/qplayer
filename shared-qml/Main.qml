@@ -912,6 +912,7 @@ Rectangle {
     }
 
     MiniPlayer {
+        objectName: "miniPlayer"
         id: mini
         anchors.left: rail.right
         anchors.right: parent.right

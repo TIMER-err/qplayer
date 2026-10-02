@@ -43,7 +43,7 @@ public class ResponsiveComponentLayoutTest {
     }
 
     @Test
-    public void emptyStateCentersMeasuredContentInsideTheAvailableRegion() {
+    public void emptyStateCentersMeasuredContentAndTracksResizing() {
         ClasspathResourceLoader resources = new ClasspathResourceLoader();
         QmlView view = QmlView.withStockTypes(new QmlEngine()).resources(resources);
         try {
@@ -70,6 +70,11 @@ public class ResponsiveComponentLayoutTest {
             assertEquals("Empty-state content must be vertically centred after measuring",
                     state.height.peekFloat() / 2f,
                     content.y.peekFloat() + content.height.peekFloat() / 2f, 0.5f);
+
+            view.root().width.set(800);
+            settle(view);
+            assertEquals("Empty-state content must follow a wider parent",
+                    400f, content.x.peekFloat() + content.width.peekFloat() / 2f, 0.5f);
         } finally {
             view.dispose();
         }

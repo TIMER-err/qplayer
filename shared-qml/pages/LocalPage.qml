@@ -224,6 +224,7 @@ Item {
     }
 
     EmptyState {
+        objectName: "localEmptyState"
         anchors.centerIn: parent
         visible: player.libraryCount === 0
         icon: "folder_open"

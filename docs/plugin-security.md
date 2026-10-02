@@ -33,8 +33,11 @@ trust and review every requested permission.
   validated first, and an off-schema field fails the whole description. The schema
   exposes no colors, images, markup or geometry, so a described dialog cannot
   imitate host chrome it was not given.
-- Disabling a plugin stops its actor and unregisters its network policy. A malformed
-  registry is preserved for recovery and all plugins start disabled.
+- Enablement is stored per validated plugin ID. The settings page reloads that
+  entry when it is reused for another plugin; toggling one entry cannot carry its
+  switch state into another plugin.
+- Disabling a plugin stops only its actor and unregisters only its network policy.
+  A malformed registry is preserved for recovery and all plugins start disabled.
 
 ## Trust and signatures
 

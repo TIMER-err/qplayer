@@ -162,7 +162,17 @@ Rectangle {
                             text: i18n.t("plugin.page.enable.title")
                         }
                         Switch {
-                            checked: page.pluginData ? page.pluginData.enabled : false
+                            id: pluginEnableSwitch
+                            objectName: "pluginEnableSwitch"
+                            // Clicking assigns checked inside Switch and therefore
+                            // replaces its binding. Keep a separate host-state
+                            // binding so this persistent page reloads the next
+                            // plugin's own value instead of carrying the previous
+                            // plugin's toggle across navigation.
+                            property bool storedChecked: page.pluginData
+                                                         ? page.pluginData.enabled : false
+                            checked: storedChecked
+                            onStoredCheckedChanged: checked = storedChecked
                             onClicked: player.setSourcePluginEnabled(page.pluginId, checked)
                         }
                     }
