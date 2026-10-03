@@ -6,7 +6,7 @@ import java.util.Map;
 
 /**
  * A decoded-audio stream: pulls 16-bit signed little-endian interleaved PCM out
- * of a compressed source (mp3/flac/ogg/wav) and supports real seeking. One per
+ * of a compressed source (mp3/flac/ogg/wav/aac in mp4) and supports real seeking. One per
  * playing track; owned by the audio thread. The 16-bit output matches OpenAL's
  * {@code AL_FORMAT_*16} buffer formats directly.
  */
@@ -47,6 +47,7 @@ public interface PcmSource extends AutoCloseable {
                 case OGG:  return new OggPcmSource(bytes);
                 case FLAC: return new FlacPcmSource(bytes);
                 case WAV:  return new WavPcmSource(bytes);
+                case MP4:  return new AacPcmSource(bytes);
                 default:   return new Mp3PcmSource(bytes);
             }
         } catch (IOException | RuntimeException e) {
@@ -55,7 +56,7 @@ public interface PcmSource extends AutoCloseable {
         }
     }
 
-    enum Container { MP3, OGG, FLAC, WAV }
+    enum Container { MP3, OGG, FLAC, WAV, MP4 }
 
     /** Peek the leading magic bytes, then rewind. Falls back to MP3 (the most
      *  common netease payload, and the only one without a fixed magic). */
@@ -69,6 +70,9 @@ public interface PcmSource extends AutoCloseable {
             got += n;
         }
         bytes.seek(0);
+        if (got >= 8 && head[4] == 'f' && head[5] == 't' && head[6] == 'y' && head[7] == 'p') {
+            return Container.MP4;
+        }
         if (got >= 4) {
             if (head[0] == 'O' && head[1] == 'g' && head[2] == 'g' && head[3] == 'S') return Container.OGG;
             if (head[0] == 'f' && head[1] == 'L' && head[2] == 'a' && head[3] == 'C') return Container.FLAC;

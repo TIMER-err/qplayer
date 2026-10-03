@@ -25,7 +25,7 @@ import java.util.stream.Stream;
  */
 public final class LibraryScanner {
 
-    private static final String[] SUPPORTED_EXTS = {".wav", ".mp3", ".ogg", ".flac"};
+    private static final String[] SUPPORTED_EXTS = {".wav", ".mp3", ".ogg", ".flac", ".m4a", ".mp4"};
 
     private final MetadataReader reader;
     private final LibraryCache cache = new LibraryCache();

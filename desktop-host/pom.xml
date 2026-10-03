@@ -280,6 +280,13 @@
             <artifactId>jflac-codec</artifactId>
             <version>1.5.2</version>
         </dependency>
+        <!-- Pure-Java AAC decoder. MP4 sample extraction is handled by the host
+             so both ordinary files and fragmented DASH audio can stream. -->
+        <dependency>
+            <groupId>com.tianscar.javasound</groupId>
+            <artifactId>jaad</artifactId>
+            <version>0.9.4</version>
+        </dependency>
     </dependencies>
 
     <profiles>
