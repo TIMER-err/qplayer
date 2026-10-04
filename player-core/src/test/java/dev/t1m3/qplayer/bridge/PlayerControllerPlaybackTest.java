@@ -821,14 +821,33 @@ public class PlayerControllerPlaybackTest {
             publish.setAccessible(true);
             publish.invoke(controller);
             assertEquals(3, controller.likedCount.peek().intValue());
+            int revisionAfterPublish = controller.likedRevision.peek();
+            assertTrue(revisionAfterPublish > 0);
+
+            java.lang.reflect.Method apply = PlayerController.class.getDeclaredMethod(
+                    "applyPluginLiked",
+                    dev.t1m3.qplayer.media.MediaId.class, boolean.class);
+            apply.setAccessible(true);
+            apply.invoke(controller, dev.t1m3.qplayer.media.MediaId.parse("qq:song:NEW"), true);
+            assertTrue(controller.isMediaLiked("qq:song:NEW"));
+            assertTrue(controller.likedRevision.peek() > revisionAfterPublish);
+
+            // A later liked-list publish must keep the just-toggled id: toggle
+            // writes the per-source slice, not only the union set.
+            publish.invoke(controller);
+            assertTrue("just-liked id survived a liked-list republish",
+                    controller.isMediaLiked("qq:song:NEW"));
 
             java.lang.reflect.Method drop = PlayerController.class.getDeclaredMethod(
                     "dropSourceUserData", String.class);
             drop.setAccessible(true);
             drop.invoke(controller, "netease");
 
-            // Signing out of one source must not forget the other's hearts.
-            assertEquals(1, controller.likedCount.peek().intValue());
+            // Signing out of one source must not forget the other's hearts
+            // (the original qq song plus the one just liked).
+            assertEquals(2, controller.likedCount.peek().intValue());
+            assertTrue(controller.isMediaLiked("qq:song:004X"));
+            assertTrue(controller.isMediaLiked("qq:song:NEW"));
         } finally {
             if (controller != null) controller.shutdown();
             AppDirs.setBase(oldBase);

@@ -42,14 +42,18 @@ Item {
     Component.onCompleted: latchDecodeSize()
 
     // Placeholder underneath; the cover image draws over it once decoded.
+    // Explicit width/height, not anchors.fill: a node first realized hidden
+    // (the floating card of a playlist drag, an off-screen virtualized tile)
+    // skips the layout pass that would resolve anchors, so the glyph and the
+    // decoded art would both paint at 0×0 — the icon "disappears" the moment
+    // the card lifts. See SongRow's placeholder and CLAUDE.md's cachedLayout note.
     Rectangle {
-        anchors.fill: parent
+        objectName: "coverPlaceholder"
+        width: cover.width
+        height: cover.height
         radius: cover.radius
         color: Theme.color.surfaceContainerHighest
         Text {
-            // Reactive width/height (not anchors.fill / centerIn, which the skipped layout
-            // pass leaves unresolved for an off-screen tile) give the node a real box size;
-            // the glyph then self-centres at paint time. See SongRow's placeholder.
             width: parent.width
             height: parent.height
             horizontalAlignment: Text.AlignHCenter
@@ -62,7 +66,9 @@ Item {
 
     Image {
         id: img
-        anchors.fill: parent
+        objectName: "coverArtImage"
+        width: cover.width
+        height: cover.height
         clip: true
         source: cover.decodeW > 0 ? cover.source : ""
         radius: cover.radius

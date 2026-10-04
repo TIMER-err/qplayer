@@ -71,7 +71,8 @@ Rectangle {
         height: 48
 
         Rectangle {
-            anchors.fill: parent
+            width: leading.width
+            height: leading.height
             radius: leading.cornerRadius
             color: Theme.color.surfaceContainerHighest
             visible: row.coverThumbPath === "" && row.coverUrl === ""
@@ -87,11 +88,13 @@ Rectangle {
         }
 
         Image {
-            anchors.fill: parent
+            width: leading.width
+            height: leading.height
             visible: row.coverThumbPath !== "" || row.coverUrl !== ""
             source: row.coverThumbPath || row.coverUrl
             radius: leading.cornerRadius
-            fillMode: Image.PreserveAspectCrop
+            fillMode: Image.PreserveAspectFit
+            clip: true
             sourceSize.width: Math.round(48 * player.pixelRatio)
             sourceSize.height: Math.round(48 * player.pixelRatio)
         }

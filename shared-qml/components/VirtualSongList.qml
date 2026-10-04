@@ -365,7 +365,11 @@ Flickable {
                 onRevealToggled: view.revealedIndex = (view.revealedIndex === index) ? -1 : index
                 showLikeButton: view.showLikeButton
                 likeable: view.showLikeButton && player.isMediaLikeable(view.rowId(modelData))
-                liked: view.showLikeButton && player.isMediaLiked(view.rowId(modelData))
+                // likedRevision is the observable half: isMediaLiked() is a plain
+                // Java method, so without reading a Property here the heart would
+                // never refill after a like (or after the liked list arrives).
+                liked: view.showLikeButton && player.likedRevision >= 0
+                       && player.isMediaLiked(view.rowId(modelData))
                 onLikeToggled: player.toggleLikeMedia(view.rowId(modelData))
                 // The carried row is drawn once, by the floating copy below, so
                 // its slot in the list simply empties out.

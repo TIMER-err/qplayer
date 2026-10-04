@@ -154,9 +154,15 @@ Rectangle {
         width: 48
         height: 48
 
-        // Placeholder background (shown when no cover)
+        // Placeholder background (shown when no cover). Explicit size, not
+        // anchors.fill: the carried row of a drag is realized hidden under
+        // cachedLayout, and unresolved anchors leave this box 0×0 so the
+        // decoded cover paints from the top-left at source aspect — every
+        // artwork overflows by a different amount. See CoverImage.qml.
         Rectangle {
-            anchors.fill: parent
+            objectName: "songRowCoverPlaceholder"
+            width: leading.width
+            height: leading.height
             radius: leading.cornerRadius
             color: Theme.color.surfaceContainerHighest
             visible: row.coverThumbPath == ""
@@ -183,12 +189,20 @@ Rectangle {
         // at list creation time.
         Image {
             id: coverImg
-            anchors.fill: parent
+            objectName: "songRowCover"
+            width: leading.width
+            height: leading.height
+            clip: true
             visible: row.coverThumbPath != "" && (!row.lazyLoad || row._loadTriggered)
             source: (row.coverThumbPath != "" && (!row.lazyLoad || row._loadTriggered))
                    ? row.coverThumbPath : ""
             radius: leading.cornerRadius
-            fillMode: Image.PreserveAspectCrop
+            // PreserveAspectCrop is broken on non-square sources in this engine
+            // (CLAUDE.md): it scales from the top-left instead of cropping
+            // centred, so every cover overflows its 48×48 box by a different
+            // amount — most visible on the floating row of a drag, which has
+            // no neighbour to clip it. PreserveAspectFit + clip never overflows.
+            fillMode: "PreserveAspectFit"
             // See CoverImage.qml: decode-time downscale (mipmap-quality)
             // instead of a plain bilinear draw-time scale, which aliases
             // into moiré, scaled by the device pixel ratio so it decodes at

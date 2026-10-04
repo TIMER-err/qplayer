@@ -28,6 +28,12 @@ Item {
         player.deferPluginUpdate()
         dialog.close()
     }
+    property int appUpdateRevWatch: player.updatePromptRevision
+    onAppUpdateRevWatchChanged: {
+        if (!player.updateAvailable || !dialog.opened) return
+        player.deferPluginUpdate()
+        dialog.close()
+    }
 
     property bool pluginUpdateWatch: player.pluginUpdateAvailable
     onPluginUpdateWatchChanged: {

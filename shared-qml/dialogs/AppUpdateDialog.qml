@@ -14,7 +14,10 @@ Item {
 
     readonly property bool opened: dialog.opened
 
-    property bool updateWatch: player.updateAvailable
+    // Watch the revision, not just updateAvailable: qml4j does not notify when
+    // a Property is set to its current value, so a dismissed dialog would never
+    // reopen from Settings > 检查更新 if we only watched the boolean.
+    property int updateWatch: player.updatePromptRevision
     onUpdateWatchChanged: if (player.updateAvailable) dialog.open()
 
     Dialog {

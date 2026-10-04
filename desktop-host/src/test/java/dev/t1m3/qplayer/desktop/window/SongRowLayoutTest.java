@@ -338,6 +338,17 @@ public class SongRowLayoutTest {
             assertNotNull(carriedCover);
             assertEquals("its cover sits where every other row's does",
                     8f, carriedCover.y.peekFloat(), 0.5f);
+            assertEquals(48f, carriedCover.width.peekFloat(), 0.5f);
+            assertEquals(48f, carriedCover.height.peekFloat(), 0.5f);
+            Item carriedPlaceholder = findIn(carried, "songRowCoverPlaceholder");
+            assertNotNull(carriedPlaceholder);
+            assertEquals("the carried cover box must stay 48x48, not the source image size",
+                    48f, carriedPlaceholder.width.peekFloat(), 0.5f);
+            assertEquals(48f, carriedPlaceholder.height.peekFloat(), 0.5f);
+            Item carriedArt = findIn(carried, "songRowCover");
+            assertNotNull(carriedArt);
+            assertEquals(48f, carriedArt.width.peekFloat(), 0.5f);
+            assertEquals(48f, carriedArt.height.peekFloat(), 0.5f);
 
             view.dispatchPointerUp(gripX, 160f);
             settle(view);

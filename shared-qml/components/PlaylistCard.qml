@@ -62,8 +62,23 @@ Item {
     scale: card.dragging ? 1.05 : 1.0
     Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
 
+    // Scale names/counts with the card. 200dp is the settings default; a floor
+    // keeps a 100dp tile readable rather than shrinking to 8px type.
+    readonly property real _scale: tile / 200
+    readonly property int titleSize: Math.max(12, Math.round(16 * _scale))
+    readonly property int subtitleSize: Math.max(10, Math.round(12 * _scale))
+    readonly property int titleH: Math.max(28, Math.round(36 * _scale))
+    readonly property int subtitleH: Math.max(16, Math.round(20 * _scale))
+    readonly property int coverIconSize: Math.max(28, Math.round(44 * _scale))
+    readonly property real textSlot: Math.max(52, Math.round(72 * _scale))
+
+    // Explicit geometry, not implicitWidth: a card first realized hidden (the
+    // floating copy of a drag, under cachedLayout) never gets the measure pass
+    // that would copy implicit size onto width/height, so the cover would be 0×0.
+    width: tile
+    height: tile + textSlot
     implicitWidth: tile
-    implicitHeight: tile + 72
+    implicitHeight: tile + textSlot
 
     readonly property string subtitle: {
         if (count > 0) return i18n.t("common.songCount", count)
@@ -102,14 +117,15 @@ Item {
 
     CoverImage {
         id: cover
+        objectName: "playlistCardCover"
         x: 8
         y: 8
         width: card.width - 16
         height: card.width - 16
         radius: 16
         icon: "queue_music"
-        iconSize: 44
-        fadeIn: true
+        iconSize: card.coverIconSize
+        fadeIn: !card.dragging
         source: card.coverThumbPath || card.coverUrl
     }
 
@@ -118,27 +134,29 @@ Item {
     // long neighbour; an overflowing name marquee-scrolls instead of eliding.
     MarqueeText {
         id: nameLabel
+        objectName: "playlistCardTitle"
         x: 12
-        y: card.width - 2
+        y: cover.y + cover.height + 6
         width: card.width - 24
-        height: 36
+        height: card.titleH
         text: card.name
         textColor: Theme.color.onSurfaceColor
-        fontSize: 16
+        fontSize: card.titleSize
         fontWeight: Font.Medium
     }
 
     // Count is kept in a fixed row (including the zero case) so cards do not
     // reflow when an asynchronously refreshed playlist gains its first song.
     Text {
+        objectName: "playlistCardSubtitle"
         x: 12
-        y: card.width + 35
+        y: nameLabel.y + nameLabel.height - 1
         width: card.width - 24
-        height: 20
+        height: card.subtitleH
         verticalAlignment: Text.AlignVCenter
         text: card.subtitle + (card.sourceName ? " · " + card.sourceName : "")
         color: Theme.color.onSurfaceVariantColor
-        fontSize: 12
+        fontSize: card.subtitleSize
         elide: Text.ElideRight
     }
 
@@ -181,9 +199,14 @@ Item {
         height: card.height
         visible: card.reorderable
         enabled: card.reorderable
-        preventStealing: true
+        // Steal only after the long-press has committed to a drag. A press-time
+        // steal (the previous true) ate the gesture before Flickable could
+        // scroll, so even a short press-and-slide on a card locked the page.
+        preventStealing: dragArea._longFired
         property real _downX: 0
         property real _downY: 0
+        property real _lastX: 0
+        property real _lastY: 0
         property bool _longFired: false
 
         Timer {
@@ -201,10 +224,14 @@ Item {
         onPressed: (mouse) => {
             dragArea._downX = mouse.x
             dragArea._downY = mouse.y
+            dragArea._lastX = mouse.x
+            dragArea._lastY = mouse.y
             dragArea._longFired = false
             holdTimer.restart()
         }
         onPositionChanged: (mouse) => {
+            dragArea._lastX = mouse.x
+            dragArea._lastY = mouse.y
             if (dragArea._longFired) {
                 card.reorderContentX = card.x + mouse.x
                 card.reorderContentY = card.y + mouse.y
@@ -224,6 +251,10 @@ Item {
                 dragArea._longFired = false
                 return
             }
+            // A slide that never became a drag is a scroll attempt, not a tap.
+            var dx = dragArea._lastX - dragArea._downX
+            var dy = dragArea._lastY - dragArea._downY
+            if (dx * dx + dy * dy > 100) return
             card.clicked()
         }
         onCanceled: {

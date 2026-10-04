@@ -814,6 +814,13 @@ public final class PlayerController {
      *  liked-id set and the my-playlists list so QML binds an int, not a
      *  Java List length (which the engine doesn't expose to QML). */
     public final Property<Integer> likedCount = new Property<>(0);
+    /** Monotonic counter bumped on every liked-set change. Search/queue rows
+     *  bind {@code isMediaLiked()} (a plain method, not a Property), so qml4j
+     *  never re-evaluates the heart after a like succeeds; reading this from
+     *  the same binding is what actually invalidates it. {@link #likedCount}
+     *  is not enough: adding one id and dropping another, or wiping then
+     *  restoring the same size, is a no-op to Property equality. */
+    public final Property<Integer> likedRevision = new Property<>(0);
     public final Property<Integer> playlistCount = new Property<>(0);
     /** Standardized login metadata for the current primary source. */
     public final Property<String> loginProviderName =
@@ -2111,6 +2118,7 @@ public final class PlayerController {
         userSignature.set("");
         likedSet.clear();
         likedCount.set(0);
+        likedRevision.set(likedRevision.peek() + 1);
         playlistCount.set(0);
         myPlaylists.set(Collections.<NeteasePlaylist>emptyList());
         recommendations.set(Collections.<NeteaseSong>emptyList());
@@ -2748,9 +2756,6 @@ public final class PlayerController {
      *  works on mainland networks where api.github.com is unreliable. */
     private static final String RELEASE_API =
             "https://api.github.com/repos/TIMER-err/qplayer/releases/latest";
-    /** gh-proxy.com prefix — the API check uses it (it's the one mirror that proxies
-     *  api.github.com). */
-    private static final String MIRROR_PREFIX = "https://gh-proxy.com/";
     /** When true, application and plugin GitHub downloads prefer proxy URLs. */
     private volatile boolean updateMirror = false;
 
@@ -2780,6 +2785,11 @@ public final class PlayerController {
     /** True once a newer release than the running version is found; QML watches it
      *  to pop the update dialog. */
     public final Property<Boolean> updateAvailable = new Property<>(false);
+    /** Bumped every time a newer release is published, including when
+     *  {@link #updateAvailable} was already true. qml4j skips Property
+     *  notifications on an unchanged value, so a dismissed dialog would
+     *  otherwise never reopen from Settings > 检查更新. */
+    public final Property<Integer> updatePromptRevision = new Property<>(0);
     /** The newer release's version (tag without the leading "v"). */
     public final Property<String> updateVersion = new Property<>("");
     /** The newer release's notes (GitHub release body / changelog). */
@@ -2877,10 +2887,11 @@ public final class PlayerController {
     public void checkForUpdate(boolean manual) {
         worker.submit(() -> {
             try {
+                if (currentVersion == null || currentVersion.isEmpty()) {
+                    throw new IllegalStateException("current version is unset");
+                }
                 String json = fetchReleaseJson();
-                JsonElement root = JsonParser.parseString(json);
-                if (!root.isJsonObject()) return;
-                JsonObject obj = root.getAsJsonObject();
+                JsonObject obj = parseReleaseObject(json);
 
                 String tag = optString(obj, "tag_name");
                 String latest = tag.startsWith("v") ? tag.substring(1) : tag;
@@ -2909,11 +2920,16 @@ public final class PlayerController {
                 final String fVer = latest;
                 final String fNotes = notes;
                 post(() -> {
+                    // A previous dialog may have been dismissed while updateAvailable
+                    // stayed true; clearing the hold lets a manual re-check reopen it
+                    // and unblocks the plugin-update prompt afterwards.
+                    if (manual) appUpdatePromptDismissed = false;
                     updateApkRaw = fApk;
                     updateUrl = fUrl;
                     updateVersion.set(fVer);
                     updateNotes.set(fNotes);
                     updateAvailable.set(true);
+                    updatePromptRevision.set(updatePromptRevision.peek() + 1);
                 });
                 Logger.info("update available: {} (running {})", latest, currentVersion);
             } catch (Throwable e) {
@@ -2925,16 +2941,43 @@ public final class PlayerController {
 
     /** Fetch the latest-release JSON, preferring the mirror when enabled (so the
      *  version check works on mainland networks where api.github.com is unreliable),
-     *  and falling back to the other endpoint if the first fails. */
+     *  and falling back to the other endpoint if the first fails. A 200 that is
+     *  not a GitHub release object (proxy HTML, empty JSON) is treated as a
+     *  failure so we try the next candidate instead of reporting "already up
+     *  to date". */
     private String fetchReleaseJson() throws java.io.IOException {
-        String mirrored = MIRROR_PREFIX + RELEASE_API;
-        String primary = updateMirror ? mirrored : RELEASE_API;
-        String secondary = updateMirror ? RELEASE_API : mirrored;
-        try {
-            return httpGet(primary);
-        } catch (java.io.IOException e) {
-            return httpGet(secondary);
+        String[] candidates = GitHubDownloadUrls.apiCandidates(RELEASE_API, updateMirror);
+        java.io.IOException last = null;
+        for (String url : candidates) {
+            try {
+                String body = httpGet(url);
+                parseReleaseObject(body);
+                return body;
+            } catch (java.io.IOException e) {
+                last = e;
+            } catch (RuntimeException e) {
+                last = new java.io.IOException("release response is invalid", e);
+            }
         }
+        throw last != null ? last : new java.io.IOException("release lookup has no candidates");
+    }
+
+    /** Require a GitHub release object with a non-empty {@code tag_name}. */
+    static JsonObject parseReleaseObject(String json) throws java.io.IOException {
+        JsonElement root;
+        try {
+            root = JsonParser.parseString(json);
+        } catch (RuntimeException e) {
+            throw new java.io.IOException("release JSON is invalid", e);
+        }
+        if (root == null || !root.isJsonObject()) {
+            throw new java.io.IOException("release response is not an object");
+        }
+        JsonObject obj = root.getAsJsonObject();
+        if (optString(obj, "tag_name").isEmpty()) {
+            throw new java.io.IOException("release has no tag");
+        }
+        return obj;
     }
 
     /** Open an arbitrary external url via the host browser (e.g. the project page). */
@@ -2963,7 +3006,7 @@ public final class PlayerController {
 
     /** Semver compare on the first three numeric components; pre-release/suffix
      *  parts (e.g. the "-debug" on debug builds) are ignored. */
-    private static boolean isNewer(String latest, String current) {
+    static boolean isNewer(String latest, String current) {
         if (latest == null || latest.isEmpty() || current == null || current.isEmpty()) {
             return false;
         }
@@ -8457,19 +8500,13 @@ public final class PlayerController {
             if ("netease".equals(id.provider()) && !pluginHasCapability("netease", ProviderCapability.LIKE)) {
                 long songId = Long.parseLong(id.nativeId());
                 boolean ok = netease.like(songId, false) || netease.setFavorite(uid, songId, false);
-                if (ok) post(() -> {
-                    likedSet.remove(songId);
-                    likedCount.set(likedSet.size());
-                });
+                if (ok) post(() -> applyNeteaseLiked(songId, false));
                 return ok;
             }
             if (!pluginHasCapability(id.provider(), ProviderCapability.LIKE)) return false;
             Boolean success = pluginProviders.setLiked(id, false).get();
             if (!Boolean.TRUE.equals(success)) return false;
-            post(() -> {
-                pluginLikedSet.remove(id.toString());
-                likedCount.set(pluginLikedSet.size());
-            });
+            post(() -> applyPluginLiked(id, false));
             return true;
         } catch (Exception error) {
             Logger.warn("unlike {} failed: {}", raw, error.getMessage());
@@ -8529,44 +8566,40 @@ public final class PlayerController {
                 return;
             }
             final boolean target = !likedSet.contains(songId);
+            applyNeteaseLiked(songId, target);
             worker.submit(() -> {
                 try {
                     boolean ok = netease.like(songId, target);
                     if (!ok) ok = netease.setFavorite(uid, songId, target);
                     if (ok) {
-                        post(() -> {
-                            if (target) likedSet.add(songId);
-                            else likedSet.remove(songId);
-                            likedCount.set(likedSet.size());
-                            Track c = currentTrack();
-                            if (c != null && c.neteaseId == songId) currentLiked.set(target);
-                            loadMyPlaylists();
-                        });
+                        post(() -> loadMyPlaylists());
                     } else {
+                        post(() -> applyNeteaseLiked(songId, !target));
                         showToast(netease.isLoggedIn()
                                 ? I18n.tr(target ? "toast.like.failed" : "toast.unlike.failed")
                                 : I18n.tr("toast.signInRequired"));
                     }
                 } catch (Throwable e) {
                     Logger.warn("like toggle failed: {}", e.getMessage());
-                    post(() -> toast.set(I18n.tr("toast.like.failedReason", e.getMessage())));
+                    post(() -> {
+                        applyNeteaseLiked(songId, !target);
+                        toast.set(I18n.tr("toast.like.failedReason", e.getMessage()));
+                    });
                 }
             });
             return;
         }
         if (!pluginHasCapability(id.provider(), ProviderCapability.LIKE)) return;
         final boolean target = !pluginLikedSet.contains(id.toString());
+        applyPluginLiked(id, target);
         pluginProviders.setLiked(id, target).whenComplete((success, error) -> post(() -> {
             if (error == null && Boolean.TRUE.equals(success)) {
-                if (target) pluginLikedSet.add(id.toString());
-                else pluginLikedSet.remove(id.toString());
-                likedCount.set(pluginLikedSet.size());
-                Track current = currentTrack();
-                if (current != null && id.toString().equals(current.canonicalId())) {
-                    currentLiked.set(target);
-                }
+                applyPluginLiked(id, target);
                 loadMyPlaylists();
-            } else showToast(I18n.tr(target ? "toast.like.failed" : "toast.unlike.failed"));
+            } else {
+                applyPluginLiked(id, !target);
+                showToast(I18n.tr(target ? "toast.like.failed" : "toast.unlike.failed"));
+            }
         }));
     }
 
@@ -8784,6 +8817,7 @@ public final class PlayerController {
                     likedSet.clear();
                     likedSet.addAll(ids);
                     likedCount.set(likedSet.size());
+                    likedRevision.set(likedRevision.peek() + 1);
                     Track cur = currentTrack();
                     currentLiked.set(cur != null && likedSet.contains(cur.neteaseId));
                 });
@@ -8827,8 +8861,37 @@ public final class PlayerController {
         pluginLikedSet.clear();
         for (Set<String> slice : pluginLikedBySource.values()) pluginLikedSet.addAll(slice);
         likedCount.set(pluginLikedSet.size());
+        likedRevision.set(likedRevision.peek() + 1);
         Track current = currentTrack();
         currentLiked.set(current != null && pluginLikedSet.contains(current.canonicalId()));
+    }
+
+    /** Apply a like/unlike to both the union set and the per-source slice, then
+     *  bump {@link #likedRevision} so QML hearts rebind. The slice write is what
+     *  keeps a just-toggled id alive across a later {@link #publishPluginLiked}. */
+    private void applyPluginLiked(MediaId id, boolean liked) {
+        String key = id.toString();
+        if (liked) {
+            pluginLikedBySource.computeIfAbsent(id.provider(), p -> new java.util.LinkedHashSet<>()).add(key);
+            pluginLikedSet.add(key);
+        } else {
+            Set<String> slice = pluginLikedBySource.get(id.provider());
+            if (slice != null) slice.remove(key);
+            pluginLikedSet.remove(key);
+        }
+        likedCount.set(pluginLikedSet.size());
+        likedRevision.set(likedRevision.peek() + 1);
+        Track current = currentTrack();
+        if (current != null && key.equals(current.canonicalId())) currentLiked.set(liked);
+    }
+
+    private void applyNeteaseLiked(long songId, boolean liked) {
+        if (liked) likedSet.add(songId);
+        else likedSet.remove(songId);
+        likedCount.set(likedSet.size());
+        likedRevision.set(likedRevision.peek() + 1);
+        Track current = currentTrack();
+        if (current != null && current.neteaseId == songId) currentLiked.set(liked);
     }
 
     /** Like / unlike the current netease track. */
@@ -8841,26 +8904,25 @@ public final class PlayerController {
             catch (IllegalArgumentException error) { return; }
             if (!pluginHasCapability(id.provider(), ProviderCapability.LIKE)) return;
             final boolean target = !pluginLikedSet.contains(id.toString());
+            applyPluginLiked(id, target);
             pluginProviders.setLiked(id, target).whenComplete((success, error) -> post(() -> {
                 if (error == null && Boolean.TRUE.equals(success)) {
-                    if (target) pluginLikedSet.add(id.toString());
-                    else pluginLikedSet.remove(id.toString());
-                    likedCount.set(pluginLikedSet.size());
-                    Track current = currentTrack();
-                    if (current != null && id.toString().equals(current.canonicalId())) {
-                        currentLiked.set(target);
-                    }
+                    applyPluginLiked(id, target);
                     // The server's own "我喜欢" playlist gained/lost a song; its card
                     // on 我的 shows a trackCount snapshot from the last full load, so
                     // it needs a refresh to stop reading stale.
                     loadMyPlaylists();
-                } else showToast(I18n.tr(target ? "toast.like.failed" : "toast.unlike.failed"));
+                } else {
+                    applyPluginLiked(id, !target);
+                    showToast(I18n.tr(target ? "toast.like.failed" : "toast.unlike.failed"));
+                }
             }));
             return;
         }
         if (cur == null || cur.neteaseId == 0) return;
         long id = cur.neteaseId;
         boolean target = !likedSet.contains(id);
+        applyNeteaseLiked(id, target);
         worker.submit(() -> {
             try {
                 boolean ok = netease.like(id, target);
@@ -8871,21 +8933,21 @@ public final class PlayerController {
                 }
                 if (ok) {
                     post(() -> {
-                        if (target) likedSet.add(id);
-                        else likedSet.remove(id);
-                        likedCount.set(likedSet.size());
-                        Track c = currentTrack();
-                        if (c != null && c.neteaseId == id) currentLiked.set(target);
+                        applyNeteaseLiked(id, target);
                         // Same as the plugin branch above: "我喜欢的音乐" changed size.
                         loadMyPlaylists();
                     });
                 } else {
+                    post(() -> applyNeteaseLiked(id, !target));
                     showToast(netease.isLoggedIn()
                             ? (I18n.tr(target ? "toast.like.failed" : "toast.unlike.failed")) : I18n.tr("toast.signInRequired"));
                 }
             } catch (Throwable e) {
                 Logger.warn("like toggle failed: {}", e.getMessage());
-                post(() -> toast.set(I18n.tr("toast.like.failedReason", e.getMessage())));
+                post(() -> {
+                    applyNeteaseLiked(id, !target);
+                    toast.set(I18n.tr("toast.like.failedReason", e.getMessage()));
+                });
             }
         });
     }

@@ -146,7 +146,8 @@ Flickable {
     property real minTile: 200
     property int cols: Math.max(2, Math.floor((width - 2 * pad + gap) / (minTile + gap)))
     property real tile: (width - 2 * pad - (cols - 1) * gap) / cols
-    property real cardH: tile + 72
+    // Keep in sync with PlaylistCard.textSlot (tile/200 of the 72dp caption).
+    property real cardH: tile + Math.max(52, Math.round(72 * tile / 200))
     property real cardRowH: Math.max(1, cardH + gap)
     property int rowWindow: {
         var rows = Math.ceil(count / Math.max(1, cols))
@@ -260,6 +261,8 @@ Flickable {
             visible: grid._dragFrom >= 0 && grid._dragRow !== null
             z: 5
             tile: grid.tile
+            width: grid.tile
+            height: grid.cardH
             x: grid._dragFloatX
             y: grid._dragFloatY
             dragging: true
