@@ -19,6 +19,7 @@
   <img src="https://img.shields.io/badge/UI-QML%20%2F%20Material%203-7C6CF0" alt="QML / Material 3">
   <img src="https://img.shields.io/badge/engine-qml4j-465BA6" alt="qml4j">
   <a href="https://appimage.github.io/QPlayer/"><img src="https://img.shields.io/badge/AppImage-listed-2F7ED8?logo=appimage&amp;logoColor=white" alt="Listed in the AppImage application directory"></a>
+  <a href="https://ifdian.net/a/TIMER_err"><img src="https://img.shields.io/badge/%E7%88%B1%E5%8F%91%E7%94%B5-Sponsor-946CE6?logo=afdian&amp;logoColor=white" alt="Sponsor QPlayer on Afdian"></a>
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0"></a>
 </p>
 
@@ -252,6 +253,14 @@ version from `build.gradle.kts` and builds that engine from its matching `v*` ta
 
 > QPlayer provides no online source and no copyrighted media. Plugin authors and
 > users are responsible for service terms and local law.
+
+## Sponsors
+
+Thank you to everyone supporting the continued development of QPlayer.
+
+<p align="center">
+  <a href="https://ifdian.net/a/TIMER_err"><img src="https://raw.githubusercontent.com/TIMER-err/qplayer/out/sponsor/afdian-sponsor.svg" width="100%" alt="Afdian sponsors"></a>
+</p>
 
 ## License
 
