@@ -11,9 +11,10 @@ import java.util.Set;
 /** One source of truth for application and plugin GitHub download mirrors. */
 public final class GitHubDownloadUrls {
     private static final String[] MIRRORS = {
-            "https://gh.ddlc.top/", "https://ghfast.top/", "https://gh-proxy.com/"
+            "https://github.cnxiaobai.com/", "https://gh.ddlc.top/",
+            "https://ghfast.top/", "https://gh-proxy.com/"
     };
-    /** The one mirror that also proxies api.github.com. */
+    /** Mirror used for api.github.com requests. */
     private static final String API_MIRROR = "https://gh-proxy.com/";
 
     private GitHubDownloadUrls() {}
@@ -37,9 +38,8 @@ public final class GitHubDownloadUrls {
     }
 
     /**
-     * Candidate order for an api.github.com request. Only one mirror proxies the
-     * API, so the general {@link #candidates} order would spend two failed
-     * requests before reaching a usable host.
+     * Candidate order for an api.github.com request. Use the API mirror directly
+     * rather than cycling through the asset download mirrors.
      */
     public static String[] apiCandidates(String rawUrl, boolean proxyFirst) {
         if (rawUrl == null || rawUrl.isEmpty()) return new String[0];
