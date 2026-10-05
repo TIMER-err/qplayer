@@ -55,14 +55,10 @@ running in two host shells.
 
 ## Sponsors
 
-Thank you to everyone supporting the continued development of QPlayer.
-
 <p align="center">
-  <a href="https://ifdian.net/a/TIMER_err"><img src="https://img.shields.io/badge/Afdian-Sponsor%20QPlayer-946CE6?style=for-the-badge&amp;logo=afdian&amp;logoColor=white" height="40" alt="Sponsor QPlayer on Afdian"></a>
-</p>
-
-<p align="center">
-  <a href="https://ifdian.net/a/TIMER_err"><img src="https://raw.githubusercontent.com/TIMER-err/qplayer/out/sponsor/afdian-sponsor.svg" width="100%" alt="Afdian sponsors"></a>
+  Thank you to everyone supporting the continued development of QPlayer.<br><br>
+  <a href="https://ifdian.net/a/TIMER_err"><img src="https://img.shields.io/badge/Afdian-Sponsor%20QPlayer-946CE6?style=for-the-badge&amp;logo=afdian&amp;logoColor=white" width="300" alt="Sponsor QPlayer on Afdian"></a><br><br>
+  <a href="https://ifdian.net/a/TIMER_err"><img src="https://raw.githubusercontent.com/TIMER-err/qplayer/out/sponsor/afdian-sponsor.svg" width="180" alt="Afdian sponsors"></a>
 </p>
 
 ## Structure

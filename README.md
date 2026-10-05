@@ -53,14 +53,10 @@
 
 ## 赞助者
 
-感谢每一位支持 QPlayer 持续开发的赞助者。
-
 <p align="center">
-  <a href="https://ifdian.net/a/TIMER_err"><img src="https://img.shields.io/badge/%E7%88%B1%E5%8F%91%E7%94%B5-%E6%94%AF%E6%8C%81%20QPlayer-946CE6?style=for-the-badge&amp;logo=afdian&amp;logoColor=white" height="40" alt="在爱发电支持 QPlayer"></a>
-</p>
-
-<p align="center">
-  <a href="https://ifdian.net/a/TIMER_err"><img src="https://raw.githubusercontent.com/TIMER-err/qplayer/out/sponsor/afdian-sponsor.svg" width="100%" alt="爱发电赞助者"></a>
+  感谢每一位支持 QPlayer 持续开发的赞助者。<br><br>
+  <a href="https://ifdian.net/a/TIMER_err"><img src="https://img.shields.io/badge/%E7%88%B1%E5%8F%91%E7%94%B5-%E6%94%AF%E6%8C%81%20QPlayer-946CE6?style=for-the-badge&amp;logo=afdian&amp;logoColor=white" width="300" alt="在爱发电支持 QPlayer"></a><br><br>
+  <a href="https://ifdian.net/a/TIMER_err"><img src="https://raw.githubusercontent.com/TIMER-err/qplayer/out/sponsor/afdian-sponsor.svg" width="180" alt="爱发电赞助者"></a>
 </p>
 
 ## 结构
