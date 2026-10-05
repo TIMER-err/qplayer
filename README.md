@@ -52,6 +52,14 @@
  </picture>
 </a>
 
+## 赞助者
+
+感谢每一位支持 QPlayer 持续开发的赞助者。
+
+<p align="center">
+  <a href="https://ifdian.net/a/TIMER_err"><img src="https://raw.githubusercontent.com/TIMER-err/qplayer/out/sponsor/afdian-sponsor.svg" width="100%" alt="爱发电赞助者"></a>
+</p>
+
 ## 结构
 
 QPlayer 由一个播放器外壳和一套插件系统组成。
@@ -234,14 +242,6 @@ chmod +x ~/.local/bin/qplayer.AppImage
 
 > QPlayer 不提供在线音源，也不分发受版权保护的媒体。插件作者与用户需自行遵守服务条款
 > 及当地法律。
-
-## 赞助者
-
-感谢每一位支持 QPlayer 持续开发的赞助者。
-
-<p align="center">
-  <a href="https://ifdian.net/a/TIMER_err"><img src="https://raw.githubusercontent.com/TIMER-err/qplayer/out/sponsor/afdian-sponsor.svg" width="100%" alt="爱发电赞助者"></a>
-</p>
 
 ## 许可证
 

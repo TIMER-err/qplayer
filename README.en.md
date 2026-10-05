@@ -54,6 +54,14 @@ running in two host shells.
  </picture>
 </a>
 
+## Sponsors
+
+Thank you to everyone supporting the continued development of QPlayer.
+
+<p align="center">
+  <a href="https://ifdian.net/a/TIMER_err"><img src="https://raw.githubusercontent.com/TIMER-err/qplayer/out/sponsor/afdian-sponsor.svg" width="100%" alt="Afdian sponsors"></a>
+</p>
+
 ## Structure
 
 QPlayer is a player shell plus a plugin system.
@@ -253,14 +261,6 @@ version from `build.gradle.kts` and builds that engine from its matching `v*` ta
 
 > QPlayer provides no online source and no copyrighted media. Plugin authors and
 > users are responsible for service terms and local law.
-
-## Sponsors
-
-Thank you to everyone supporting the continued development of QPlayer.
-
-<p align="center">
-  <a href="https://ifdian.net/a/TIMER_err"><img src="https://raw.githubusercontent.com/TIMER-err/qplayer/out/sponsor/afdian-sponsor.svg" width="100%" alt="Afdian sponsors"></a>
-</p>
 
 ## License
 
