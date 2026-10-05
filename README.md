@@ -19,7 +19,6 @@
   <img src="https://img.shields.io/badge/UI-QML%20%2F%20Miuix-7C6CF0" alt="QML / Miuix">
   <img src="https://img.shields.io/badge/engine-qml4j-465BA6" alt="qml4j">
   <a href="https://appimage.github.io/QPlayer/"><img src="https://img.shields.io/badge/AppImage-listed-2F7ED8?logo=appimage&amp;logoColor=white" alt="已收录于 AppImage 应用目录"></a>
-  <a href="https://ifdian.net/a/TIMER_err"><img src="https://img.shields.io/badge/%E7%88%B1%E5%8F%91%E7%94%B5-%E6%94%AF%E6%8C%81%E9%A1%B9%E7%9B%AE-946CE6?logo=afdian&amp;logoColor=white" alt="在爱发电支持 QPlayer"></a>
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0"></a>
 </p>
 
@@ -55,6 +54,10 @@
 ## 赞助者
 
 感谢每一位支持 QPlayer 持续开发的赞助者。
+
+<p align="center">
+  <a href="https://ifdian.net/a/TIMER_err"><img src="https://img.shields.io/badge/%E7%88%B1%E5%8F%91%E7%94%B5-%E6%94%AF%E6%8C%81%20QPlayer-946CE6?style=for-the-badge&amp;logo=afdian&amp;logoColor=white" height="40" alt="在爱发电支持 QPlayer"></a>
+</p>
 
 <p align="center">
   <a href="https://ifdian.net/a/TIMER_err"><img src="https://raw.githubusercontent.com/TIMER-err/qplayer/out/sponsor/afdian-sponsor.svg" width="100%" alt="爱发电赞助者"></a>
