@@ -32,8 +32,13 @@ public final class PluginAccountService {
     }
 
     public CompletableFuture<List<LoginMethod>> methods(String provider) {
-        return invoke(provider, "methods", Collections.<String, Object>emptyMap())
-                .thenApply(raw -> parseMethods(provider, raw));
+        return methods(provider, "");
+    }
+
+    public CompletableFuture<List<LoginMethod>> methods(String provider, String platform) {
+        Map<String, Object> args = new LinkedHashMap<>();
+        if (platform != null && !platform.isEmpty()) args.put("platform", platform);
+        return invoke(provider, "methods", args).thenApply(raw -> parseMethods(provider, raw));
     }
 
     public CompletableFuture<LoginChallenge> begin(String provider, String methodId) {
@@ -83,13 +88,15 @@ public final class PluginAccountService {
             method.id = identifier(value.get("id"), "login method id");
             method.type = required(value.get("type"), "login method type").toLowerCase();
             if (!("qr".equals(method.type) || "web".equals(method.type)
-                    || "credential".equals(method.type))) {
+                    || "credential".equals(method.type) || "app".equals(method.type))) {
                 throw new PluginExecutionException("unsupported login method type " + method.type);
             }
             method.label = bounded(value.get("label"), MAX_LABEL_CHARS,
                     "login method label", true);
             method.instructions = bounded(value.get("instructions"), MAX_INSTRUCTIONS_CHARS,
                     "login method instructions", false);
+            method.appLabel = bounded(value.get("appLabel"), MAX_LABEL_CHARS,
+                    "login app label", false);
             method.webUrl = optional(value.get("webUrl"));
             method.cookieUrl = optional(value.get("cookieUrl"));
             if ((!method.webUrl.isEmpty() && !hostApi.allowsReturnedUrl(provider, method.webUrl))
@@ -139,6 +146,9 @@ public final class PluginAccountService {
         challenge.qrContent = bounded(value.get("qrContent"), MAX_QR_CONTENT_CHARS,
                 "login QR content", false);
         challenge.qrImageBase64 = qrImage(value.get("qrImageBase64"));
+        challenge.appUrl = sanitizeAppUrl(provider, value.get("appUrl"));
+        challenge.appLabel = bounded(value.get("appLabel"), MAX_LABEL_CHARS,
+                "login app label", false);
         challenge.expiresAtMs = boundedLong(value.get("expiresAtMs"), 0L,
                 Long.MAX_VALUE, "login expiry");
         if (value.get("account") instanceof Map) {
@@ -202,6 +212,20 @@ public final class PluginAccountService {
             return number == Math.rint(number) ? Long.toString(value.longValue()) : value.toString();
         }
         return optional(raw);
+    }
+
+    /**
+     * Login-challenge deep links are opened by the host after a user tap, never
+     * by the plugin itself. Unknown or disallowed schemes are dropped so a QR
+     * challenge still works if the app-login extra is unusable.
+     */
+    String sanitizeAppUrl(String provider, Object raw) {
+        String value = optional(raw);
+        if (value.isEmpty()) return "";
+        if (value.length() > MAX_QR_CONTENT_CHARS) {
+            throw new PluginExecutionException("login app URL is too long");
+        }
+        return hostApi.allowsAppUrl(provider, value) ? value : "";
     }
 
     /** Validates a plugin-supplied QR image: bounded, valid base64, and actually a

@@ -11,6 +11,14 @@ public final class LoginChallenge {
      *  provider whose QR encodes a token the plugin cannot recover as text) —
      *  shown as-is instead of {@link #qrContent} being re-encoded into a matrix. */
     public String qrImageBase64 = "";
+    /**
+     * Deep link the host may open so the user can confirm this challenge in
+     * another app (Douyin / QQ / NetEase Cloud Music) instead of scanning a
+     * QR on the same phone. Empty when the plugin has no such route.
+     */
+    public String appUrl = "";
+    /** Button caption for {@link #appUrl}; empty uses the method label. */
+    public String appLabel = "";
     public long expiresAtMs;
     public AccountProfile account;
 }

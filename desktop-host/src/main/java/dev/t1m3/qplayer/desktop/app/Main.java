@@ -199,6 +199,7 @@ public final class Main {
         // host uses an ACTION_VIEW intent; on the desktop hand the URL to the OS
         // (no java.awt.Desktop, which needs a working desktop integration and can
         // block on some Linux setups).
+        controller.setHostPlatform("desktop");
         controller.setUrlOpener(Main::openUrl);
         // Pick this OS's own release asset (there's no .apk on a desktop release —
         // PlayerController's default matcher, unchanged for Android, would never

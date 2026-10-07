@@ -13,7 +13,44 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
-    <application
+    <queries>
+        <package android:name="com.ss.android.ugc.aweme" />
+        <package android:name="com.ss.android.ugc.aweme.lite" />
+        <package android:name="com.luna.music" />
+        <package android:name="com.tencent.mobileqq" />
+        <package android:name="com.tencent.qqmusic" />
+        <package android:name="com.netease.cloudmusic" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="snssdk1128" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="snssdk8478" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="luna" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="orpheus" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="wtloginmqq" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="mqqapi" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="qqmusic" />
+        </intent>
+    </queries>
+
+    <application>
         android:name="dev.t1m3.qplayer.android.app.QPlayerApplication"
         android:label="${appLabel}"
         android:icon="@mipmap/ic_launcher"

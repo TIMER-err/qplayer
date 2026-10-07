@@ -186,11 +186,14 @@ inside the platform media stack are subject to that platform's networking model.
 ## Login and credentials
 
 Login presentation is generic. The `login` capability requires the `credentials`
-permission. A plugin can expose QR, web, and pasted-credential methods. Web methods
-also require `webAuth` and provide their HTTPS login URL, HTTPS cookie URL, and the cookie name that
-signals completion; QPlayer opens the platform system WebView and returns only the
-captured credential to that plugin. The plugin persists it through
-`credentials.put`; QPlayer never interprets provider-specific cookies.
+permission. A plugin can expose QR, web, pasted-credential, and `app` methods.
+`methods` receives `{platform}` (`android` or `desktop`); advertise `app` only
+when `platform` is `android`, so older hosts that do not send it never see the
+new type. Web methods also require `webAuth` and provide their HTTPS login URL,
+HTTPS cookie URL, and the cookie name that signals completion; QPlayer opens the
+platform system WebView and returns only the captured credential to that plugin.
+The plugin persists it through `credentials.put`; QPlayer never interprets
+provider-specific cookies.
 
 A `qr`-type challenge (returned from `begin`/`poll`) normally sets `qrContent`,
 a plain string QPlayer encodes into a QR itself. When a provider's QR instead
@@ -198,6 +201,14 @@ encodes a server-side token that only exists inside an image its own endpoint
 renders — nothing the plugin can recover as text — it can set `qrImageBase64`
 (base64 PNG, capped at 300,000 base64 characters) instead; QPlayer validates
 the PNG signature and displays it as-is. If both are set, the image wins.
+
+A challenge may also set `appUrl`: a deep link QPlayer opens in another app so
+the user can confirm on the same phone instead of scanning a QR. Allowed custom
+schemes are a host allowlist of official music/SSO apps (`snssdk1128`,
+`orpheus`, `wtloginmqq`, `mqqapi`, `qqmusic`, `luna`, …). `https` URLs still
+need to sit inside the plugin's network grant. Unknown schemes are dropped; the
+rest of the challenge is kept. `appLabel` is the button caption. An `app`-type
+method is the same poll loop without showing a QR.
 
 `webAuth.runScript` is a provider-neutral browser surface. QPlayer validates
 `originUrl`, creates a bounded off-screen, non-focusable system WebView, exposes

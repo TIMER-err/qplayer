@@ -129,6 +129,8 @@ public final class PlayerController {
     private volatile java.util.function.Consumer<String> clipboard;
     private volatile WebLoginLauncher webLoginLauncher;
     private volatile WebAuthScriptLauncher webAuthScriptLauncher;
+    private volatile AppLinkLauncher appLinkLauncher;
+    private volatile String hostPlatform = "desktop";
     private volatile boolean monetEnabled = true;
     private static final String DEFAULT_SEED = "#6750A4";
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
@@ -829,7 +831,15 @@ public final class PlayerController {
     public final Property<List<LoginMethod>> loginMethods =
             new Property<>(Collections.<LoginMethod>emptyList());
     public final Property<Boolean> pluginQrLoginAvailable = new Property<>(false);
+    public final Property<Boolean> pluginAppLoginAvailable = new Property<>(false);
     public final Property<Boolean> pluginCredentialLoginAvailable = new Property<>(false);
+    public final Property<String> loginAppLabel = new Property<>("");
+    public final Property<String> loginAppButtonLabel =
+            new Property<>(I18n.tr("login.app.open"));
+    public final Property<String> loginAppInstructions =
+            new Property<>(I18n.tr("login.app.instructions"));
+    public final Property<String> loginAppUrl = new Property<>("");
+    public final Property<Boolean> loginAppOpenAvailable = new Property<>(false);
     public final Property<String> loginWebInstructions =
             new Property<>(I18n.tr("login.web.instructions"));
     public final Property<String> loginCredentialInstructions =
@@ -1715,13 +1725,16 @@ public final class PlayerController {
             pendingPluginLoginProvider = "";
             pluginQrMethodId = "";
             pluginWebMethodId = "";
+            pluginAppMethodId = "";
             pluginCredentialMethodId = "";
             loginProviderName.set(I18n.tr("login.defaultProvider"));
             pluginLoginActive.set(false);
             loginMethods.set(Collections.<LoginMethod>emptyList());
             pluginQrLoginAvailable.set(false);
+            pluginAppLoginAvailable.set(false);
             pluginCredentialLoginAvailable.set(false);
             webLoginAvailable.set(false);
+            publishAppLink("", "");
             // Nothing can own the account header now, so it must not keep showing the
             // previous source's user (the "logged into a source I just switched away
             // from" state that made 我的/首页 disagree with the selected source).
@@ -1749,26 +1762,29 @@ public final class PlayerController {
         // Claim the login provider before the metadata round trip: restoring a stored
         // session (and logging out of it) must not depend on that call succeeding.
         pendingPluginLoginProvider = provider.id;
-        pluginAccounts.methods(provider.id).whenComplete((methods, error) -> post(() -> {
+        pluginAccounts.methods(provider.id, hostPlatform).whenComplete((methods, error) -> post(() -> {
             // Another source claimed the login surface while this was in flight.
             if (generation != loginMetadataGeneration.get()) return;
             if (error != null) {
                 Logger.warn("plugin {} login metadata failed: {}", provider.id, safeMessage(error));
                 return;
             }
-            LoginMethod qr = null, web = null, credential = null;
+            LoginMethod qr = null, web = null, credential = null, app = null;
             for (LoginMethod method : methods) {
                 if ("qr".equals(method.type) && qr == null) qr = method;
                 else if ("web".equals(method.type) && web == null) web = method;
                 else if ("credential".equals(method.type) && credential == null) credential = method;
+                else if ("app".equals(method.type) && app == null) app = method;
             }
             pluginQrMethodId = qr != null ? qr.id : "";
             pluginWebMethodId = web != null ? web.id : "";
+            pluginAppMethodId = app != null ? app.id : "";
             pluginCredentialMethodId = credential != null ? credential.id : "";
             activeWebLoginMethod = web;
             loginProviderName.set(provider.name);
             loginMethods.set(methods);
             pluginQrLoginAvailable.set(qr != null);
+            pluginAppLoginAvailable.set(app != null && appLinkLauncher != null);
             pluginCredentialLoginAvailable.set(credential != null);
             webLoginAvailable.set(web != null && webLoginLauncher != null);
             if (web != null && !web.instructions.isEmpty()) {
@@ -1779,6 +1795,15 @@ public final class PlayerController {
                     loginCredentialInstructions.set(credential.instructions);
                 }
                 loginCredentialLabel.set(credential.credentialLabel);
+            }
+            if (app != null) {
+                loginAppLabel.set(app.label);
+                loginAppButtonLabel.set(!app.appLabel.isEmpty() ? app.appLabel : app.label);
+                if (!app.instructions.isEmpty()) loginAppInstructions.set(app.instructions);
+            } else {
+                loginAppLabel.set("");
+                loginAppButtonLabel.set(I18n.tr("login.app.open"));
+                loginAppInstructions.set(I18n.tr("login.app.instructions"));
             }
             migrateLegacyCredentialsIfAvailable(provider.id);
         }));
@@ -2189,6 +2214,23 @@ public final class PlayerController {
         this.webLoginLauncher = launcher;
         webLoginAvailable.set(launcher != null
                 && (pendingPluginLoginProvider.isEmpty() || !pluginWebMethodId.isEmpty()));
+    }
+
+    /** "android" or "desktop". Plugins only advertise {@code app} login on Android. */
+    public void setHostPlatform(String platform) {
+        if (platform != null && !platform.isEmpty()) hostPlatform = platform;
+    }
+
+    @FunctionalInterface
+    public interface AppLinkLauncher {
+        boolean open(String url);
+    }
+
+    /** Install the shell's handler for confirming a login in another app. */
+    public void setAppLinkLauncher(AppLinkLauncher launcher) {
+        this.appLinkLauncher = launcher;
+        pluginAppLoginAvailable.set(launcher != null && !pluginAppMethodId.isEmpty());
+        loginAppOpenAvailable.set(launcher != null && !loginAppUrl.peek().isEmpty());
     }
 
     /** Copy a canonical reference for a delayed-migration numeric song row. */
@@ -9051,7 +9093,9 @@ public final class PlayerController {
     private volatile String pendingPluginLoginChallenge = "";
     private volatile String pluginQrMethodId = "";
     private volatile String pluginWebMethodId = "";
+    private volatile String pluginAppMethodId = "";
     private volatile String pluginCredentialMethodId = "";
+    private volatile boolean pendingLoginIsApp;
     private volatile LoginMethod activeWebLoginMethod;
     /** QR module matrix (true=dark) as nested Lists so QML can index [y][x]. */
     public final Property<List<List<Boolean>>> qrImage =
@@ -9187,17 +9231,20 @@ public final class PlayerController {
 
     /** Mint a login key + matrix off-thread; publishes to {@link #qrImage}/{@link #qrStatus}. */
     public void startQrLogin() {
+        pendingLoginIsApp = false;
         post(() -> {
             qrStatus.set(0);
             qrImagePath.set("");
+            publishAppLink("", loginAppButtonLabel.peek());
         });
         if (!pendingPluginLoginProvider.isEmpty() && !pluginQrMethodId.isEmpty()) {
             final String provider = pendingPluginLoginProvider;
             pluginAccounts.begin(provider, pluginQrMethodId).whenComplete((challenge, error) -> post(() -> {
-                if (!provider.equals(pendingPluginLoginProvider)) return;
+                if (!provider.equals(pendingPluginLoginProvider) || pendingLoginIsApp) return;
                 if (error != null) {
                     Logger.warn("plugin {} QR login start failed: {}", provider, safeMessage(error));
                     qrStatus.set(800);
+                    webLoginError.set(safeMessage(error));
                     return;
                 }
                 pendingPluginLoginChallenge = challenge.id;
@@ -9206,7 +9253,10 @@ public final class PlayerController {
             return;
         }
         if (onlineSourcesArePluginOnly()) {
-            post(() -> qrStatus.set(800));
+            post(() -> {
+                qrStatus.set(800);
+                webLoginError.set(I18n.tr("login.error.noLoginPlugin"));
+            });
             return;
         }
         worker.submit(() -> {
@@ -9220,9 +9270,66 @@ public final class PlayerController {
                 });
             } catch (Throwable e) {
                 Logger.warn("startQrLogin failed: {}", e.getMessage());
-                post(() -> qrStatus.set(800));
+                post(() -> {
+                    qrStatus.set(800);
+                    webLoginError.set(safeMessage(e));
+                });
             }
         });
+    }
+
+    /** Begin an {@code app} login challenge. The OS jump happens on {@link #openLoginApp()}. */
+    public void startAppLogin() {
+        if (pluginAppMethodId.isEmpty() || pendingPluginLoginProvider.isEmpty()) {
+            webLoginError.set(I18n.tr("login.error.noApp"));
+            return;
+        }
+        pendingLoginIsApp = true;
+        post(() -> {
+            qrStatus.set(0);
+            publishAppLink("", loginAppButtonLabel.peek());
+        });
+        final String provider = pendingPluginLoginProvider;
+        final String methodId = pluginAppMethodId;
+        pluginAccounts.begin(provider, methodId).whenComplete((challenge, error) -> post(() -> {
+            if (!provider.equals(pendingPluginLoginProvider) || !pendingLoginIsApp) return;
+            if (error != null) {
+                Logger.warn("plugin {} app login start failed: {}", provider, safeMessage(error));
+                qrStatus.set(800);
+                webLoginError.set(safeMessage(error));
+                return;
+            }
+            pendingPluginLoginChallenge = challenge.id;
+            applyPluginLoginChallenge(challenge, false);
+            if (loginAppUrl.peek().isEmpty()) {
+                qrStatus.set(800);
+                webLoginError.set(I18n.tr("login.error.noApp"));
+            }
+        }));
+    }
+
+    /** Open the current challenge's deep link in the matching official app. */
+    public void openLoginApp() {
+        final String url = loginAppUrl.peek();
+        if (url == null || url.isEmpty()) {
+            webLoginError.set(I18n.tr("login.error.noApp"));
+            return;
+        }
+        AppLinkLauncher launcher = appLinkLauncher;
+        if (launcher == null) {
+            webLoginError.set(I18n.tr("login.error.appMissing"));
+            return;
+        }
+        webLoginError.set("");
+        onMain(() -> {
+            if (!launcher.open(url)) webLoginError.set(I18n.tr("login.error.appMissing"));
+        });
+    }
+
+    private void publishAppLink(String url, String label) {
+        loginAppUrl.set(url == null ? "" : url);
+        if (label != null && !label.isEmpty()) loginAppButtonLabel.set(label);
+        loginAppOpenAvailable.set(appLinkLauncher != null && !loginAppUrl.peek().isEmpty());
     }
 
     /** Poll the scan status off-thread; updates {@link #qrStatus}. */
@@ -9263,6 +9370,11 @@ public final class PlayerController {
             qrImagePath.set("");
             qrImage.set(QrMatrix.encode(challenge.qrContent));
         }
+        if (challenge.appUrl != null && !challenge.appUrl.isEmpty()) {
+            String label = challenge.appLabel != null && !challenge.appLabel.isEmpty()
+                    ? challenge.appLabel : loginAppButtonLabel.peek();
+            publishAppLink(challenge.appUrl, label);
+        }
         switch (challenge.status) {
             case "scanned": qrStatus.set(802); break;
             case "success":
@@ -9278,7 +9390,9 @@ public final class PlayerController {
                 break;
             case "expired":
                 qrStatus.set(800);
-                if (!credentialFlow) startQrLogin();
+                if (credentialFlow) break;
+                if (pendingLoginIsApp) startAppLogin();
+                else startQrLogin();
                 break;
             case "failed":
                 pendingCredentialEncryptedNotice = false;

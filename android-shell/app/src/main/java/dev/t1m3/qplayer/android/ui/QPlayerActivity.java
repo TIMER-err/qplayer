@@ -166,6 +166,7 @@ public final class QPlayerActivity extends Activity {
                     getPackageManager().getPackageInfo(getPackageName(), 0).versionName);
         } catch (PackageManager.NameNotFoundException ignored) {
         }
+        controller.setHostPlatform("android");
         controller.setUrlOpener(url -> runOnUiThread(() -> {
             try {
                 startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
@@ -174,6 +175,16 @@ public final class QPlayerActivity extends Activity {
                 dev.t1m3.qplayer.util.Logger.error("open update url failed: {}", e.toString());
             }
         }));
+        controller.setAppLinkLauncher(url -> {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                return true;
+            } catch (Throwable e) {
+                dev.t1m3.qplayer.util.Logger.warn("open login app failed: {}", e.toString());
+                return false;
+            }
+        });
         controller.setInstaller(this::downloadAndInstallUpdate);
         controller.setCoverPicker(this::pickPlaylistCover);
         controller.setPluginPicker(this::pickPluginPackage);
@@ -1125,6 +1136,7 @@ public final class QPlayerActivity extends Activity {
         if (controller != null) {
             controller.setClipboard(null);
             controller.setUrlOpener(null);
+            controller.setAppLinkLauncher(null);
             controller.setInstaller(null);
             controller.setCoverPicker(null);
             controller.setPluginPicker(null);

@@ -24,6 +24,9 @@ trust and review every requested permission.
 - `webAuth` is a separate browser-code grant. The host validates the top-level HTTPS
   origin and bounds script/result size and lifetime, but browser subresources and
   requests do not pass through the `http.request` domain/DNS/redirect policy.
+- Login `appUrl` values are opened by the host after a user tap. Custom schemes are
+  restricted to a host allowlist of official music/SSO apps; `https` still needs the
+  plugin network grant. `file`/`content`/`intent`/`javascript` are rejected.
 - Persistent storage and encrypted credentials are namespaced by validated plugin
   ID and hashed logical key. A credential envelope embeds plugin ID and key, so a
   copied ciphertext fails namespace authentication.

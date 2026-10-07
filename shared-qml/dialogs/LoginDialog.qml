@@ -9,39 +9,51 @@ Item {
     id: dialog
 
     property bool active: false
-    property int loginMode: 0 // 0 QR, 1 official website, 2 pasted Cookie
+    property int loginMode: 0 // 0 QR, 1 official website, 2 pasted Cookie, 3 app
     property bool ready: false
     property string cookieText: ""
     property var successRevision: player.webLoginSuccessRevision
     signal closed()
 
+    function startCurrentMode() {
+        if (!player.pluginLoginActive) return;
+        if (loginMode === 0) {
+            ready = false;
+            player.startQrLogin();
+            revealTimer.restart();
+        } else if (loginMode === 3) {
+            player.startAppLogin();
+        }
+    }
+
     onActiveChanged: {
         if (active) {
             player.clearWebLoginError();
-            loginMode = player.pluginLoginActive && !player.pluginQrLoginAvailable
-                        ? (player.webLoginAvailable ? 1 : 2) : 0;
+            var next = player.pluginAppLoginAvailable ? 3
+                        : (player.pluginLoginActive && !player.pluginQrLoginAvailable
+                           ? (player.webLoginAvailable ? 1 : 2) : 0);
             cookieText = "";
             ready = false;
-            if (player.pluginLoginActive) player.startQrLogin();
+            if (loginMode === next) dialog.startCurrentMode();
+            else loginMode = next;
             revealTimer.restart();
             loginSheet.open();
         } else if (loginSheet.opened) loginSheet.close();
     }
     onLoginModeChanged: {
         player.clearWebLoginError();
-        if (active && loginMode === 0) {
-            ready = false;
-            player.startQrLogin();
-            revealTimer.restart();
-        }
+        if (active) dialog.startCurrentMode();
     }
     onSuccessRevisionChanged: if (active) dialog.closed()
 
     function statusText(code) {
         if (code === 0) return i18n.t("login.qr.loading");
-        if (code === 802) return i18n.t("login.qr.confirm");
+        if (code === 802) return dialog.loginMode === 3
+                    ? i18n.t("login.app.confirm") : i18n.t("login.qr.confirm");
         if (code === 803) return i18n.t("login.qr.done");
-        if (code === 800) return i18n.t("login.qr.expired");
+        if (code === 800) return player.webLoginError.length > 0
+                    ? player.webLoginError : i18n.t("login.qr.expired");
+        if (dialog.loginMode === 3) return i18n.t("login.app.waiting");
         return i18n.t("login.qr.scan", player.loginProviderName);
     }
 
@@ -59,7 +71,8 @@ Item {
     Timer {
         interval: 800
         repeat: true
-        running: dialog.active && player.pluginLoginActive && dialog.loginMode === 0
+        running: dialog.active && player.pluginLoginActive
+                 && (dialog.loginMode === 0 || dialog.loginMode === 3)
         onTriggered: player.pollQrLogin()
     }
 
@@ -102,13 +115,16 @@ Item {
                 selectOnClick: false
                 property var modes: {
                     var out = []
+                    if (player.pluginAppLoginAvailable) out.push(3)
                     if (player.pluginQrLoginAvailable) out.push(0)
                     if (player.webLoginAvailable) out.push(1)
                     if (player.pluginCredentialLoginAvailable) out.push(2)
                     return out
                 }
                 tabs: {
-                    var labels = [i18n.t("login.mode.qr"), i18n.t("login.mode.web"), "Cookie"]
+                    var app = player.loginAppLabel.length > 0
+                              ? player.loginAppLabel : i18n.t("login.mode.app")
+                    var labels = [i18n.t("login.mode.qr"), i18n.t("login.mode.web"), "Cookie", app]
                     var out = []
                     for (var i = 0; i < modes.length; i++) out.push(labels[modes[i]])
                     return out
@@ -186,8 +202,65 @@ Item {
                         text: dialog.statusText(player.qrStatus)
                         wrapMode: Text.WordWrap
                         horizontalAlignment: Text.AlignHCenter
+                        color: player.qrStatus === 800 && player.webLoginError.length > 0
+                               ? Theme.color.error : Theme.color.onSurfaceVariantColor
+                        fontSize: 14
+                    }
+                    Button {
+                        visible: player.loginAppOpenAvailable
+                        width: parent.width
+                        type: "filled"
+                        icon: "open_in_new"
+                        text: player.loginAppButtonLabel
+                        onClicked: player.openLoginApp()
+                    }
+                    Button {
+                        visible: player.qrStatus === 800
+                        width: parent.width
+                        type: "outlined"
+                        text: i18n.t("login.qr.retry")
+                        onClicked: player.startQrLogin()
+                    }
+
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                visible: player.pluginLoginActive && dialog.loginMode === 3
+
+                    spacing: 16
+                    Text {
+                        Layout.fillWidth: true
+                        text: player.loginAppInstructions
+                        wrapMode: Text.WordWrap
+                        horizontalAlignment: Text.AlignHCenter
                         color: Theme.color.onSurfaceVariantColor
                         fontSize: 14
+                    }
+                    Button {
+                        Layout.alignment: Qt.AlignHCenter
+                        type: "filled"
+                        icon: "open_in_new"
+                        text: player.qrStatus === 0
+                              ? i18n.t("login.qr.loading") : player.loginAppButtonLabel
+                        enabled: player.loginAppOpenAvailable
+                        onClicked: player.openLoginApp()
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: dialog.statusText(player.qrStatus)
+                        wrapMode: Text.WordWrap
+                        horizontalAlignment: Text.AlignHCenter
+                        color: player.qrStatus === 800 && player.webLoginError.length > 0
+                               ? Theme.color.error : Theme.color.onSurfaceVariantColor
+                        fontSize: 14
+                    }
+                    Button {
+                        Layout.alignment: Qt.AlignHCenter
+                        visible: player.qrStatus === 800
+                        type: "outlined"
+                        text: i18n.t("login.qr.retry")
+                        onClicked: player.startAppLogin()
                     }
 
             }

@@ -20,6 +20,7 @@ import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -50,6 +51,17 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
     private static final int MAX_HEADER_COUNT = 64;
     private static final int MAX_HEADER_VALUE_CHARS = 8192;
     private static final int MAX_REDIRECTS = 5;
+    /**
+     * Schemes a login challenge may ask the host to open. These are the official
+     * apps a phone-side "one-tap" confirmation jumps into; anything else
+     * (file/content/intent/javascript, arbitrary custom schemes) is dropped.
+     */
+    private static final Set<String> LOGIN_APP_SCHEMES = Collections.unmodifiableSet(
+            new LinkedHashSet<>(Arrays.asList(
+                    "snssdk1128", "snssdk2329", "snssdk8478", "snssdk8663",
+                    "luna", "aweme",
+                    "orpheus", "orpheuswidget",
+                    "wtloginmqq", "mqqapi", "mqq", "qqmusic")));
     private final Map<String, PluginManifest> policies = new ConcurrentHashMap<>();
     /** Memoized {@link #allowsReturnedUrl} answers, keyed plugin + scheme + host. */
     private static final int MAX_URL_GRANT_ENTRIES = 512;
@@ -162,6 +174,33 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
         if (urlGrants.size() >= MAX_URL_GRANT_ENTRIES) urlGrants.clear();
         urlGrants.put(key, allowed);
         return allowed;
+    }
+
+    /**
+     * A login-challenge deep link the host may hand to the OS. HTTPS must still
+     * sit inside the plugin's network grant; everything else has to be one of
+     * the known music-app schemes, never file/content/intent.
+     */
+    public boolean allowsAppUrl(String pluginId, String url) {
+        String scheme = loginAppScheme(url);
+        if (scheme.isEmpty()) return false;
+        if ("https".equals(scheme)) return allowsReturnedUrl(pluginId, url);
+        return LOGIN_APP_SCHEMES.contains(scheme);
+    }
+
+    static String loginAppScheme(String url) {
+        if (url == null || url.isEmpty() || url.length() > MAX_URL_CHARS) return "";
+        int sep = url.indexOf("://");
+        if (sep <= 0 || sep > 32) return "";
+        String scheme = url.substring(0, sep).toLowerCase(Locale.ROOT);
+        if (!scheme.matches("[a-z][a-z0-9+.-]{0,31}")) return "";
+        if ("http".equals(scheme) || "file".equals(scheme) || "content".equals(scheme)
+                || "intent".equals(scheme) || "package".equals(scheme)
+                || "javascript".equals(scheme) || "data".equals(scheme)
+                || "about".equals(scheme)) {
+            return "";
+        }
+        return scheme;
     }
 
     /** Policy used by QML image loading when the owning row no longer carries a
