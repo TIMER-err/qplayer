@@ -13,7 +13,10 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- Lyricon's central service is injected into System UI. Android 11+
+         package visibility otherwise hides it from explicit register broadcasts. -->
     <queries>
+        <package android:name="com.android.systemui" />
         <package android:name="com.ss.android.ugc.aweme" />
         <package android:name="com.ss.android.ugc.aweme.lite" />
         <package android:name="com.luna.music" />
@@ -50,7 +53,7 @@
         </intent>
     </queries>
 
-    <application>
+    <application
         android:name="dev.t1m3.qplayer.android.app.QPlayerApplication"
         android:label="${appLabel}"
         android:icon="@mipmap/ic_launcher"
@@ -105,5 +108,10 @@
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </receiver>
+
+        <meta-data android:name="lyricon_module" android:value="true" />
+        <meta-data android:name="lyricon_module_author" android:value="TIMER-err" />
+        <meta-data android:name="lyricon_module_description" android:value="QPlayer 原生歌词提供" />
+        <meta-data android:name="lyricon_module_tags" android:resource="@array/lyricon_module_tags" />
     </application>
 </manifest>

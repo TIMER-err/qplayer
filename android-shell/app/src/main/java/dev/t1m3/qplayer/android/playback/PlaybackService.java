@@ -61,6 +61,7 @@ public final class PlaybackService extends Service {
     private MediaSessionCompat session;
     private final PlayerController.PlaybackListener selfListener = this::onControllerChanged;
     private ScheduledExecutorService checkpointWorker;
+    private LyriconBridge lyricon;
 
     @Override
     public void onCreate() {
@@ -109,10 +110,19 @@ public final class PlaybackService extends Service {
             PlayerController current = controller;
             if (current != null && current.isPlaying()) current.saveSessionState();
         }, 15L, 15L, TimeUnit.SECONDS);
+        lyricon = new LyriconBridge();
+        lyricon.start(this);
+        checkpointWorker.scheduleWithFixedDelay(() -> {
+            LyriconBridge bridge = lyricon;
+            if (bridge != null) bridge.pushPosition();
+        }, 100L, 100L, TimeUnit.MILLISECONDS);
         // Take over as the controller's listener so state changes refresh us directly,
         // in-process, instead of round-tripping through startForegroundService.
         PlayerController c = controller;
-        if (c != null) c.setPlaybackListener(selfListener);
+        if (c != null) {
+            c.setPlaybackListener(selfListener);
+            lyricon.bind(c);
+        }
     }
 
     private void onControllerChanged() {
@@ -128,7 +138,10 @@ public final class PlaybackService extends Service {
         // Hardware / bluetooth media buttons routed through the session callback.
         MediaButtonReceiver.handleIntent(session, intent);
         PlayerController c = controller;
-        if (c != null) c.setPlaybackListener(selfListener);
+        if (c != null) {
+            c.setPlaybackListener(selfListener);
+            if (lyricon != null) lyricon.bind(c);
+        }
         try {
             refresh();
         } catch (Throwable e) {
@@ -151,6 +164,7 @@ public final class PlaybackService extends Service {
             checkpointWorker.shutdownNow();
             checkpointWorker = null;
         }
+        destroyLyricon();
         PlayerController c = controller;
         if (c != null) {
             // Capture position/queue/playMode before anything below pauses/tears
@@ -180,6 +194,7 @@ public final class PlaybackService extends Service {
         bootstrapListener = bootstrap;
         PlaybackService live = instance;
         c.setPlaybackListener(live != null ? live.selfListener : bootstrap);
+        if (live != null && live.lyricon != null) live.lyricon.bind(c);
     }
 
     public static boolean isRunning() {
@@ -208,6 +223,7 @@ public final class PlaybackService extends Service {
             c.setPlaybackListener(null);
             if (c.isPlaying()) c.toggle();
         }
+        destroyLyricon();
         clearNotification();
         stopSelf();
         super.onTaskRemoved(rootIntent);
@@ -294,6 +310,13 @@ public final class PlaybackService extends Service {
         // from the background, which previously left controls stuck after a pause).
         // The notification is dismissible (setOngoing not set) and STOP fully exits.
         startForeground(NOTIF_ID, n);
+        if (lyricon != null) lyricon.push();
+    }
+
+    private void destroyLyricon() {
+        LyriconBridge bridge = lyricon;
+        lyricon = null;
+        if (bridge != null) bridge.destroy();
     }
 
     private Notification buildNotification(Track t, boolean playing, Bitmap art, int accentColor) {

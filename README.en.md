@@ -88,7 +88,8 @@ on transient focus loss.
 **Lyric page**　Drawn by the host directly through Skija rather than QML:
 per-syllable scrolling, a fluid backdrop tinted from the cover, romanization and
 translation, and a Material wavy progress bar. Lyrics come from the active source
-plugin or from local files.
+plugin or from local files. On Android they are also published natively to
+[Lyricon](https://github.com/tomakino/lyricon) for the status bar.
 
 **Interface**　The whole UI is QML (`md3.Core`) running on the qml4j engine. The
 theme can be reseeded from the current cover (Monet dynamic color, optional), with

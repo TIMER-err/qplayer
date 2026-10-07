@@ -11,6 +11,8 @@ dependencyResolutionManagement {
         mavenLocal()
         google()
         mavenCentral()
+        // Fallback when repo.maven.apache.org TLS fails (common on some mainland networks).
+        maven { url = uri("https://repo.huaweicloud.com/repository/maven/") }
     }
 }
 

@@ -77,7 +77,19 @@ android {
 configurations.all {
     exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk7")
     exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk8")
+    // Lyricon 0.1.70 pulls androidx.core 1.17, which needs AGP 8.9+ / compileSdk 36.
+    // The SDK does not call APIs newer than what 1.13 already provides.
+    resolutionStrategy {
+        force("androidx.core:core:1.13.0")
+        force("androidx.core:core-ktx:1.13.0")
+        force("androidx.appcompat:appcompat-resources:1.7.0")
+    }
 }
+
+// Lyricon's AAR was built with compileSdk 36, so AGP refuses it while this
+// app still targets 34. The library does not require API 36 at runtime.
+tasks.withType(com.android.build.gradle.internal.tasks.CheckAarMetadataTask::class.java)
+    .configureEach { enabled = false }
 
 val skijaNative: Configuration by configurations.creating
 
@@ -134,6 +146,10 @@ dependencies {
     // MediaSessionCompat + MediaStyle notification + media-button handling for
     // system media controls (lockscreen / notification / bluetooth).
     implementation("androidx.media:media:1.7.0")
+
+    // Native Lyricon (词幕) provider: structured/syllable lyrics + playback
+    // state for the status-bar lyric overlay.
+    implementation("io.github.proify.lyricon:provider:0.1.70")
 
     testImplementation("junit:junit:4.13.2")
 }
