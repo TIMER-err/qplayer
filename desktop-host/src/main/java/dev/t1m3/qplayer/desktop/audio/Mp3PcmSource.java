@@ -29,6 +29,8 @@ final class Mp3PcmSource implements PcmSource {
     private int pendingLen = 0;
     private boolean eof = false;
 
+    @Override public boolean hasBuffered(int n) { return src.hasBuffered(n); }
+
     Mp3PcmSource(SeekableByteSource src) throws IOException {
         this.src = src;
         src.seek(0);

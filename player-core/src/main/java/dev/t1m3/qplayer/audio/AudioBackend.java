@@ -77,4 +77,15 @@ public interface AudioBackend {
 
     /** Stop playback and free native resources. */
     void release();
+
+    /**
+     * Tell the backend about the disk-cache files for the track it is playing.
+     * {@code pendingPath} grows while the background download runs;
+     * {@code completePath} appears only after a successful promote.
+     * Default no-op for backends that cannot switch sources mid-track.
+     */
+    default void bindGrowingCache(String pendingPath, String completePath, long durationMs) { }
+
+    /** The background download finished and {@code completePath} is a full file. */
+    default void notifyCacheComplete() { }
 }

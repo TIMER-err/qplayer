@@ -18,6 +18,8 @@ final class WavPcmSource implements PcmSource {
     private final int inFrame;        // bytes per input frame
     private byte[] in = new byte[0];
 
+    @Override public boolean hasBuffered(int n) { return src.hasBuffered(n); }
+
     WavPcmSource(SeekableByteSource src) throws IOException {
         this.src = src;
         // RIFF header: "RIFF" <size> "WAVE", then a sequence of <id><size><body>.

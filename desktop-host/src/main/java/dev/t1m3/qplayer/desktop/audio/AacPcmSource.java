@@ -19,6 +19,8 @@ final class AacPcmSource implements PcmSource {
     private long pendingTimeMs;
     private boolean eof;
 
+    @Override public boolean hasBuffered(int n) { return src.hasBuffered(n); }
+
     AacPcmSource(SeekableByteSource src) throws IOException {
         this.src = src;
         track = new Mp4AacTrack(src);

@@ -1081,10 +1081,11 @@ public final class QPlayerActivity extends Activity {
             pendingInstallApk = null;
             if (apk.isFile()) doInstallApk(apk);
         }
-        // Returning from PiP / background: force-sync the notification bar with
-        // the current controller state so they never drift apart.
-        if (controller != null && controller.isPlaying()) {
-            onPlaybackChanged();
+        // Returning from PiP / background: restart a decoder that OEM focus-loss
+        // paused without a matching GAIN, then force-sync the notification.
+        if (controller != null) {
+            controller.ensurePlaying();
+            if (controller.isPlaying()) onPlaybackChanged();
         }
     }
 

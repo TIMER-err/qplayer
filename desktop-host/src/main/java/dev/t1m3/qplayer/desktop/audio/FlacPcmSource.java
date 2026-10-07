@@ -32,6 +32,8 @@ final class FlacPcmSource implements PcmSource {
     private int pendingLen = 0;
     private boolean eof = false;
 
+    @Override public boolean hasBuffered(int n) { return src.hasBuffered(n); }
+
     FlacPcmSource(SeekableByteSource src) throws IOException {
         // Route the decoder through src (not a plain file handle) so a remote
         // FLAC streams as it downloads instead of blocking on the whole file,

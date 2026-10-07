@@ -16,6 +16,8 @@ Item {
     property real tile: 130
     signal clicked()
 
+    width: tile
+    height: tile + 56
     implicitWidth: tile
     implicitHeight: tile + 56
 

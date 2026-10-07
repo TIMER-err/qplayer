@@ -23,6 +23,21 @@ interface SeekableByteSource extends AutoCloseable {
      */
     int read(byte[] dst, int off, int len) throws IOException;
 
+    /**
+     * True when the next {@link #read} will not wait for the network. Local
+     * files always return true; a remote source returns true once {@code n}
+     * bytes past the cursor are already on disk, or the download has ended.
+     */
+    default boolean hasBuffered(int n) { return true; }
+
+    /** Bytes already on disk from the start of the resource. Local files
+     *  report {@link #size()}; a remote download reports how far the
+     *  background thread has gotten. */
+    default long downloadedBytes() {
+        long s = size();
+        return s < 0 ? 0L : s;
+    }
+
     /** Move the read position. May point past the bytes downloaded so far for a
      *  remote source; the next read then blocks until they arrive. */
     void seek(long pos) throws IOException;

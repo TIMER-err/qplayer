@@ -27,6 +27,9 @@ public final class SettingsCatalog {
     // Stable ids, not labels: the page titles a tab with
     // settings.category.<id> from the language catalog.
     public static final String APPEARANCE = "appearance";
+    /** Home + library layout: used to live under 外观, which buried "歌单卡片大小"
+     *  behind language/theme/window. Its own tab is the place people look. */
+    public static final String PAGES = "pages";
     public static final String PLAYBACK = "playback";
     public static final String LYRIC = "lyric";
     /** Desktop lyrics gets its own tab rather than sitting under 歌词: it is a
@@ -39,7 +42,7 @@ public final class SettingsCatalog {
     public static final String ABOUT = "about";
 
     public static final List<String> CATEGORIES = Collections.unmodifiableList(
-            Arrays.asList(APPEARANCE, PLAYBACK, LYRIC, DESKTOP_LYRIC, LOCAL, PLUGINS, ABOUT));
+            Arrays.asList(APPEARANCE, PAGES, PLAYBACK, LYRIC, DESKTOP_LYRIC, LOCAL, PLUGINS, ABOUT));
 
     /** Fluid-background mode, 0 dynamic / 1 static. Stored under a new key
      *  because the same setting used to be a boolean ("lyricBgStatic") and a
@@ -59,6 +62,11 @@ public final class SettingsCatalog {
      *  cover-derived contrast/brightness baked into the mesh/classic textures at
      *  decode time; this is a live multiplier over whichever style is active. */
     public static final String BG_SATURATION_KEY = "lyricBgSaturation";
+
+    /** Lyric-page artwork: 0 the original rounded square, 1 a spinning vinyl disc. */
+    public static final String COVER_STYLE_KEY = "lyricCoverStyle";
+    public static final int COVER_STYLE_ORIGINAL = 0;
+    public static final int COVER_STYLE_VINYL = 1;
 
     // Dark-mode row values (the segmented control's indices).
     public static final int MODE_SYSTEM = 0;
@@ -164,26 +172,27 @@ public final class SettingsCatalog {
                 .onlyOn(DESKTOP)
                 .group("window")
                 .build());
-        out.add(SettingSpec.toggle("showLocalTab", APPEARANCE, "settings.showLocalTab.title", true)
+        // ---- 页面 -----------------------------------------------------------
+        out.add(SettingSpec.toggle("showLocalTab", PAGES, "settings.showLocalTab.title", true)
                 .desc("settings.showLocalTab.desc")
                 .group("home")
                 .build());
-        out.add(SettingSpec.toggle(HOME_DAILY_FIRST_KEY, APPEARANCE,
+        out.add(SettingSpec.toggle(HOME_DAILY_FIRST_KEY, PAGES,
                         "settings.homeDailyFirst.title", false)
                 .desc("settings.homeDailyFirst.desc")
                 .group("home")
                 .build());
-        out.add(SettingSpec.stepper(HOME_PLAYLIST_LIMIT_KEY, APPEARANCE,
+        out.add(SettingSpec.stepper(HOME_PLAYLIST_LIMIT_KEY, PAGES,
                         "settings.homePlaylistLimit.title", 12, 4, 50, 2)
                 .desc("settings.homePlaylistLimit.desc")
                 .group("home")
                 .build());
-        out.add(SettingSpec.toggle(LIBRARY_LIST_VIEW_KEY, APPEARANCE,
+        out.add(SettingSpec.toggle(LIBRARY_LIST_VIEW_KEY, PAGES,
                         "settings.libraryListView.title", false)
                 .desc("settings.libraryListView.desc")
                 .group("library")
                 .build());
-        out.add(SettingSpec.slider(LIBRARY_CARD_SIZE_KEY, APPEARANCE,
+        out.add(SettingSpec.slider(LIBRARY_CARD_SIZE_KEY, PAGES,
                         "settings.libraryCardSize.title", 200, 100, 260, 10)
                 .desc("settings.libraryCardSize.desc")
                 .unit("dp")
@@ -191,12 +200,6 @@ public final class SettingsCatalog {
                 .build());
 
         // ---- 播放 -----------------------------------------------------------
-        // Default follows the UI locale: the mirror only helps from mainland China.
-        out.add(SettingSpec.toggle("mirror", PLAYBACK, "settings.mirror.title",
-                        isSimplifiedChinese())
-                .desc("settings.mirror.desc")
-                .group("audio")
-                .build());
         out.add(SettingSpec.toggle("fade", PLAYBACK, "settings.fade.title", false)
                 .desc("settings.fade.desc")
                 .group("audio")
@@ -207,7 +210,40 @@ public final class SettingsCatalog {
                 .build());
 
         // ---- 歌词 -----------------------------------------------------------
-        // Group typography, motion, display and background controls separately.
+        // Display/background first: those are what people open this tab to
+        // change. Typography and the six motion toggles used to sit above them
+        // and bury 背景饱和度 / 封面样式 a full screen down.
+        out.add(SettingSpec.radio(COVER_STYLE_KEY, LYRIC, "settings.lyricCoverStyle.title",
+                        COVER_STYLE_ORIGINAL,
+                        "settings.lyricCoverStyle.original",
+                        "settings.lyricCoverStyle.vinyl")
+                .desc("settings.lyricCoverStyle.desc")
+                .group("lyricDisplay")
+                .build());
+        out.add(SettingSpec.segmented("lyricProgressStyle", LYRIC,
+                        "settings.lyricProgressStyle.title", 1,
+                        "settings.lyricProgressStyle.wave",
+                        "settings.lyricProgressStyle.line")
+                .group("lyricDisplay")
+                .build());
+        out.add(SettingSpec.radio(BG_MODE_KEY, LYRIC, "settings.lyricBgMode.title", 0,
+                        "settings.lyricBgMode.dynamic", "settings.lyricBgMode.static")
+                .desc("settings.lyricBgMode.desc")
+                .group("background")
+                .build());
+        out.add(SettingSpec.dropdown(BG_STYLE_KEY, LYRIC, "settings.lyricBgStyle.title",
+                        BG_STYLE_PIXI_RENDERER,
+                        "settings.lyricBgStyle.pixi", "settings.lyricBgStyle.mesh",
+                        "settings.lyricBgStyle.classic")
+                .desc("settings.lyricBgStyle.desc")
+                .group("background")
+                .build());
+        out.add(SettingSpec.slider(BG_SATURATION_KEY, LYRIC, "settings.lyricBgSaturation.title",
+                        100, 0, 200, 10)
+                .desc("settings.lyricBgSaturation.desc")
+                .unit("%").dots()
+                .group("background")
+                .build());
         out.add(SettingSpec.slider("lyricFontSize", LYRIC, "settings.lyricFontSize.title",
                         28, 14, 40, 1)
                 .unit(" px").dots()
@@ -247,12 +283,6 @@ public final class SettingsCatalog {
                 .desc("settings.lyricEdgeBlur.desc")
                 .group("lyricMotion")
                 .build());
-        out.add(SettingSpec.segmented("lyricProgressStyle", LYRIC,
-                        "settings.lyricProgressStyle.title", 1,
-                        "settings.lyricProgressStyle.wave",
-                        "settings.lyricProgressStyle.line")
-                .group("lyricDisplay")
-                .build());
         // Wide-window layout: no cover, lyrics across the whole page, transport
         // and progress along the bottom. Desktop only — it needs a window much
         // wider than it is tall to read well, which a phone never is.
@@ -263,25 +293,6 @@ public final class SettingsCatalog {
         // away. Same reasoning as the lyric timing offset.
         out.add(SettingSpec.hidden("lyricFullWidth", SettingSpec.SWITCH, false)
                 .onlyOn(DESKTOP)
-                .build());
-
-        out.add(SettingSpec.radio(BG_MODE_KEY, LYRIC, "settings.lyricBgMode.title", 0,
-                        "settings.lyricBgMode.dynamic", "settings.lyricBgMode.static")
-                .desc("settings.lyricBgMode.desc")
-                .group("background")
-                .build());
-        out.add(SettingSpec.dropdown(BG_STYLE_KEY, LYRIC, "settings.lyricBgStyle.title",
-                        BG_STYLE_PIXI_RENDERER,
-                        "settings.lyricBgStyle.pixi", "settings.lyricBgStyle.mesh",
-                        "settings.lyricBgStyle.classic")
-                .desc("settings.lyricBgStyle.desc")
-                .group("background")
-                .build());
-        out.add(SettingSpec.slider(BG_SATURATION_KEY, LYRIC, "settings.lyricBgSaturation.title",
-                        100, 0, 200, 10)
-                .desc("settings.lyricBgSaturation.desc")
-                .unit("%").dots()
-                .group("background")
                 .build());
         out.add(SettingSpec.toggle("temperaWholeLine", LYRIC, "settings.temperaWholeLine.title", false)
                 .desc("settings.temperaWholeLine.desc")
@@ -424,6 +435,13 @@ public final class SettingsCatalog {
                 .build());
 
         // ---- 关于 -----------------------------------------------------------
+        // GitHub mirror used to sit under 播放 even though it only accelerates
+        // app/plugin downloads — next to 检查更新 is where people look for it.
+        out.add(SettingSpec.toggle("mirror", ABOUT, "settings.mirror.title",
+                        isSimplifiedChinese())
+                .desc("settings.mirror.desc")
+                .group("network")
+                .build());
         out.add(SettingSpec.action("openRepo", ABOUT, "QPlayer", "")
                 .provider("version").inlineProvider()
                 // Hard-coded breaks: qml4j's auto-wrap mis-measures this width.

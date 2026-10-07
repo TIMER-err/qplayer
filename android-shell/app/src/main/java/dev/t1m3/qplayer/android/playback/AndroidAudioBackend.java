@@ -6,6 +6,9 @@ import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.net.Uri;
+import android.net.wifi.WifiManager;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.PowerManager;
 
 import dev.t1m3.qplayer.audio.AudioBackend;
@@ -46,10 +49,21 @@ public final class AndroidAudioBackend implements AudioBackend {
     private boolean hasFocus;
     private boolean resumeOnGain;
     private boolean ducked;
+    private boolean buffering;
+    private String cachePendingPath;
+    private String cacheCompletePath;
+    private WifiManager.WifiLock wifiLock;
+    private final Handler stallHandler = new Handler(Looper.getMainLooper());
+    private final Runnable stallCheck = this::checkStall;
 
     public AndroidAudioBackend(Context ctx) {
         appContext = ctx.getApplicationContext();
         audioManager = (AudioManager) appContext.getSystemService(Context.AUDIO_SERVICE);
+        WifiManager wifi = (WifiManager) appContext.getSystemService(Context.WIFI_SERVICE);
+        if (wifi != null) {
+            wifiLock = wifi.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "qplayer:stream");
+            wifiLock.setReferenceCounted(false);
+        }
     }
 
     @Override
@@ -80,6 +94,16 @@ public final class AndroidAudioBackend implements AudioBackend {
         mp.setOnPreparedListener(this::onPrepared);
         mp.setOnCompletionListener(p -> onCompleted(p));
         mp.setOnErrorListener(this::onPlayerError);
+        mp.setOnInfoListener((p, what, extra) -> {
+            if (p != player) return false;
+            if (what == MediaPlayer.MEDIA_INFO_BUFFERING_START) {
+                buffering = true;
+                tryPlayCompleteCache();
+            } else if (what == MediaPlayer.MEDIA_INFO_BUFFERING_END) {
+                buffering = false;
+            }
+            return false;
+        });
         player = mp;
         try {
             Logger.info("MediaPlayer: setDataSource + prepareAsync");
@@ -119,6 +143,8 @@ public final class AndroidAudioBackend implements AudioBackend {
         }
         if (wantPlay) {
             preparedPlayer.start();
+            holdWifiLock(source);
+            scheduleStallCheck();
             Runnable cb = onStarted;
             if (cb != null) cb.run();
         }
@@ -143,6 +169,8 @@ public final class AndroidAudioBackend implements AudioBackend {
     @Override
     public synchronized void pause() {
         wantPlay = false;
+        stallHandler.removeCallbacks(stallCheck);
+        releaseWifiLock();
         if (player != null && prepared && player.isPlaying()) {
             player.pause();
         }
@@ -153,7 +181,12 @@ public final class AndroidAudioBackend implements AudioBackend {
         wantPlay = true;
         requestFocus();
         if (player != null && prepared) {
-            player.start();
+            try {
+                if (!player.isPlaying()) player.start();
+            } catch (IllegalStateException ignored) {
+            }
+            holdWifiLock(source);
+            scheduleStallCheck();
         }
     }
 
@@ -240,7 +273,32 @@ public final class AndroidAudioBackend implements AudioBackend {
     }
 
     @Override
+    public synchronized void bindGrowingCache(String pendingPath, String completePath, long durationMs) {
+        this.cachePendingPath = pendingPath;
+        this.cacheCompletePath = completePath;
+    }
+
+    @Override
+    public synchronized void notifyCacheComplete() {
+        tryPlayCompleteCache();
+    }
+
+    /** @return true if playback was restarted from the finished cache file. */
+    private boolean tryPlayCompleteCache() {
+        String path = cacheCompletePath;
+        if (path == null || path.equals(source)) return false;
+        java.io.File file = new java.io.File(path);
+        if (!file.isFile() || file.length() == 0) return false;
+        long pos = position();
+        Logger.info("MediaPlayer: switching to complete cache at {}ms", pos);
+        play(path, pos);
+        return true;
+    }
+
+    @Override
     public synchronized void release() {
+        stallHandler.removeCallbacks(stallCheck);
+        releaseWifiLock();
         releasePlayer();
         abandonFocus();
     }
@@ -274,19 +332,13 @@ public final class AndroidAudioBackend implements AudioBackend {
     private synchronized void onFocusChange(int change) {
         switch (change) {
             case AudioManager.AUDIOFOCUS_LOSS:
-                // Another app took over for good: pause, don't auto-resume.
-                resumeOnGain = false;
-                if (player != null && prepared && player.isPlaying()) {
-                    player.pause();
-                    wantPlay = false;
-                    fire(onPaused);
-                }
-                break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-                // Call / brief interruption: pause and remember to resume on regain.
+                // OEM ROMs (MIUI/ColorOS) send LOSS when the screen turns off and
+                // often never send GAIN on unlock. Treat both as transient: keep
+                // wantPlay so Activity.onResume / the stall watchdog can restart.
+                hasFocus = false;
                 if (player != null && prepared && player.isPlaying()) {
                     player.pause();
-                    wantPlay = false;
                     resumeOnGain = true;
                     fire(onPaused);
                 }
@@ -298,15 +350,21 @@ public final class AndroidAudioBackend implements AudioBackend {
                 }
                 break;
             case AudioManager.AUDIOFOCUS_GAIN:
+                hasFocus = true;
                 if (ducked) {
                     ducked = false;
                     applyVolume();
                 }
-                if (resumeOnGain) {
+                if (resumeOnGain || wantPlay) {
                     resumeOnGain = false;
+                    wantPlay = true;
                     if (player != null && prepared) {
-                        player.start();
-                        wantPlay = true;
+                        try {
+                            if (!player.isPlaying()) player.start();
+                        } catch (IllegalStateException ignored) {
+                        }
+                        holdWifiLock(source);
+                        scheduleStallCheck();
                         fire(onResumed);
                     }
                 }
@@ -314,6 +372,50 @@ public final class AndroidAudioBackend implements AudioBackend {
             default:
                 break;
         }
+    }
+
+    private void holdWifiLock(String src) {
+        if (wifiLock == null || src == null) return;
+        if (!(src.startsWith("http://") || src.startsWith("https://"))) return;
+        try {
+            if (!wifiLock.isHeld()) wifiLock.acquire();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void releaseWifiLock() {
+        if (wifiLock == null) return;
+        try {
+            if (wifiLock.isHeld()) wifiLock.release();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void scheduleStallCheck() {
+        stallHandler.removeCallbacks(stallCheck);
+        stallHandler.postDelayed(stallCheck, 2500);
+    }
+
+    private synchronized void checkStall() {
+        if (!wantPlay || !prepared || player == null || buffering) return;
+        boolean playing;
+        try {
+            playing = player.isPlaying();
+        } catch (IllegalStateException e) {
+            playing = false;
+        }
+        if (!playing && hasFocus) {
+            if (tryPlayCompleteCache()) {
+                // switched to the finished cache file
+            } else {
+                Logger.warn("MediaPlayer stalled while wantPlay; restarting");
+                try {
+                    player.start();
+                } catch (IllegalStateException ignored) {
+                }
+            }
+        }
+        if (wantPlay) scheduleStallCheck();
     }
 
     private static void fire(Runnable r) {
@@ -328,6 +430,7 @@ public final class AndroidAudioBackend implements AudioBackend {
                 player.setOnPreparedListener(null);
                 player.setOnCompletionListener(null);
                 player.setOnErrorListener(null);
+                player.setOnInfoListener(null);
                 player.reset();
                 player.release();
             } catch (Throwable ignored) {
@@ -335,5 +438,6 @@ public final class AndroidAudioBackend implements AudioBackend {
             player = null;
         }
         prepared = false;
+        buffering = false;
     }
 }

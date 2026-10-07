@@ -25,6 +25,9 @@ public interface PcmSource extends AutoCloseable {
      */
     int read(byte[] dst, int off, int len) throws IOException;
 
+    /** True when the next {@link #read} will not block on a remote download. */
+    default boolean hasBuffered(int n) { return true; }
+
     /** Seek to {@code ms} (clamped to the track). @return the ms actually landed on. */
     long seek(long ms) throws IOException;
 
@@ -43,16 +46,20 @@ public interface PcmSource extends AutoCloseable {
     static PcmSource open(String src, Map<String, String> headers) throws IOException {
         SeekableByteSource bytes = SeekableByteSource.open(src, headers);
         try {
-            switch (sniff(bytes)) {
-                case OGG:  return new OggPcmSource(bytes);
-                case FLAC: return new FlacPcmSource(bytes);
-                case WAV:  return new WavPcmSource(bytes);
-                case MP4:  return new AacPcmSource(bytes);
-                default:   return new Mp3PcmSource(bytes);
-            }
+            return decode(bytes);
         } catch (IOException | RuntimeException e) {
             bytes.close();
             throw e;
+        }
+    }
+
+    static PcmSource decode(SeekableByteSource bytes) throws IOException {
+        switch (sniff(bytes)) {
+            case OGG:  return new OggPcmSource(bytes);
+            case FLAC: return new FlacPcmSource(bytes);
+            case WAV:  return new WavPcmSource(bytes);
+            case MP4:  return new AacPcmSource(bytes);
+            default:   return new Mp3PcmSource(bytes);
         }
     }
 

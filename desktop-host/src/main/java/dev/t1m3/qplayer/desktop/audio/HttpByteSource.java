@@ -150,6 +150,19 @@ final class HttpByteSource implements SeekableByteSource {
     }
 
     @Override
+    public long downloadedBytes() {
+        return downloaded;
+    }
+
+    @Override
+    public boolean hasBuffered(int n) {
+        synchronized (lock) {
+            if (error != null || complete || closed) return true;
+            return downloaded - pos >= n;
+        }
+    }
+
+    @Override
     public int read(byte[] dst, int off, int len) throws IOException {
         if (len <= 0) return 0;
         long avail = awaitAvailable(1);

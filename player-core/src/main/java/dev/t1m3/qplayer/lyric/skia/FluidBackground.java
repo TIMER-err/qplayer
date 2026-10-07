@@ -516,7 +516,8 @@ public final class FluidBackground {
 
             // AMLL MeshGradientRenderer and QPlayer's classic renderer use the
             // same cover pipeline before the mesh/warp: contrast .4,
-            // saturation 3, contrast 1.7, brightness .75, then the same blur.
+            // saturation 3, contrast 1.7, brightness .75, a chroma cap so a
+            // neon cover cannot clip to fluorescent primaries, then the same blur.
             float[] adjustedRgb = amllAdjust(argb);
             boxBlur(adjustedRgb, TEX_SIZE, TEX_SIZE, 2, 4);
             Image adjustedTexture = imageFromRgb(adjustedRgb);
@@ -540,7 +541,19 @@ public final class FluidBackground {
         return Image.makeRasterFromBytes(info, px, TEX_SIZE * 4L);
     }
 
-    private static float[] amllAdjust(int[] argb) {
+    /**
+     * Max channel-from-luma distance after the AMLL sat boost, in 0–255.
+     * Saturation ×3 on an already-vivid cover (anime, solid-color, neon logo)
+     * clips to a fluorescent primary; this cap only bites that tail. Quiet
+     * photography is already under it and is left alone.
+     */
+    static final float CHROMA_CAP = 72f;
+    /** Soft ceiling on luma after the AMLL boost, in 0–255. Pale / white
+     *  covers otherwise sit around 160 and wash out the (white) lyrics;
+     *  mid-grey photography lands near 96 and is left alone. */
+    static final float LUMA_CAP = 108f;
+
+    static float[] amllAdjust(int[] argb) {
         float[] out = new float[argb.length * 3];
         for (int i = 0; i < argb.length; i++) {
             int p = argb[i];
@@ -560,6 +573,22 @@ public final class FluidBackground {
             r = ((r - 128f) * 1.7f + 128f) * 0.75f;
             g = ((g - 128f) * 1.7f + 128f) * 0.75f;
             b = ((b - 128f) * 1.7f + 128f) * 0.75f;
+
+            float y = r * 0.3f + g * 0.59f + b * 0.11f;
+            float cr = r - y, cg = g - y, cb = b - y;
+            float chroma = Math.max(Math.abs(cr), Math.max(Math.abs(cg), Math.abs(cb)));
+            if (chroma > CHROMA_CAP) {
+                float k = CHROMA_CAP / chroma;
+                r = y + cr * k;
+                g = y + cg * k;
+                b = y + cb * k;
+            }
+            if (y > LUMA_CAP) {
+                float k = LUMA_CAP / y;
+                r *= k;
+                g *= k;
+                b *= k;
+            }
 
             out[i * 3] = r;
             out[i * 3 + 1] = g;

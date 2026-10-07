@@ -18,6 +18,7 @@ public class DiskCacheCanonicalIdTest {
         String name = java.nio.file.Paths.get(path).getFileName().toString();
         assertTrue(name.matches("v2-[a-f0-9]{64}\\.cache"));
         assertFalse(name.contains("%"));
+        assertTrue(cache.audioPendingPath("provider:song:a%2Fb%3Ac").endsWith(".cache.pending"));
     }
 
     @Test public void legacyNumericAudioMovesOnlyAfterCanonicalLookup() throws Exception {

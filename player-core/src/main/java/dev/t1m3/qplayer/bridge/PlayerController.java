@@ -967,9 +967,11 @@ public final class PlayerController {
             // Audio focus is an external discontinuity, not part of a user-requested
             // ramp. Settle at full logical gain while silent so focus regain cannot
             // inherit an interrupted fade's small intermediate value.
+            // Keep playingIntent: OEM ROMs often send AUDIOFOCUS_LOSS when the
+            // screen turns off and never GAIN on unlock. Clearing intent here
+            // made the UI look paused and blocked Activity.onResume from
+            // restarting the decoder. User pause still goes through mediaPause().
             cancelFadeAtGain(1f);
-            playingIntent = false;
-            post(() -> playing.set(false));
             notifyPlayback();
         });
         backend.setOnResumed(() -> {
@@ -1701,6 +1703,64 @@ public final class PlayerController {
         return provider != null && provider.capabilitySet().contains(capability) ? provider : null;
     }
 
+    private List<PluginManifest> providersWith(ProviderCapability capability) {
+        List<PluginManifest> out = new ArrayList<>();
+        String primary = pluginRegistry.primaryProvider();
+        for (PluginManifest manifest : pluginManager.enabledProviders()) {
+            if (manifest.capabilitySet().contains(capability)) out.add(manifest);
+        }
+        out.sort((a, b) -> {
+            if (a.id.equals(primary)) return b.id.equals(primary) ? 0 : -1;
+            if (b.id.equals(primary)) return 1;
+            return 0;
+        });
+        return out;
+    }
+
+    /** Album/artist search used to query only the primary source. A primary
+     *  without SEARCH_ALBUMS/SEARCH_ARTISTS then returned an empty page even
+     *  though another enabled plugin could answer — SearchPage looked broken. */
+    private void searchPluginCatalog(List<PluginManifest> providers, String query, String key,
+                                     ProviderCapability capability) {
+        final long generation = pluginSearchGeneration.incrementAndGet();
+        AtomicInteger pending = new AtomicInteger(providers.size());
+        List<Album> albums = capability == ProviderCapability.SEARCH_ALBUMS
+                ? Collections.synchronizedList(new ArrayList<>()) : null;
+        List<Artist> artists = capability == ProviderCapability.SEARCH_ARTISTS
+                ? Collections.synchronizedList(new ArrayList<>()) : null;
+        for (PluginManifest manifest : providers) {
+            CompletableFuture<?> request = capability == ProviderCapability.SEARCH_ALBUMS
+                    ? pluginProviders.searchAlbums(manifest.id, query, "", SEARCH_PAGE_SIZE)
+                    : pluginProviders.searchArtists(manifest.id, query, "", SEARCH_PAGE_SIZE);
+            request.whenComplete((page, error) -> post(() -> {
+                if (generation != pluginSearchGeneration.get() || !key.equals(currentSearchKey)) return;
+                if (error != null) {
+                    Logger.warn("plugin {} {} search failed: {}", manifest.id,
+                            capability.wireName(), safeMessage(error));
+                } else if (page instanceof Page) {
+                    @SuppressWarnings("unchecked")
+                    Page<?> typed = (Page<?>) page;
+                    if (typed.items != null) {
+                        if (albums != null) for (Object item : typed.items) albums.add((Album) item);
+                        if (artists != null) for (Object item : typed.items) artists.add((Artist) item);
+                    }
+                }
+                if (pending.decrementAndGet() > 0) return;
+                searchLoading.set(false);
+                if (albums != null) {
+                    List<Album> results = Collections.unmodifiableList(new ArrayList<>(albums));
+                    sourceSearchAlbumResults.set(results);
+                    resultCount.set(results.size());
+                }
+                if (artists != null) {
+                    List<Artist> results = Collections.unmodifiableList(new ArrayList<>(artists));
+                    sourceSearchArtistResults.set(results);
+                    resultCount.set(results.size());
+                }
+            }));
+        }
+    }
+
     private PluginManifest providerWithId(String providerId, ProviderCapability capability) {
         if (providerId == null || providerId.isEmpty()) return null;
         for (PluginManifest manifest : pluginManager.enabledProviders()) {
@@ -2373,6 +2433,28 @@ public final class PlayerController {
         float initialGain = fadeEnabled && !suppressNextFadeIn ? 0f : 1f;
         cancelFadeAtGain(initialGain);
         backend.play(source, headers != null ? headers : Collections.<String, String>emptyMap(), startMs);
+        bindGrowingCacheForCurrent();
+    }
+
+    private void bindGrowingCacheForCurrent() {
+        Track t = currentTrack();
+        if (t == null) {
+            backend.bindGrowingCache(null, null, 0L);
+            return;
+        }
+        String pending;
+        String complete;
+        if (t.source == Track.Source.PLUGIN) {
+            pending = diskCache.audioPendingPath(t.canonicalId());
+            complete = diskCache.audioPath(t.canonicalId());
+        } else if (t.source == Track.Source.NETEASE && t.neteaseId != 0) {
+            pending = diskCache.audioPendingPath(t.neteaseId);
+            complete = diskCache.audioPath(t.neteaseId);
+        } else {
+            backend.bindGrowingCache(null, null, 0L);
+            return;
+        }
+        backend.bindGrowingCache(pending, complete, t.durationMs);
     }
 
     private void applyEffectiveVolume(float gain) {
@@ -5636,6 +5718,7 @@ public final class PlayerController {
                 }
                 diskCache.cacheAudio(t.streamUrl, t.neteaseId);
                 mediaMetaIndex.save();
+                if (diskCache.hasAudio(t.neteaseId)) backend.notifyCacheComplete();
             }
         } finally {
             // Clearing the flag is not enough on its own: between the loop's own
@@ -5867,10 +5950,11 @@ public final class PlayerController {
      * the two halve each other, and the half that suffers is the one the user is
      * waiting on, which is why a first play drags while a second (served from
      * disk, no network at all) starts immediately. Letting playback have the
-     * pipe to itself first costs the cache nothing: it still finishes long
-     * before the track does.
+     *  pipe to itself first costs the cache nothing: it still finishes long
+     *  before the track does. Two seconds is enough head-start for playback
+     *  while still letting the cache get ahead if the live connection stalls.
      */
-    private static final long AUTO_CACHE_DELAY_MS = 6_000L;
+    private static final long AUTO_CACHE_DELAY_MS = 2_000L;
 
     /** Queue the auto-cache for a track that just started playing. Skipped if the
      *  user has moved on by the time it fires -- caching a track they skipped past
@@ -5905,6 +5989,7 @@ public final class PlayerController {
                         if (active) diskCache.markActivelyCached(mediaId);
                         diskCache.finishExternalWrite();
                         mediaMetaIndex.save();
+                        backend.notifyCacheComplete();
                     } else if (error != null) {
                         Logger.warn("plugin audio cache failed for {}: {}", mediaId, safeMessage(error));
                     }
@@ -6551,25 +6636,10 @@ public final class PlayerController {
         currentSearchKey = key;
         currentSearchQuery = query;
         searchLoading.set(true);
-        PluginManifest provider = primaryProviderWith(ProviderCapability.SEARCH_ALBUMS);
-        if (provider != null) {
+        List<PluginManifest> providers = providersWith(ProviderCapability.SEARCH_ALBUMS);
+        if (!providers.isEmpty()) {
             sourceSearchAlbumResults.set(Collections.<Album>emptyList());
-            pluginProviders.searchAlbums(provider.id, query, "", SEARCH_PAGE_SIZE)
-                    .whenComplete((page, error) -> post(() -> {
-                        if (!key.equals(currentSearchKey)
-                                || !provider.id.equals(pluginRegistry.primaryProvider())) return;
-                        searchLoading.set(false);
-                        if (error != null) {
-                            Logger.warn("plugin {} album search failed: {}", provider.id,
-                                    safeMessage(error));
-                            showToast(I18n.tr("toast.search.albumFailedPlugin"));
-                            return;
-                        }
-                        List<Album> results = page != null ? page.items
-                                : Collections.<Album>emptyList();
-                        sourceSearchAlbumResults.set(results);
-                        resultCount.set(results.size());
-                    }));
+            searchPluginCatalog(providers, query, key, ProviderCapability.SEARCH_ALBUMS);
             return;
         }
         if (onlineSourcesArePluginOnly()) {
@@ -6609,25 +6679,10 @@ public final class PlayerController {
         currentSearchKey = key;
         currentSearchQuery = query;
         searchLoading.set(true);
-        PluginManifest provider = primaryProviderWith(ProviderCapability.SEARCH_ARTISTS);
-        if (provider != null) {
+        List<PluginManifest> providers = providersWith(ProviderCapability.SEARCH_ARTISTS);
+        if (!providers.isEmpty()) {
             sourceSearchArtistResults.set(Collections.<Artist>emptyList());
-            pluginProviders.searchArtists(provider.id, query, "", SEARCH_PAGE_SIZE)
-                    .whenComplete((page, error) -> post(() -> {
-                        if (!key.equals(currentSearchKey)
-                                || !provider.id.equals(pluginRegistry.primaryProvider())) return;
-                        searchLoading.set(false);
-                        if (error != null) {
-                            Logger.warn("plugin {} artist search failed: {}", provider.id,
-                                    safeMessage(error));
-                            showToast(I18n.tr("toast.search.artistFailedPlugin"));
-                            return;
-                        }
-                        List<Artist> results = page != null ? page.items
-                                : Collections.<Artist>emptyList();
-                        sourceSearchArtistResults.set(results);
-                        resultCount.set(results.size());
-                    }));
+            searchPluginCatalog(providers, query, key, ProviderCapability.SEARCH_ARTISTS);
             return;
         }
         if (onlineSourcesArePluginOnly()) {
@@ -9033,6 +9088,16 @@ public final class PlayerController {
             backend.pause();
         }
         notifyPlayback();
+    }
+
+    /**
+     * Restart the decoder if we still intend to play but the backend went silent
+     * (OEM screen-off stall, a focus loss that never sent GAIN). Safe no-op when
+     * the user actually paused.
+     */
+    public void ensurePlaying() {
+        if (!playingIntent) return;
+        if (!backend.isPlaying()) backend.resume();
     }
 
     /** Resume playback immediately — counterpart to {@link #mediaPause()} for

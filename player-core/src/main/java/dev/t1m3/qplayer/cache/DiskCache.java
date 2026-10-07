@@ -134,6 +134,33 @@ public final class DiskCache {
         return baseDir + "/" + AUDIO + "/" + audioKey(mediaId) + ".cache";
     }
 
+    /** Sibling the downloader writes into before promoting to {@link #audioPath}.
+     *  Readable while the download is still in flight. */
+    public String audioPendingPath(String mediaId) {
+        String path = audioPath(mediaId);
+        if (path == null) return null;
+        return StorageFiles.pendingPath(Paths.get(path)).toString();
+    }
+
+    public String audioPendingPath(long neteaseId) {
+        String path = audioPath(neteaseId);
+        if (path == null) return null;
+        return StorageFiles.pendingPath(Paths.get(path)).toString();
+    }
+
+    /** Bytes already on disk for this id: the finished cache, else the pending file. */
+    public long audioPartialBytes(String mediaId) {
+        String complete = audioPath(mediaId);
+        if (complete != null) {
+            File done = new File(complete);
+            if (done.isFile()) return done.length();
+        }
+        String pending = audioPendingPath(mediaId);
+        if (pending == null) return 0L;
+        File part = new File(pending);
+        return part.isFile() ? part.length() : 0L;
+    }
+
     /** Resolve cache file for AMLL TTML lyrics keyed by song id. */
     public String lyricPath(long songId) {
         if (songId <= 0) return null;
