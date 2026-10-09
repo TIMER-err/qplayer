@@ -395,6 +395,7 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
         // it eventually leads. Default stays true: every existing caller wants the
         // final page and none of them pass this.
         boolean followRedirects = !Boolean.FALSE.equals(args.get("followRedirects"));
+        List<String> setCookies = new ArrayList<>();
 
         for (int redirect = 0; redirect <= MAX_REDIRECTS; redirect++) {
             URL url = validateNetworkUrl(manifest, current);
@@ -416,6 +417,7 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
                 try (OutputStream output = connection.getOutputStream()) { output.write(body); }
             }
             int status = connection.getResponseCode();
+            collectSetCookies(connection, setCookies);
             if (status >= 300 && status < 400 && followRedirects) {
                 String location = connection.getHeaderField("Location");
                 connection.disconnect();
@@ -456,7 +458,6 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
                 result.put("bodyBase64", Base64.getEncoder().encodeToString(response));
             }
             Map<String, String> responseHeaders = new LinkedHashMap<>();
-            List<String> setCookies = new ArrayList<>();
             for (Map.Entry<String, List<String>> header : connection.getHeaderFields().entrySet()) {
                 if (header.getKey() != null && header.getValue() != null) {
                     // Both of these describe bytes the plugin never sees once the
@@ -464,9 +465,6 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
                     if (decoded && ("Content-Encoding".equalsIgnoreCase(header.getKey())
                             || "Content-Length".equalsIgnoreCase(header.getKey()))) continue;
                     responseHeaders.put(header.getKey(), String.join(", ", header.getValue()));
-                    if ("Set-Cookie".equalsIgnoreCase(header.getKey())) {
-                        setCookies.addAll(header.getValue());
-                    }
                 }
             }
             result.put("headers", responseHeaders);
@@ -477,6 +475,20 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
             return result;
         }
         throw new IOException("HTTP request failed");
+    }
+
+    /** Login redirects often plant session cookies on the 302 itself. Dropping
+     *  those made QR confirm look successful in Douyin while QPlayer never saw
+     *  a sessionid. */
+    private static void collectSetCookies(HttpURLConnection connection, List<String> out) {
+        Map<String, List<String>> headers = connection.getHeaderFields();
+        if (headers == null) return;
+        for (Map.Entry<String, List<String>> header : headers.entrySet()) {
+            if (header.getKey() != null && "Set-Cookie".equalsIgnoreCase(header.getKey())
+                    && header.getValue() != null) {
+                out.addAll(header.getValue());
+            }
+        }
     }
 
     private byte[] requestBytes(PluginManifest manifest, String initial,

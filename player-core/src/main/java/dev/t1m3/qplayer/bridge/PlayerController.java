@@ -91,10 +91,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -9162,6 +9164,12 @@ public final class PlayerController {
     private volatile String pluginCredentialMethodId = "";
     private volatile boolean pendingLoginIsApp;
     private volatile LoginMethod activeWebLoginMethod;
+    // QR/app login is polled from QML, but jumping to Douyin/QQ pauses the GL
+    // thread and those timers freeze — the confirm happens while we are in the
+    // background, so the host has to keep polling itself.
+    private final Object loginPollLock = new Object();
+    private ScheduledFuture<?> loginPollTask;
+    private final AtomicBoolean loginPollInFlight = new AtomicBoolean(false);
     /** QR module matrix (true=dark) as nested Lists so QML can index [y][x]. */
     public final Property<List<List<Boolean>>> qrImage =
             new Property<>(Collections.<List<Boolean>>emptyList());
@@ -9230,6 +9238,9 @@ public final class PlayerController {
 
     /** Shell callback when its browser window is closed before obtaining MUSIC_U. */
     public void cancelWebLogin() {
+        stopLoginPoll();
+        pendingPluginLoginChallenge = "";
+        pendingUnikey = null;
         post(() -> webLoginBusy.set(false));
     }
 
@@ -9314,6 +9325,7 @@ public final class PlayerController {
                 }
                 pendingPluginLoginChallenge = challenge.id;
                 applyPluginLoginChallenge(challenge, false);
+                startLoginPoll();
             }));
             return;
         }
@@ -9333,6 +9345,7 @@ public final class PlayerController {
                     qrImage.set(m);
                     qrStatus.set(801);
                 });
+                startLoginPoll();
             } catch (Throwable e) {
                 Logger.warn("startQrLogin failed: {}", e.getMessage());
                 post(() -> {
@@ -9369,6 +9382,8 @@ public final class PlayerController {
             if (loginAppUrl.peek().isEmpty()) {
                 qrStatus.set(800);
                 webLoginError.set(I18n.tr("login.error.noApp"));
+            } else {
+                startLoginPoll();
             }
         }));
     }
@@ -9399,29 +9414,68 @@ public final class PlayerController {
 
     /** Poll the scan status off-thread; updates {@link #qrStatus}. */
     public void pollQrLogin() {
+        if (!loginPollInFlight.compareAndSet(false, true)) return;
         if (!pendingPluginLoginProvider.isEmpty() && !pendingPluginLoginChallenge.isEmpty()) {
             final String provider = pendingPluginLoginProvider;
             final String challenge = pendingPluginLoginChallenge;
-            pluginAccounts.poll(provider, challenge).whenComplete((result, error) -> post(() -> {
-                if (!provider.equals(pendingPluginLoginProvider)
-                        || !challenge.equals(pendingPluginLoginChallenge)) return;
-                if (error == null) applyPluginLoginChallenge(result, false);
-            }));
+            pluginAccounts.poll(provider, challenge).whenComplete((result, error) -> {
+                try {
+                    post(() -> {
+                        if (!provider.equals(pendingPluginLoginProvider)
+                                || !challenge.equals(pendingPluginLoginChallenge)) return;
+                        if (error == null) applyPluginLoginChallenge(result, false);
+                    });
+                } finally {
+                    loginPollInFlight.set(false);
+                }
+            });
             return;
         }
-        if (onlineSourcesArePluginOnly()) return;
+        if (onlineSourcesArePluginOnly()) {
+            loginPollInFlight.set(false);
+            return;
+        }
         String key = pendingUnikey;
-        if (key == null) return;
+        if (key == null) {
+            loginPollInFlight.set(false);
+            return;
+        }
         worker.submit(() -> {
             try {
                 int code = netease.qrLoginCheck(key);
                 post(() -> qrStatus.set(code));
-                if (code == 803) refreshLogin();
-                else if (code == 800) startQrLogin();
+                if (code == 803) {
+                    stopLoginPoll();
+                    refreshLogin();
+                } else if (code == 800) startQrLogin();
             } catch (Throwable e) {
                 // transient network blip — keep waiting
+            } finally {
+                loginPollInFlight.set(false);
             }
         });
+    }
+
+    private void startLoginPoll() {
+        synchronized (loginPollLock) {
+            if (loginPollTask != null && !loginPollTask.isCancelled()) return;
+            try {
+                loginPollTask = fadeWorker.scheduleAtFixedRate(() -> {
+                    try { pollQrLogin(); } catch (Throwable ignored) {}
+                }, 800, 800, TimeUnit.MILLISECONDS);
+            } catch (RejectedExecutionException ignored) {
+            }
+        }
+    }
+
+    private void stopLoginPoll() {
+        synchronized (loginPollLock) {
+            if (loginPollTask != null) {
+                loginPollTask.cancel(false);
+                loginPollTask = null;
+            }
+        }
+        loginPollInFlight.set(false);
     }
 
     private void applyPluginLoginChallenge(LoginChallenge challenge, boolean credentialFlow) {
@@ -9443,6 +9497,7 @@ public final class PlayerController {
         switch (challenge.status) {
             case "scanned": qrStatus.set(802); break;
             case "success":
+                stopLoginPoll();
                 qrStatus.set(803);
                 webLoginBusy.set(false);
                 webLoginError.set("");
@@ -9460,6 +9515,7 @@ public final class PlayerController {
                 else startQrLogin();
                 break;
             case "failed":
+                stopLoginPoll();
                 pendingCredentialEncryptedNotice = false;
                 qrStatus.set(800);
                 webLoginBusy.set(false);
@@ -9684,6 +9740,7 @@ public final class PlayerController {
             fadeRunning = false;
             fadeCompleteAction = null;
         }
+        stopLoginPoll();
         fadeWorker.shutdownNow();
         backend.release();
         worker.shutdownNow();

@@ -1086,6 +1086,7 @@ public final class QPlayerActivity extends Activity {
         if (controller != null) {
             controller.ensurePlaying();
             if (controller.isPlaying()) onPlaybackChanged();
+            controller.pollQrLogin();
         }
     }
 
