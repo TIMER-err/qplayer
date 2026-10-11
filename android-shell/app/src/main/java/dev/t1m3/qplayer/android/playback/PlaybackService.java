@@ -112,9 +112,11 @@ public final class PlaybackService extends Service {
         }, 15L, 15L, TimeUnit.SECONDS);
         lyricon = new LyriconBridge();
         lyricon.start(this);
+        OverlayLyricWindow.attach(this);
         checkpointWorker.scheduleWithFixedDelay(() -> {
             LyriconBridge bridge = lyricon;
             if (bridge != null) bridge.pushPosition();
+            OverlayLyricWindow.tick(controller);
         }, 100L, 100L, TimeUnit.MILLISECONDS);
         // Take over as the controller's listener so state changes refresh us directly,
         // in-process, instead of round-tripping through startForegroundService.
@@ -165,6 +167,7 @@ public final class PlaybackService extends Service {
             checkpointWorker = null;
         }
         destroyLyricon();
+        OverlayLyricWindow.detach();
         PlayerController c = controller;
         if (c != null) {
             // Capture position/queue/playMode before anything below pauses/tears
@@ -224,6 +227,7 @@ public final class PlaybackService extends Service {
             if (c.isPlaying()) c.toggle();
         }
         destroyLyricon();
+        OverlayLyricWindow.detach();
         clearNotification();
         stopSelf();
         super.onTaskRemoved(rootIntent);
@@ -311,6 +315,7 @@ public final class PlaybackService extends Service {
         // The notification is dismissible (setOngoing not set) and STOP fully exits.
         startForeground(NOTIF_ID, n);
         if (lyricon != null) lyricon.push();
+        OverlayLyricWindow.tick(c);
     }
 
     private void destroyLyricon() {

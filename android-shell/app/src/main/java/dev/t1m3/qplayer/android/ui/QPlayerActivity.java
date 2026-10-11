@@ -6,6 +6,7 @@ import dev.t1m3.qplayer.i18n.I18n;
 import dev.t1m3.qplayer.android.library.AndroidLibraryScanner;
 import dev.t1m3.qplayer.android.library.AndroidMetadataReader;
 import dev.t1m3.qplayer.android.playback.AndroidAudioBackend;
+import dev.t1m3.qplayer.android.playback.OverlayLyricWindow;
 import dev.t1m3.qplayer.android.playback.PlaybackService;
 import dev.t1m3.qplayer.android.settings.PrefsSettingsStore;
 
@@ -235,6 +236,25 @@ public final class QPlayerActivity extends Activity {
         settings.registerInfo("version", () -> "v" + controller.appVersion.peek());
         settings.registerInfo("cacheUsage", () -> controller.cacheSizeMB.peek() + " MB");
         settings.load(new PrefsSettingsStore(this), SettingsCatalog.ANDROID);
+        OverlayLyricWindow.bindSettings(settings);
+        settings.onChange(SettingsCatalog.OVERLAY_LYRIC_KEY, value -> runOnUiThread(() -> {
+            boolean on = Boolean.TRUE.equals(value);
+            OverlayLyricWindow.setWanted(getApplicationContext(), on);
+            if (on) requestOverlayLyricPermission();
+        }));
+        String[] overlayStyleKeys = {
+                SettingsCatalog.OVERLAY_LYRIC_LOCKED_KEY,
+                SettingsCatalog.OVERLAY_LYRIC_FONT_SIZE_KEY,
+                SettingsCatalog.OVERLAY_LYRIC_WIDTH_KEY,
+                SettingsCatalog.OVERLAY_LYRIC_BG_OPACITY_KEY,
+                SettingsCatalog.OVERLAY_LYRIC_SUNG_COLOR_KEY,
+                SettingsCatalog.OVERLAY_LYRIC_UNSUNG_COLOR_KEY
+        };
+        for (String key : overlayStyleKeys) {
+            settings.onChange(key, ignored -> runOnUiThread(OverlayLyricWindow::restyle));
+        }
+        OverlayLyricWindow.setWanted(getApplicationContext(),
+                settings.bool(SettingsCatalog.OVERLAY_LYRIC_KEY));
 
         String qml;
         try {
@@ -569,6 +589,20 @@ public final class QPlayerActivity extends Activity {
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
                     != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIF);
+        }
+    }
+
+    /** Overlay lyrics use SYSTEM_ALERT_WINDOW. The toggle is in settings; this
+     *  only opens the system grant page when the user has asked for the window
+     *  and the OEM has not already allowed it. */
+    private void requestOverlayLyricPermission() {
+        if (Build.VERSION.SDK_INT >= 23 && !android.provider.Settings.canDrawOverlays(this)) {
+            try {
+                startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        android.net.Uri.parse("package:" + getPackageName()))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (Throwable ignored) {
+            }
         }
     }
 
@@ -1087,6 +1121,9 @@ public final class QPlayerActivity extends Activity {
             controller.ensurePlaying();
             if (controller.isPlaying()) onPlaybackChanged();
             controller.pollQrLogin();
+        }
+        if (settings != null && settings.bool(SettingsCatalog.OVERLAY_LYRIC_KEY)) {
+            OverlayLyricWindow.setWanted(getApplicationContext(), true);
         }
     }
 

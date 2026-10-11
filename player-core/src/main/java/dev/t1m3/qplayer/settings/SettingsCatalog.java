@@ -67,6 +67,14 @@ public final class SettingsCatalog {
     public static final String COVER_STYLE_KEY = "lyricCoverStyle";
     public static final int COVER_STYLE_ORIGINAL = 0;
     public static final int COVER_STYLE_VINYL = 1;
+    /** Android overlay lyrics: TYPE_APPLICATION_OVERLAY, no root. */
+    public static final String OVERLAY_LYRIC_KEY = "overlayLyricEnabled";
+    public static final String OVERLAY_LYRIC_LOCKED_KEY = "overlayLyricLocked";
+    public static final String OVERLAY_LYRIC_FONT_SIZE_KEY = "overlayLyricFontSize";
+    public static final String OVERLAY_LYRIC_WIDTH_KEY = "overlayLyricWidth";
+    public static final String OVERLAY_LYRIC_BG_OPACITY_KEY = "overlayLyricBgOpacity";
+    public static final String OVERLAY_LYRIC_SUNG_COLOR_KEY = "overlayLyricSungColor";
+    public static final String OVERLAY_LYRIC_UNSUNG_COLOR_KEY = "overlayLyricUnsungColor";
 
     // Dark-mode row values (the segmented control's indices).
     public static final int MODE_SYSTEM = 0;
@@ -225,6 +233,52 @@ public final class SettingsCatalog {
                         "settings.lyricProgressStyle.wave",
                         "settings.lyricProgressStyle.line")
                 .group("lyricDisplay")
+                .build());
+        out.add(SettingSpec.toggle(OVERLAY_LYRIC_KEY, LYRIC, "settings.overlayLyric.title", false)
+                .desc("settings.overlayLyric.desc")
+                .onlyOn(ANDROID)
+                .group("overlayLyric")
+                .build());
+        out.add(SettingSpec.toggle(OVERLAY_LYRIC_LOCKED_KEY, LYRIC, "settings.overlayLyricLocked.title", false)
+                .desc("settings.overlayLyricLocked.desc")
+                .onlyOn(ANDROID)
+                .dependsOn(OVERLAY_LYRIC_KEY)
+                .group("overlayLyric")
+                .build());
+        out.add(SettingSpec.slider(OVERLAY_LYRIC_FONT_SIZE_KEY, LYRIC,
+                        "settings.overlayLyricFontSize.title", 16, 12, 28, 1)
+                .unit(" px").dots()
+                .onlyOn(ANDROID)
+                .dependsOn(OVERLAY_LYRIC_KEY)
+                .group("overlayLyric")
+                .build());
+        out.add(SettingSpec.slider(OVERLAY_LYRIC_WIDTH_KEY, LYRIC,
+                        "settings.overlayLyricWidth.title", 90, 50, 100, 5)
+                .unit("%").dots()
+                .onlyOn(ANDROID)
+                .dependsOn(OVERLAY_LYRIC_KEY)
+                .group("overlayLyric")
+                .build());
+        out.add(SettingSpec.slider(OVERLAY_LYRIC_BG_OPACITY_KEY, LYRIC,
+                        "settings.overlayLyricBgOpacity.title", 63, 0, 100, 5)
+                .unit("%").dots()
+                .onlyOn(ANDROID)
+                .dependsOn(OVERLAY_LYRIC_KEY)
+                .group("overlayLyric")
+                .build());
+        out.add(SettingSpec.color(OVERLAY_LYRIC_SUNG_COLOR_KEY, LYRIC,
+                        "settings.overlayLyricSungColor.title", "")
+                .desc("settings.overlayLyricSungColor.desc")
+                .onlyOn(ANDROID)
+                .dependsOn(OVERLAY_LYRIC_KEY)
+                .group("overlayLyric")
+                .build());
+        out.add(SettingSpec.color(OVERLAY_LYRIC_UNSUNG_COLOR_KEY, LYRIC,
+                        "settings.overlayLyricUnsungColor.title", "")
+                .desc("settings.overlayLyricUnsungColor.desc")
+                .onlyOn(ANDROID)
+                .dependsOn(OVERLAY_LYRIC_KEY)
+                .group("overlayLyric")
                 .build());
         out.add(SettingSpec.radio(BG_MODE_KEY, LYRIC, "settings.lyricBgMode.title", 0,
                         "settings.lyricBgMode.dynamic", "settings.lyricBgMode.static")
