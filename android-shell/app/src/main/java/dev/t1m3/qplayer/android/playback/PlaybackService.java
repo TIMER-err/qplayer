@@ -13,6 +13,7 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.IBinder;
 import android.support.v4.media.MediaMetadataCompat;
 import android.support.v4.media.session.MediaSessionCompat;
@@ -22,8 +23,10 @@ import androidx.core.app.NotificationCompat;
 import androidx.media.session.MediaButtonReceiver;
 
 import dev.t1m3.qplayer.bridge.PlayerController;
+import dev.t1m3.qplayer.i18n.I18n;
 import dev.t1m3.qplayer.model.Track;
 import dev.t1m3.qplayer.util.Logger;
+import io.github.timer_err.qml4j.android.R;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -44,6 +47,8 @@ import java.util.concurrent.TimeUnit;
 public final class PlaybackService extends Service {
 
     public static final String ACTION_REFRESH = "dev.t1m3.qplayer.action.REFRESH";
+    public static final String ACTION_TOGGLE_OVERLAY_LOCK = "dev.t1m3.qplayer.action.TOGGLE_OVERLAY_LOCK";
+    private static final String CUSTOM_OVERLAY_LOCK = "TOGGLE_OVERLAY_LOCK";
     private static final String CHANNEL_ID = "qplayer.playback";
     /** Package-visible so {@link QPlayerApplication}'s crash handler can cancel
      *  this notification without needing a live Service instance. */
@@ -96,6 +101,14 @@ public final class PlaybackService extends Service {
                 clearNotification();
                 stopSelf();
             }
+            @Override public void onCustomAction(String action, Bundle extras) {
+                if (CUSTOM_OVERLAY_LOCK.equals(action)) {
+                    OverlayLyricWindow.toggleLocked();
+                    try { refresh(); } catch (Throwable e) {
+                        Logger.error("PlaybackService: refresh failed: {}", e.toString());
+                    }
+                }
+            }
         });
         session.setActive(true);
         // Android does not call onDestroy() for a low-memory process kill. Keep the
@@ -139,6 +152,9 @@ public final class PlaybackService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         // Hardware / bluetooth media buttons routed through the session callback.
         MediaButtonReceiver.handleIntent(session, intent);
+        if (intent != null && ACTION_TOGGLE_OVERLAY_LOCK.equals(intent.getAction())) {
+            OverlayLyricWindow.toggleLocked();
+        }
         PlayerController c = controller;
         if (c != null) {
             c.setPlaybackListener(selfListener);
@@ -202,6 +218,18 @@ public final class PlaybackService extends Service {
 
     public static boolean isRunning() {
         return instance != null;
+    }
+
+    /** Rebuild the media notification if this service is already foregrounded.
+     *  Used when overlay-lyric lock/enable changes outside a playback event. */
+    public static void refreshIfRunning() {
+        PlaybackService live = instance;
+        if (live == null) return;
+        try {
+            live.refresh();
+        } catch (Throwable e) {
+            Logger.error("PlaybackService: refresh failed: {}", e.toString());
+        }
     }
 
     /** Swiping the task away from Recents calls this instead of a normal destroy
@@ -292,7 +320,7 @@ public final class PlaybackService extends Service {
         }
         session.setMetadata(mb.build());
 
-        session.setPlaybackState(new PlaybackStateCompat.Builder()
+        PlaybackStateCompat.Builder state = new PlaybackStateCompat.Builder()
                 .setActions(PlaybackStateCompat.ACTION_PLAY
                         | PlaybackStateCompat.ACTION_PAUSE
                         | PlaybackStateCompat.ACTION_PLAY_PAUSE
@@ -301,8 +329,16 @@ public final class PlaybackService extends Service {
                         | PlaybackStateCompat.ACTION_SEEK_TO
                         | PlaybackStateCompat.ACTION_STOP)
                 .setState(playing ? PlaybackStateCompat.STATE_PLAYING : PlaybackStateCompat.STATE_PAUSED,
-                        pos, playing ? 1f : 0f)
-                .build());
+                        pos, playing ? 1f : 0f);
+        if (OverlayLyricWindow.isWanted()) {
+            boolean locked = OverlayLyricWindow.isLocked();
+            state.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
+                    CUSTOM_OVERLAY_LOCK,
+                    I18n.tr(locked ? "notif.overlayLyric.unlock" : "notif.overlayLyric.lock"),
+                    locked ? R.drawable.ic_overlay_unlock : R.drawable.ic_overlay_lock)
+                    .build());
+        }
+        session.setPlaybackState(state.build());
 
         // Extract Monet seed from cover for notification accent (progress bar tint).
         String seedHex = c.coverSeed.peek();
@@ -359,14 +395,30 @@ public final class PlaybackService extends Service {
         b.addAction(new NotificationCompat.Action(android.R.drawable.ic_media_next, "next",
                 MediaButtonReceiver.buildMediaButtonPendingIntent(this,
                         PlaybackStateCompat.ACTION_SKIP_TO_NEXT)));
+        if (OverlayLyricWindow.isWanted()) {
+            boolean locked = OverlayLyricWindow.isLocked();
+            b.addAction(new NotificationCompat.Action(
+                    locked ? R.drawable.ic_overlay_unlock : R.drawable.ic_overlay_lock,
+                    I18n.tr(locked ? "notif.overlayLyric.unlock" : "notif.overlayLyric.lock"),
+                    overlayLockIntent()));
+        }
 
-        b.setStyle(new androidx.media.app.NotificationCompat.MediaStyle()
-                .setMediaSession(session.getSessionToken())
-                .setShowActionsInCompactView(0, 1, 2)
-                .setShowCancelButton(true)
-                .setCancelButtonIntent(MediaButtonReceiver.buildMediaButtonPendingIntent(this,
-                        PlaybackStateCompat.ACTION_STOP)));
+        androidx.media.app.NotificationCompat.MediaStyle style =
+                new androidx.media.app.NotificationCompat.MediaStyle()
+                        .setMediaSession(session.getSessionToken())
+                        .setShowActionsInCompactView(0, 1, 2)
+                        .setShowCancelButton(true)
+                        .setCancelButtonIntent(MediaButtonReceiver.buildMediaButtonPendingIntent(this,
+                                PlaybackStateCompat.ACTION_STOP));
+        b.setStyle(style);
         return b.build();
+    }
+
+    private PendingIntent overlayLockIntent() {
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
+        Intent toggle = new Intent(this, PlaybackService.class).setAction(ACTION_TOGGLE_OVERLAY_LOCK);
+        return PendingIntent.getService(this, 2, toggle, flags);
     }
 
     private void createChannel() {

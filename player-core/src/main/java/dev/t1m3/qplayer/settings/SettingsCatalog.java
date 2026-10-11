@@ -32,6 +32,9 @@ public final class SettingsCatalog {
     public static final String PAGES = "pages";
     public static final String PLAYBACK = "playback";
     public static final String LYRIC = "lyric";
+    /** Android overlay lyrics gets its own tab rather than sitting under 歌词:
+     *  same reasoning as {@link #DESKTOP_LYRIC}. Desktop never shows this. */
+    public static final String OVERLAY_LYRIC = "overlayLyric";
     /** Desktop lyrics gets its own tab rather than sitting under 歌词: it is a
      *  separate surface with its own typography and colours, and every row in it
      *  is desktop-only. A category with no rows on the running host is dropped —
@@ -42,7 +45,8 @@ public final class SettingsCatalog {
     public static final String ABOUT = "about";
 
     public static final List<String> CATEGORIES = Collections.unmodifiableList(
-            Arrays.asList(APPEARANCE, PAGES, PLAYBACK, LYRIC, DESKTOP_LYRIC, LOCAL, PLUGINS, ABOUT));
+            Arrays.asList(APPEARANCE, PAGES, PLAYBACK, LYRIC, OVERLAY_LYRIC, DESKTOP_LYRIC,
+                    LOCAL, PLUGINS, ABOUT));
 
     /** Fluid-background mode, 0 dynamic / 1 static. Stored under a new key
      *  because the same setting used to be a boolean ("lyricBgStatic") and a
@@ -75,6 +79,8 @@ public final class SettingsCatalog {
     public static final String OVERLAY_LYRIC_BG_OPACITY_KEY = "overlayLyricBgOpacity";
     public static final String OVERLAY_LYRIC_SUNG_COLOR_KEY = "overlayLyricSungColor";
     public static final String OVERLAY_LYRIC_UNSUNG_COLOR_KEY = "overlayLyricUnsungColor";
+    public static final String OVERLAY_LYRIC_OUTLINE_KEY = "overlayLyricOutline";
+    public static final String OVERLAY_LYRIC_OUTLINE_COLOR_KEY = "overlayLyricOutlineColor";
 
     // Dark-mode row values (the segmented control's indices).
     public static final int MODE_SYSTEM = 0;
@@ -234,52 +240,6 @@ public final class SettingsCatalog {
                         "settings.lyricProgressStyle.line")
                 .group("lyricDisplay")
                 .build());
-        out.add(SettingSpec.toggle(OVERLAY_LYRIC_KEY, LYRIC, "settings.overlayLyric.title", false)
-                .desc("settings.overlayLyric.desc")
-                .onlyOn(ANDROID)
-                .group("overlayLyric")
-                .build());
-        out.add(SettingSpec.toggle(OVERLAY_LYRIC_LOCKED_KEY, LYRIC, "settings.overlayLyricLocked.title", false)
-                .desc("settings.overlayLyricLocked.desc")
-                .onlyOn(ANDROID)
-                .dependsOn(OVERLAY_LYRIC_KEY)
-                .group("overlayLyric")
-                .build());
-        out.add(SettingSpec.slider(OVERLAY_LYRIC_FONT_SIZE_KEY, LYRIC,
-                        "settings.overlayLyricFontSize.title", 16, 12, 28, 1)
-                .unit(" px").dots()
-                .onlyOn(ANDROID)
-                .dependsOn(OVERLAY_LYRIC_KEY)
-                .group("overlayLyric")
-                .build());
-        out.add(SettingSpec.slider(OVERLAY_LYRIC_WIDTH_KEY, LYRIC,
-                        "settings.overlayLyricWidth.title", 90, 50, 100, 5)
-                .unit("%").dots()
-                .onlyOn(ANDROID)
-                .dependsOn(OVERLAY_LYRIC_KEY)
-                .group("overlayLyric")
-                .build());
-        out.add(SettingSpec.slider(OVERLAY_LYRIC_BG_OPACITY_KEY, LYRIC,
-                        "settings.overlayLyricBgOpacity.title", 63, 0, 100, 5)
-                .unit("%").dots()
-                .onlyOn(ANDROID)
-                .dependsOn(OVERLAY_LYRIC_KEY)
-                .group("overlayLyric")
-                .build());
-        out.add(SettingSpec.color(OVERLAY_LYRIC_SUNG_COLOR_KEY, LYRIC,
-                        "settings.overlayLyricSungColor.title", "")
-                .desc("settings.overlayLyricSungColor.desc")
-                .onlyOn(ANDROID)
-                .dependsOn(OVERLAY_LYRIC_KEY)
-                .group("overlayLyric")
-                .build());
-        out.add(SettingSpec.color(OVERLAY_LYRIC_UNSUNG_COLOR_KEY, LYRIC,
-                        "settings.overlayLyricUnsungColor.title", "")
-                .desc("settings.overlayLyricUnsungColor.desc")
-                .onlyOn(ANDROID)
-                .dependsOn(OVERLAY_LYRIC_KEY)
-                .group("overlayLyric")
-                .build());
         out.add(SettingSpec.radio(BG_MODE_KEY, LYRIC, "settings.lyricBgMode.title", 0,
                         "settings.lyricBgMode.dynamic", "settings.lyricBgMode.static")
                 .desc("settings.lyricBgMode.desc")
@@ -360,6 +320,70 @@ public final class SettingsCatalog {
         out.add(SettingSpec.toggle("temperaImages", LYRIC, "settings.temperaImages.title", false)
                 .desc("settings.temperaImages.desc")
                 .group("tempera")
+                .build());
+        // ---- 悬浮歌词 (its own tab, Android only) -----------------------------
+        // Same split as 桌面歌词: a separate surface with its own typography
+        // and colours. A category with no rows on the running host is dropped,
+        // so desktop never shows this tab.
+        out.add(SettingSpec.toggle(OVERLAY_LYRIC_KEY, OVERLAY_LYRIC, "settings.overlayLyric.title", false)
+                .desc("settings.overlayLyric.desc")
+                .onlyOn(ANDROID)
+                .group("overlayLyricGeneral")
+                .build());
+        out.add(SettingSpec.toggle(OVERLAY_LYRIC_LOCKED_KEY, OVERLAY_LYRIC, "settings.overlayLyricLocked.title", false)
+                .desc("settings.overlayLyricLocked.desc")
+                .onlyOn(ANDROID)
+                .dependsOn(OVERLAY_LYRIC_KEY)
+                .group("overlayLyricGeneral")
+                .build());
+        out.add(SettingSpec.slider(OVERLAY_LYRIC_FONT_SIZE_KEY, OVERLAY_LYRIC,
+                        "settings.overlayLyricFontSize.title", 16, 12, 28, 1)
+                .unit(" px").dots()
+                .onlyOn(ANDROID)
+                .dependsOn(OVERLAY_LYRIC_KEY)
+                .group("overlayLyricLook")
+                .build());
+        out.add(SettingSpec.slider(OVERLAY_LYRIC_WIDTH_KEY, OVERLAY_LYRIC,
+                        "settings.overlayLyricWidth.title", 90, 50, 100, 5)
+                .unit("%").dots()
+                .onlyOn(ANDROID)
+                .dependsOn(OVERLAY_LYRIC_KEY)
+                .group("overlayLyricLook")
+                .build());
+        out.add(SettingSpec.slider(OVERLAY_LYRIC_BG_OPACITY_KEY, OVERLAY_LYRIC,
+                        "settings.overlayLyricBgOpacity.title", 63, 0, 100, 5)
+                .unit("%").dots()
+                .onlyOn(ANDROID)
+                .dependsOn(OVERLAY_LYRIC_KEY)
+                .group("overlayLyricLook")
+                .build());
+        out.add(SettingSpec.color(OVERLAY_LYRIC_SUNG_COLOR_KEY, OVERLAY_LYRIC,
+                        "settings.overlayLyricSungColor.title", "")
+                .desc("settings.overlayLyricSungColor.desc")
+                .onlyOn(ANDROID)
+                .dependsOn(OVERLAY_LYRIC_KEY)
+                .group("overlayLyricInk")
+                .build());
+        out.add(SettingSpec.color(OVERLAY_LYRIC_UNSUNG_COLOR_KEY, OVERLAY_LYRIC,
+                        "settings.overlayLyricUnsungColor.title", "")
+                .desc("settings.overlayLyricUnsungColor.desc")
+                .onlyOn(ANDROID)
+                .dependsOn(OVERLAY_LYRIC_KEY)
+                .group("overlayLyricInk")
+                .build());
+        out.add(SettingSpec.toggle(OVERLAY_LYRIC_OUTLINE_KEY, OVERLAY_LYRIC,
+                        "settings.overlayLyricOutline.title", true)
+                .desc("settings.overlayLyricOutline.desc")
+                .onlyOn(ANDROID)
+                .dependsOn(OVERLAY_LYRIC_KEY)
+                .group("overlayLyricInk")
+                .build());
+        out.add(SettingSpec.color(OVERLAY_LYRIC_OUTLINE_COLOR_KEY, OVERLAY_LYRIC,
+                        "settings.overlayLyricOutlineColor.title", "")
+                .desc("settings.overlayLyricOutlineColor.desc")
+                .onlyOn(ANDROID)
+                .dependsOn(OVERLAY_LYRIC_KEY)
+                .group("overlayLyricInk")
                 .build());
         // ---- 桌面歌词 (its own tab, desktop only) -----------------------------
         // Everything below the master switch is deliberately independent of the

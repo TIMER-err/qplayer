@@ -241,6 +241,7 @@ public final class QPlayerActivity extends Activity {
             boolean on = Boolean.TRUE.equals(value);
             OverlayLyricWindow.setWanted(getApplicationContext(), on);
             if (on) requestOverlayLyricPermission();
+            PlaybackService.refreshIfRunning();
         }));
         String[] overlayStyleKeys = {
                 SettingsCatalog.OVERLAY_LYRIC_LOCKED_KEY,
@@ -248,10 +249,17 @@ public final class QPlayerActivity extends Activity {
                 SettingsCatalog.OVERLAY_LYRIC_WIDTH_KEY,
                 SettingsCatalog.OVERLAY_LYRIC_BG_OPACITY_KEY,
                 SettingsCatalog.OVERLAY_LYRIC_SUNG_COLOR_KEY,
-                SettingsCatalog.OVERLAY_LYRIC_UNSUNG_COLOR_KEY
+                SettingsCatalog.OVERLAY_LYRIC_UNSUNG_COLOR_KEY,
+                SettingsCatalog.OVERLAY_LYRIC_OUTLINE_KEY,
+                SettingsCatalog.OVERLAY_LYRIC_OUTLINE_COLOR_KEY
         };
         for (String key : overlayStyleKeys) {
-            settings.onChange(key, ignored -> runOnUiThread(OverlayLyricWindow::restyle));
+            settings.onChange(key, ignored -> runOnUiThread(() -> {
+                OverlayLyricWindow.restyle();
+                if (SettingsCatalog.OVERLAY_LYRIC_LOCKED_KEY.equals(key)) {
+                    PlaybackService.refreshIfRunning();
+                }
+            }));
         }
         OverlayLyricWindow.setWanted(getApplicationContext(),
                 settings.bool(SettingsCatalog.OVERLAY_LYRIC_KEY));

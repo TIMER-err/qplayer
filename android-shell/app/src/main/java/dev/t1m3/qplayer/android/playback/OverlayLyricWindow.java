@@ -81,8 +81,19 @@ public final class OverlayLyricWindow {
         else if (on && PlaybackService.isRunning()) attach(ctx);
     }
 
-    static boolean isWanted() {
+    public static boolean isWanted() {
         return wanted;
+    }
+
+    public static boolean isLocked() {
+        SettingsCore s = settings;
+        return s != null && s.bool(SettingsCatalog.OVERLAY_LYRIC_LOCKED_KEY);
+    }
+
+    public static void toggleLocked() {
+        SettingsCore s = settings;
+        if (s == null) return;
+        s.setValue(SettingsCatalog.OVERLAY_LYRIC_LOCKED_KEY, !s.bool(SettingsCatalog.OVERLAY_LYRIC_LOCKED_KEY));
     }
 
     static boolean canDraw(Context ctx) {
@@ -160,10 +171,13 @@ public final class OverlayLyricWindow {
         opacityPct = Math.max(0, Math.min(100, opacityPct));
         String sung = s != null ? s.str(SettingsCatalog.OVERLAY_LYRIC_SUNG_COLOR_KEY) : "";
         String unsung = s != null ? s.str(SettingsCatalog.OVERLAY_LYRIC_UNSUNG_COLOR_KEY) : "";
+        boolean outline = s == null || s.bool(SettingsCatalog.OVERLAY_LYRIC_OUTLINE_KEY);
+        String outlineColor = s != null ? s.str(SettingsCatalog.OVERLAY_LYRIC_OUTLINE_COLOR_KEY) : "";
         boolean dark = s == null || !Boolean.FALSE.equals(s.resolvedDark.peek());
         boolean locked = s != null && s.bool(SettingsCatalog.OVERLAY_LYRIC_LOCKED_KEY);
 
-        view.configure(fontPx, opacityPct / 100f, parseColor(sung, 0), parseColor(unsung, 0), dark);
+        view.configure(fontPx, opacityPct / 100f, parseColor(sung, 0), parseColor(unsung, 0), dark,
+                outline, parseColor(outlineColor, 0));
 
         DisplayMetrics dm = app.getResources().getDisplayMetrics();
         params.width = Math.round(dm.widthPixels * widthPct / 100f);
@@ -281,6 +295,8 @@ public final class OverlayLyricWindow {
         private float bgOpacity = 0.63f;
         private int sungOverride;
         private int unsungOverride;
+        private boolean textOutline = true;
+        private int outlineOverride;
         private boolean dark = true;
         private int surface;
         private int outline;
@@ -305,15 +321,18 @@ public final class OverlayLyricWindow {
             if (Build.VERSION.SDK_INT >= 28) {
                 textPaint.setTypeface(Typeface.create(Typeface.DEFAULT, 500, false));
             }
-            configure(16, 0.63f, 0, 0, true);
+            configure(16, 0.63f, 0, 0, true, true, 0);
         }
 
-        void configure(int fontPx, float bgOpacity, int sung, int unsung, boolean dark) {
+        void configure(int fontPx, float bgOpacity, int sung, int unsung, boolean dark,
+                       boolean textOutline, int outlineColor) {
             this.fontPx = fontPx;
             this.bgOpacity = bgOpacity;
             this.sungOverride = sung;
             this.unsungOverride = unsung;
             this.dark = dark;
+            this.textOutline = textOutline;
+            this.outlineOverride = outlineColor;
             resolvePalette();
             current = null;
             outgoing = null;
@@ -534,13 +553,12 @@ public final class OverlayLyricWindow {
                                        float size, int color, float alpha) {
             drawText(canvas, text, x + 0.75f * density, baseline + 1.25f * density,
                     cShadow, alpha * SHADOW_OPACITY);
-            // With a faint panel the lyric sits on arbitrary content, so trace the
-            // glyphs the way the desktop lyric's outline does.
-            if (bgOpacity < 0.35f) {
+            if (textOutline) {
                 haloPaint.setTextSize(size);
                 haloPaint.setTypeface(textPaint.getTypeface());
                 haloPaint.setStrokeWidth(Math.max(1.4f * density, size * 0.10f));
-                haloPaint.setColor(luma(color) > 0.5f ? Color.BLACK : Color.WHITE);
+                haloPaint.setColor(outlineOverride != 0 ? outlineOverride
+                        : (luma(color) > 0.5f ? Color.BLACK : Color.WHITE));
                 haloPaint.setAlpha(Math.round(clamp01(alpha) * 0.85f * 255f));
                 canvas.drawText(text, x, baseline, haloPaint);
             }
