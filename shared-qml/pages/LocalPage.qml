@@ -258,6 +258,7 @@ Item {
             spacing: 8
             TextField {
                 id: valueSearchField
+                overlayField: true
                 Layout.fillWidth: true
                 label: i18n.t("nav.search")
                 leadingIcon: "search"

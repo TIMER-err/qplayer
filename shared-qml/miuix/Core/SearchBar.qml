@@ -57,6 +57,8 @@ Item {
         font.pixelSize: 17
         font.weight: 57
         color: Theme.color.onSurfaceContainer
+        visible: control.enabled && !(player.lyricsOpen || player.lyricSlide > 0.001
+                 || player.rootInputBlocked)
         enabled: control.enabled
         onAccepted: control.accepted()
     }

@@ -379,6 +379,7 @@ Item {
 
                                 TextField {
                                     id: dateInput
+                                    overlayField: true
                                     Layout.fillWidth: true
                                     label: "Enter Date"
                                     placeholderText: "MM/DD/YYYY"

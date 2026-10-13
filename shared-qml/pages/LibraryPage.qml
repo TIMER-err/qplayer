@@ -297,6 +297,7 @@ Item {
 
             TextField {
                 id: nameField
+                overlayField: true
                 width: parent.width
                 type: "outlined"
                 label: i18n.t("library.create.hint")

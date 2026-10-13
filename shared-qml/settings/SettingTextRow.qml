@@ -18,6 +18,7 @@ ColumnLayout {
         spacing: 8
         TextField {
             id: field
+            overlayField: true
             Layout.fillWidth: true
             type: "outlined"
             label: row.spec ? i18n.t(row.spec.hint) : ""

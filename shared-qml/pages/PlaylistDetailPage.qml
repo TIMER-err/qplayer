@@ -262,6 +262,7 @@ Rectangle {
                         }
 
                         TextField {
+                            overlayField: true
                             x: 16
                             y: 148
                             width: parent.width - 32

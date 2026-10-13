@@ -17,6 +17,15 @@ Item {
     property bool isPassword: false
     property bool passwordVisible: false
     property bool clearButtonEnabled: true
+    // qml4j hit-tests every TextInput before overlay MouseAreas, so a field still
+    // instantiated under lyrics/settings would pop the IME. Overlay and dialog
+    // fields set overlayField so they stay typeable on their own page.
+    property bool overlayField: false
+    readonly property bool acceptInput: {
+        if (player.lyricsOpen || player.lyricSlide > 0.001) return false
+        if (!overlayField && player.rootInputBlocked) return false
+        return true
+    }
     property real cornerRadius: 16
     property real horizontalPadding: 16
     property real verticalPadding: 16
@@ -38,7 +47,11 @@ Item {
     implicitWidth: 280
     implicitHeight: fieldHeight + (support.visible ? support.implicitHeight + 6 : 0)
 
-    function focusInput() { if (enabled) input.forceActiveFocus() }
+    function focusInput() { if (enabled && acceptInput) input.forceActiveFocus() }
+    onAcceptInputChanged: if (!acceptInput) {
+        input.focus = false
+        Qt.inputMethod.hide()
+    }
     function clear() {
         if (!enabled || readOnly) return
         input.text = ""
@@ -60,7 +73,7 @@ Item {
     MouseArea {
         width: parent.width
         height: fieldRoot.fieldHeight
-        enabled: fieldRoot.enabled
+        enabled: fieldRoot.enabled && fieldRoot.acceptInput
         onClicked: fieldRoot.focusInput()
     }
     Icon {
@@ -117,7 +130,8 @@ Item {
             color: fieldRoot.enabled ? Theme.color.onSurfaceColor : Theme.color.disabledOnSecondaryVariant
             selectionColor: Theme.color.primary
             selectedTextColor: Theme.color.onPrimary
-            enabled: fieldRoot.enabled
+            visible: fieldRoot.enabled && fieldRoot.acceptInput
+            enabled: fieldRoot.enabled && fieldRoot.acceptInput
             readOnly: fieldRoot.readOnly
             clip: true
             echoMode: fieldRoot.isPassword && !fieldRoot.passwordVisible ? TextInput.Password : TextInput.Normal

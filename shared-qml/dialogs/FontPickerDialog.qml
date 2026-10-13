@@ -94,6 +94,7 @@ Item {
             spacing: 8
             TextField {
                 id: searchField
+                overlayField: true
                 Layout.fillWidth: true
                 label: i18n.t("font.picker.search")
                 leadingIcon: "search"

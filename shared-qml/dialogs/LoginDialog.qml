@@ -311,6 +311,7 @@ Item {
                         fontSize: 13
                     }
                     TextField {
+                        overlayField: true
                         Layout.fillWidth: true
                         type: "outlined"
                         label: player.loginCredentialLabel

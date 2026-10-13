@@ -95,6 +95,7 @@ Item {
 
     TextField {
         id: field
+        overlayField: true
 
         anchors.left: parent.left
         anchors.right: parent.right

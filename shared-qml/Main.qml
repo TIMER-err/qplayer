@@ -241,6 +241,7 @@ Rectangle {
     function syncPageState(which) {
         app.syncingPageState = true
         player.setLyricsOpen(which === "lyrics")
+        player.setRootInputBlocked(which !== "")
         player.setQueueOpen(which === "queue")
         player.setArtistPageOpen(which === "artist")
         player.setAlbumPageOpen(which === "album")
@@ -481,7 +482,7 @@ Rectangle {
         scale: rootPageMotion.contentScale
         opacity: rootPageMotion.contentOpacity
         visible: opacity > 0.001
-        enabled: app.currentOverlay === ""
+        enabled: app.currentOverlay === "" && !player.lyricsOpen
 
         TopAppBar {
             id: topBar
@@ -576,7 +577,7 @@ Rectangle {
                 y: rootTopChrome.height + rootPageMotion.contentY
                 scale: rootPageMotion.contentScale
                 opacity: rootPageMotion.contentOpacity
-                enabled: app.currentOverlay === ""
+                enabled: app.currentOverlay === "" && !player.lyricsOpen
 
                 // Pages stacked + toggled by visibility (was a StackLayout). The
                 // engine doesn't recurse into an invisible child's subtree during

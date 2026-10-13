@@ -477,6 +477,7 @@ Item {
                                     
                                     TextField {
                                         id: hourInput
+                                        overlayField: true
                                         Layout.preferredWidth: 96
                                         Layout.fillWidth: false
                                         text: {
@@ -525,6 +526,7 @@ Item {
                                     
                                     TextField {
                                         id: minuteInput
+                                        overlayField: true
                                         Layout.preferredWidth: 96
                                         Layout.fillWidth: false
                                         text: _tempMinute.toString().padStart(2, '0')
