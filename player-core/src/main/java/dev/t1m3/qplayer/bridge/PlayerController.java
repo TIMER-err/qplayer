@@ -521,6 +521,10 @@ public final class PlayerController {
     public final Property<Integer> lyricIndex = new Property<>(-1);
     /** Whether the full-screen lyric page is open (host draws it via Skija). */
     public final Property<Boolean> lyricsOpen = new Property<>(false);
+    /** True while a fullscreen route (settings, lyrics, playlist, …) covers the
+     *  root tabs. Root TextFields hide their TextInput so qml4j's hit-test cannot
+     *  focus a buried search box and pop the IME. */
+    public final Property<Boolean> rootInputBlocked = new Property<>(false);
     /** Independent, session-only visualizer page; never restored from settings. */
     public final Property<Boolean> temperaOpen = new Property<>(false);
     public final Property<Double> temperaOpacity = new Property<>(0.0);
@@ -2785,6 +2789,10 @@ public final class PlayerController {
         }
     }
 
+    public void setRootInputBlocked(boolean blocked) {
+        rootInputBlocked.set(blocked);
+    }
+
     public void setLyricsOpen(boolean open) {
         lyricsOpen.set(open);
         // Closing the lyric page (Esc / Android back / the collapse button all funnel
@@ -4879,10 +4887,10 @@ public final class PlayerController {
                 // Populate the disk cache so the next play is local (skip trial clips).
                 cacheAudioAsync(t);
             } else {
-                resolveAndPlayNetease(t, i, resumeMs, currentCoverRevision);
+                resolveAndPlayNetease(t, resumeMs, currentCoverRevision);
             }
         } else if (t.source == Track.Source.CUSTOM_API) {
-            skipUnplayable(i, I18n.tr("toast.play.legacySourceGone"));
+            skipUnplayable(t, I18n.tr("toast.play.legacySourceGone"));
         } else if (t.source == Track.Source.PLUGIN) {
             String cached = diskCache.getAudio(t.canonicalId());
             if (cached != null) {
@@ -4903,7 +4911,7 @@ public final class PlayerController {
             } else {
                 t.streamUrl = null;
                 t.streamHeaders.clear();
-                resolveAndPlayPlugin(t, i, resumeMs, currentCoverRevision);
+                resolveAndPlayPlugin(t, resumeMs, currentCoverRevision);
             }
         }
         // Current track's fetches are now queued; warm next/prev behind them.
@@ -5612,13 +5620,14 @@ public final class PlayerController {
         });
     }
 
-    /** True while {@code t} is still the track a loader fetched data for. Compares
+     /** True while {@code t} is still the track a loader fetched data for. Compares
      *  track identity rather than the queue slot it occupied: two consecutive
      *  selections can land on the same index (playlist A's row 3 -> playlist B's
-     *  row 3), and a bare index check then lets a superseded fetch publish the
-     *  previous song's lyrics over the new one. Identity also survives an in-place
-     *  retry — onPlaybackError re-resolves the very same track — which a monotonic
-     *  revision counter would wrongly treat as a track change and discard. */
+     *  row 3), and a bare index check then lets a superseded fetch play the
+     *  previous song's stream, skip past the new one, or publish its lyrics.
+     *  Identity also survives an in-place retry — onPlaybackError re-resolves the
+     *  very same track — which a monotonic revision counter would wrongly treat as
+     *  a track change and discard. */
     private boolean isCurrentTrack(Track t) {
         if (t == null) return false;
         Track current = currentTrack();
@@ -5720,7 +5729,9 @@ public final class PlayerController {
                 }
                 diskCache.cacheAudio(t.streamUrl, t.neteaseId);
                 mediaMetaIndex.save();
-                if (diskCache.hasAudio(t.neteaseId)) backend.notifyCacheComplete();
+                if (diskCache.hasAudio(t.neteaseId) && isCurrentTrack(t)) {
+                    backend.notifyCacheComplete();
+                }
             }
         } finally {
             // Clearing the flag is not enough on its own: between the loop's own
@@ -5819,7 +5830,7 @@ public final class PlayerController {
         cacheWorker.submit(() -> diskCache.cacheThumb64(thumb));
     }
 
-    private void resolveAndPlayNetease(Track t, int expectedIndex, long resumeMs,
+    private void resolveAndPlayNetease(Track t, long resumeMs,
                                        long expectedCoverRevision) {
         long songId = t.neteaseId;
         // Compatibility-only playback path for queues persisted before canonical
@@ -5861,10 +5872,10 @@ public final class PlayerController {
                 // Hop to the main thread for the backend control (works backgrounded);
                 // UI Property writes still marshal to the render thread via post().
                 onMain(() -> {
-                    if (playIndex != expectedIndex) return; // user moved on
+                    if (!isCurrentTrack(t)) return;
                     if (playUrl == null) {
                         Logger.warn("netease song {} has no url (blocked/VIP/login required)", songId);
-                        skipUnplayable(expectedIndex, netease.isLoggedIn()
+                        skipUnplayable(t, netease.isLoggedIn()
                                 ? I18n.tr("toast.play.vipOrBlocked") : I18n.tr("toast.signInRequired"));
                         return;
                     }
@@ -5891,30 +5902,30 @@ public final class PlayerController {
                 });
             } catch (Throwable e) {
                 Logger.warn("netease resolve failed for {}: {}", songId, e.getMessage());
-                onMain(() -> skipUnplayable(expectedIndex, I18n.tr("toast.play.resolveFailed")));
+                onMain(() -> skipUnplayable(t, I18n.tr("toast.play.resolveFailed")));
             }
         });
     }
 
-    private void resolveAndPlayPlugin(Track track, int expectedIndex, long resumeMs,
+    private void resolveAndPlayPlugin(Track track, long resumeMs,
                                       long expectedCoverRevision) {
         final MediaId id;
         try {
             id = MediaId.parse(track.canonicalId());
         } catch (IllegalArgumentException error) {
-            skipUnplayable(expectedIndex, I18n.tr("toast.play.badPluginId"));
+            skipUnplayable(track, I18n.tr("toast.play.badPluginId"));
             return;
         }
         if (!pluginHasCapability(id.provider(), ProviderCapability.RESOLVE_STREAM)) {
-            skipUnplayable(expectedIndex, I18n.tr("toast.play.pluginNoStream"));
+            skipUnplayable(track, I18n.tr("toast.play.pluginNoStream"));
             return;
         }
         pluginProviders.resolveStream(id, playLevel).whenComplete((stream, error) -> onMain(() -> {
-            if (playIndex != expectedIndex) return;
+            if (!isCurrentTrack(track)) return;
             if (error != null || stream == null || stream.url == null || stream.url.isEmpty()) {
                 Logger.warn("plugin {} stream resolve failed: {}", id.provider(),
                         error != null ? safeMessage(error) : "empty URL");
-                skipUnplayable(expectedIndex, I18n.tr("toast.play.pluginStreamFailed"));
+                skipUnplayable(track, I18n.tr("toast.play.pluginStreamFailed"));
                 return;
             }
             track.streamUrl = stream.url;
@@ -5991,7 +6002,10 @@ public final class PlayerController {
                         if (active) diskCache.markActivelyCached(mediaId);
                         diskCache.finishExternalWrite();
                         mediaMetaIndex.save();
-                        backend.notifyCacheComplete();
+                        Track current = currentTrack();
+                        if (current != null && mediaId.equals(current.canonicalId())) {
+                            backend.notifyCacheComplete();
+                        }
                     } else if (error != null) {
                         Logger.warn("plugin audio cache failed for {}: {}", mediaId, safeMessage(error));
                     }
@@ -6073,15 +6087,16 @@ public final class PlayerController {
     }
 
     private void loadLocalLyrics(Track t) {
+        List<LyricLine> lines = Collections.emptyList();
         if (t.lyricFilePath != null) {
             try {
-                applyLyrics(LyricParser.parse(t.lyricFilePath, t.translationFilePath, t.romajiFilePath));
-                return;
+                lines = LyricParser.parse(t.lyricFilePath, t.translationFilePath, t.romajiFilePath);
             } catch (Throwable e) {
                 Logger.warn("lyric parse failed: {}", e.getMessage());
             }
         }
-        applyLyrics(Collections.<LyricLine>emptyList());
+        final List<LyricLine> parsed = lines;
+        post(() -> { if (isCurrentTrack(t)) applyLyrics(parsed); });
     }
 
     private static Track toTrack(NeteaseSong s) {
@@ -7183,7 +7198,7 @@ public final class PlayerController {
      *  else falls through to autoAdvance. */
     private void onPlaybackError() {
         if (retryStaleStreamUrl(currentTrack())) return;
-        skipUnplayable(playIndex, I18n.tr("toast.play.audioFailed"));
+        skipUnplayable(currentTrack(), I18n.tr("toast.play.audioFailed"));
     }
 
     /** Retry a track whose cached streamUrl may be bad (expired VIP link, region
@@ -7194,7 +7209,6 @@ public final class PlayerController {
      *  @return true if a retry was launched (caller must not also skip/advance). */
     private boolean retryStaleStreamUrl(Track t) {
         if (t == null || t.streamUrl == null) return false;
-        int idx = playIndex;
         long backendMs = Math.max(0L, backend.position());
         Long shown = positionMs.peek();
         long resumeMs = Math.max(backendMs, shown != null ? shown : 0L);
@@ -7204,7 +7218,7 @@ public final class PlayerController {
             Logger.warn("playback error on netease track {}, clearing stale url and retrying at {}ms",
                     t.neteaseId, resumeMs);
             t.streamUrl = null;
-            resolveAndPlayNetease(t, idx, resumeMs, coverRevision.get());
+            resolveAndPlayNetease(t, resumeMs, coverRevision.get());
             return true;
         }
         if (t.source == Track.Source.PLUGIN && !t.canonicalId().equals(errorRetryMediaId)) {
@@ -7214,7 +7228,7 @@ public final class PlayerController {
                     t.canonicalId(), resumeMs);
             t.streamUrl = null;
             t.streamHeaders.clear();
-            resolveAndPlayPlugin(t, idx, resumeMs, coverRevision.get());
+            resolveAndPlayPlugin(t, resumeMs, coverRevision.get());
             return true;
         }
         return false;
@@ -7223,8 +7237,8 @@ public final class PlayerController {
     /** Stop waiting on an unplayable queue entry and advance once. The failure
      *  count is reset only by backend.onStarted, so a queue in which every entry
      *  is blocked makes at most one full pass instead of spinning forever. */
-    private void skipUnplayable(int expectedIndex, String reason) {
-        if (playIndex != expectedIndex) return;
+    private void skipUnplayable(Track expected, String reason) {
+        if (!isCurrentTrack(expected)) return;
         consecutivePlaybackFailures++;
         int failures = consecutivePlaybackFailures;
         if (queue.size() <= 1 || failures >= queue.size()) {

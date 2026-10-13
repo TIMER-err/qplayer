@@ -589,6 +589,98 @@ public class PlayerControllerPlaybackTest {
         }
     }
 
+    @Test
+    public void staleResolveAtTheSameIndexDoesNotSkipTheNewTrack() throws Exception {
+        String oldBase = AppDirs.base();
+        String oldCacheBase = AppDirs.cacheBase();
+        PlayerController controller = null;
+        try {
+            Path base = temporaryFolder.newFolder("stale-resolve").toPath();
+            AppDirs.setBase(base.toString());
+            AppDirs.setCacheBase(base.resolve("cache").toString());
+            FakeAudioBackend backend = new FakeAudioBackend();
+            controller = new PlayerController(backend, track -> { }, NeteaseClient.INSTANCE);
+
+            Track first = localTrack("playlist-a.mp3", "first");
+            Track second = localTrack("playlist-b.mp3", "second");
+            Track third = localTrack("playlist-b-next.mp3", "third");
+            setQueue(controller, 0, first, localTrack("playlist-a-next.mp3", "unused"));
+            setQueue(controller, 0, second, third);
+
+            java.lang.reflect.Method skip = PlayerController.class.getDeclaredMethod(
+                    "skipUnplayable", Track.class, String.class);
+            skip.setAccessible(true);
+            skip.invoke(controller, first, "stale resolve");
+
+            assertEquals("a superseded resolve must not walk past the song just selected",
+                    0, playIndex(controller));
+            assertEquals("second", controller.currentTrack().title);
+            assertEquals(0, backend.playCalls);
+
+            skip.invoke(controller, second, "actually unplayable");
+            assertEquals(1, playIndex(controller));
+            assertEquals("third", controller.currentTrack().title);
+            assertEquals("playlist-b-next.mp3", backend.lastSource);
+        } finally {
+            if (controller != null) controller.shutdown();
+            AppDirs.setBase(oldBase);
+            AppDirs.setCacheBase(oldCacheBase);
+        }
+    }
+
+    @Test
+    public void currentTrackIdentityIgnoresASharedQueueIndex() throws Exception {
+        String oldBase = AppDirs.base();
+        String oldCacheBase = AppDirs.cacheBase();
+        PlayerController controller = null;
+        try {
+            Path base = temporaryFolder.newFolder("track-identity").toPath();
+            AppDirs.setBase(base.toString());
+            AppDirs.setCacheBase(base.resolve("cache").toString());
+            controller = new PlayerController(
+                    new FakeAudioBackend(), track -> { }, NeteaseClient.INSTANCE);
+
+            Track first = localTrack("a.mp3", "first");
+            Track second = localTrack("b.mp3", "second");
+            setQueue(controller, 0, first);
+            java.lang.reflect.Method isCurrent = PlayerController.class.getDeclaredMethod(
+                    "isCurrentTrack", Track.class);
+            isCurrent.setAccessible(true);
+            assertTrue((Boolean) isCurrent.invoke(controller, first));
+
+            setQueue(controller, 0, second);
+            assertFalse("same slot, different song",
+                    (Boolean) isCurrent.invoke(controller, first));
+            assertTrue((Boolean) isCurrent.invoke(controller, second));
+        } finally {
+            if (controller != null) controller.shutdown();
+            AppDirs.setBase(oldBase);
+            AppDirs.setCacheBase(oldCacheBase);
+        }
+    }
+
+    private static Track localTrack(String path, String title) {
+        Track track = new Track();
+        track.source = Track.Source.LOCAL;
+        track.filePath = path;
+        track.title = title;
+        track.durationMs = 120000L;
+        return track;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void setQueue(PlayerController controller, int index, Track... tracks)
+            throws Exception {
+        java.lang.reflect.Field queueField = PlayerController.class.getDeclaredField("queue");
+        queueField.setAccessible(true);
+        java.util.List<Track> queue = (java.util.List<Track>) queueField.get(controller);
+        queue.clear();
+        queue.addAll(java.util.Arrays.asList(tracks));
+        java.lang.reflect.Field playIndex = PlayerController.class.getDeclaredField("playIndex");
+        playIndex.setAccessible(true);
+        playIndex.setInt(controller, index);
+    }
+
     private static int playIndex(PlayerController controller) throws Exception {
         java.lang.reflect.Field field = PlayerController.class.getDeclaredField("playIndex");
         field.setAccessible(true);
@@ -612,8 +704,11 @@ public class PlayerControllerPlaybackTest {
         volatile float volume = 0.8f;
         volatile int volumeWrites;
 
+        volatile String lastSource;
+
         @Override public void play(String source, long startMs) {
             playCalls++;
+            lastSource = source;
             position = startMs;
             playing = true;
         }
