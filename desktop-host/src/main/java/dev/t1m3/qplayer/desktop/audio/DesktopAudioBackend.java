@@ -5,6 +5,7 @@ import dev.t1m3.qplayer.util.Logger;
 import org.lwjgl.openal.AL;
 import org.lwjgl.openal.ALC;
 import org.lwjgl.openal.ALCCapabilities;
+import org.lwjgl.openal.SOFTReopenDevice;
 import org.lwjgl.system.MemoryUtil;
 
 import java.io.IOException;
@@ -20,6 +21,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import static org.lwjgl.openal.AL10.*;
 import static org.lwjgl.openal.AL11.AL_SAMPLE_OFFSET;
 import static org.lwjgl.openal.ALC10.*;
+import static org.lwjgl.openal.ALC11.ALC_DEFAULT_ALL_DEVICES_SPECIFIER;
 import static org.lwjgl.system.MemoryUtil.NULL;
 
 /**
@@ -48,6 +50,7 @@ public final class DesktopAudioBackend implements AudioBackend {
     private static final int NUM_BUFFERS = 48;
     private static final int PRIME_BUFFERS = 16;
     private static final int CHUNK_BYTES = 16 * 1024;
+    private static final long DEVICE_CHECK_MS = 400L;
 
     private final AtomicBoolean playing = new AtomicBoolean(false);
     private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
@@ -74,6 +77,9 @@ public final class DesktopAudioBackend implements AudioBackend {
     private int sampleRate = 44100;
     private int channels = 2;
     private int alFormat = AL_FORMAT_STEREO16;
+    private boolean reopenDeviceSupported;
+    private String lastDefaultDevice = "";
+    private long lastDeviceCheckMs;
     private ByteBuffer nativeChunk;
     private final byte[] stagingChunk = new byte[CHUNK_BYTES];
     private final ArrayDeque<Integer> queuedFrames = new ArrayDeque<>();
@@ -202,6 +208,7 @@ public final class DesktopAudioBackend implements AudioBackend {
             return;
         }
         while (!shuttingDown.get()) {
+            followDefaultOutputDevice();
             // After a decoder/OpenAL failure, do not silently reopen the same source
             // at 0 while paused. Wait for the controller's error handler to request
             // a retry (play() publishes a seek target) or for normal playback state.
@@ -294,6 +301,7 @@ public final class DesktopAudioBackend implements AudioBackend {
             }
 
             while (!shuttingDown.get()) {
+                followDefaultOutputDevice();
                 // A different track requested → bail so the loop reopens it.
                 if (openRevision != sourceRevision.get()) return false;
 
@@ -377,8 +385,7 @@ public final class DesktopAudioBackend implements AudioBackend {
         String completePath = cacheCompletePath;
         String pendingPath = cachePendingPath;
         java.io.File complete = completePath == null ? null : new java.io.File(completePath);
-        boolean completeReady = cacheCompleteFlag
-                || (complete != null && complete.isFile() && complete.length() > 0);
+        boolean completeReady = complete != null && complete.isFile() && complete.length() > 0;
         long cacheLen = 0L;
         if (completeReady && complete != null) cacheLen = complete.length();
         else if (pendingPath != null) {
@@ -538,10 +545,39 @@ public final class DesktopAudioBackend implements AudioBackend {
             throw new IllegalStateException("OpenAL: failed to create/make context current");
         }
         AL.createCapabilities(alcCaps);
+        reopenDeviceSupported = alcCaps.ALC_SOFT_reopen_device;
+        lastDefaultDevice = defaultPlaybackDevice();
         sourceId = alGenSources();
         buffers = new int[NUM_BUFFERS];
         for (int i = 0; i < NUM_BUFFERS; i++) buffers[i] = alGenBuffers();
         nativeChunk = MemoryUtil.memAlloc(CHUNK_BYTES);
+    }
+
+    /**
+     * OpenAL Soft's WASAPI session is the device that was default when we
+     * opened it. Windows changing the default output (taskbar speaker →
+     * headphones) does not migrate that session, so the mixer keeps showing
+     * QPlayer on the old device. alcReopenDeviceSOFT(null) rebinds to the
+     * new default without tearing down the context or buffer ring.
+     */
+    private void followDefaultOutputDevice() {
+        if (!reopenDeviceSupported || device == NULL) return;
+        long now = System.currentTimeMillis();
+        if (now - lastDeviceCheckMs < DEVICE_CHECK_MS) return;
+        lastDeviceCheckMs = now;
+        String current = defaultPlaybackDevice();
+        if (current.isEmpty() || current.equals(lastDefaultDevice)) return;
+        if (!SOFTReopenDevice.alcReopenDeviceSOFT(device, (ByteBuffer) null, (IntBuffer) null)) {
+            Logger.warn("audio: failed to reopen OpenAL on {}", current);
+            return;
+        }
+        lastDefaultDevice = current;
+        Logger.info("audio: reopened OpenAL on {}", current);
+    }
+
+    private static String defaultPlaybackDevice() {
+        String name = alcGetString(NULL, ALC_DEFAULT_ALL_DEVICES_SPECIFIER);
+        return name == null ? "" : name;
     }
 
     private void releaseOpenAl() {
