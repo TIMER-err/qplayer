@@ -110,6 +110,23 @@ public final class QPlayerActivity extends Activity {
         super.onCreate(savedInstanceState);
         logSceneLifecycle("create");
 
+        // Paint a real loading UI before PlayerController / plugins / QML compile.
+        // Android 11 has no system splash, and a SurfaceView punch-through would
+        // otherwise leave a black window for the whole first-launch compile (#51).
+        splashView = buildSplash();
+        android.widget.FrameLayout root = new android.widget.FrameLayout(this);
+        root.addView(splashView, new android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        setContentView(root);
+        enableEdgeToEdge();
+        attachInsetListener(root);
+        splashView.post(this::startEngine);
+    }
+
+    private void startEngine() {
+        if (isFinishing() || isDestroyed() || glView != null) return;
+
         // A downloaded update APK (see downloadAndInstallUpdate below) has served its
         // purpose once the app relaunches -- it's never deleted right after handing it
         // to the system installer (that Intent may still be reading the file), and
@@ -333,28 +350,25 @@ public final class QPlayerActivity extends Activity {
         glView.setSettings(settings);
         glView.setErrorListener(trace -> runOnUiThread(() -> showError(trace)));
 
-        // glView under a splash overlay shown while the QML tree compiles (slow
-        // on first launch: parse -> bytecode -> dex). The splash advances with
-        // per-component compile progress and fades out at the first painted frame.
-        android.widget.FrameLayout rootView = new android.widget.FrameLayout(this);
-        rootView.addView(glView, new android.widget.FrameLayout.LayoutParams(
+        // glView under the splash already on screen. Inserted at index 0 so the
+        // loading UI stays in front of the SurfaceView hole on Android 11.
+        android.widget.FrameLayout root = (android.widget.FrameLayout) rootView;
+        root.addView(glView, 0, new android.widget.FrameLayout.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT));
-        splashView = buildSplash();
-        rootView.addView(splashView, new android.widget.FrameLayout.LayoutParams(
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        if (splashView != null) splashView.bringToFront();
         glView.setSplashListener(new QmlGLSurfaceView.SplashListener() {
             @Override public void onProgress(String name, int count) {
-                runOnUiThread(() -> splashStatus.setText(I18n.tr("splash.compiling", count)));
+                runOnUiThread(() -> {
+                    if (splashStatus != null) {
+                        splashStatus.setText(I18n.tr("splash.compiling", count));
+                    }
+                });
             }
             @Override public void onReady() {
                 runOnUiThread(QPlayerActivity.this::onSceneReady);
             }
         });
-        setContentView(rootView);
-        enableEdgeToEdge();
-        attachInsetListener(rootView);
         applySystemBars(settings.resolvedDarkValue());
         updateImmersive();
 
