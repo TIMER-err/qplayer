@@ -23,6 +23,8 @@ public class OverlayLyricSettingsTest {
         assertTrue(androidOverlay.contains(SettingsCatalog.OVERLAY_LYRIC_LOCKED_KEY));
         assertTrue(androidOverlay.contains(SettingsCatalog.OVERLAY_LYRIC_OUTLINE_KEY));
         assertTrue(androidOverlay.contains(SettingsCatalog.OVERLAY_LYRIC_OUTLINE_COLOR_KEY));
+        assertTrue(androidOverlay.contains(SettingsCatalog.OVERLAY_LYRIC_LINE_SPACING_KEY));
+        assertTrue(androidOverlay.contains(SettingsCatalog.OVERLAY_LYRIC_HEIGHT_KEY));
         assertTrue(desktopOverlay.isEmpty());
 
         assertFalse(androidLyric.contains(SettingsCatalog.OVERLAY_LYRIC_KEY));
@@ -46,6 +48,25 @@ public class OverlayLyricSettingsTest {
         assertEquals(SettingsCatalog.OVERLAY_LYRIC, color.category);
         assertEquals(SettingsCatalog.ANDROID, outline.platform);
         assertEquals(SettingsCatalog.ANDROID, color.platform);
+    }
+
+    @Test
+    public void spacingDefaultsToLegacyPitchAndHeightDefaultsToAuto() {
+        SettingSpec spacing = spec(SettingsCatalog.OVERLAY_LYRIC_LINE_SPACING_KEY);
+        assertEquals(210, spacing.def);
+        assertEquals(100, spacing.min);
+        assertEquals(300, spacing.max);
+        assertEquals(100, spacing.scale);
+        assertEquals(SettingsCatalog.OVERLAY_LYRIC, spacing.category);
+        assertEquals(SettingsCatalog.ANDROID, spacing.platform);
+
+        // 0 is the sentinel for "auto: three rows" — the value must survive as
+        // a real 0 rather than the slider's minimum.
+        SettingSpec height = spec(SettingsCatalog.OVERLAY_LYRIC_HEIGHT_KEY);
+        assertEquals(0, height.def);
+        assertEquals(0, height.min);
+        assertEquals(SettingsCatalog.OVERLAY_LYRIC, height.category);
+        assertEquals(SettingsCatalog.ANDROID, height.platform);
     }
 
     private static SettingSpec spec(String key) {

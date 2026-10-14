@@ -497,6 +497,13 @@ public final class PlayerController {
      *  given row's position in an unrelated local-library view. Comparing by
      *  filePath instead of index sidesteps that — see VirtualSongList.highlightByFilePath. */
     public final Property<String> currentFilePath = new Property<>("");
+    /** Playing track's canonical media id ("" when nothing is loaded). The
+     *  source-neutral counterpart of {@link #currentFilePath}: a row compares
+     *  {@code view.rowId(modelData)} against this to highlight "now playing"
+     *  regardless of which list it lives in — a bare {@link #index} comparison
+     *  is only a position in the current queue and coincidentally lights up
+     *  unrelated rows in any other list. */
+    public final Property<String> currentMediaId = new Property<>("");
     public final Property<Float> volume = new Property<>(0.8f);
     public final Property<Boolean> currentLiked = new Property<>(false);
     /** Whether the current track can be liked — netease only; local files have no
@@ -3212,6 +3219,7 @@ public final class PlayerController {
             shuffleHistory.clear();
             index.set(-1);
             currentFilePath.set("");
+            currentMediaId.set("");
             return;
         }
         if (i < cur) {
@@ -4405,7 +4413,10 @@ public final class PlayerController {
     /** Play local library starting at {@code i}. */
     public void play(int i) {
         if (i < 0 || i >= library.size()) return;
-        playQueue(library, i);
+        // Snapshot: library is the live scan list — a later rescan rewrites it in
+        // place, and handing the same reference to the queue would let that rescan
+        // silently swap the track playIndex points at mid-playback.
+        playQueue(new ArrayList<>(library), i);
     }
 
     /** Queue a netease song-list and start at {@code i}. Search history is fed by
@@ -4801,17 +4812,26 @@ public final class PlayerController {
         }
         post(() -> {
             loading.set(true);
-            applyLyrics(Collections.<LyricLine>emptyList());
             applyCover(null, currentCoverRevision);
             coverPath.set("");
         });
         worker.submit(this::saveQueue);
         final int idx = i;
         final Track t = queue.get(i);
+        // Blank the outgoing track's lyrics synchronously, on whichever thread
+        // called playAt. The post()ed applyLyrics below only runs on the render
+        // thread, which is paused while the app is backgrounded — the Android
+        // overlay's 100 ms tick reads lyrics straight off this Property and would
+        // otherwise show the PREVIOUS song's lines over the new one's play head
+        // until the app returns to the foreground. Property.set on a Property
+        // nobody is mid-iterating is safe off the render thread here; the
+        // identity-gated loaders below re-apply the real lyrics when they land.
+        applyLyrics(Collections.<LyricLine>emptyList());
         post(() -> {
             applyTrackLyricOffset(t);
             index.set(idx);
             currentFilePath.set(t.source == Track.Source.LOCAL && t.filePath != null ? t.filePath : "");
+            currentMediaId.set(t.canonicalId());
             title.set(orEmpty(t.title));
             artist.set(orEmpty(t.artist));
             publishPlayingArtist(t);
@@ -6390,6 +6410,7 @@ public final class PlayerController {
                     queueTracks.set(snap);
                     index.set(finalIdx);
                     currentFilePath.set(cur.source == Track.Source.LOCAL && cur.filePath != null ? cur.filePath : "");
+                    currentMediaId.set(cur.canonicalId());
                     title.set(cur.title != null ? cur.title : "");
                     artist.set(cur.artist != null ? cur.artist : "");
                     publishPlayingArtist(cur);
@@ -7136,7 +7157,9 @@ public final class PlayerController {
     public void playLocalSearchResult(int i) {
         List<Track> results = localSearchResults.peek();
         if (results == null || i < 0 || i >= results.size()) return;
-        playQueue(results, i);
+        // Snapshot for the same reason as play(int): typing a new query rewrites
+        // localSearchResults in place and must not mutate the live queue.
+        playQueue(new ArrayList<>(results), i);
     }
 
     /** Batch-fill missing coverUrl fields from /v3/song/detail (the legacy

@@ -77,6 +77,12 @@ public final class SettingsCatalog {
     public static final String OVERLAY_LYRIC_FONT_SIZE_KEY = "overlayLyricFontSize";
     public static final String OVERLAY_LYRIC_WIDTH_KEY = "overlayLyricWidth";
     public static final String OVERLAY_LYRIC_BG_OPACITY_KEY = "overlayLyricBgOpacity";
+    /** Line pitch multiplier in percent: 100 packs rows tight, 200 is the
+     *  historical default spacing. */
+    public static final String OVERLAY_LYRIC_LINE_SPACING_KEY = "overlayLyricLineSpacing";
+    /** Window height in dp; content (rows) is derived from it, and a window too
+     *  short for 3 rows falls back to current+next, then current only. */
+    public static final String OVERLAY_LYRIC_HEIGHT_KEY = "overlayLyricHeight";
     public static final String OVERLAY_LYRIC_SUNG_COLOR_KEY = "overlayLyricSungColor";
     public static final String OVERLAY_LYRIC_UNSUNG_COLOR_KEY = "overlayLyricUnsungColor";
     public static final String OVERLAY_LYRIC_OUTLINE_KEY = "overlayLyricOutline";
@@ -353,6 +359,22 @@ public final class SettingsCatalog {
         out.add(SettingSpec.slider(OVERLAY_LYRIC_BG_OPACITY_KEY, OVERLAY_LYRIC,
                         "settings.overlayLyricBgOpacity.title", 63, 0, 100, 5)
                 .unit("%").dots()
+                .onlyOn(ANDROID)
+                .dependsOn(OVERLAY_LYRIC_KEY)
+                .group("overlayLyricLook")
+                .build());
+        out.add(SettingSpec.slider(OVERLAY_LYRIC_LINE_SPACING_KEY, OVERLAY_LYRIC,
+                        "settings.overlayLyricLineSpacing.title", 210, 100, 300, 10)
+                .scale(100).unit("×").dots()
+                .desc("settings.overlayLyricLineSpacing.desc")
+                .onlyOn(ANDROID)
+                .dependsOn(OVERLAY_LYRIC_KEY)
+                .group("overlayLyricLook")
+                .build());
+        out.add(SettingSpec.slider(OVERLAY_LYRIC_HEIGHT_KEY, OVERLAY_LYRIC,
+                        "settings.overlayLyricHeight.title", 0, 0, 200, 4)
+                .unit("dp").dots()
+                .desc("settings.overlayLyricHeight.desc")
                 .onlyOn(ANDROID)
                 .dependsOn(OVERLAY_LYRIC_KEY)
                 .group("overlayLyricLook")

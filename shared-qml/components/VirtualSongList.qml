@@ -37,7 +37,10 @@ Flickable {
     // LocalPage's full library view, always visible regardless of what's actually
     // playing), matching by index alone can coincidentally light up an unrelated
     // row. Set true to match by modelData.filePath against player.currentFilePath
-    // instead -- correct for any local-file list, live queue or not.
+    // instead -- correct for any local-file list, live queue or not. The default
+    // path matches the row's media identity against player.currentMediaId, which
+    // stays right even when the visible list is a filtered/sorted view whose row
+    // numbers no longer line up with the queue's.
     property bool highlightByFilePath: false
     property bool removable: false
     property bool selectMode: false
@@ -344,7 +347,7 @@ Flickable {
                 flickHeight: view.viewportHeight
                 highlighted: view.isLocal && view.highlightCurrent && (view.highlightByFilePath
                     ? (player.currentFilePath !== "" && modelData.filePath === player.currentFilePath)
-                    : index === player.index)
+                    : (player.currentMediaId !== "" && view.rowId(modelData) === player.currentMediaId))
                 offlineReady: view.showOfflineBadge && !!modelData.cachedOffline
                 removable: view.removable && !view.selectMode
                 song: view.songMenu && (!view.menuEligibilityFromModel || !!modelData.menuEnabled)

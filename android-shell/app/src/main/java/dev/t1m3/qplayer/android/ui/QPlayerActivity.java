@@ -265,6 +265,8 @@ public final class QPlayerActivity extends Activity {
                 SettingsCatalog.OVERLAY_LYRIC_FONT_SIZE_KEY,
                 SettingsCatalog.OVERLAY_LYRIC_WIDTH_KEY,
                 SettingsCatalog.OVERLAY_LYRIC_BG_OPACITY_KEY,
+                SettingsCatalog.OVERLAY_LYRIC_LINE_SPACING_KEY,
+                SettingsCatalog.OVERLAY_LYRIC_HEIGHT_KEY,
                 SettingsCatalog.OVERLAY_LYRIC_SUNG_COLOR_KEY,
                 SettingsCatalog.OVERLAY_LYRIC_UNSUNG_COLOR_KEY,
                 SettingsCatalog.OVERLAY_LYRIC_OUTLINE_KEY,
