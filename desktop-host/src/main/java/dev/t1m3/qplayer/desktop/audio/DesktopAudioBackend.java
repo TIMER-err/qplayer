@@ -376,7 +376,12 @@ public final class DesktopAudioBackend implements AudioBackend {
     private long feedLastSwitchMs;
 
     private PcmSource maybeSwitchFeed(PcmSource pcm, int queued) throws Exception {
-        if (feedLive == null) return pcm;
+        // Feed switching only makes sense for a remote stream being shadowed by
+        // a background cache download. A local file has nothing to switch to,
+        // and leaving this armed for local sources lets a stale bound cache path
+        // reopen the decoder mid-play (the "Stream Closed" / silent-stop crash
+        // from issue #59's log).
+        if (feedLive == null || !(feedLive instanceof HttpByteSource)) return pcm;
         long now = System.currentTimeMillis();
         if (now - feedLastCheckMs < FEED_CHECK_MS) return pcm;
         feedLastCheckMs = now;
