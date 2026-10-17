@@ -4786,6 +4786,7 @@ public final class PlayerController {
         scrobbleOutgoingTrack(pendingNaturalEnd);
         pendingNaturalEnd = false;
         rememberShufflePredecessor(i);
+        Track outgoing = currentTrack();
         playIndex = i;
         final long currentCoverRevision = coverRevision.incrementAndGet();
         // Consumed unconditionally on every call (see field comment), so a saved
@@ -4826,7 +4827,17 @@ public final class PlayerController {
         // until the app returns to the foreground. Property.set on a Property
         // nobody is mid-iterating is safe off the render thread here; the
         // identity-gated loaders below re-apply the real lyrics when they land.
-        applyLyrics(Collections.<LyricLine>emptyList());
+        // Repeat-one / same-track replay must not clear: restore is also posted,
+        // and compact lyric hosts never drain that queue. Clearing here would
+        // leave them stuck on the title for the rest of the loop. Skip the
+        // loaders too — local files without a sidecar would post an empty list
+        // that the desktop pump then applies over the lyrics we just kept.
+        boolean keepLyrics = outgoing != null
+                && outgoing.canonicalId().equals(t.canonicalId())
+                && lyrics.peek() != null && !lyrics.peek().isEmpty();
+        if (!keepLyrics) {
+            applyLyrics(Collections.emptyList());
+        }
         post(() -> {
             applyTrackLyricOffset(t);
             index.set(idx);
@@ -4862,7 +4873,7 @@ public final class PlayerController {
         if (t.source == Track.Source.LOCAL) {
             String src = t.playable();
             if (src == null || src.isEmpty()) return;
-            loadLocalLyrics(t);
+            if (!keepLyrics) loadLocalLyrics(t);
             Logger.info("play local: {}", t.title);
             playBackend(src, resumeMs);
             playingIntent = true;
@@ -4890,7 +4901,7 @@ public final class PlayerController {
                 notifyPlayback();
                 // The audio fast-path skips resolveAndPlayNetease, so load the lyrics
                 // (cache-first inside) here too — else a cached song plays wordless.
-                loadNeteaseLyrics(t);
+                if (!keepLyrics) loadNeteaseLyrics(t);
                 // Same reason: cacheAudioAsync (which downloads the 64x64 offline-
                 // playlist thumbnail) never runs on this path either, so a track
                 // cached before that thumbnail existed — or just replayed a second
@@ -4903,7 +4914,7 @@ public final class PlayerController {
                 playingIntent = true;
                 post(() -> playing.set(true));
                 notifyPlayback();
-                loadNeteaseLyrics(t);
+                if (!keepLyrics) loadNeteaseLyrics(t);
                 // Populate the disk cache so the next play is local (skip trial clips).
                 cacheAudioAsync(t);
             } else {
@@ -4919,14 +4930,14 @@ public final class PlayerController {
                 playingIntent = true;
                 post(() -> playing.set(true));
                 notifyPlayback();
-                loadPluginLyrics(t);
+                if (!keepLyrics) loadPluginLyrics(t);
             } else if (hasFreshPluginStream(t)) {
                 Logger.info("play plugin {} (cached url): {}", providerOf(t), t.title);
                 playBackend(t.playable(), t.streamHeaders, resumeMs);
                 playingIntent = true;
                 post(() -> playing.set(true));
                 notifyPlayback();
-                loadPluginLyrics(t);
+                if (!keepLyrics) loadPluginLyrics(t);
                 cachePluginAudioAfterStart(t);
             } else {
                 t.streamUrl = null;

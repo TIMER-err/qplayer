@@ -700,9 +700,10 @@ public final class OverlayLyricWindow {
             if (!animatablePerToken || syllables.isEmpty()) return rowWidth * progress;
             StringBuilder prefix = new StringBuilder();
             float startX = 0f;
-            for (Syllable syllable : syllables) {
+            for (int index = 0; index < syllables.size(); index++) {
+                Syllable syllable = syllables.get(index);
                 long start = syllable.startMs;
-                long end = start + Math.max(1L, syllable.durationMs);
+                long end = LyricTimeline.syllableEndMs(syllables, index);
                 if (positionMs < start) return Math.min(rowWidth, startX);
                 prefix.append(syllable.text);
                 float endX = paint.measureText(prefix.toString());

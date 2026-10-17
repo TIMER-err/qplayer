@@ -1,5 +1,6 @@
 package dev.t1m3.qplayer.lyric.skia;
 
+import dev.t1m3.qplayer.lyric.LyricTimeline;
 import dev.t1m3.qplayer.lyric.Syllable;
 import dev.t1m3.qplayer.lyric.skia.LyricTextShaper.ShapedRow;
 import dev.t1m3.qplayer.lyric.skia.LyricTextShaper.ShapedText;
@@ -333,17 +334,13 @@ final class LyricRowRenderer implements AutoCloseable {
                                        float[] syllableLefts, long positionMs) {
         int count = to - from;
         long firstStart = syllables.get(from).startMs;
-        Syllable last = syllables.get(to - 1);
-        long lastEnd = last.startMs + Math.max(0L, last.durationMs);
+        long lastEnd = LyricTimeline.syllableEndMs(syllables, to - 1);
         if (positionMs < firstStart) return syllableLefts[0] - SWEEP_FADE_PX * 2f;
         if (positionMs >= lastEnd) return syllableLefts[count] + SWEEP_FADE_PX * 2f;
         for (int i = 0; i < count; i++) {
             Syllable syllable = syllables.get(from + i);
             long start = syllable.startMs;
-            long end = syllable.durationMs > 0L
-                    ? start + syllable.durationMs
-                    : ((i + 1 < count) ? syllables.get(from + i + 1).startMs : start);
-            if (end <= start) end = start + 1L;
+            long end = LyricTimeline.syllableEndMs(syllables, from + i);
             if (positionMs < start) return syllableLefts[i];
             if (positionMs < end) {
                 float progress = (positionMs - start) / (float) (end - start);

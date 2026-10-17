@@ -95,6 +95,36 @@ public class LyricRendererTest {
     }
 
     @Test
+    public void sharedTimelineKeepsFirstLineBeforeItsTimestamp() {
+        LyricTimeline.Prepared prepared = LyricTimeline.prepare(LrcParser.parse(
+                "[00:01.00]第一行\n[00:05.00]第二行"), false);
+
+        LyricTimeline.Frame frame = LyricTimeline.frameAt(prepared, 0L);
+
+        assertEquals("", frame.previous);
+        assertEquals("第一行", frame.current);
+        assertEquals("第二行", frame.next);
+        assertEquals(0, frame.groupIndex);
+        assertEquals(0f, frame.progress, 0.001f);
+        StringBuilder timedText = new StringBuilder();
+        for (Syllable syllable : frame.currentSyllables) timedText.append(syllable.text);
+        assertEquals("第一行", timedText.toString());
+    }
+
+    @Test
+    public void zeroDurationSyllableExtendsToNextStartInsteadOfOneMillisecond() {
+        List<Syllable> syllables = Arrays.asList(
+                new Syllable("快", 1000L, 50L),
+                new Syllable(" ", 1050L, 0L),
+                new Syllable("慢", 1800L, 400L));
+
+        assertEquals(1050L, LyricTimeline.syllableEndMs(syllables, 0));
+        assertEquals(1800L, LyricTimeline.syllableEndMs(syllables, 1));
+        assertEquals(2200L, LyricTimeline.syllableEndMs(syllables, 2));
+        assertEquals(0L, LyricTimeline.syllableEndMs(syllables, -1));
+    }
+
+    @Test
     public void desktopOverflowScrollStopsExactlyAtTheTrailingEdge() {
         assertEquals(0f, DesktopLyricRenderer.scrollOffset(300f, 200f, -1f), 0.001f);
         assertEquals(50f, DesktopLyricRenderer.scrollOffset(300f, 200f, 0.5f), 0.001f);

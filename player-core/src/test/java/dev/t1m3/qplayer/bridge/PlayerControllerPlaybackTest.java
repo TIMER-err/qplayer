@@ -14,10 +14,13 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertSame;
 
 public class PlayerControllerPlaybackTest {
 
@@ -989,6 +992,46 @@ public class PlayerControllerPlaybackTest {
                     (Boolean) blocked.invoke(controller, local));
             assertTrue("another source's songs are not addressable either",
                     (Boolean) blocked.invoke(controller, other));
+        } finally {
+            if (controller != null) controller.shutdown();
+            AppDirs.setBase(oldBase);
+            AppDirs.setCacheBase(oldCacheBase);
+        }
+    }
+
+    @Test
+    public void replayingTheSameTrackKeepsLyricsWithoutARenderPump() throws Exception {
+        String oldBase = AppDirs.base();
+        String oldCacheBase = AppDirs.cacheBase();
+        PlayerController controller = null;
+        try {
+            Path base = temporaryFolder.newFolder("loop-lyrics").toPath();
+            AppDirs.setBase(base.toString());
+            AppDirs.setCacheBase(base.resolve("cache").toString());
+            String queue = "{\"playIndex\":0,\"positionMs\":0,\"playMode\":2,\"tracks\":["
+                    + "{\"source\":\"LOCAL\",\"title\":\"one\",\"durationMs\":120000,\"filePath\":\"one.mp3\"},"
+                    + "{\"source\":\"LOCAL\",\"title\":\"two\",\"durationMs\":120000,\"filePath\":\"two.mp3\"}]}";
+            Files.write(base.resolve("queue.json"), queue.getBytes(StandardCharsets.UTF_8));
+
+            controller = new PlayerController(
+                    new FakeAudioBackend(), track -> { }, NeteaseClient.INSTANCE);
+            controller.playQueueIndex(0);
+            controller.pump();
+
+            List<dev.t1m3.qplayer.lyric.LyricLine> lines =
+                    dev.t1m3.qplayer.lyric.LrcParser.parse(
+                            "[00:01.00]第一行\n[00:05.00]第二行");
+            controller.lyrics.set(lines);
+
+            controller.playQueueIndex(0);
+            controller.pump();
+            assertSame("repeat-one must keep lyrics even after the restore queue drains",
+                    lines, controller.lyrics.peek());
+
+            controller.playQueueIndex(1);
+            assertTrue("a real track change still blanks immediately",
+                    controller.lyrics.peek() == null || controller.lyrics.peek().isEmpty());
+            assertNotSame(lines, controller.lyrics.peek());
         } finally {
             if (controller != null) controller.shutdown();
             AppDirs.setBase(oldBase);
