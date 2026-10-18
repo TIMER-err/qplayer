@@ -39,6 +39,7 @@ import java.util.function.Supplier;
  * player-controller wiring — happens here.
  */
 public final class SettingsCore extends QObject implements LyricCompositor.SettingsBridge {
+    private static final String APP_VOLUME_KEY = "volume";
 
     /** Resolved dark flag (mode + system state), read by Main.qml's StyleManager
      *  binding. Derived, never persisted. */
@@ -55,6 +56,9 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
     /** Desktop sets this when a requested Vulkan backend failed and startup
      *  continued with OpenGL. Non-persistent; Main.qml presents the explanation. */
     public final Property<Boolean> graphicsFallbackNotice = new Property<>(Boolean.FALSE);
+    /** App-local playback gain in percent. Stored outside the generated catalog
+     *  because its controls live in player chrome, not on the settings page. */
+    public final Property<Integer> appVolume = new Property<>(80);
 
     private final Map<String, SettingSpec> specsByKey = new LinkedHashMap<>();
     private final Map<String, Property<Object>> values = new HashMap<>();
@@ -172,6 +176,7 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
     public void load(SettingsStore store, String platform) {
         this.store = store;
         this.platform = platform;
+        appVolume.set(Math.max(0, Math.min(100, store.getInt(APP_VOLUME_KEY, 80))));
         migrateLegacyKeys();
         this.specs = new ArrayList<>();
         for (SettingSpec s : SettingsCatalog.specs()) {
@@ -256,6 +261,15 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
         p.set(v);
         persist(spec, v);
         apply(spec, v);
+    }
+
+    /** Persist and apply the app-local gain used by the player chrome. */
+    public void setAppVolume(int percent) {
+        int clamped = Math.max(0, Math.min(100, percent));
+        if (clamped == appVolume.peek()) return;
+        appVolume.set(clamped);
+        if (store != null) store.putInt(APP_VOLUME_KEY, clamped);
+        if (controller != null) controller.setVolume(clamped / 100f);
     }
 
     /** Stepper -/+ , clamped. Keeps the arithmetic out of every generated row. */
@@ -524,6 +538,7 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
 
     private void pushToController() {
         if (controller == null) return;
+        controller.setVolume(appVolume.peek() / 100f);
         controller.setMonetEnabled(bool("monet"));
         controller.setUpdateMirror(bool("mirror"));
         controller.setFadeEnabled(bool("fade"));

@@ -15,6 +15,7 @@ SmoothRectangle {
     id: mini
 
     signal lyricsRequested()
+    signal volumeRequested()
 
     function fmt(ms) {
         if (ms <= 0) return "0:00";
@@ -32,6 +33,21 @@ SmoothRectangle {
     // current sweep pass ends (ScriptAction below), so a track that loads mid-sweep
     // finishes the pass before the position fill returns instead of snapping.
     property bool sweeping: false
+    readonly property bool desktopVolumeControl: settings.has("desktopLyricEnabled")
+    property int previousVolume: 80
+    property int volumeWatch: settings.appVolume
+
+    onVolumeWatchChanged: if (volumeWatch > 0) previousVolume = volumeWatch
+
+    function toggleMuted() {
+        if (settings.appVolume > 0) {
+            mini.previousVolume = settings.appVolume
+            settings.setAppVolume(0)
+        } else {
+            settings.setAppVolume(mini.previousVolume)
+        }
+    }
+
     property bool _loading: player.loading
     property real _targetProgress: player.durationMs > 0
         ? Math.max(0.0, Math.min(1.0, player.positionMs / player.durationMs)) : 0.0
@@ -152,12 +168,10 @@ SmoothRectangle {
     }
     IconButton {
         id: likeBtn
-        // A phone in portrait sits well under the old 440/520 thresholds (rail
-        // width 0, so mini.width is close to the full screen width minus
-        // margins — commonly ~330-410px), which hid like/shuffle on every
-        // normal phone, not just a squeezed desktop window. Lowered so both
-        // show there; only a genuinely tiny window still drops them.
-        visible: mini.width >= 280
+        // Mobile keeps like/mode at compact-phone widths. Desktop reserves a
+        // separate volume control, so those optional actions yield sooner as the
+        // window narrows.
+        visible: mini.width >= (mini.desktopVolumeControl ? 400 : 280)
         width: visible ? 40 : 0
         anchors.right: playBtn.left
         anchors.verticalCenter: parent.verticalCenter
@@ -171,7 +185,7 @@ SmoothRectangle {
     }
     IconButton {
         id: modeBtn
-        visible: mini.width >= 320
+        visible: mini.width >= (mini.desktopVolumeControl ? 440 : 320)
         width: visible ? 40 : 0
         anchors.right: likeBtn.left
         anchors.verticalCenter: parent.verticalCenter
@@ -180,6 +194,47 @@ SmoothRectangle {
         icon: player.playMode === 1 ? "shuffle"
               : (player.playMode === 2 ? "repeat_one" : "repeat")
         onClicked: player.cyclePlayMode()
+    }
+
+    Item {
+        id: volumeControl
+        visible: mini.desktopVolumeControl
+        width: visible ? (mini.width >= 720 ? 168 : 40) : 0
+        height: 40
+        anchors.right: modeBtn.left
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.verticalCenterOffset: 1
+
+        IconButton {
+            id: volumeButton
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            type: "standard"
+            icon: settings.appVolume === 0 ? "volume_off"
+                  : (settings.appVolume < 50 ? "volume_down" : "volume_up")
+            onClicked: {
+                if (volumeControl.width <= 40) mini.volumeRequested()
+                else mini.toggleMuted()
+            }
+        }
+
+        Slider {
+            id: inlineVolumeSlider
+            property int persistedVolume: settings.appVolume
+            visible: volumeControl.width > 40
+            anchors.left: volumeButton.right
+            anchors.leftMargin: 8
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            from: 0
+            to: 100
+            stepSize: 1
+            value: persistedVolume
+            valueLabelEnabled: true
+            onPersistedVolumeChanged: if (!pressed) value = persistedVolume
+            onMoved: player.setVolume(value / 100)
+            onEditingFinished: settings.setAppVolume(Math.round(value))
+        }
     }
 
     CoverImage {
@@ -207,7 +262,7 @@ SmoothRectangle {
     Item {
         anchors.left: cover.right
         anchors.leftMargin: 12
-        anchors.right: modeBtn.left
+        anchors.right: volumeControl.left
         anchors.rightMargin: 4
         anchors.top: track.bottom
         anchors.bottom: parent.bottom

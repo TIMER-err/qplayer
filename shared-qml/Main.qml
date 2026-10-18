@@ -18,6 +18,7 @@ Rectangle {
     property int nextPage: 0
     property bool loginOpen: false
     property bool showLog: false
+    property bool volumeOpen: false
     // Full-screen destinations share one navigation stack. Each drill-in keeps
     // its source underneath, so queue -> artist -> back restores the queue. Artist
     // and album routes also retain their ids, allowing deeper navigation to restore
@@ -501,6 +502,14 @@ Rectangle {
                 onClicked: player.setTemperaOpen(true)
             }
             IconButton {
+                objectName: "mobileVolumeAction"
+                visible: !settings.has("desktopLyricEnabled")
+                type: "standard"
+                icon: settings.appVolume === 0 ? "volume_off"
+                      : (settings.appVolume < 50 ? "volume_down" : "volume_up")
+                onClicked: app.volumeOpen = true
+            }
+            IconButton {
                 // This setting only exists on desktop hosts. Its presence, rather than
                 // a responsive layout breakpoint, decides whether the action is shown.
                 visible: app.wide && settings.has("desktopLyricEnabled")
@@ -776,6 +785,7 @@ Rectangle {
         anchors.bottomMargin: 8
         height: 80
         onLyricsRequested: app.pushPage("lyrics", 0)
+        onVolumeRequested: app.volumeOpen = true
     }
 
     // Bottom navigation (compact). On wide layouts the rail replaces it, so collapse
@@ -823,6 +833,11 @@ Rectangle {
     LoginDialog {
         active: app.loginOpen
         onClosed: app.loginOpen = false
+    }
+
+    VolumeDialog {
+        active: app.volumeOpen
+        onClosed: app.volumeOpen = false
     }
 
     SongArtistsDialog {
