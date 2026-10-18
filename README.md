@@ -91,6 +91,7 @@ QPlayer 本体不包含在线音源，也不分发音源代码。安装 JavaScri
 **桌面端**　同一套 QML 与 `player-core` 运行在 LWJGL3 + GLFW 上，由 Skija 渲染。
 OpenGL 与 Vulkan 后端可在启动时切换；MiniPlayer 提供独立于系统音量的 QPlayer 音量控制，移动端入口位于页面顶部；任务栏图标与系统托盘菜单镜像播放控制；
 最小化到托盘时销毁渲染线程与 GPU 资源、恢复时重建，播放与界面状态保留。`F11` 在当前显示器切换独占全屏，进入后会短暂提示“按住 Esc 退出全屏”；持续按住 `Esc` 1.2 秒会显示进度并退出，提前松开只取消操作。
+桌面音频由 OpenAL Soft 输出，跟随系统默认输出设备；设备断连时保留当前曲目和进度，恢复后从原位置继续，暂停状态不变。
 
 **插件安全**　签名 `.qplug` 包，内置源仓库与发布者公钥固定在程序内，安装时列出权限
 供用户确认，按插件隔离的 Rhino Realm、域名白名单与命名空间凭据库。插件对话框由插件
@@ -120,7 +121,7 @@ Service/KWallet 保管。系统密码库不可用时，用户可以明确选择�
 | `player-core/` | 跨平台核心（Maven，`dev.t1m3.qplayer`）：面向 QML 的 `PlayerController`、插件 ABI 与沙箱、歌词解析（LRC / YRC / TTML）、音频与元数据抽象，以及宿主绘制的歌词页。**不含任何在线音源端点或协议实现**。 |
 | `shared-qml/` | 共享 QML：`Main.qml` + 各页面 + 组件、vendored 的 `miuix.Core` 组件库、内置字体（PingFang / Material Symbols）。放在仓库根目录，两端加载同一份，响应式布局因此天然通用。 |
 | `android-shell/` | 安卓应用（Gradle，`applicationId dev.t1m3.qplayer`，minSdk 26）。宿主集成在 `…/android/`，界面与歌词都来自上面两个模块。 |
-| `desktop-host/` | 桌面宿主（Maven）：LWJGL3 + GLFW 开窗、Skija 渲染、可切换的 `GraphicsBackend`、可销毁重建的渲染线程、系统托盘，以及桌面音频（javax.sound + SPI 解码）。 |
+| `desktop-host/` | 桌面宿主（Maven）：LWJGL3 + GLFW 开窗、Skija 渲染、可切换的 `GraphicsBackend`、可销毁重建的渲染线程、系统托盘，以及桌面音频（OpenAL Soft 输出 + PCM 解码）。 |
 | [qml4j](https://github.com/TIMER-err/qml4j) | QML 引擎。是一个已发布的依赖，**不在**本仓库内。 |
 
 `qml4j-core` 从 Maven Central 解析，`player-core` / `desktop-host` 本地构建。

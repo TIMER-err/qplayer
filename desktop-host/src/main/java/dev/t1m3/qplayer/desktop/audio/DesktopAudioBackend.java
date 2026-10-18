@@ -22,6 +22,7 @@ import static org.lwjgl.openal.AL10.*;
 import static org.lwjgl.openal.AL11.AL_SAMPLE_OFFSET;
 import static org.lwjgl.openal.ALC10.*;
 import static org.lwjgl.openal.ALC11.ALC_DEFAULT_ALL_DEVICES_SPECIFIER;
+import static org.lwjgl.openal.EXTDisconnect.ALC_CONNECTED;
 import static org.lwjgl.system.MemoryUtil.NULL;
 
 /**
@@ -50,7 +51,7 @@ public final class DesktopAudioBackend implements AudioBackend {
     private static final int NUM_BUFFERS = 48;
     private static final int PRIME_BUFFERS = 16;
     private static final int CHUNK_BYTES = 16 * 1024;
-    private static final long DEVICE_CHECK_MS = 400L;
+    private static final long DEVICE_CHECK_NANOS = 400_000_000L;
 
     private final AtomicBoolean playing = new AtomicBoolean(false);
     private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
@@ -78,8 +79,10 @@ public final class DesktopAudioBackend implements AudioBackend {
     private int channels = 2;
     private int alFormat = AL_FORMAT_STEREO16;
     private boolean reopenDeviceSupported;
+    private boolean disconnectSupported;
+    private boolean outputNeedsReprime;
     private String lastDefaultDevice = "";
-    private long lastDeviceCheckMs;
+    private long lastDeviceCheckNanos;
     private ByteBuffer nativeChunk;
     private final byte[] stagingChunk = new byte[CHUNK_BYTES];
     private final ArrayDeque<Integer> queuedFrames = new ArrayDeque<>();
@@ -208,11 +211,10 @@ public final class DesktopAudioBackend implements AudioBackend {
             return;
         }
         while (!shuttingDown.get()) {
-            followDefaultOutputDevice();
             // After a decoder/OpenAL failure, do not silently reopen the same source
             // at 0 while paused. Wait for the controller's error handler to request
             // a retry (play() publishes a seek target) or for normal playback state.
-            if (!playing.get() && seekTargetMs.get() < 0L) {
+            if (!followDefaultOutputDevice() || (!playing.get() && seekTargetMs.get() < 0L)) {
                 try {
                     Thread.sleep(60L);
                 } catch (InterruptedException e) {
@@ -286,30 +288,30 @@ public final class DesktopAudioBackend implements AudioBackend {
             Logger.info("audio: timing primeFromCurrent {}ms, total open-to-play {}ms",
                     System.currentTimeMillis() - tPrime0, System.currentTimeMillis() - tOpen0);
             boolean draining = !primed;
+            boolean startPending = true;
+            boolean started = false;
+            outputNeedsReprime = false;
             // Opening/priming can take long enough for play() to replace the request.
             // Do not announce or start the stale decoder; in particular, its
             // onStarted must not cancel the new track's volume transition.
             if (openRevision != sourceRevision.get()) return false;
-            if (playing.get()) {
-                alSourcePlay(sourceId);
-                // Playback has actually begun now (open/decode/prime done). Fire onStarted
-                // so the controller clears its `loading` flag. The AudioBackend default is a
-                // no-op, so without this the desktop `loading` Property stays true forever —
-                // an endless indeterminate lyric progress bar and mini-player loading sweep.
-                Runnable started = onStarted;
-                if (started != null) started.run();
-            }
 
             while (!shuttingDown.get()) {
-                followDefaultOutputDevice();
                 // A different track requested → bail so the loop reopens it.
                 if (openRevision != sourceRevision.get()) return false;
+                if (!followDefaultOutputDevice()) {
+                    Thread.sleep(60L);
+                    continue;
+                }
 
                 long seek = seekTargetMs.getAndSet(-1L);
-                if (seek >= 0L) {
-                    seekBaseMs = pcm.seek(seek);
+                if (seek >= 0L || outputNeedsReprime) {
+                    // A disconnected source reports all queued buffers as processed.
+                    // Discard that queue and resume from the last published position.
+                    seekBaseMs = pcm.seek(seek >= 0L ? seek : positionMs);
                     draining = !primeFromCurrent(pcm);
-                    if (playing.get()) alSourcePlay(sourceId);
+                    outputNeedsReprime = false;
+                    startPending = true;
                 }
 
                 alSourcef(sourceId, AL_GAIN, volume);
@@ -320,10 +322,20 @@ public final class DesktopAudioBackend implements AudioBackend {
                     Thread.sleep(20L);
                     continue;
                 }
-                if (alGetSourcei(sourceId, AL_SOURCE_STATE) == AL_PAUSED) alSourcePlay(sourceId);
+                if (startPending || alGetSourcei(sourceId, AL_SOURCE_STATE) == AL_PAUSED) {
+                    alSourcePlay(sourceId);
+                    startPending = false;
+                    if (!isOutputConnected()) continue;
+                    if (!started) {
+                        started = true;
+                        Runnable callback = onStarted;
+                        if (callback != null) callback.run();
+                    }
+                }
 
                 // Recycle every buffer OpenAL is done with; refill unless drained.
                 int processed = alGetSourcei(sourceId, AL_BUFFERS_PROCESSED);
+                if (!isOutputConnected()) continue;
                 while (processed-- > 0) {
                     int buf = alSourceUnqueueBuffers(sourceId);
                     Integer frames = queuedFrames.pollFirst();
@@ -338,6 +350,7 @@ public final class DesktopAudioBackend implements AudioBackend {
                     pcm = switched;
                     draining = false;
                 }
+                if (!isOutputConnected()) continue;
                 int state = alGetSourcei(sourceId, AL_SOURCE_STATE);
                 if (draining && queued == 0) {
                     publishPosition(openRevision);
@@ -537,6 +550,7 @@ public final class DesktopAudioBackend implements AudioBackend {
         // with samples belonging to the previous source/seek epoch.
         if (expectedRevision != sourceRevision.get() || seekTargetMs.get() >= 0L) return;
         int offset = alGetSourcei(sourceId, AL_SAMPLE_OFFSET); // frames into the head buffer
+        if (!isOutputConnected()) return;
         long frames = framesSinceBase + Math.max(0, offset);
         positionMs = seekBaseMs + frames * 1000L / sampleRate;
     }
@@ -551,6 +565,7 @@ public final class DesktopAudioBackend implements AudioBackend {
         }
         AL.createCapabilities(alcCaps);
         reopenDeviceSupported = alcCaps.ALC_SOFT_reopen_device;
+        disconnectSupported = alcCaps.ALC_EXT_disconnect;
         lastDefaultDevice = defaultPlaybackDevice();
         sourceId = alGenSources();
         buffers = new int[NUM_BUFFERS];
@@ -558,26 +573,34 @@ public final class DesktopAudioBackend implements AudioBackend {
         nativeChunk = MemoryUtil.memAlloc(CHUNK_BYTES);
     }
 
+    private boolean isOutputConnected() {
+        return !disconnectSupported || alcGetInteger(device, ALC_CONNECTED) != ALC_FALSE;
+    }
+
     /**
-     * OpenAL Soft's WASAPI session is the device that was default when we
-     * opened it. Windows changing the default output (taskbar speaker →
-     * headphones) does not migrate that session, so the mixer keeps showing
-     * QPlayer on the old device. alcReopenDeviceSOFT(null) rebinds to the
-     * new default without tearing down the context or buffer ring.
+     * Follow default-output changes and recover a disconnected session even when
+     * its device name is unchanged after sleep. Never drain a disconnected source:
+     * OpenAL marks its entire queue processed without rendering those samples.
      */
-    private void followDefaultOutputDevice() {
-        if (!reopenDeviceSupported || device == NULL) return;
-        long now = System.currentTimeMillis();
-        if (now - lastDeviceCheckMs < DEVICE_CHECK_MS) return;
-        lastDeviceCheckMs = now;
+    private boolean followDefaultOutputDevice() {
+        boolean connected = isOutputConnected();
+        if (!connected && !outputNeedsReprime) {
+            outputNeedsReprime = true;
+            Logger.warn("audio: output device disconnected; holding playback position");
+        }
+        if (!reopenDeviceSupported || device == NULL) return connected;
+        long now = System.nanoTime();
+        if (now - lastDeviceCheckNanos < DEVICE_CHECK_NANOS) return connected;
+        lastDeviceCheckNanos = now;
         String current = defaultPlaybackDevice();
-        if (current.isEmpty() || current.equals(lastDefaultDevice)) return;
+        if (connected && (current.isEmpty() || current.equals(lastDefaultDevice))) return true;
         if (!SOFTReopenDevice.alcReopenDeviceSOFT(device, (ByteBuffer) null, (IntBuffer) null)) {
-            Logger.warn("audio: failed to reopen OpenAL on {}", current);
-            return;
+            if (connected) Logger.warn("audio: failed to reopen OpenAL on {}", current);
+            return isOutputConnected();
         }
         lastDefaultDevice = current;
         Logger.info("audio: reopened OpenAL on {}", current);
+        return isOutputConnected();
     }
 
     private static String defaultPlaybackDevice() {
