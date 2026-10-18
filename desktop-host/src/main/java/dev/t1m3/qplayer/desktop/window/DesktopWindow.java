@@ -49,6 +49,8 @@ public final class DesktopWindow {
 
     private static final int INITIAL_W = Integer.getInteger("qplayer.width", 1100);
     private static final int INITIAL_H = Integer.getInteger("qplayer.height", 720);
+    private static final int MIN_W = 360;
+    private static final int MIN_H = 480;
     // Logical px. Matches IconButton's own implicitWidth/Height (40) so the custom
     // caption buttons need no size override, while staying slimmer than the 64px
     // TopAppBar so it doesn't read as a second toolbar. Windows-only (custom title
@@ -797,6 +799,7 @@ public final class DesktopWindow {
         cacheFramebufferAndScale();
         cacheRefreshRate(fullscreen ? fullscreenMonitor : monitorForWindow(window));
         installCallbacks();
+        updateWindowSizeLimits();
         input = new InputBridge(this);
         input.install(window);
         Logger.info("desktop window created ({}x{}), graphics backend = {}, title bar = {}",
@@ -1007,6 +1010,23 @@ public final class DesktopWindow {
         notifyScale();
     }
 
+    private void updateWindowSizeLimits() {
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            IntBuffer w = stack.mallocInt(1), h = stack.mallocInt(1);
+            GLFW.glfwGetWindowSize(window, w, h);
+            int windowWidth = w.get(0), windowHeight = h.get(0);
+            GLFW.glfwGetFramebufferSize(window, w, h);
+            int pixelWidth = w.get(0), pixelHeight = h.get(0);
+            if (windowWidth <= 0 || windowHeight <= 0 || pixelWidth <= 0 || pixelHeight <= 0) return;
+            // GLFW window coordinates are physical pixels on Windows but points
+            // on macOS. Convert the QML minimum through the framebuffer ratio.
+            int minWidth = (int) Math.ceil(MIN_W * uiScale * windowWidth / pixelWidth);
+            int minHeight = (int) Math.ceil(MIN_H * uiScale * windowHeight / pixelHeight);
+            GLFW.glfwSetWindowSizeLimits(window, minWidth, minHeight,
+                    GLFW.GLFW_DONT_CARE, GLFW.GLFW_DONT_CARE);
+        }
+    }
+
     private void notifyScale() {
         java.util.function.DoubleConsumer listener = scaleListener;
         if (listener != null) listener.accept(uiScale);
@@ -1037,7 +1057,11 @@ public final class DesktopWindow {
             windowedBoundsValid = true;
         });
         GLFW.glfwSetWindowContentScaleCallback(window, (win, sx, sy) -> {
-            if (sx > 0) { uiScale = sx; notifyScale(); }
+            if (sx > 0) {
+                uiScale = sx;
+                notifyScale();
+                updateWindowSizeLimits();
+            }
         });
         // With a tray: close hides to it (real quit = tray "Quit"). Without a tray:
         // close just quits, so the app can't vanish to nowhere.
