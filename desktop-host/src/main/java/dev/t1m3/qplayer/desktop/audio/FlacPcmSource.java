@@ -80,7 +80,11 @@ final class FlacPcmSource implements PcmSource {
 
     /** Decode the next frame into {@link #pending} as 16-bit LE. @return false at EOF. */
     private boolean fill() throws IOException {
-        if (eof) return false;
+        // jflac's readNextFrame() loops after findFrameSync() reaches this limit.
+        if (eof || (totalSamples > 0 && decoder.getSamplesDecoded() >= totalSamples)) {
+            eof = true;
+            return false;
+        }
         Frame frame;
         try {
             frame = decoder.readNextFrame();

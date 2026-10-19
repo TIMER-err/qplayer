@@ -65,26 +65,39 @@ public interface PcmSource extends AutoCloseable {
 
     enum Container { MP3, OGG, FLAC, WAV, MP4 }
 
-    /** Peek the leading magic bytes, then rewind. Falls back to MP3 (the most
-     *  common netease payload, and the only one without a fixed magic). */
+    /** Peek container magic after any ID3v2 prefix, then rewind. ID3v2 tags can
+     *  precede FLAC too; other tagged payloads retain the MP3 fallback. */
     private static Container sniff(SeekableByteSource bytes) throws IOException {
         byte[] head = new byte[12];
-        bytes.seek(0);
-        int got = 0;
-        while (got < head.length) {
-            int n = bytes.read(head, got, head.length - got);
-            if (n < 0) break;
-            got += n;
+        long offset = 0;
+        boolean skippedId3 = false;
+        while (true) {
+            bytes.seek(offset);
+            int got = 0;
+            while (got < head.length) {
+                int n = bytes.read(head, got, head.length - got);
+                if (n < 0) break;
+                got += n;
+            }
+            if (got >= 10 && head[0] == 'I' && head[1] == 'D' && head[2] == '3') {
+                offset += 10L + ((head[6] & 0x7f) << 21) + ((head[7] & 0x7f) << 14)
+                        + ((head[8] & 0x7f) << 7) + (head[9] & 0x7f);
+                skippedId3 = true;
+                continue;
+            }
+            bytes.seek(0);
+            if (got >= 4 && head[0] == 'f' && head[1] == 'L' && head[2] == 'a' && head[3] == 'C') {
+                return Container.FLAC;
+            }
+            if (skippedId3) return Container.MP3;
+            if (got >= 8 && head[4] == 'f' && head[5] == 't' && head[6] == 'y' && head[7] == 'p') {
+                return Container.MP4;
+            }
+            if (got >= 4) {
+                if (head[0] == 'O' && head[1] == 'g' && head[2] == 'g' && head[3] == 'S') return Container.OGG;
+                if (head[0] == 'R' && head[1] == 'I' && head[2] == 'F' && head[3] == 'F') return Container.WAV;
+            }
+            return Container.MP3;
         }
-        bytes.seek(0);
-        if (got >= 8 && head[4] == 'f' && head[5] == 't' && head[6] == 'y' && head[7] == 'p') {
-            return Container.MP4;
-        }
-        if (got >= 4) {
-            if (head[0] == 'O' && head[1] == 'g' && head[2] == 'g' && head[3] == 'S') return Container.OGG;
-            if (head[0] == 'f' && head[1] == 'L' && head[2] == 'a' && head[3] == 'C') return Container.FLAC;
-            if (head[0] == 'R' && head[1] == 'I' && head[2] == 'F' && head[3] == 'F') return Container.WAV;
-        }
-        return Container.MP3;
     }
 }
