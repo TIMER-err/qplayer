@@ -80,7 +80,8 @@ final class RenderThread extends Thread {
             boolean respawn = win.markViewLive();
             dev.t1m3.qplayer.util.Logger.info("QML view ready (respawn={}, root={})",
                     respawn, view.root() != null);
-            sizeRoot(view, fb[0], fb[1], win.uiScale());
+            float appliedScale = win.uiScale();
+            sizeRoot(view, fb[0], fb[1], appliedScale);
 
             PlayerController controller = win.controller();
             LyricCompositor compositor = win.compositor();
@@ -98,9 +99,8 @@ final class RenderThread extends Thread {
             while (running) {
                 long frameStarted = System.nanoTime();
                 boolean renderFrame = win.windowVisible();
-                // Re-read uiScale each frame so a DPI change (e.g. moving between
-                // monitors) or a late-fired content-scale callback is picked up before
-                // the next sizeRoot / composite call — avoids stale-scale mismatch.
+                // Layout and composition must use the same scale even when a DPI
+                // callback arrives without a framebuffer-size callback.
                 float uiScale = win.uiScale();
                 DirtyQueue dq = view.dirtyQueue();
                 // qml4j's dirty queue is thread-local, but Property.changeVersion
@@ -120,7 +120,10 @@ final class RenderThread extends Thread {
                             failureStage = FailureStage.BACKEND_FRAME;
                             backend.resize(size[0], size[1]);
                             failureStage = FailureStage.APPLICATION_FRAME;
-                            sizeRoot(view, size[0], size[1], uiScale);
+                        }
+                        if (renderFrame && (size != null || uiScale != appliedScale)) {
+                            sizeRoot(view, backend.width(), backend.height(), uiScale);
+                            appliedScale = uiScale;
                         }
                         if (controller != null) controller.pump();
                         if (lyricWindow != null) lyricWindow.publish(controller,

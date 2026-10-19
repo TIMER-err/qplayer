@@ -341,6 +341,7 @@ public final class DesktopWindow {
         fullscreen = false;
         fullscreenMonitor = MemoryUtil.NULL;
         fullscreenRestoreMaximized = false;
+        if (frameless != null) frameless.restoreWindowedBounds(x, y, width, height);
         if (restoreMaximized) GLFW.glfwMaximizeWindow(window);
         cacheRefreshRate(monitorForWindow(window));
         publishFullscreenState(false);

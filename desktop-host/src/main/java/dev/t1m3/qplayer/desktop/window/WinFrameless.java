@@ -130,6 +130,7 @@ final class WinFrameless {
         }
     }
 
+    private HWND hwnd;
     private WndProc wndProc;           // strong ref: JNA callbacks must not be GC'd
     private Pointer originalWndProc;   // the GLFW-installed proc, called for anything we don't handle
     private boolean extendLegacyDwmFrame;
@@ -143,7 +144,7 @@ final class WinFrameless {
     void install(DesktopWindow window, double titleBarHeightLogicalPx,
                  boolean extendLegacyDwmFrame) {
         long hwndLong = GLFWNativeWin32.glfwGetWin32Window(window.window());
-        HWND hwnd = new HWND(Pointer.createConstant(hwndLong));
+        hwnd = new HWND(Pointer.createConstant(hwndLong));
         this.extendLegacyDwmFrame = extendLegacyDwmFrame;
 
         wndProc = (h, msg, wParam, lParam) -> {
@@ -175,6 +176,15 @@ final class WinFrameless {
         U32.I.SetWindowPos(hwnd, null, 0, 0, 0, 0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
         if (extendLegacyDwmFrame) extendDwmFrame(hwnd);
+    }
+
+    /**
+     * GLFW restores a decorated client size, but our client area is the whole
+     * window. Apply the saved outer bounds without adding native frame insets.
+     */
+    void restoreWindowedBounds(int x, int y, int width, int height) {
+        U32.I.SetWindowPos(hwnd, null, x, y, width, height,
+                SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
     }
 
     /**
