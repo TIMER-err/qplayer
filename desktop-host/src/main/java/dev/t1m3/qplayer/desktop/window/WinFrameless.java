@@ -157,6 +157,17 @@ final class WinFrameless {
                 window.onNativeFramebufferResize(
                         packed & 0xFFFF, (packed >>> 16) & 0xFFFF);
             }
+            if (WinIme.isImeMessage(msg)) {
+                if (msg == WinIme.WM_IME_NOTIFY) {
+                    int command = wParam.intValue() & 0xFFFF;
+                    if (command == WinIme.IMN_OPENCANDIDATE
+                            || command == WinIme.IMN_SETCANDIDATEPOS) {
+                        WinIme.placeCandidateWindow(h, window);
+                    }
+                } else if (msg != WinIme.WM_IME_ENDCOMPOSITION) {
+                    WinIme.placeCandidateWindow(h, window);
+                }
+            }
             if (msg == WM_NCCALCSIZE) return ncCalcSize(h, wParam, lParam, window);
             if (msg == WM_NCHITTEST) return hitTest(h, lParam, window, titleBarHeightLogicalPx);
             if (msg == WM_NCACTIVATE) return U32.I.DefWindowProcW(h, msg, wParam, new LPARAM(-1));
