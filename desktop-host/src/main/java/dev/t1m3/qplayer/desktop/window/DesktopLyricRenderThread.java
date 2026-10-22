@@ -134,8 +134,8 @@ final class DesktopLyricRenderThread extends Thread {
                                 canvas.restoreToCount(layer);
                             }
                             // Passthrough must stay reversible. Hide the lock
-                            // glyph until the pointer is over this overlay.
-                            if (owner.isMousePassthrough() && owner.cursorInsideLyricWindow()) {
+                            // glyph until the pointer is over that button.
+                            if (owner.isMousePassthrough() && owner.cursorOverUnlockButton()) {
                                 renderer.renderSubtree(canvas, lockedControl,
                                         DesktopLyricWindow.WIDTH, DesktopLyricWindow.HEIGHT);
                             }

@@ -621,6 +621,9 @@ public final class DesktopLyricWindow {
                     cursorX = currentX.get(0);
                     cursorY = currentY.get(0);
                 }
+                double logicalX = toLogicalX(cursorX);
+                double logicalY = toLogicalY(cursorY);
+                if (mousePassthrough && !isUnlockPoint(logicalX, logicalY)) return;
                 if (isResizeGrip(cursorX, cursorY)) {
                     resizingWindow = true;
                     resizeStartWidth = windowWidth;
@@ -631,8 +634,6 @@ public final class DesktopLyricWindow {
                     }
                     return;
                 }
-                double logicalX = toLogicalX(cursorX);
-                double logicalY = toLogicalY(cursorY);
                 if (isControlPoint(logicalX, logicalY)) {
                     controlsPressed = true;
                     final float eventX = (float) logicalX;
@@ -640,6 +641,7 @@ public final class DesktopLyricWindow {
                     postInput(view -> view.dispatchPointerDown(eventX, eventY));
                     return;
                 }
+                if (mousePassthrough) return;
                 dragging = true;
                 dragCursorX0 = cursorX;
                 dragCursorY0 = cursorY;
@@ -662,6 +664,11 @@ public final class DesktopLyricWindow {
         GLFW.glfwSetCursorPosCallback(window, (win, x, y) -> {
             cursorX = x;
             cursorY = y;
+            if (mousePassthrough) {
+                if (dragging) dragging = false;
+                if (resizingWindow) resizingWindow = false;
+                return;
+            }
             if (resizingWindow) {
                 try (MemoryStack stack = MemoryStack.stackPush()) {
                     IntBuffer windowX = stack.mallocInt(1);
@@ -791,24 +798,12 @@ public final class DesktopLyricWindow {
     }
 
     boolean cursorOverUnlockButton() {
-        return cursorInsideLyricWindow();
-    }
-
-    boolean cursorInsideLyricWindow() {
         if (window == MemoryUtil.NULL) return false;
         try (MemoryStack stack = MemoryStack.stackPush()) {
             DoubleBuffer x = stack.mallocDouble(1);
             DoubleBuffer y = stack.mallocDouble(1);
             GLFW.glfwGetCursorPos(window, x, y);
-            double cx = x.get(0);
-            double cy = y.get(0);
-            if (cx >= 0d && cx < windowWidth && cy >= 0d && cy < windowHeight) return true;
-            // Passthrough can freeze relative coords; compare against the
-            // window rect using the same GLFW origin.
-            IntBuffer wx = stack.mallocInt(1);
-            IntBuffer wy = stack.mallocInt(1);
-            GLFW.glfwGetWindowPos(window, wx, wy);
-            return cx >= 0d && cx < windowWidth && cy >= 0d && cy < windowHeight;
+            return isUnlockPoint(toLogicalX(x.get(0)), toLogicalY(y.get(0)));
         }
     }
 
@@ -818,7 +813,14 @@ public final class DesktopLyricWindow {
     }
 
     private boolean cursorInsideWindow() {
-        return cursorInsideLyricWindow();
+        if (window == MemoryUtil.NULL) return false;
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            DoubleBuffer x = stack.mallocDouble(1);
+            DoubleBuffer y = stack.mallocDouble(1);
+            GLFW.glfwGetCursorPos(window, x, y);
+            return x.get(0) >= 0d && x.get(0) < windowWidth
+                    && y.get(0) >= 0d && y.get(0) < windowHeight;
+        }
     }
 
     private void postPlayback(Consumer<PlayerController> action) {
