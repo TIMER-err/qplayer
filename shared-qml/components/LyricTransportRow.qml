@@ -1,12 +1,13 @@
 import QtQuick
 import miuix.Core
 
-// The lyric page's five transport buttons. Shared by the two landscape chromes
+// The lyric page's six transport buttons. Shared by the two landscape chromes
 // (the column beside the cover, and the full-width bottom band) so the row is
 // described once -- LyricOverlay.qml compiles to a single JVM constructor and
 // has a hard bytecode ceiling, so a second inline copy is worth avoiding.
 Row {
     id: row
+    signal queueRequested()
     // Default matches the classic column; the caller narrows it when space is tight.
     property real gap: 18
     spacing: row.gap
@@ -39,5 +40,11 @@ Row {
         icon: player.currentLiked ? "favorite" : "favorite_border"
         contentColor: player.currentLiked ? "#FFFF5277" : "#99FFFFFF"
         onClicked: player.toggleLike()
+    }
+    IconButton {
+        type: "standard"
+        icon: "queue_music"
+        contentColor: "#FFFFFFFF"
+        onClicked: row.queueRequested()
     }
 }

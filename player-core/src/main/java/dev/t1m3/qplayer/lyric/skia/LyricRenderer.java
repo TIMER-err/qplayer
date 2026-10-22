@@ -296,6 +296,12 @@ public class LyricRenderer {
     private Font layoutKeySubFont;
     private Font layoutKeyBgFont;
     private Font layoutKeyBgSubFont;
+    private boolean layoutKeyCloud;
+    private float[] cloudXFrac = new float[0];
+    private float[] cloudYFrac = new float[0];
+    private float[] cloudScale = new float[0];
+    private float[] cloudDriftPhaseX = new float[0];
+    private float[] cloudDriftPhaseY = new float[0];
 
     private static Fonts.Weight toFontsWeight(LyricConfig.FontWeight w) {
         switch (w) {
@@ -414,7 +420,9 @@ public class LyricRenderer {
         Font lineSubFont = isBg ? bgSubFont : subFont;
         float rowHeight = isBg ? rowHeightBg : rowHeightLyric;
         float lineSubHeight = isBg ? bgSubLineHeight : subLineHeight;
-        float wrapW = (isBg || !scaleOn) ? columnWidth : columnWidth / EMPHASIS_SCALE;
+        float wrapW = layoutKeyCloud
+                ? Math.max(96f, columnWidth * 0.42f)
+                : ((isBg || !scaleOn) ? columnWidth : columnWidth / EMPHASIS_SCALE);
 
         List<Syllable> rowSyllables = textShaper.splitOversizedSyllables(
                 line.syllables, font, wrapW);
@@ -544,6 +552,7 @@ public class LyricRenderer {
 
         boolean showRomaji = cfg.showRomaji.getValue();
         boolean showTranslation = cfg.showTranslation.getValue();
+        boolean cloud = Boolean.TRUE.equals(cfg.layoutCloud.getValue());
 
         // ---- Layout pass. Wrapping + per-line heights depend only on the inputs
         // below, NOT on the play head, so compute them once and cache. HarfBuzz is
@@ -568,7 +577,8 @@ public class LyricRenderer {
                 && layoutKeyLyricFont == lyricFont
                 && layoutKeySubFont == subFont
                 && layoutKeyBgFont == bgFont
-                && layoutKeyBgSubFont == bgSubFont;
+                && layoutKeyBgSubFont == bgSubFont
+                && layoutKeyCloud == cloud;
         if (!layoutKeyMatches) {
             LyricTextShaper.closeRows(cachedShapedRows);
             rowRenderer.clearRasterCache();
@@ -601,6 +611,8 @@ public class LyricRenderer {
             layoutKeySubFont = subFont;
             layoutKeyBgFont = bgFont;
             layoutKeyBgSubFont = bgSubFont;
+            layoutKeyCloud = cloud;
+            rebuildCloudSlots(n);
         }
         if (lineLayoutRemaining > 0) {
             int budget = lineLayoutRemaining == n ? LAYOUT_FIRST_BUDGET : LAYOUT_BUDGET;
@@ -694,6 +706,16 @@ public class LyricRenderer {
                 prevBottom += interludeBefore[gi];
             }
             lineTops[i] = prevBottom;
+        }
+
+        if (cloud) {
+            renderCloud(canvas, leftX, topY, columnWidth, columnHeight, positionMs,
+                    lines, groups, lineToGroup, n, lyricFont, bgFont, subFont, bgSubFont,
+                    lyricAscent, lyricDescent, bgAscent, bgDescent,
+                    rowHeightLyric, rowHeightLyricWrap, rowHeightBg, rowHeightBgWrap,
+                    subLineHeight, bgSubLineHeight, scaleOn, spring, glowOn, shadowOn,
+                    showRomaji, showTranslation);
+            return;
         }
 
         // Switch as soon as the upcoming group enters its delayed visual fade-in window.
@@ -1233,6 +1255,175 @@ public class LyricRenderer {
                 float dotsX = Math.max(leftX, leftX + (columnWidth - dotsWidth) * dotsAlign);
                 renderInterludeDots(canvas, dotsX, anchorY,
                         positionMs - interludeStartMs, interludeDur);
+            }
+        }
+    }
+
+    private void rebuildCloudSlots(int n) {
+        cloudXFrac = new float[n];
+        cloudYFrac = new float[n];
+        cloudScale = new float[n];
+        cloudDriftPhaseX = new float[n];
+        cloudDriftPhaseY = new float[n];
+        fillCloudSlots(n, cloudXFrac, cloudYFrac, cloudScale, cloudDriftPhaseX, cloudDriftPhaseY);
+    }
+
+    /** Deterministic scatter used by the lyric-cloud layout. Package-visible for tests. */
+    static void fillCloudSlots(int n, float[] xFrac, float[] yFrac, float[] scale) {
+        fillCloudSlots(n, xFrac, yFrac, scale, null, null);
+    }
+
+    static void fillCloudSlots(int n, float[] xFrac, float[] yFrac, float[] scale,
+                               float[] phaseX, float[] phaseY) {
+        for (int i = 0; i < n; i++) {
+            int h = mixHash(i, n);
+            float nx = ((h & 0xffff) / 65535f) * 2f - 1f;
+            float ny = (((h >>> 16) & 0xffff) / 65535f) * 2f - 1f;
+            float mag = (float) Math.sqrt(nx * nx + ny * ny);
+            if (mag < 0.18f) {
+                float s = 0.28f / Math.max(0.001f, mag);
+                nx *= s;
+                ny *= s;
+            }
+            xFrac[i] = clamp01(0.08f + (nx * 0.5f + 0.5f) * 0.84f, 0.08f, 0.92f);
+            yFrac[i] = clamp01(0.10f + (ny * 0.5f + 0.5f) * 0.80f, 0.10f, 0.90f);
+            scale[i] = 0.72f + (((h >>> 8) & 0xff) / 255f) * 0.28f;
+            if (phaseX != null) phaseX[i] = ((h >>> 3) & 0xff) / 255f * (float) (Math.PI * 2);
+            if (phaseY != null) phaseY[i] = ((h >>> 11) & 0xff) / 255f * (float) (Math.PI * 2);
+        }
+    }
+
+    private static int mixHash(int i, int n) {
+        int x = (i + 1) * 0x9E3779B9 ^ (n * 0x85EBCA6B);
+        x ^= x >>> 16;
+        x *= 0x7FEB352D;
+        x ^= x >>> 15;
+        return x;
+    }
+
+    private static float clamp01(float v, float lo, float hi) {
+        return Math.max(lo, Math.min(hi, v));
+    }
+
+    private void renderCloud(Canvas canvas, float leftX, float topY,
+                             float columnWidth, float columnHeight, long positionMs,
+                             java.util.List<LyricLine> lines,
+                             java.util.List<LyricTimeline.Group> groups,
+                             int[] lineToGroup, int n,
+                             Font lyricFont, Font bgFont, Font subFont, Font bgSubFont,
+                             float lyricAscent, float lyricDescent,
+                             float bgAscent, float bgDescent,
+                             float rowHeightLyric, float rowHeightLyricWrap,
+                             float rowHeightBg, float rowHeightBgWrap,
+                             float subLineHeight, float bgSubLineHeight,
+                             boolean scaleOn, boolean spring, boolean glowOn, boolean shadowOn,
+                             boolean showRomaji, boolean showTranslation) {
+        if (n == 0) return;
+        litBandValid = false;
+        int nearest = 0;
+        for (int g = 0; g < groups.size(); g++) {
+            if (groups.get(g).startMs > positionMs) break;
+            nearest = groups.get(g).from;
+        }
+        for (int i = 0; i < n; i++) {
+            if (cachedShapedRows == null || cachedShapedRows[i] == null) continue;
+            LyricLine line = lines.get(i);
+            int gi = lineToGroup[i];
+            LyricTimeline.Group myGroup = groups.get(gi);
+            LyricTimeline.Group nextGroup = gi + 1 < groups.size() ? groups.get(gi + 1) : null;
+            float activeK = LyricMotion.active(positionMs, myGroup);
+            boolean isBg = LyricTimeline.isBackground(line.vocalChannel);
+            float fly = isBg ? 0f : LyricMotion.cloudFly(positionMs, myGroup, nextGroup);
+            if (isBg && activeK < 0.15f) continue;
+
+            float idleBase = isBg ? 0.10f : 0.16f;
+            float activeBase = isBg ? 0.70f : 1f;
+            float idleAlpha = idleBase * (0.55f + 0.45f * (1f - Math.min(1f, Math.abs(i - nearest) / 12f)));
+            float baseAlpha = idleAlpha + (activeBase - idleAlpha) * fly;
+            if (baseAlpha < 0.04f) continue;
+
+            int[] starts = cachedRowStarts[i];
+            int subRowCount = Math.max(1, starts == null ? 1 : starts.length - 1);
+            float rowHeight = isBg ? rowHeightBg : rowHeightLyric;
+            float wrapH = isBg ? rowHeightBgWrap : rowHeightLyricWrap;
+            float descent = isBg ? bgDescent : lyricDescent;
+            float ascent = isBg ? bgAscent : lyricAscent;
+            float lineSubHeight = isBg ? bgSubLineHeight : subLineHeight;
+
+            float visWidth = 0f;
+            for (int r = 0; r < subRowCount; r++) {
+                LyricTextShaper.ShapedRow shapedRow = cachedShapedRows[i][r];
+                if (shapedRow == null) continue;
+                visWidth = Math.max(visWidth, shapedRow.width - shapedRow.leadingWidth);
+            }
+            if (visWidth <= 0f) visWidth = columnWidth * 0.4f;
+
+            float t = positionMs / 1000f;
+            float driftAmp = (1f - fly) * 0.018f;
+            float px = cloudXFrac[i];
+            float py = cloudYFrac[i];
+            if (driftAmp > 0.0001f && i < cloudDriftPhaseX.length) {
+                px += driftAmp * (float) Math.sin(t * 0.31f + cloudDriftPhaseX[i]);
+                py += driftAmp * 0.72f * (float) Math.sin(t * 0.23f + cloudDriftPhaseY[i]);
+                px = clamp01(px, 0.06f, 0.94f);
+                py = clamp01(py, 0.08f, 0.92f);
+            }
+            float slotX = leftX + px * columnWidth;
+            float slotY = topY + py * columnHeight;
+            float idleScale = cloudScale[i] * (isBg ? 0.82f : 1f);
+            float focusScale = scaleOn ? 1.18f : 1.08f;
+            float scale = idleScale + (focusScale - idleScale) * fly;
+            float idleLeft = slotX - visWidth * 0.5f * scale;
+            idleLeft = Math.max(leftX, Math.min(idleLeft, leftX + columnWidth - visWidth * scale));
+            float idleTop = slotY - rowHeight * 0.5f * scale;
+            float focusLeft = leftX + (columnWidth - visWidth * scale) * 0.5f;
+            float focusTop = topY + columnHeight * 0.42f - rowHeight * 0.5f * scale;
+            float lineLeft = idleLeft + (focusLeft - idleLeft) * fly;
+            float lineTop = idleTop + (focusTop - idleTop) * fly;
+            float drawX = slotX + (leftX + columnWidth * 0.5f - slotX) * fly;
+            float drawY = slotY + (topY + columnHeight * 0.42f - slotY) * fly;
+
+            canvas.save();
+            canvas.translate(drawX, drawY);
+            canvas.scale(scale, scale);
+            canvas.translate(-drawX, -drawY);
+
+            float blockLeftX = Float.MAX_VALUE;
+            float blockRightX = lineLeft;
+            float maxRowWidth = 0f;
+            for (int r = 0; r < subRowCount; r++) {
+                LyricTextShaper.ShapedRow shapedRow = cachedShapedRows[i][r];
+                if (shapedRow == null) continue;
+                float lead = shapedRow.leadingWidth;
+                float rowVis = shapedRow.width - lead;
+                float rowX = lineLeft;
+                float wrapRowH = (r == 0) ? rowHeight : wrapH;
+                float rowBaselineY = lineTop + rowHeight + r * wrapRowH - descent - 4f;
+                rowRenderer.drawRow(cachedLayoutSyllables.get(i), shapedRow,
+                        rowX - lead, rowBaselineY,
+                        ascent, descent, positionMs, baseAlpha, fly,
+                        animatablePerToken, spring, glowOn && fly > 0.2f, shadowOn, wordGlowSupported);
+                if (rowVis > maxRowWidth) maxRowWidth = rowVis;
+                if (rowX < blockLeftX) blockLeftX = rowX;
+                if (rowX + rowVis > blockRightX) blockRightX = rowX + rowVis;
+            }
+            if (blockLeftX > blockRightX) blockLeftX = lineLeft;
+            float subY = lineTop + rowHeight
+                    + (subRowCount - 1) * wrapH + 4f
+                    + (subRowCount > 1 ? WRAP_SUB_GAP : 0f);
+            subY = drawSubline(blockLeftX, lineSubHeight, showRomaji, i, 0.5f,
+                    baseAlpha, blockRightX, subY, cachedRomajiRows, shadowOn);
+            drawSubline(blockLeftX, lineSubHeight, showTranslation, i, 0.5f,
+                    baseAlpha, blockRightX, subY, cachedTranslationRows, shadowOn);
+            canvas.restore();
+
+            if (fly > 0.35f) {
+                float lt = lineTop, lb = lineTop + (cachedLineHeights[i] * scale);
+                if (!litBandValid) { litBandTop = lt; litBandBottom = lb; litBandValid = true; }
+                else {
+                    if (lt < litBandTop) litBandTop = lt;
+                    if (lb > litBandBottom) litBandBottom = lb;
+                }
             }
         }
     }

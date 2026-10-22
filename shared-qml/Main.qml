@@ -644,6 +644,7 @@ Rectangle {
                     PlaylistDetailPage {
                         onHome: app.goHome()
                         onBack: app.popPage()
+                        onOpenQueue: app.replacePage("queue", 0)
                     }
                 }
             }
@@ -657,6 +658,7 @@ Rectangle {
                     LocalPlaylistPage {
                         onHome: app.goHome()
                         onBack: app.popPage()
+                        onOpenQueue: app.replacePage("queue", 0)
                     }
                 }
             }
@@ -825,6 +827,7 @@ Rectangle {
         // TitleBar below), so the three title buttons sit flush at the very top.
         topPad: hostWindow.available ? 6 : settings.topInset + 6
         onCloseRequested: app.popPage()
+        onQueueRequested: app.replacePage("queue", 0)
         y: (1 - transitionEase) * height
     }
 

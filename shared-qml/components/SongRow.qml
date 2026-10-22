@@ -193,9 +193,8 @@ Rectangle {
             width: leading.width
             height: leading.height
             clip: true
-            visible: row.coverThumbPath != "" && (!row.lazyLoad || row._loadTriggered)
-            source: (row.coverThumbPath != "" && (!row.lazyLoad || row._loadTriggered))
-                   ? row.coverThumbPath : ""
+            visible: coverImg.source !== ""
+            source: row._stableCover
             radius: leading.cornerRadius
             // PreserveAspectCrop is broken on non-square sources in this engine
             // (CLAUDE.md): it scales from the top-left instead of cropping
@@ -549,4 +548,19 @@ Rectangle {
     // an image starts loading it is never unloaded (avoids re-fetch flicker).
     property bool _loadTriggered: row._inViewport
     on_InViewportChanged: { if (row._inViewport) row._loadTriggered = true; }
+    // Keep the last decoded path while a recycled row waits for its next thumb.
+    // Clearing Image.source on every window slide re-decodes and flashes the
+    // placeholder (issue #60).
+    property string _stableCover: ""
+    onCoverThumbPathChanged: row._refreshStableCover()
+    on_LoadTriggeredChanged: row._refreshStableCover()
+    function _refreshStableCover() {
+        if (row.coverThumbPath === "") {
+            row._stableCover = ""
+            return
+        }
+        if (!row.lazyLoad || row._loadTriggered)
+            row._stableCover = row.coverThumbPath
+    }
+    Component.onCompleted: row._refreshStableCover()
 }

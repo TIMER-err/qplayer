@@ -21,6 +21,31 @@ import static org.junit.Assert.assertTrue;
 public class LyricRendererTest {
 
     @Test
+    public void cloudSlotsStayInsideThePageAndKeepTheSameMap() {
+        float[] ax = new float[8];
+        float[] ay = new float[8];
+        float[] as = new float[8];
+        float[] px = new float[8];
+        float[] py = new float[8];
+        float[] bx = new float[8];
+        float[] by = new float[8];
+        float[] bs = new float[8];
+        LyricRenderer.fillCloudSlots(8, ax, ay, as, px, py);
+        LyricRenderer.fillCloudSlots(8, bx, by, bs);
+        boolean phaseSpread = false;
+        for (int i = 0; i < 8; i++) {
+            assertEquals(ax[i], bx[i], 0.0001f);
+            assertEquals(ay[i], by[i], 0.0001f);
+            assertEquals(as[i], bs[i], 0.0001f);
+            assertTrue("x in page", ax[i] >= 0.05f && ax[i] <= 0.95f);
+            assertTrue("y in page", ay[i] >= 0.05f && ay[i] <= 0.95f);
+            assertTrue("scale modest", as[i] >= 0.7f && as[i] <= 1.05f);
+            if (i > 0 && Math.abs(px[i] - px[0]) > 0.2f) phaseSpread = true;
+        }
+        assertTrue("drift phases differ", phaseSpread);
+    }
+
+    @Test
     public void glowFollowsTheMeasuredWordAndStaysBoundedOutsideIt() {
         assertEquals(1f, LyricRowRenderer.glowWindow(100f, 0f, 200f, 20f), 0.001f);
         assertTrue(LyricRowRenderer.glowWindow(10f, 0f, 200f, 20f) > 0f);

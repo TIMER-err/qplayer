@@ -47,6 +47,13 @@ Rectangle {
                 font.pixelSize: Theme.typography.titleLarge.size
                 elide: Text.ElideRight
             }
+            IconButton {
+                Layout.alignment: Qt.AlignVCenter
+                type: "standard"
+                icon: "my_location"
+                enabled: player.index >= 0
+                onClicked: q.scrollToIndex(player.index)
+            }
         }
 
         VirtualSongList {

@@ -57,6 +57,8 @@ public final class LyricCompositor {
          *  and progress along the bottom. Desktop-only setting, so this stays
          *  false on hosts that don't offer the row. */
         default boolean lyricFullWidth() { return false; }
+        /** Scattered lyric-cloud layout; the column spans the whole page. */
+        default boolean lyricLayoutCloud() { return false; }
     }
 
     // Reserved height (logical px) for the lyric-page transport bar at the bottom
@@ -473,8 +475,11 @@ public final class LyricCompositor {
         coverOnlyCached = coverOnly;
         // Full-width is a wide-window layout, and it has nothing to say about a
         // track with no lyrics — that view is the cover, which this mode removes.
-        boolean fullWidth = landscape && !coverOnly
-                && settings != null && settings.lyricFullWidth();
+        boolean cloud = settings != null && settings.lyricLayoutCloud();
+        // Cloud uses the whole page, so it rides the same full-width chrome as
+        // the wide-window layout (cover gone, transport along the bottom).
+        boolean fullWidth = !coverOnly && ((landscape && settings != null
+                && settings.lyricFullWidth()) || cloud);
         float fullWidthTarget = fullWidth ? 1f : 0f;
         long fullWidthNow = System.nanoTime();
         if (lyricSlide < 0.99f || fullWidthNs == 0L) {

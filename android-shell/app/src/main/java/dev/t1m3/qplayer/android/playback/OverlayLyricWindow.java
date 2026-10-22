@@ -18,7 +18,8 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
-
+import android.widget.Button;
+import android.widget.LinearLayout;
 import dev.t1m3.qplayer.android.ui.QPlayerActivity;
 import dev.t1m3.qplayer.bridge.PlayerController;
 import dev.t1m3.qplayer.i18n.I18n;
@@ -62,6 +63,9 @@ public final class OverlayLyricWindow {
     private int downX;
     private int downY;
     private boolean dragging;
+    private View controls;
+    private WindowManager.LayoutParams controlParams;
+    private PlayerController controller;
 
     public static void bindSettings(SettingsCore core) {
         settings = core;
@@ -207,6 +211,7 @@ public final class OverlayLyricWindow {
     }
 
     private void hide() {
+        hideControls();
         LyricView live = view;
         if (!attached || wm == null || live == null) {
             attached = false;
@@ -246,10 +251,8 @@ public final class OverlayLyricWindow {
             case MotionEvent.ACTION_CANCEL:
                 if (dragging) {
                     prefs.edit().putInt("x", params.x).putInt("y", params.y).apply();
-                } else {
-                    Intent open = new Intent(app, QPlayerActivity.class)
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-                    try { app.startActivity(open); } catch (Throwable ignored) {}
+                } else if (event.getActionMasked() == MotionEvent.ACTION_UP) {
+                    toggleControls();
                 }
                 dragging = false;
                 return true;
@@ -258,7 +261,84 @@ public final class OverlayLyricWindow {
         }
     }
 
+    private void toggleControls() {
+        if (controls != null) {
+            hideControls();
+            return;
+        }
+        if (wm == null || params == null) return;
+        float d = app.getResources().getDisplayMetrics().density;
+        LinearLayout bar = new LinearLayout(app);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setPadding(Math.round(8 * d), Math.round(6 * d), Math.round(8 * d), Math.round(6 * d));
+        bar.setBackgroundColor(0xE628282B);
+        bar.addView(controlButton(I18n.tr("overlay.controls.prev"), () -> {
+            if (controller != null) controller.prev();
+        }));
+        bar.addView(controlButton(I18n.tr("overlay.controls.toggle"), () -> {
+            if (controller != null) controller.toggle();
+        }));
+        bar.addView(controlButton(I18n.tr("overlay.controls.next"), () -> {
+            if (controller != null) controller.next();
+        }));
+        bar.addView(controlButton(I18n.tr("overlay.controls.openApp"), this::openPlayer));
+        int type = Build.VERSION.SDK_INT >= 26
+                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                : WindowManager.LayoutParams.TYPE_PHONE;
+        controlParams = new WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                type,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                        | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                PixelFormat.TRANSLUCENT);
+        controlParams.gravity = Gravity.TOP | Gravity.START;
+        controlParams.x = params.x;
+        controlParams.y = Math.max(0, params.y - Math.round(56 * d));
+        try {
+            wm.addView(bar, controlParams);
+            controls = bar;
+        } catch (Throwable ignored) {
+            controls = null;
+            controlParams = null;
+        }
+    }
+
+    private Button controlButton(String label, Runnable action) {
+        Button button = new Button(app);
+        button.setText(label);
+        button.setTextColor(0xFFFFFFFF);
+        button.setAllCaps(false);
+        button.setMinWidth(0);
+        button.setMinimumWidth(0);
+        button.setPadding(Math.round(10 * app.getResources().getDisplayMetrics().density), 0,
+                Math.round(10 * app.getResources().getDisplayMetrics().density), 0);
+        button.setOnClickListener(v -> action.run());
+        return button;
+    }
+
+    private void openPlayer() {
+        hideControls();
+        Intent open = new Intent(app, QPlayerActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        try { app.startActivity(open); } catch (Throwable ignored) {}
+    }
+
+    private void hideControls() {
+        View live = controls;
+        if (live == null || wm == null) {
+            controls = null;
+            controlParams = null;
+            return;
+        }
+        try { wm.removeView(live); } catch (Throwable ignored) {}
+        controls = null;
+        controlParams = null;
+    }
+
     private void update(PlayerController controller) {
+        this.controller = controller;
         if (Looper.myLooper() != Looper.getMainLooper()) {
             main.post(() -> update(controller));
             return;

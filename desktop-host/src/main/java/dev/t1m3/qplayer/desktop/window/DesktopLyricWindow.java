@@ -790,12 +790,25 @@ public final class DesktopLyricWindow {
         return top || bottom;
     }
 
-    private boolean cursorOverUnlockButton() {
+    boolean cursorOverUnlockButton() {
+        return cursorInsideLyricWindow();
+    }
+
+    boolean cursorInsideLyricWindow() {
+        if (window == MemoryUtil.NULL) return false;
         try (MemoryStack stack = MemoryStack.stackPush()) {
             DoubleBuffer x = stack.mallocDouble(1);
             DoubleBuffer y = stack.mallocDouble(1);
             GLFW.glfwGetCursorPos(window, x, y);
-            return isUnlockPoint(toLogicalX(x.get(0)), toLogicalY(y.get(0)));
+            double cx = x.get(0);
+            double cy = y.get(0);
+            if (cx >= 0d && cx < windowWidth && cy >= 0d && cy < windowHeight) return true;
+            // Passthrough can freeze relative coords; compare against the
+            // window rect using the same GLFW origin.
+            IntBuffer wx = stack.mallocInt(1);
+            IntBuffer wy = stack.mallocInt(1);
+            GLFW.glfwGetWindowPos(window, wx, wy);
+            return cx >= 0d && cx < windowWidth && cy >= 0d && cy < windowHeight;
         }
     }
 
@@ -805,12 +818,7 @@ public final class DesktopLyricWindow {
     }
 
     private boolean cursorInsideWindow() {
-        try (MemoryStack stack = MemoryStack.stackPush()) {
-            DoubleBuffer x = stack.mallocDouble(1);
-            DoubleBuffer y = stack.mallocDouble(1);
-            GLFW.glfwGetCursorPos(window, x, y);
-            return x.get(0) >= 0d && x.get(0) < windowWidth && y.get(0) >= 0d && y.get(0) < windowHeight;
-        }
+        return cursorInsideLyricWindow();
     }
 
     private void postPlayback(Consumer<PlayerController> action) {

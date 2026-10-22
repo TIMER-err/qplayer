@@ -1039,6 +1039,55 @@ public class PlayerControllerPlaybackTest {
         }
     }
 
+    @Test
+    public void playNextInsertsAfterTheCurrentTrack() throws Exception {
+        String oldBase = AppDirs.base();
+        String oldCacheBase = AppDirs.cacheBase();
+        PlayerController controller = null;
+        try {
+            Path base = temporaryFolder.newFolder("play-next").toPath();
+            AppDirs.setBase(base.toString());
+            AppDirs.setCacheBase(base.resolve("cache").toString());
+            String queue = "{\"playIndex\":0,\"positionMs\":0,\"playMode\":0,\"tracks\":["
+                    + "{\"source\":\"LOCAL\",\"title\":\"one\",\"durationMs\":120000,\"filePath\":\"one.mp3\"},"
+                    + "{\"source\":\"LOCAL\",\"title\":\"two\",\"durationMs\":120000,\"filePath\":\"two.mp3\"}]}";
+            Files.write(base.resolve("queue.json"), queue.getBytes(StandardCharsets.UTF_8));
+            Path extra = temporaryFolder.newFolder("lib").toPath().resolve("three.mp3");
+            Files.write(extra, new byte[]{1, 2, 3, 4});
+
+            controller = new PlayerController(
+                    new FakeAudioBackend(), track -> { }, NeteaseClient.INSTANCE);
+            controller.playQueueIndex(0);
+            controller.pump();
+            assertEquals(2, controller.queueTracks.peek().size());
+
+            java.lang.reflect.Field library =
+                    PlayerController.class.getDeclaredField("library");
+            library.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            java.util.List<Track> lib = (java.util.List<Track>) library.get(controller);
+            Track third = new Track();
+            third.source = Track.Source.LOCAL;
+            third.title = "three";
+            third.filePath = extra.toString();
+            third.durationMs = 90_000L;
+            lib.add(third);
+
+            controller.playNextLocalFile(extra.toString());
+            controller.pump();
+            java.util.List<Track> after = controller.queueTracks.peek();
+            assertEquals(3, after.size());
+            assertEquals("one", after.get(0).title);
+            assertEquals("three", after.get(1).title);
+            assertEquals("two", after.get(2).title);
+            assertEquals(0, playIndex(controller));
+        } finally {
+            if (controller != null) controller.shutdown();
+            AppDirs.setBase(oldBase);
+            AppDirs.setCacheBase(oldCacheBase);
+        }
+    }
+
     private static dev.t1m3.qplayer.media.Playlist playlist(String id, String name) {
         dev.t1m3.qplayer.media.Playlist playlist = new dev.t1m3.qplayer.media.Playlist();
         playlist.id = id;

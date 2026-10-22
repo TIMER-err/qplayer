@@ -1,5 +1,6 @@
 package dev.t1m3.qplayer.lyric.skia;
 
+import dev.t1m3.qplayer.lyric.LrcParser;
 import dev.t1m3.qplayer.lyric.LyricLine;
 import dev.t1m3.qplayer.lyric.LyricTimeline;
 import dev.t1m3.qplayer.lyric.Syllable;
@@ -47,5 +48,21 @@ public class LyricMotionTest {
         assertEquals(40f, LyricMotion.interludeSlot(1_500L, 1_000L, 2_000L, 40f), 0f);
         assertTrue(LyricMotion.interludeSlot(1_950L, 1_000L, 2_000L, 40f) < 40f);
         assertEquals(0f, LyricMotion.interludeSlot(2_001L, 1_000L, 2_000L, 40f), 0f);
+    }
+
+    @Test
+    public void cloudFlyReturnsHomeBeforeTheNextLineEnters() {
+        LyricTimeline.Prepared prepared = LyricTimeline.prepare(LrcParser.parse(
+                "[00:01.00]第一行\n[00:05.00]第二行"), false);
+        LyricTimeline.Group first = prepared.groups.get(0);
+        LyricTimeline.Group second = prepared.groups.get(1);
+
+        assertEquals(1f, LyricMotion.cloudFly(2_000L, first, second), 0f);
+        float midOut = LyricMotion.cloudFly(second.startMs - 50L, first, second);
+        float midIn = LyricMotion.cloudFly(second.startMs - 50L, second, null);
+        assertTrue(midOut > 0f);
+        assertEquals(0f, midIn, 0f);
+        assertEquals(0f, LyricMotion.cloudFly(second.startMs, first, second), 0.01f);
+        assertTrue(LyricMotion.cloudFly(second.startMs + 50L, second, null) > 0f);
     }
 }

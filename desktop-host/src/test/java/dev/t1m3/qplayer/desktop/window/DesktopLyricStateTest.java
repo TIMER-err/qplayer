@@ -7,8 +7,8 @@ import static org.junit.Assert.assertEquals;
 public class DesktopLyricStateTest {
 
     @Test
-    public void idlePlaybackAlwaysUsesPlaceholderInsteadOfStaleMetadata() {
-        assertEquals(DesktopLyricState.IDLE_PLACEHOLDER,
+    public void pausedPlaybackKeepsTheCurrentTitle() {
+        assertEquals("previous song  ·  artist",
                 DesktopLyricState.fallback(snapshot("previous song", "artist", false)));
         assertEquals(DesktopLyricState.IDLE_PLACEHOLDER,
                 DesktopLyricState.fallback(snapshot("", "", false)));

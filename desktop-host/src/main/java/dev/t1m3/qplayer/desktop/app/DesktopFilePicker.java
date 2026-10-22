@@ -25,8 +25,16 @@ final class DesktopFilePicker {
     private static final AtomicBoolean OPEN = new AtomicBoolean(false);
     private static volatile boolean darkTheme;
     private static volatile Boolean installedDarkTheme;
+    private static volatile Thread mainThread;
+    private static volatile java.util.function.Consumer<Runnable> mainExec;
 
     private DesktopFilePicker() {}
+
+    /** macOS NSOpenPanel/NSSavePanel must run on the GLFW/AppKit thread. */
+    static void setMainLoop(Thread thread, java.util.function.Consumer<Runnable> exec) {
+        mainThread = thread;
+        mainExec = exec;
+    }
 
     /** Remember the theme without loading Swing/FlatLaf on the startup path. */
     static void initializeLookAndFeel(boolean dark) {
@@ -72,6 +80,24 @@ final class DesktopFilePicker {
     /** Save dialog for an exported playlist, seeded with a suggested file name. */
     static void savePlaylist(String suggestedFileName, Consumer<String> onPicked) {
         if (!OPEN.compareAndSet(false, true)) return;
+        if (MacNativeDialog.isMac()) {
+            runOnMain(() -> {
+                try {
+                    File dir = initialDirectory(documentsDirectory());
+                    String path = MacNativeDialog.save(
+                            I18n.tr("picker.exportPlaylist"),
+                            dir.getAbsolutePath(), suggestedFileName, PLAYLIST_EXTENSIONS);
+                    if (path == null) return;
+                    if (!hasPlaylistExtension(path)) path = path + ".qpl.json";
+                    onPicked.accept(path);
+                } catch (Throwable t) {
+                    Logger.warn("desktop save dialog failed: {}", t.toString());
+                } finally {
+                    OPEN.set(false);
+                }
+            });
+            return;
+        }
         SwingUtilities.invokeLater(() -> {
             try {
                 applyLookAndFeel(darkTheme);
@@ -122,10 +148,37 @@ final class DesktopFilePicker {
                 ? documents.getAbsolutePath() : System.getProperty("user.home", ".");
     }
 
+    private static void runOnMain(Runnable task) {
+        Thread t = mainThread;
+        java.util.function.Consumer<Runnable> exec = mainExec;
+        if (t != null && Thread.currentThread() == t) {
+            task.run();
+        } else if (exec != null) {
+            exec.accept(task);
+        } else {
+            task.run();
+        }
+    }
+
     private static void show(String title, File initialDirectory, boolean directoryOnly,
                              String filterDescription, String[] extensions,
                              Consumer<String> onPicked) {
         if (!OPEN.compareAndSet(false, true)) return;
+        if (MacNativeDialog.isMac()) {
+            runOnMain(() -> {
+                try {
+                    String path = MacNativeDialog.open(title,
+                            initialDirectory != null ? initialDirectory.getAbsolutePath() : null,
+                            directoryOnly, extensions);
+                    if (path != null) onPicked.accept(path);
+                } catch (Throwable t) {
+                    Logger.warn("desktop file chooser failed: {}", t.toString());
+                } finally {
+                    OPEN.set(false);
+                }
+            });
+            return;
+        }
         SwingUtilities.invokeLater(() -> {
             try {
                 applyLookAndFeel(darkTheme);

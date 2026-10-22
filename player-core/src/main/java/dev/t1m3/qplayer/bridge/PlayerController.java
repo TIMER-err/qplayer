@@ -3208,6 +3208,105 @@ public final class PlayerController {
         playAt(i);
     }
 
+    /** Insert a live-list track immediately after the currently playing one. */
+    public void playNext(int listIndex) {
+        Track track = copyForQueue(trackFromVisibleList(listIndex));
+        if (track == null) {
+            showToast(I18n.tr("toast.playlist.addFailed"));
+            return;
+        }
+        insertNext(track);
+    }
+
+    public void playNextMedia(String mediaId) {
+        Track track = copyForQueue(findTrackForMedia(mediaId));
+        if (track == null) {
+            showToast(I18n.tr("toast.playlist.addFailed"));
+            return;
+        }
+        insertNext(track);
+    }
+
+    public void playNextLocalFile(String filePath) {
+        if (filePath == null || filePath.isEmpty()) return;
+        Track found = null;
+        for (Track t : library) {
+            if (filePath.equals(t.filePath) || filePath.equals(t.contentUri)) {
+                found = t;
+                break;
+            }
+        }
+        if (found == null) {
+            for (Track t : queue) {
+                if (filePath.equals(t.filePath) || filePath.equals(t.contentUri)) {
+                    found = t;
+                    break;
+                }
+            }
+        }
+        Track track = copyForQueue(found);
+        if (track == null) {
+            showToast(I18n.tr("toast.playlist.addFailed"));
+            return;
+        }
+        insertNext(track);
+    }
+
+    private void insertNext(Track track) {
+        if (queue.isEmpty() || playIndex < 0) {
+            queue.clear();
+            shuffleHistory.clear();
+            queue.add(track);
+            queueTracks.set(new ArrayList<>(queue));
+            worker.submit(this::saveQueue);
+            onMain(() -> playAt(0));
+            showToast(I18n.tr("toast.queue.playNext"));
+            return;
+        }
+        int at = Math.min(playIndex + 1, queue.size());
+        queue.add(at, track);
+        queueTracks.set(new ArrayList<>(queue));
+        worker.submit(this::saveQueue);
+        showToast(I18n.tr("toast.queue.playNext"));
+    }
+
+    private Track trackFromVisibleList(int i) {
+        if (i < 0) return null;
+        List<Track> local = localPlaylistTracks.peek();
+        if (local != null && i < local.size()) return local.get(i);
+        if (i < library.size()) return library.get(i);
+        if (i < queue.size()) return queue.get(i);
+        return null;
+    }
+
+    private static Track copyForQueue(Track src) {
+        if (src == null) return null;
+        Track t = new Track();
+        t.source = src.source;
+        t.mediaId = src.mediaId;
+        t.renditionId = src.renditionId;
+        t.filePath = src.filePath;
+        t.contentUri = src.contentUri;
+        t.neteaseId = src.neteaseId;
+        t.customId = src.customId;
+        t.title = src.title;
+        t.artist = src.artist;
+        t.artistId = src.artistId;
+        t.artistMediaId = src.artistMediaId;
+        t.artistIdsCsv = src.artistIdsCsv;
+        t.artistNamesCsv = src.artistNamesCsv;
+        t.album = src.album;
+        t.durationMs = src.durationMs;
+        t.coverUrl = src.coverUrl;
+        t.coverThumbPath = src.coverThumbPath;
+        t.coverLocalPath = src.coverLocalPath;
+        t.lyricFilePath = src.lyricFilePath;
+        t.translationFilePath = src.translationFilePath;
+        t.romajiFilePath = src.romajiFilePath;
+        t.canonicalId();
+        return t;
+    }
+
     /** Drop a slot from the queue; keep playing the right track. */
     public void removeFromQueue(int i) {
         if (i < 0 || i >= queue.size()) return;

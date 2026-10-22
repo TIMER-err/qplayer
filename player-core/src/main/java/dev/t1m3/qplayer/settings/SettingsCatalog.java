@@ -71,6 +71,10 @@ public final class SettingsCatalog {
     public static final String COVER_STYLE_KEY = "lyricCoverStyle";
     public static final int COVER_STYLE_ORIGINAL = 0;
     public static final int COVER_STYLE_VINYL = 1;
+    /** Immersive lyric layout: 0 stacked column, 1 scattered lyric cloud. */
+    public static final String LAYOUT_STYLE_KEY = "lyricLayoutStyle";
+    public static final int LAYOUT_STYLE_COLUMN = 0;
+    public static final int LAYOUT_STYLE_CLOUD = 1;
     /** Android overlay lyrics: TYPE_APPLICATION_OVERLAY, no root. */
     public static final String OVERLAY_LYRIC_KEY = "overlayLyricEnabled";
     public static final String OVERLAY_LYRIC_LOCKED_KEY = "overlayLyricLocked";
@@ -238,6 +242,13 @@ public final class SettingsCatalog {
                         "settings.lyricCoverStyle.original",
                         "settings.lyricCoverStyle.vinyl")
                 .desc("settings.lyricCoverStyle.desc")
+                .group("lyricDisplay")
+                .build());
+        out.add(SettingSpec.radio(LAYOUT_STYLE_KEY, LYRIC, "settings.lyricLayoutStyle.title",
+                        LAYOUT_STYLE_COLUMN,
+                        "settings.lyricLayoutStyle.column",
+                        "settings.lyricLayoutStyle.cloud")
+                .desc("settings.lyricLayoutStyle.desc")
                 .group("lyricDisplay")
                 .build());
         out.add(SettingSpec.segmented("lyricProgressStyle", LYRIC,
@@ -436,12 +447,11 @@ public final class SettingsCatalog {
                 .dependsOn("desktopLyricEnabled")
                 .group("desktopLyricGeneral")
                 .build());
-        // Default (45) is deliberately higher than the old hidden-state 28% it
-        // replaces: at 28% the backdrop was close enough to invisible that
-        // legibility depended entirely on the outline/shadow settings below,
-        // against whatever happened to be on screen underneath.
+        // Default (45) is higher than the old hidden-state 28%: at 28% the
+        // backdrop was close enough to invisible that legibility depended on
+        // outline/shadow. Floor is 0 so the window can sit with no black box.
         out.add(SettingSpec.slider(DESKTOP_LYRIC_IDLE_OPACITY_KEY, DESKTOP_LYRIC,
-                        "settings.desktopLyricIdleOpacity.title", 45, 15, 90, 5)
+                        "settings.desktopLyricIdleOpacity.title", 45, 0, 90, 5)
                 .desc("settings.desktopLyricIdleOpacity.desc")
                 .unit("%").dots()
                 .onlyOn(DESKTOP)

@@ -27,6 +27,8 @@ Menu {
         // the live queue) have no provider identity at all — a much smaller menu, just
         // the custom-playlist toggle, keyed by path instead of a provider media ID.
         if (s.filePath) {
+            items.push({ text: i18n.t("menu.playNext"), icon: "playlist_play",
+                         action: function() { player.playNextLocalFile(s.filePath) } })
             items.push({ text: i18n.t("playlist.local.addTo"), icon: "playlist_add",
                          subItems: menu._localSubItems("local", s.filePath) })
             menu.model = items
@@ -54,6 +56,8 @@ Menu {
                 if (("" + sourceLists[spi].id).indexOf(sourcePrefix) !== 0) continue
                 sourceSubs.push(menu._addMediaItem(sourceLists[spi], "" + songId))
             }
+            items.push({ text: i18n.t("menu.playNext"), icon: "playlist_play",
+                         action: function() { player.playNextMedia("" + songId) } })
             if (sourceSubs.length > 0)
                 items.push({ text: i18n.t("menu.addToPlaylist"), icon: "playlist_add", subItems: sourceSubs })
             if (menu.inOwnedPlaylist && player.openSourcePlaylistId !== ""
@@ -77,6 +81,8 @@ Menu {
         if (artistIds) {
             items.push({ text: i18n.t("menu.viewArtist"), icon: "person", action: menu._openArtistPickerAction(artistIds, artistNames) })
         }
+        items.push({ text: i18n.t("menu.playNext"), icon: "playlist_play",
+                     action: function() { player.playNextMedia("" + songId) } })
         if (player.loggedIn) {
             var pls = player.myPlaylists
             var n = pls ? pls.length : 0

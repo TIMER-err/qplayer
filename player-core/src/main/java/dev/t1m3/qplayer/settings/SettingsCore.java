@@ -373,6 +373,9 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
     @Override public boolean temperaImages() { return bool("temperaImages"); }
     @Override public int lyricFontSize() { return intOf("lyricFontSize"); }
     @Override public boolean lyricFullWidth() { return bool("lyricFullWidth"); }
+    @Override public boolean lyricLayoutCloud() {
+        return intOf(SettingsCatalog.LAYOUT_STYLE_KEY) == SettingsCatalog.LAYOUT_STYLE_CLOUD;
+    }
 
     @Override
     public float topInset() {
@@ -567,6 +570,8 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
         c.dropShadow.setValue(bool("lyricShadow"));
         c.linearAnimForPlainLrc.setValue(bool("lyricLinearAnim"));
         c.edgeBlur.setValue(bool("lyricEdgeBlur"));
+        c.layoutCloud.setValue(intOf(SettingsCatalog.LAYOUT_STYLE_KEY)
+                == SettingsCatalog.LAYOUT_STYLE_CLOUD);
         Fonts.warmupFromConfig();
     }
 

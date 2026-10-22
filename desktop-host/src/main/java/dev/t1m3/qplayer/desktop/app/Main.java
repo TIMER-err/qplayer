@@ -69,6 +69,16 @@ public final class Main {
             if (eq > 2) System.setProperty(a.substring(2, eq), a.substring(eq + 1));
         }
 
+        // GLFW owns thread 0 / NSApplication on macOS. The first headful AWT
+        // call (ImageIO, SystemTray, JFileChooser) starts a nested
+        // NSApplication.run inside glfwWaitEvents, so the queued glfwShowWindow
+        // never runs (issue #61). Force headless AWT; macOS uses NSStatusItem
+        // and NSOpenPanel instead.
+        String osName = System.getProperty("os.name", "").toLowerCase();
+        if (osName.contains("mac") && System.getProperty("java.awt.headless") == null) {
+            System.setProperty("java.awt.headless", "true");
+        }
+
         // Windows packaged launcher (GUI subsystem): no console on double-click, but
         // attach to the launching terminal's console so logs still stream there.
         // Before anything writes to stdout (log4j console appender resolves it).
@@ -186,6 +196,7 @@ public final class Main {
         // Desktop lyrics shares SettingsCore's store so its settings-page toggle
         // and tray toggle remain one value; window position uses adjacent host keys.
         window.setLyricSettingsStore(desktopStore);
+        DesktopFilePicker.setMainLoop(Thread.currentThread(), window::postMainTask);
 
         // Playback control runs on the main event loop (alive even while the render
         // thread is dead); back/exit folds the window to the tray.
@@ -334,7 +345,16 @@ public final class Main {
             startLibraryWatcher(watcher, initialFolder);
             if (PACKAGED) controller.checkForUpdate();
             if (!"false".equals(System.getProperty("qplayer.tray", "true"))) {
-                getTrayThread(tray, window).start();
+                // NSStatusItem must be created on the GLFW/AppKit main thread.
+                // Windows/Linux tray backends own their own pump threads.
+                if (osName.contains("mac")) {
+                    boolean ok = false;
+                    try { ok = tray.install(); }
+                    catch (Throwable t) { Logger.warn("tray install threw: {}", t); }
+                    window.setTrayAvailable(ok);
+                } else {
+                    getTrayThread(tray, window).start();
+                }
             }
             if (systemMedia != null && systemMediaEnabled) systemMedia.start();
         });

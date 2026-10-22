@@ -12,6 +12,7 @@ Rectangle {
     id: page
     signal back()
     signal home()
+    signal openQueue()
     color: Theme.color.surface
 
     property string playlistId: player.openLocalPlaylistId
@@ -207,11 +208,19 @@ Rectangle {
                     font.pixelSize: 14
                     color: Theme.color.onSurfaceVariantSummary
                 }
-                Button {
-                    text: i18n.t("playlist.playAll")
-                    icon: "play_arrow"
-                    enabled: page.tracksList && page.tracksList.length > 0
-                    onClicked: player.playLocalPlaylist(page.playlistId)
+                Row {
+                    spacing: 8
+                    Button {
+                        text: i18n.t("playlist.playAll")
+                        icon: "play_arrow"
+                        enabled: page.tracksList && page.tracksList.length > 0
+                        onClicked: player.playLocalPlaylist(page.playlistId)
+                    }
+                    IconButton {
+                        type: "standard"
+                        icon: "queue_music"
+                        onClicked: page.openQueue()
+                    }
                 }
             }
         }

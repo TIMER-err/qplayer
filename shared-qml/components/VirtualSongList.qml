@@ -289,6 +289,12 @@ Flickable {
     contentWidth: width
     contentHeight: headerHeight + count * rowH
 
+    function scrollToIndex(i) {
+        if (i < 0 || i >= view.count) return
+        var y = view.headerHeight + i * view.rowH - Math.max(0, (view.height - view.rowH) / 2)
+        view.contentY = Math.max(0, Math.min(y, Math.max(0, view.contentHeight - view.height)))
+    }
+
     function requestMoreIfNeeded() {
         if (!loadMoreEnabled || contentHeight <= 0) return
         if (viewportY + viewportHeight >= contentHeight - loadMoreThresholdRows * rowH)

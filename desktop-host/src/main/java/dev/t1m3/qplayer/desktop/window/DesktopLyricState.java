@@ -35,11 +35,10 @@ public final class DesktopLyricState extends QObject {
     DesktopLyricState(DesktopLyricWindow owner) {
         this.owner = owner;
     }
-
     void update(DesktopLyricSnapshot snapshot, long nowNanos) {
-        boolean active = snapshot.playing;
-        positionMs = active ? snapshot.predictedPosition(nowNanos) : 0L;
-        this.frame = active ? LyricTimeline.frameAt(snapshot.timeline, positionMs) : null;
+        boolean hasTrack = snapshot.timeline != null && !snapshot.title.isEmpty();
+        positionMs = snapshot.predictedPosition(nowNanos);
+        this.frame = hasTrack ? LyricTimeline.frameAt(snapshot.timeline, positionMs) : null;
         fallbackText = fallback(snapshot);
         fontFamily = snapshot.fontFamily;
         fontSize = Math.max(18, Math.min(38, snapshot.fontSize));
@@ -124,8 +123,7 @@ public final class DesktopLyricState extends QObject {
     }
 
     static String fallback(DesktopLyricSnapshot snapshot) {
-        if (!snapshot.playing) return IDLE_PLACEHOLDER;
-        if (snapshot.title.isEmpty()) return "";
+        if (snapshot.title.isEmpty()) return snapshot.playing ? "" : IDLE_PLACEHOLDER;
         return snapshot.artist.isEmpty() ? snapshot.title : snapshot.title + "  ·  " + snapshot.artist;
     }
 }

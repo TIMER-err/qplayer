@@ -60,6 +60,10 @@ final class DesktopWebLogin {
             onFailure.accept(I18n.tr("login.error.badWebConfig"));
             return;
         }
+        if (java.awt.GraphicsEnvironment.isHeadless()) {
+            onFailure.accept(I18n.tr("login.error.noSystemWebView"));
+            return;
+        }
         SwingUtilities.invokeLater(() -> {
             if (activeFrame != null && activeFrame.isDisplayable()) {
                 DesktopSwingFocus.requestForeground(activeFrame);

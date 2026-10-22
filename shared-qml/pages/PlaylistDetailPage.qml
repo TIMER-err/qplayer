@@ -9,6 +9,7 @@ Rectangle {
     id: page
     signal back()
     signal home()
+    signal openQueue()
     color: Theme.color.surface
 
     // Reset the scroll to the top whenever a new playlist starts loading, so the
@@ -242,6 +243,7 @@ Rectangle {
                         }
 
                         Button {
+                            id: playAllBtn
                             anchors.left: playlistName.left
                             anchors.bottom: playlistCover.bottom
                             text: i18n.t("playlist.playAll")
@@ -259,6 +261,14 @@ Rectangle {
                                     }
                                 }
                             }
+                        }
+                        IconButton {
+                            anchors.left: playAllBtn.right
+                            anchors.leftMargin: 8
+                            anchors.verticalCenter: playAllBtn.verticalCenter
+                            type: "standard"
+                            icon: "queue_music"
+                            onClicked: page.openQueue()
                         }
 
                         TextField {

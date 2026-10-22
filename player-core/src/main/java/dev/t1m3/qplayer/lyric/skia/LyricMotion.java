@@ -9,6 +9,7 @@ final class LyricMotion {
     private static final long ACTIVE_FADE_OUT_DELAY_MS = 100L;
     private static final long ACTIVE_FADE_IN_MS = 600L;
     private static final long ACTIVE_FADE_IN_DELAY_MS = 150L;
+    private static final long CLOUD_FLY_MS = 380L;
     private static final long BACKGROUND_POP_IN_MS = 460L;
     private static final long BACKGROUND_POP_IN_DELAY_MS = 150L;
     private static final long BACKGROUND_POP_OUT_MS = 280L;
@@ -34,6 +35,32 @@ final class LyricMotion {
 
     static long fadeInStart(LyricTimeline.Group group) {
         return group.startMs - ACTIVE_FADE_IN_MS + ACTIVE_FADE_IN_DELAY_MS;
+    }
+
+    /**
+     * Cloud-layout occupancy of the centre stage. Only one main line sits there:
+     * the outgoing line flies home, then the incoming line flies in. Column
+     * layout still uses {@link #active}.
+     */
+    static float cloudFly(long positionMs, LyricTimeline.Group group, LyricTimeline.Group next) {
+        if (group == null) return 0f;
+        long inStart = group.startMs;
+        long inEnd = inStart + CLOUD_FLY_MS;
+        long outEnd = group.endMs + CLOUD_FLY_MS;
+        if (next != null) outEnd = Math.min(outEnd, next.startMs);
+        long outStart = Math.max(inStart, outEnd - CLOUD_FLY_MS);
+        if (inEnd > outStart) {
+            long mid = inStart + Math.max(1L, outEnd - inStart) / 2;
+            inEnd = mid;
+            outStart = mid;
+        }
+        if (positionMs < inStart) return 0f;
+        if (positionMs < inEnd) {
+            return smoothstep(0f, 1f, (positionMs - inStart) / (float) Math.max(1L, inEnd - inStart));
+        }
+        if (positionMs < outStart) return 1f;
+        if (positionMs >= outEnd) return 0f;
+        return 1f - smoothstep(0f, 1f, (positionMs - outStart) / (float) Math.max(1L, outEnd - outStart));
     }
 
     static float backgroundScale(long positionMs, LyricTimeline.Group group) {

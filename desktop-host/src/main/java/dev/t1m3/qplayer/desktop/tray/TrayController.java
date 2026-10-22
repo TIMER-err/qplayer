@@ -59,6 +59,11 @@ public final class TrayController implements PlayerController.PlaybackListener {
     private Object linuxPlayPause;
     private Object linuxLyricToggle;
 
+    // macOS NSStatusItem backend (non-null when active).
+    private MacTray macTray;
+    private Object macPlayPause;
+    private Object macLyricToggle;
+
     // AWT backend (non-Windows).
     private TrayIcon trayIcon;
     private javax.swing.JPopupMenu popup;
@@ -87,6 +92,7 @@ public final class TrayController implements PlayerController.PlaybackListener {
     public boolean install() {
         if (isWindows()) return installWin();
         if (isLinux()) return installLinux();
+        if (isMac()) return installMac();
         return installAwt();
     }
 
@@ -97,6 +103,10 @@ public final class TrayController implements PlayerController.PlaybackListener {
     private static boolean isLinux() {
         String os = System.getProperty("os.name", "").toLowerCase();
         return os.contains("nux") || os.contains("nix");
+    }
+
+    private static boolean isMac() {
+        return System.getProperty("os.name", "").toLowerCase().contains("mac");
     }
 
     // ---------- Windows backend ----------
@@ -168,7 +178,36 @@ public final class TrayController implements PlayerController.PlaybackListener {
         }));
     }
 
-    // ---------- AWT backend (macOS) ----------
+    // ---------- macOS backend (NSStatusItem via JNA; no AWT) ----------
+    private boolean installMac() {
+        try {
+            macTray = new MacTray();
+            macTray.setIconPng(iconPng != null ? iconPng : placeholderPng());
+            macTray.addItem(I18n.tr("tray.previous"), () -> win.postMainTask(controller::prev));
+            macPlayPause = macTray.addItem(I18n.tr("tray.playPause"),
+                    () -> win.postMainTask(controller::toggle));
+            macTray.addItem(I18n.tr("tray.next"), () -> win.postMainTask(controller::next));
+            macTray.addSeparator();
+            macLyricToggle = macTray.addItem(lyricToggleLabel(),
+                    () -> win.postMainTask(this::toggleLyricWindow));
+            macTray.addItem(I18n.tr("tray.show"), () -> win.postMainTask(win::restoreFromTray));
+            macTray.addItem(I18n.tr("tray.quit"), () -> win.postMainTask(() -> {
+                shutdown();
+                win.requestQuit();
+            }));
+            if (macTray.install()) return true;
+            macTray = null;
+            return false;
+        } catch (Throwable t) {
+            java.io.StringWriter sw = new java.io.StringWriter();
+            t.printStackTrace(new java.io.PrintWriter(sw));
+            Logger.warn("macOS tray init failed:\n{}", sw);
+            macTray = null;
+            return false;
+        }
+    }
+
+    // ---------- AWT backend (headful leftover; unused on packaged macOS) ----------
     private boolean installAwt() {
         if (!SystemTray.isSupported()) {
             Logger.warn("system tray not supported; tray menu disabled");
@@ -269,6 +308,7 @@ public final class TrayController implements PlayerController.PlaybackListener {
         String label = lyricToggleLabel();
         if (winTray != null) winTray.setLabel(winLyricToggle, label);
         else if (linuxTray != null) linuxTray.setLabel(linuxLyricToggle, label);
+        else if (macTray != null) macTray.setLabel(macLyricToggle, label);
         else if (lyricToggle != null) {
             javax.swing.SwingUtilities.invokeLater(() -> {
                 if (lyricToggle != null) lyricToggle.setText(label);
@@ -304,6 +344,9 @@ public final class TrayController implements PlayerController.PlaybackListener {
             } else if (linuxTray != null) {
                 linuxTray.setLabel(linuxPlayPause, pp);
                 linuxTray.setTooltip(tip);
+            } else if (macTray != null) {
+                macTray.setLabel(macPlayPause, pp);
+                macTray.setTooltip(tip);
             } else if (trayIcon != null) {
                 String tipF = tip;
                 if (playPause != null) {
@@ -324,6 +367,10 @@ public final class TrayController implements PlayerController.PlaybackListener {
         if (linuxTray != null) {
             try { linuxTray.shutdown(); } catch (Throwable ignored) {}
             linuxTray = null;
+        }
+        if (macTray != null) {
+            try { macTray.shutdown(); } catch (Throwable ignored) {}
+            macTray = null;
         }
         if (trayIcon != null) {
             try { SystemTray.getSystemTray().remove(trayIcon); } catch (Throwable ignored) {}

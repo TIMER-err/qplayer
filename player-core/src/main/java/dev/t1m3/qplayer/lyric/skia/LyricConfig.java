@@ -56,4 +56,6 @@ public final class LyricConfig {
      *  actually sung. No effect on lines that already have real per-syllable
      *  timing (YRC/LYS/TTML/QRC). */
     public final Val<Boolean> linearAnimForPlainLrc = new Val<>(Boolean.FALSE);
+    /** Scattered lyric-cloud layout instead of the stacked column. */
+    public final Val<Boolean> layoutCloud = new Val<>(Boolean.FALSE);
 }

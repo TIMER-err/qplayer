@@ -26,6 +26,11 @@ final class DesktopWebAuthScript {
 
     static CompletableFuture<String> run(String originUrl, String script) {
         CompletableFuture<String> result = new CompletableFuture<>();
+        if (java.awt.GraphicsEnvironment.isHeadless()) {
+            result.completeExceptionally(
+                    new IllegalStateException("system WebView is unavailable in headless mode"));
+            return result;
+        }
         SwingUtilities.invokeLater(() -> {
             if (active != null) {
                 result.completeExceptionally(

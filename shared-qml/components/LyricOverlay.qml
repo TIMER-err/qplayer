@@ -12,6 +12,7 @@ import "."
 Item {
     id: overlay
     signal closeRequested()
+    signal queueRequested()
 
     // Landscape (wide) layout: cover + transport on the left, lyrics on the right
     // half (host-drawn). Driven by aspect so a desktop window, tablet, or phone in
@@ -468,6 +469,12 @@ Item {
                 contentColor: player.currentLiked ? "#FFFF5277" : "#99FFFFFF"
                 onClicked: player.toggleLike()
             }
+            IconButton {
+                type: "standard"
+                icon: "queue_music"
+                contentColor: "#FFFFFFFF"
+                onClicked: overlay.queueRequested()
+            }
         }
     }
 
@@ -499,8 +506,8 @@ Item {
             Math.max(120, Math.min(width - 96, overlay.height - 248, 360))
         property real coverSize: targetCoverSize
         Behavior on coverSize { NumberAnimation { duration: 500; easing.type: Easing.OutBack } }
-        // 5×40px IconButtons + 4 gaps. Floor for hit-testing; spacing shrinks below this.
-        readonly property real transportMinWidth: 272
+        // 6×40px IconButtons + 5 gaps. Floor for hit-testing; spacing shrinks below this.
+        readonly property real transportMinWidth: 320
 
         Item {
             id: col
@@ -617,6 +624,7 @@ Item {
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.bottom: parent.bottom
                 gap: Math.max(4, Math.min(18, (col.width - 200) / 4))
+                onQueueRequested: overlay.queueRequested()
             }
         }
     }
@@ -682,6 +690,7 @@ Item {
             anchors.top: parent.top
             anchors.topMargin: 16
             gap: 20
+            onQueueRequested: overlay.queueRequested()
         }
 
         Text {

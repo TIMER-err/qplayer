@@ -273,6 +273,10 @@ public final class DesktopWindow {
      */
     public void postMainTask(Runnable r) {
         mainTasks.add(r);
+        // Wake glfwWaitEventsTimeout so a first-frame show (and tray install)
+        // is not stuck behind the 50ms timeout, and so a nested Cocoa wait
+        // still gets a posted event.
+        GLFW.glfwPostEmptyEvent();
     }
 
     /** Reapply native frame colors after the effective app theme changes. */
@@ -827,7 +831,10 @@ public final class DesktopWindow {
 
     private static final int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
     private static final int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+    private static final int DWMWA_BORDER_COLOR = 34;
+    private static final int DWMWCP_DONOTROUND = 1;
     private static final int DWMWCP_ROUND = 2;
+    private static final int DWMWA_COLOR_NONE = 0xFFFFFFFE;
 
     /** Windows-only cold-start workaround: the custom title bar's reserved top
      *  strip (settings.topInset, already 40 before the QML view is ever built --
@@ -914,17 +921,21 @@ public final class DesktopWindow {
         }
     }
 
-    /** Best-effort system clipping for undecorated auxiliary windows. */
+    /** Auxiliary overlays must stay square-cornered: Win11 rounded clipping of a
+     *  transparent framebuffer paints a dark system border even at 0% fill. */
     static void applyWindowsRoundedCorners(long glfwWindow) {
         if (!isWindows11OrLater()) return;
         try {
             long hwnd = GLFWNativeWin32.glfwGetWin32Window(glfwWindow);
+            com.sun.jna.Pointer h = com.sun.jna.Pointer.createConstant(hwnd);
             com.sun.jna.Memory corner = new com.sun.jna.Memory(4);
-            corner.setInt(0, DWMWCP_ROUND);
-            Dwmapi.I.DwmSetWindowAttribute(com.sun.jna.Pointer.createConstant(hwnd),
-                    DWMWA_WINDOW_CORNER_PREFERENCE, corner, 4);
+            corner.setInt(0, DWMWCP_DONOTROUND);
+            Dwmapi.I.DwmSetWindowAttribute(h, DWMWA_WINDOW_CORNER_PREFERENCE, corner, 4);
+            com.sun.jna.Memory border = new com.sun.jna.Memory(4);
+            border.setInt(0, DWMWA_COLOR_NONE);
+            Dwmapi.I.DwmSetWindowAttribute(h, DWMWA_BORDER_COLOR, border, 4);
         } catch (Throwable t) {
-            Logger.warn("Windows auxiliary-window corner preference failed: {}", t.getMessage());
+            Logger.warn("Windows auxiliary-window chrome failed: {}", t.getMessage());
         }
     }
 
@@ -1096,6 +1107,11 @@ public final class DesktopWindow {
     }
 
     private void setWindowIcon() {
+        // macOS uses the app-bundle icon. ImageIO here would boot AWT on the
+        // GLFW/AppKit thread (issue #61) even with java.awt.headless=true.
+        if (System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("mac")) {
+            return;
+        }
         byte[] png = resources.load("app-icon.png");
         if (png == null) return;
         List<ByteBuffer> pixelBuffers = new ArrayList<>();

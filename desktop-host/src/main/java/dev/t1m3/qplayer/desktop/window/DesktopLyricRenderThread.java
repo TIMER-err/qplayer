@@ -111,12 +111,15 @@ final class DesktopLyricRenderThread extends Thread {
                             // the process-global qml4j picture cache only at endpoints.
                             renderer.layoutOnly(view.root());
                             DesktopLyricPalette palette = state.palette();
-                            backgroundPaint.setColor(Renderer.parseColor(palette.surface));
-                            backgroundPaint.setAlphaf(chrome.backgroundOpacity());
-                            canvas.drawRect(windowRect, backgroundPaint);
-                            outlinePaint.setColor(Renderer.parseColor(palette.outline));
-                            outlinePaint.setAlphaf(chrome.backgroundOpacity());
-                            canvas.drawRect(windowRect, outlinePaint);
+                            float bgAlpha = chrome.backgroundOpacity();
+                            if (bgAlpha > 0.001f) {
+                                backgroundPaint.setColor(Renderer.parseColor(palette.surface));
+                                backgroundPaint.setAlphaf(bgAlpha);
+                                canvas.drawRect(windowRect, backgroundPaint);
+                                outlinePaint.setColor(Renderer.parseColor(palette.outline));
+                                outlinePaint.setAlphaf(bgAlpha);
+                                canvas.drawRect(windowRect, outlinePaint);
+                            }
 
                             if (chrome.opacity() > 0.001f) {
                                 int alpha = Math.round(chrome.opacity() * 255f);
@@ -130,9 +133,9 @@ final class DesktopLyricRenderThread extends Thread {
                                         DesktopLyricWindow.WIDTH, DesktopLyricWindow.HEIGHT);
                                 canvas.restoreToCount(layer);
                             }
-                            // Passthrough must always remain reversible. Its locked
-                            // control deliberately bypasses both canvas scale and fade.
-                            if (owner.isMousePassthrough()) {
+                            // Passthrough must stay reversible. Hide the lock
+                            // glyph until the pointer is over this overlay.
+                            if (owner.isMousePassthrough() && owner.cursorInsideLyricWindow()) {
                                 renderer.renderSubtree(canvas, lockedControl,
                                         DesktopLyricWindow.WIDTH, DesktopLyricWindow.HEIGHT);
                             }

@@ -108,6 +108,14 @@ public final class DesktopAudioBackend implements AudioBackend {
         this.sourceHeaders = headers == null || headers.isEmpty()
                 ? Collections.emptyMap()
                 : Collections.unmodifiableMap(new LinkedHashMap<>(headers));
+        // Drop a previous remote track's cache binding before the audio thread
+        // can see the new source. A stale pending path plus feedMode=1 (local)
+        // used to fire "live recovered, switching back from cache" on local
+        // files (issue #59). bindGrowingCacheForCurrent() re-applies a real
+        // binding right after play() for remote tracks.
+        this.cachePendingPath = null;
+        this.cacheCompletePath = null;
+        this.cacheCompleteFlag = false;
         sourceRevision.incrementAndGet();
         // Publish the new track's baseline synchronously. Until the audio thread
         // opens/decodes/primes the source it would otherwise keep exposing the old
