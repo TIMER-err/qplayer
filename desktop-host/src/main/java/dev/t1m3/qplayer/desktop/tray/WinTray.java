@@ -1,5 +1,6 @@
 package dev.t1m3.qplayer.desktop.tray;
 
+import com.sun.jna.Function;
 import com.sun.jna.Memory;
 import com.sun.jna.Native;
 import com.sun.jna.Pointer;
@@ -27,6 +28,7 @@ import dev.t1m3.qplayer.util.Logger;
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 
 /**
  * Windows system tray driven straight through the Win32 shell API via JNA —
@@ -177,10 +179,20 @@ final class WinTray {
     private final java.util.concurrent.atomic.AtomicBoolean menuOpen =
             new java.util.concurrent.atomic.AtomicBoolean(false);
     private volatile Runnable leftClickAction;
+    private volatile BooleanSupplier darkTheme;
 
     /** Action for a left-click on the icon; the popup menu belongs to right-click. */
     void setLeftClickAction(Runnable r) {
         this.leftClickAction = r;
+    }
+
+    void setDarkTheme(BooleanSupplier dark) {
+        this.darkTheme = dark;
+    }
+
+    /** uxtheme SetPreferredAppMode: ForceDark=2, ForceLight=3. */
+    static int preferredAppMode(boolean dark) {
+        return dark ? 2 : 3;
     }
 
     // Only ever touched on the pump thread (wndProc callback), so no synchronization
@@ -374,6 +386,7 @@ final class WinTray {
     }
 
     private void showMenu(int x, int y) {
+        applyMenuTheme();
         HMENU menu = U32.I.CreatePopupMenu();
         if (menu == null) return;
         try {
@@ -397,6 +410,34 @@ final class WinTray {
         } finally {
             U32.I.DestroyMenu(menu);
         }
+    }
+
+    private static Function setPreferredAppMode;
+    private static Function flushMenuThemes;
+    private static boolean themeBound;
+
+    private void applyMenuTheme() {
+        BooleanSupplier dark = darkTheme;
+        if (dark == null) return;
+        // shortcut: fails closed to the system theme before Windows 10 1903, replace if the menu is owner-drawn
+        try {
+            bindMenuTheme();
+            if (setPreferredAppMode == null) return;
+            setPreferredAppMode.invokeInt(new Object[]{preferredAppMode(dark.getAsBoolean())});
+            flushMenuThemes.invokeVoid(new Object[0]);
+        } catch (Throwable ignored) {}
+    }
+
+    private static void bindMenuTheme() {
+        if (themeBound) return;
+        themeBound = true;
+        HMODULE theme = Kernel32.INSTANCE.LoadLibraryEx("uxtheme", null, 0);
+        if (theme == null) return;
+        Pointer set = Kernel32.INSTANCE.GetProcAddress(theme, 135);
+        Pointer flush = Kernel32.INSTANCE.GetProcAddress(theme, 136);
+        if (set == null || flush == null) return;
+        setPreferredAppMode = Function.getFunction(set, Function.ALT_CONVENTION);
+        flushMenuThemes = Function.getFunction(flush, Function.ALT_CONVENTION);
     }
 
     void shutdown() {

@@ -21,6 +21,7 @@ import java.awt.TrayIcon;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
+import java.util.function.BooleanSupplier;
 
 /**
  * System-tray integration (the desktop analogue of the Android PlaybackService).
@@ -48,6 +49,7 @@ public final class TrayController implements PlayerController.PlaybackListener {
     private final byte[] iconPng;
     /** Multi-size .ico for the Windows tray; see setIcoBytes. */
     private byte[] iconIco;
+    private BooleanSupplier darkTheme;
 
     // Windows backend (non-null when active).
     private WinTray winTray;
@@ -87,6 +89,12 @@ public final class TrayController implements PlayerController.PlaybackListener {
         this.iconIco = ico;
     }
 
+    /** Read at each menu open, so an in-app theme change applies without restart. */
+    public void setDarkTheme(BooleanSupplier dark) {
+        darkTheme = dark;
+        if (winTray != null) winTray.setDarkTheme(dark);
+    }
+
     /** Build the tray. Returns false (and logs) if no tray is available, in which
      *  case the app still runs windowed. */
     public boolean install() {
@@ -113,6 +121,7 @@ public final class TrayController implements PlayerController.PlaybackListener {
     private boolean installWin() {
         try {
             winTray = new WinTray();
+            winTray.setDarkTheme(darkTheme);
             if (iconIco != null) winTray.setIconIco(iconIco);
             winTray.setIconPng(iconPng != null ? iconPng : placeholderPng());
             winTray.addItem(I18n.tr("tray.previous"), () -> win.postMainTask(controller::prev));
