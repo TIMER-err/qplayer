@@ -75,6 +75,11 @@ public final class SettingsCatalog {
     public static final String LAYOUT_STYLE_KEY = "lyricLayoutStyle";
     public static final int LAYOUT_STYLE_COLUMN = 0;
     public static final int LAYOUT_STYLE_CLOUD = 1;
+    /** How many nearby lines the lyric-cloud layout keeps on screen. */
+    public static final String CLOUD_WINDOW_KEY = "lyricCloudWindow";
+    public static final int CLOUD_WINDOW_MIN = 3;
+    public static final int CLOUD_WINDOW_MAX = 100;
+    public static final int CLOUD_WINDOW_DEFAULT = 12;
     /** Android overlay lyrics: TYPE_APPLICATION_OVERLAY, no root. */
     public static final String OVERLAY_LYRIC_KEY = "overlayLyricEnabled";
     public static final String OVERLAY_LYRIC_LOCKED_KEY = "overlayLyricLocked";
@@ -249,6 +254,11 @@ public final class SettingsCatalog {
                         "settings.lyricLayoutStyle.column",
                         "settings.lyricLayoutStyle.cloud")
                 .desc("settings.lyricLayoutStyle.desc")
+                .group("lyricDisplay")
+                .build());
+        out.add(SettingSpec.slider(CLOUD_WINDOW_KEY, LYRIC, "settings.lyricCloudWindow.title",
+                        CLOUD_WINDOW_DEFAULT, CLOUD_WINDOW_MIN, CLOUD_WINDOW_MAX, 1)
+                .desc("settings.lyricCloudWindow.desc")
                 .group("lyricDisplay")
                 .build());
         out.add(SettingSpec.segmented("lyricProgressStyle", LYRIC,

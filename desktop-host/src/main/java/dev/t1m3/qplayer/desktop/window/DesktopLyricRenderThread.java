@@ -5,6 +5,7 @@ import dev.t1m3.qplayer.util.Logger;
 import io.github.humbleui.skija.Canvas;
 import io.github.humbleui.skija.Paint;
 import io.github.humbleui.skija.PaintMode;
+import io.github.humbleui.types.RRect;
 import io.github.humbleui.types.Rect;
 import io.github.timer_err.qml4j.engine.QmlEngine;
 import io.github.timer_err.qml4j.engine.binding.DirtyQueue;
@@ -113,12 +114,20 @@ final class DesktopLyricRenderThread extends Thread {
                             DesktopLyricPalette palette = state.palette();
                             float bgAlpha = chrome.backgroundOpacity();
                             if (bgAlpha > 0.001f) {
+                                // App-drawn corners. The HWND stays DWMWCP_DONOTROUND:
+                                // Win11 rounding a transparent framebuffer paints a
+                                // system black rim even at 0% fill.
+                                float radius = 18f;
                                 backgroundPaint.setColor(Renderer.parseColor(palette.surface));
                                 backgroundPaint.setAlphaf(bgAlpha);
-                                canvas.drawRect(windowRect, backgroundPaint);
+                                canvas.drawRRect(RRect.makeXYWH(0, 0,
+                                        DesktopLyricWindow.WIDTH, DesktopLyricWindow.HEIGHT,
+                                        radius), backgroundPaint);
                                 outlinePaint.setColor(Renderer.parseColor(palette.outline));
                                 outlinePaint.setAlphaf(bgAlpha);
-                                canvas.drawRect(windowRect, outlinePaint);
+                                canvas.drawRRect(RRect.makeXYWH(0.5f, 0.5f,
+                                        DesktopLyricWindow.WIDTH - 1f, DesktopLyricWindow.HEIGHT - 1f,
+                                        Math.max(0f, radius - 0.5f)), outlinePaint);
                             }
 
                             if (chrome.opacity() > 0.001f) {

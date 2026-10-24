@@ -145,9 +145,13 @@ public final class AndroidAudioBackend implements AudioBackend {
             preparedPlayer.start();
             holdWifiLock(source);
             scheduleStallCheck();
-            Runnable cb = onStarted;
-            if (cb != null) cb.run();
         }
+        // Always announce prepare completion. A pause during prepareAsync clears
+        // wantPlay so we must not start, but the controller still needs onStarted
+        // so a later resume() is not stuck with playbackStarted=false (lyric clock
+        // frozen, fade-in skipped).
+        Runnable cb = onStarted;
+        if (cb != null) cb.run();
     }
 
     private synchronized void onCompleted(MediaPlayer completedPlayer) {

@@ -318,6 +318,47 @@ public class PlayerControllerPlaybackTest {
     }
 
     @Test
+    public void pauseBeforeAudioStartsIsNotOverriddenByOnStarted() throws Exception {
+        String oldBase = AppDirs.base();
+        String oldCacheBase = AppDirs.cacheBase();
+        PlayerController controller = null;
+        try {
+            Path base = temporaryFolder.newFolder("pause-before-start").toPath();
+            AppDirs.setBase(base.toString());
+            String queue = "{\"playIndex\":0,\"positionMs\":0,\"playMode\":0,\"tracks\":["
+                    + "{\"source\":\"LOCAL\",\"title\":\"track\",\"durationMs\":120000,\"filePath\":\"track.mp3\"}]}";
+            Files.write(base.resolve("queue.json"), queue.getBytes(StandardCharsets.UTF_8));
+
+            FakeAudioBackend backend = new FakeAudioBackend();
+            controller = new PlayerController(backend, track -> { }, NeteaseClient.INSTANCE);
+            controller.setFadeEnabled(true);
+            controller.playQueueIndex(0);
+            assertTrue(controller.isPlaying());
+            // Android MediaPlayer is still in prepareAsync here: play() has been
+            // asked, but isPlaying() is false until onPrepared. FakeAudioBackend
+            // otherwise starts immediately, which would take the audible fade path.
+            backend.playing = false;
+
+            int pausesBeforeToggle = backend.pauseCalls;
+            controller.toggle();
+            assertFalse(controller.isPlaying());
+            assertEquals("pause at t=0 must not wait for a fade that has no audio yet",
+                    pausesBeforeToggle + 1, backend.pauseCalls);
+            assertFalse(backend.playing);
+
+            backend.fireStarted();
+            assertFalse("onStarted must not resurrect a user pause during prepare",
+                    controller.isPlaying());
+            assertFalse(backend.playing);
+            assertEquals(pausesBeforeToggle + 2, backend.pauseCalls);
+        } finally {
+            if (controller != null) controller.shutdown();
+            AppDirs.setBase(oldBase);
+            AppDirs.setCacheBase(oldCacheBase);
+        }
+    }
+
+    @Test
     public void fadeFinishesWithoutRenderPumpAndPreservesUserVolume() throws Exception {
         String oldBase = AppDirs.base();
         String oldCacheBase = AppDirs.cacheBase();
@@ -1032,6 +1073,80 @@ public class PlayerControllerPlaybackTest {
             assertTrue("a real track change still blanks immediately",
                     controller.lyrics.peek() == null || controller.lyrics.peek().isEmpty());
             assertNotSame(lines, controller.lyrics.peek());
+        } finally {
+            if (controller != null) controller.shutdown();
+            AppDirs.setBase(oldBase);
+            AppDirs.setCacheBase(oldCacheBase);
+        }
+    }
+
+    @Test
+    public void switchingTracksPublishesTitleWithoutARenderPump() throws Exception {
+        String oldBase = AppDirs.base();
+        String oldCacheBase = AppDirs.cacheBase();
+        PlayerController controller = null;
+        try {
+            Path base = temporaryFolder.newFolder("overlay-switch").toPath();
+            AppDirs.setBase(base.toString());
+            AppDirs.setCacheBase(base.resolve("cache").toString());
+            String queue = "{\"playIndex\":0,\"positionMs\":0,\"playMode\":0,\"tracks\":["
+                    + "{\"source\":\"LOCAL\",\"title\":\"one\",\"artist\":\"a\","
+                    + "\"durationMs\":120000,\"filePath\":\"one.mp3\"},"
+                    + "{\"source\":\"LOCAL\",\"title\":\"two\",\"artist\":\"b\","
+                    + "\"durationMs\":120000,\"filePath\":\"two.mp3\"}]}";
+            Files.write(base.resolve("queue.json"), queue.getBytes(StandardCharsets.UTF_8));
+
+            controller = new PlayerController(
+                    new FakeAudioBackend(), track -> { }, NeteaseClient.INSTANCE);
+            controller.playQueueIndex(0);
+            // No pump(): the overlay ticks these Properties while GL is paused.
+            assertEquals("one", controller.title.peek());
+            assertEquals("a", controller.artist.peek());
+
+            List<dev.t1m3.qplayer.lyric.LyricLine> oldLines =
+                    dev.t1m3.qplayer.lyric.LrcParser.parse(
+                            "[00:01.00]上一首\n[00:05.00]旧行");
+            controller.lyrics.set(oldLines);
+
+            controller.playQueueIndex(1);
+            assertEquals("two", controller.title.peek());
+            assertEquals("b", controller.artist.peek());
+            assertTrue("a real track change still blanks immediately",
+                    controller.lyrics.peek() == null || controller.lyrics.peek().isEmpty());
+            assertNotSame(oldLines, controller.lyrics.peek());
+            assertEquals(Integer.valueOf(-1), controller.lyricIndex.peek());
+            assertFalse(Boolean.TRUE.equals(controller.coverModeManual.peek()));
+        } finally {
+            if (controller != null) controller.shutdown();
+            AppDirs.setBase(oldBase);
+            AppDirs.setCacheBase(oldCacheBase);
+        }
+    }
+
+    @Test
+    public void switchingTracksClearsManualCoverModeWithoutARenderPump() throws Exception {
+        String oldBase = AppDirs.base();
+        String oldCacheBase = AppDirs.cacheBase();
+        PlayerController controller = null;
+        try {
+            Path base = temporaryFolder.newFolder("cover-mode-switch").toPath();
+            AppDirs.setBase(base.toString());
+            AppDirs.setCacheBase(base.resolve("cache").toString());
+            String queue = "{\"playIndex\":0,\"positionMs\":0,\"playMode\":0,\"tracks\":["
+                    + "{\"source\":\"LOCAL\",\"title\":\"one\",\"durationMs\":120000,\"filePath\":\"one.mp3\"},"
+                    + "{\"source\":\"LOCAL\",\"title\":\"two\",\"durationMs\":120000,\"filePath\":\"two.mp3\"}]}";
+            Files.write(base.resolve("queue.json"), queue.getBytes(StandardCharsets.UTF_8));
+
+            controller = new PlayerController(
+                    new FakeAudioBackend(), track -> { }, NeteaseClient.INSTANCE);
+            controller.playQueueIndex(0);
+            controller.setCoverMode(true);
+            assertTrue(Boolean.TRUE.equals(controller.coverModeManual.peek()));
+
+            controller.playQueueIndex(1);
+            assertFalse("next track must leave cover-only mode so new lyrics can show",
+                    Boolean.TRUE.equals(controller.coverModeManual.peek()));
+            assertEquals("two", controller.title.peek());
         } finally {
             if (controller != null) controller.shutdown();
             AppDirs.setBase(oldBase);

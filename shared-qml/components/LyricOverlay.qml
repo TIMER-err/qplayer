@@ -434,47 +434,13 @@ Item {
             fontSize: 11
         }
 
-        // transport buttons
-        Row {
-            anchors.horizontalCenter: parent.horizontalCenter
+        LyricTransportRow {
+            anchors.left: parent.left
+            anchors.right: parent.right
             anchors.bottom: parent.bottom
             anchors.bottomMargin: 14
-            spacing: 18
-            IconButton {
-                type: "standard"
-                icon: player.playMode === 1 ? "shuffle"
-                      : (player.playMode === 2 ? "repeat_one" : "repeat")
-                contentColor: player.playMode === 0 ? "#99FFFFFF" : "#FF82B1FF"
-                onClicked: player.cyclePlayMode()
-            }
-            IconButton {
-                type: "standard"; icon: "skip_previous"
-                contentColor: "#FFFFFFFF"
-                onClicked: player.prev()
-            }
-            IconButton {
-                type: "filled"
-                icon: player.playing ? "pause" : "play_arrow"
-                onClicked: player.toggle()
-            }
-            IconButton {
-                type: "standard"; icon: "skip_next"
-                contentColor: "#FFFFFFFF"
-                onClicked: player.next()
-            }
-            IconButton {
-                type: "standard"
-                enabled: player.currentLikeable
-                icon: player.currentLiked ? "favorite" : "favorite_border"
-                contentColor: player.currentLiked ? "#FFFF5277" : "#99FFFFFF"
-                onClicked: player.toggleLike()
-            }
-            IconButton {
-                type: "standard"
-                icon: "queue_music"
-                contentColor: "#FFFFFFFF"
-                onClicked: overlay.queueRequested()
-            }
+            gap: 18
+            onQueueRequested: overlay.queueRequested()
         }
     }
 
@@ -506,8 +472,8 @@ Item {
             Math.max(120, Math.min(width - 96, overlay.height - 248, 360))
         property real coverSize: targetCoverSize
         Behavior on coverSize { NumberAnimation { duration: 500; easing.type: Easing.OutBack } }
-        // 6×40px IconButtons + 5 gaps. Floor for hit-testing; spacing shrinks below this.
-        readonly property real transportMinWidth: 320
+        // Transport row spans the column; floor keeps prev/pause/next hittable.
+        readonly property real transportMinWidth: 280
 
         Item {
             id: col
@@ -621,7 +587,8 @@ Item {
                 fontSize: 11
             }
             LyricTransportRow {
-                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.left: parent.left
+                anchors.right: parent.right
                 anchors.bottom: parent.bottom
                 gap: Math.max(4, Math.min(18, (col.width - 200) / 4))
                 onQueueRequested: overlay.queueRequested()
@@ -686,7 +653,10 @@ Item {
         LyricTransportRow {
             id: wTransport
             objectName: "lyricWideTransport"
-            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.left: parent.left
+            anchors.leftMargin: 28
+            anchors.right: parent.right
+            anchors.rightMargin: 120
             anchors.top: parent.top
             anchors.topMargin: 16
             gap: 20

@@ -971,6 +971,17 @@ public final class PlayerController {
                     return;
                 }
             }
+            // User pause can land while prepareAsync is still in flight. Fade-out
+            // defers backend.pause(), so wantPlay stays true and this callback still
+            // fires. Honour playingIntent here: otherwise startFadeIn() bumps
+            // fadeGeneration and silently drops the deferred pause.
+            if (!playingIntent) {
+                cancelFadeAtGain(1f);
+                backend.pause();
+                post(() -> playing.set(false));
+                notifyPlayback();
+                return;
+            }
             notifyPlayback();
             startFadeIn();
         });
@@ -2341,6 +2352,11 @@ public final class PlayerController {
      *  the source took. */
     private void startFadeIn() {
         fadeOutDoneForTrack = false;
+        if (!playingIntent) {
+            cancelFadeAtGain(1f);
+            backend.pause();
+            return;
+        }
         if (suppressNextFadeIn) {
             suppressNextFadeIn = false;
             cancelFadeAtGain(1f);
@@ -2702,6 +2718,11 @@ public final class PlayerController {
         pushDebugRoute("detail", id);
     }
 
+    private void applyLyricsIfCurrent(Track t, List<LyricLine> ly) {
+        if (!isCurrentTrack(t)) return;
+        applyLyrics(ly);
+    }
+
     /** Publish a new lyric list and derive {@link #lyricsCoverOnly}. */
     private void applyLyrics(List<LyricLine> ly) {
         lyrics.set(ly);
@@ -2714,6 +2735,10 @@ public final class PlayerController {
         // isn't true until the user actually presses play.
         Long pos = positionMs.peek();
         updateLyricIndex((pos != null ? pos : 0L) - LyricConfig.instance.offsetMs.getValue());
+        // Direct Property.set does not go through post(), so Android WHEN_DIRTY
+        // never sees a wake. Compact hosts (overlay) read peek() immediately;
+        // the full lyric page still needs a frame to re-feed LyricRenderer.
+        wakeRenderer();
     }
 
     /** Cover-only when there are no lyrics, or an instrumental marker ("纯音乐") with
@@ -2733,11 +2758,12 @@ public final class PlayerController {
 
     private void updateLyricIndex(long pos) {
         List<LyricLine> ly = lyrics.peek();
-        if (ly == null || ly.isEmpty()) return;
         int idx = -1;
-        for (int i = 0; i < ly.size(); i++) {
-            if (ly.get(i).startMs() <= pos) idx = i;
-            else break;
+        if (ly != null && !ly.isEmpty()) {
+            for (int i = 0; i < ly.size(); i++) {
+                if (ly.get(i).startMs() <= pos) idx = i;
+                else break;
+            }
         }
         if (idx != lyricIndex.peek()) lyricIndex.set(idx);
     }
@@ -2756,6 +2782,10 @@ public final class PlayerController {
 
     private void post(Runnable r) {
         uiQueue.add(r);
+        wakeRenderer();
+    }
+
+    private void wakeRenderer() {
         Runnable wake = renderWake;
         if (wake != null) wake.run();
     }
@@ -4936,26 +4966,30 @@ public final class PlayerController {
                 && lyrics.peek() != null && !lyrics.peek().isEmpty();
         if (!keepLyrics) {
             applyLyrics(Collections.emptyList());
+            coverModeManual.set(false);
         }
-        post(() -> {
-            applyTrackLyricOffset(t);
-            index.set(idx);
-            currentFilePath.set(t.source == Track.Source.LOCAL && t.filePath != null ? t.filePath : "");
-            currentMediaId.set(t.canonicalId());
-            title.set(orEmpty(t.title));
-            artist.set(orEmpty(t.artist));
-            publishPlayingArtist(t);
-            album.set(orEmpty(t.album));
-            coverUrl.set(orEmpty(trackCoverUrl(t, "512")));
-            durationMs.set(t.durationMs);
-            positionMs.set(resumeMs);
-            String canonical = t.canonicalId();
-            boolean pluginLikeable = t.source == Track.Source.PLUGIN
-                    && providerForMediaHas(canonical, ProviderCapability.LIKE);
-            currentLiked.set(pluginLikeable ? pluginLikedSet.contains(canonical)
-                    : t.neteaseId != 0 && likedSet.contains(t.neteaseId));
-            currentLikeable.set(pluginLikeable || t.neteaseId != 0);
-        });
+        // Compact lyric hosts (Android overlay, desktop lyrics) and the host-drawn
+        // lyric page read these off the render pump. Android pauses GL in the
+        // background, so a post()ed write sits in uiQueue until the user returns.
+        // Property.set on a Property nobody is mid-iterating is safe here.
+        applyTrackLyricOffset(t);
+        index.set(idx);
+        currentFilePath.set(t.source == Track.Source.LOCAL && t.filePath != null ? t.filePath : "");
+        currentMediaId.set(t.canonicalId());
+        title.set(orEmpty(t.title));
+        artist.set(orEmpty(t.artist));
+        publishPlayingArtist(t);
+        album.set(orEmpty(t.album));
+        coverUrl.set(orEmpty(trackCoverUrl(t, "512")));
+        durationMs.set(t.durationMs);
+        positionMs.set(resumeMs);
+        String canonical = t.canonicalId();
+        boolean pluginLikeable = t.source == Track.Source.PLUGIN
+                && providerForMediaHas(canonical, ProviderCapability.LIKE);
+        currentLiked.set(pluginLikeable ? pluginLikedSet.contains(canonical)
+                : t.neteaseId != 0 && likedSet.contains(t.neteaseId));
+        currentLikeable.set(pluginLikeable || t.neteaseId != 0);
+        wakeRenderer();
         updateCover(t, currentCoverRevision);
 
         // Protect whatever is about to play from the audio-cache eviction this
@@ -5418,15 +5452,19 @@ public final class PlayerController {
             if (playingIntent) {
                 playingIntent = false;
                 post(() -> playing.set(false));
-                if (fadeEnabled) {
+                if (fadeEnabled && (playbackStarted || backend.isPlaying())) {
                     // UI reflects paused immediately; the actual backend.pause()
                     // is deferred until the fade-out reaches silence so it's a
                     // ramp-down, not a hard cut. If the user hits resume again
                     // before that fires, playingIntent is already back to true
                     // by then and this deferred call is skipped entirely — the
                     // resume branch below picks it up as "never really paused".
+                    // Before onStarted there is nothing audible to ramp, and
+                    // deferring pause leaves Android wantPlay=true so prepare
+                    // still starts the new source.
                     startFadeOut(FADE_OUT_MS, () -> { if (!playingIntent) backend.pause(); });
                 } else {
+                    cancelFadeAtGain(1f);
                     backend.pause();
                 }
             } else {
@@ -5704,7 +5742,7 @@ public final class PlayerController {
         if (songId == 0) return;
         List<LyricLine> mem = lyricMem.get(songId);
         if (mem != null) {   // preloaded / recently played -> apply instantly
-            post(() -> { if (isCurrentTrack(t)) applyLyrics(mem); });
+            applyLyricsIfCurrent(t, mem);
             return;
         }
         // (Lyrics were already blanked at the track switch in playAt; the async fetch
@@ -5713,7 +5751,7 @@ public final class PlayerController {
         // sitting behind it -- see lyricWorker's field javadoc.
         lyricWorker.submit(() -> {
             List<LyricLine> ly = fetchNeteaseLyrics(songId);
-            post(() -> { if (isCurrentTrack(t)) applyLyrics(ly); });
+            applyLyricsIfCurrent(t, ly);
         });
     }
 
@@ -5722,7 +5760,7 @@ public final class PlayerController {
         if (id.isEmpty() || !pluginHasCapability(providerOf(track), ProviderCapability.LYRICS)) return;
         List<LyricLine> cached = pluginLyricMem.get(id);
         if (cached != null) {
-            post(() -> { if (isCurrentTrack(track)) applyLyrics(cached); });
+            applyLyricsIfCurrent(track, cached);
             return;
         }
         final MediaId mediaId;
@@ -5746,7 +5784,7 @@ public final class PlayerController {
                 return;
             }
             if (!lines.isEmpty()) pluginLyricMem.put(id, lines);
-            post(() -> { if (isCurrentTrack(track)) applyLyrics(lines); });
+            applyLyricsIfCurrent(track, lines);
         });
     }
 
@@ -6225,8 +6263,7 @@ public final class PlayerController {
                 Logger.warn("lyric parse failed: {}", e.getMessage());
             }
         }
-        final List<LyricLine> parsed = lines;
-        post(() -> { if (isCurrentTrack(t)) applyLyrics(parsed); });
+        applyLyricsIfCurrent(t, lines);
     }
 
     private static Track toTrack(NeteaseSong s) {
@@ -9230,7 +9267,7 @@ public final class PlayerController {
         // contract); the actual backend.pause() rides the same fade-out toggle()
         // uses, deferred until silence, so lock-screen/notification/dynamic-island
         // pause ramps down instead of cutting audio hard.
-        if (fadeEnabled) {
+        if (fadeEnabled && (playbackStarted || backend.isPlaying())) {
             startFadeOut(FADE_OUT_MS, () -> { if (!playingIntent) backend.pause(); });
         } else {
             cancelFadeAtGain(1f);

@@ -526,13 +526,21 @@ public final class Main {
      *  classpath, for the update check. Empty if unavailable. */
     private static String appVersion() {
         try (InputStream is = Main.class.getResourceAsStream("/version.properties")) {
-            if (is == null) return "";
+            if (is == null) {
+                Logger.warn("version.properties missing; using plugin host baseline");
+                return dev.t1m3.qplayer.plugin.PluginCompatibility.hostVersion();
+            }
             java.util.Properties p = new java.util.Properties();
             p.load(is);
-            return p.getProperty("version", "").trim();
+            String value = p.getProperty("version", "").trim();
+            if (value.isEmpty() || value.contains("${")) {
+                Logger.warn("version.properties unfiltered ({}); using plugin host baseline", value);
+                return dev.t1m3.qplayer.plugin.PluginCompatibility.hostVersion();
+            }
+            return value;
         } catch (Exception e) {
             Logger.warn("version.properties read failed: {}", e.toString());
-            return "";
+            return dev.t1m3.qplayer.plugin.PluginCompatibility.hostVersion();
         }
     }
 

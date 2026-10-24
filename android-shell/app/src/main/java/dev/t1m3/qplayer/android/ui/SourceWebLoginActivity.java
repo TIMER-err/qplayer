@@ -9,7 +9,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.view.ViewGroup;
-import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -56,7 +55,6 @@ public final class SourceWebLoginActivity extends Activity {
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         loginUrl = httpsExtra(EXTRA_LOGIN_URL);
         cookieUrl = httpsExtra(EXTRA_COOKIE_URL);
         credentialCookieName = getIntent().getStringExtra(EXTRA_CREDENTIAL_COOKIE);

@@ -553,6 +553,7 @@ public class LyricRenderer {
         boolean showRomaji = cfg.showRomaji.getValue();
         boolean showTranslation = cfg.showTranslation.getValue();
         boolean cloud = Boolean.TRUE.equals(cfg.layoutCloud.getValue());
+        int cloudWindow = cloudWindowSize(cfg);
 
         // ---- Layout pass. Wrapping + per-line heights depend only on the inputs
         // below, NOT on the play head, so compute them once and cache. HarfBuzz is
@@ -615,7 +616,9 @@ public class LyricRenderer {
             rebuildCloudSlots(n);
         }
         if (lineLayoutRemaining > 0) {
-            int budget = lineLayoutRemaining == n ? LAYOUT_FIRST_BUDGET : LAYOUT_BUDGET;
+            int budget = lineLayoutRemaining == n
+                    ? (cloud ? Math.max(cloudWindow + 4, LAYOUT_BUDGET) : LAYOUT_FIRST_BUDGET)
+                    : LAYOUT_BUDGET;
             int pivot = pivotLineIndex(positionMs, n);
             int shaped = 0;
             for (int d = 0; d < n && shaped < budget; d++) {
@@ -714,7 +717,7 @@ public class LyricRenderer {
                     lyricAscent, lyricDescent, bgAscent, bgDescent,
                     rowHeightLyric, rowHeightLyricWrap, rowHeightBg, rowHeightBgWrap,
                     subLineHeight, bgSubLineHeight, scaleOn, spring, glowOn, shadowOn,
-                    showRomaji, showTranslation);
+                    showRomaji, showTranslation, cloudWindow);
             return;
         }
 
@@ -1305,6 +1308,23 @@ public class LyricRenderer {
         return Math.max(lo, Math.min(hi, v));
     }
 
+    static int cloudWindowSize(LyricConfig cfg) {
+        Integer value = cfg.cloudWindow.getValue();
+        int n = value == null ? 12 : value;
+        return Math.max(3, Math.min(100, n));
+    }
+
+    /** After a line has flown home, fade it out instead of leaving it parked. */
+    static float cloudLinger(long positionMs, LyricTimeline.Group group, LyricTimeline.Group next) {
+        if (group == null) return 0f;
+        long home = group.endMs + 380L;
+        if (next != null) home = Math.min(home, next.startMs);
+        if (positionMs < home) return 1f;
+        long fade = 520L;
+        if (positionMs >= home + fade) return 0f;
+        return 1f - LyricMotion.smoothstep(0f, 1f, (positionMs - home) / (float) fade);
+    }
+
     private void renderCloud(Canvas canvas, float leftX, float topY,
                              float columnWidth, float columnHeight, long positionMs,
                              java.util.List<LyricLine> lines,
@@ -1317,7 +1337,7 @@ public class LyricRenderer {
                              float rowHeightBg, float rowHeightBgWrap,
                              float subLineHeight, float bgSubLineHeight,
                              boolean scaleOn, boolean spring, boolean glowOn, boolean shadowOn,
-                             boolean showRomaji, boolean showTranslation) {
+                             boolean showRomaji, boolean showTranslation, int window) {
         if (n == 0) return;
         litBandValid = false;
         int nearest = 0;
@@ -1325,7 +1345,10 @@ public class LyricRenderer {
             if (groups.get(g).startMs > positionMs) break;
             nearest = groups.get(g).from;
         }
-        for (int i = 0; i < n; i++) {
+        int half = Math.max(1, window / 2);
+        int from = Math.max(0, nearest - half);
+        int to = Math.min(n - 1, nearest + half);
+        for (int i = from; i <= to; i++) {
             if (cachedShapedRows == null || cachedShapedRows[i] == null) continue;
             LyricLine line = lines.get(i);
             int gi = lineToGroup[i];
@@ -1336,10 +1359,17 @@ public class LyricRenderer {
             float fly = isBg ? 0f : LyricMotion.cloudFly(positionMs, myGroup, nextGroup);
             if (isBg && activeK < 0.15f) continue;
 
+            int dist = Math.abs(i - nearest);
+            float linger = 1f;
+            if (i < nearest && fly <= 0.001f) {
+                linger = cloudLinger(positionMs, myGroup, nextGroup);
+                if (linger <= 0.02f) continue;
+            }
             float idleBase = isBg ? 0.10f : 0.16f;
             float activeBase = isBg ? 0.70f : 1f;
-            float idleAlpha = idleBase * (0.55f + 0.45f * (1f - Math.min(1f, Math.abs(i - nearest) / 12f)));
-            float baseAlpha = idleAlpha + (activeBase - idleAlpha) * fly;
+            float span = Math.max(1f, half);
+            float idleAlpha = idleBase * (0.55f + 0.45f * (1f - Math.min(1f, dist / span)));
+            float baseAlpha = (idleAlpha + (activeBase - idleAlpha) * fly) * linger;
             if (baseAlpha < 0.04f) continue;
 
             int[] starts = cachedRowStarts[i];

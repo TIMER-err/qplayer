@@ -58,4 +58,6 @@ public final class LyricConfig {
     public final Val<Boolean> linearAnimForPlainLrc = new Val<>(Boolean.FALSE);
     /** Scattered lyric-cloud layout instead of the stacked column. */
     public final Val<Boolean> layoutCloud = new Val<>(Boolean.FALSE);
+    /** Nearby lines kept on screen in lyric-cloud layout. */
+    public final Val<Integer> cloudWindow = new Val<>(12);
 }

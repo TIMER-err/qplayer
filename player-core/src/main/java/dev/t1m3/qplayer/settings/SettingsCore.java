@@ -572,6 +572,9 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
         c.edgeBlur.setValue(bool("lyricEdgeBlur"));
         c.layoutCloud.setValue(intOf(SettingsCatalog.LAYOUT_STYLE_KEY)
                 == SettingsCatalog.LAYOUT_STYLE_CLOUD);
+        int window = intOf(SettingsCatalog.CLOUD_WINDOW_KEY);
+        c.cloudWindow.setValue(Math.max(SettingsCatalog.CLOUD_WINDOW_MIN,
+                Math.min(SettingsCatalog.CLOUD_WINDOW_MAX, window)));
         Fonts.warmupFromConfig();
     }
 

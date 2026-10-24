@@ -7,8 +7,11 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.widget.ImageButton;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
@@ -18,7 +21,6 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
-import android.widget.Button;
 import android.widget.LinearLayout;
 import dev.t1m3.qplayer.android.ui.QPlayerActivity;
 import dev.t1m3.qplayer.bridge.PlayerController;
@@ -29,11 +31,13 @@ import dev.t1m3.qplayer.lyric.Syllable;
 import dev.t1m3.qplayer.lyric.skia.LyricConfig;
 import dev.t1m3.qplayer.settings.SettingsCatalog;
 import dev.t1m3.qplayer.settings.SettingsCore;
+import io.github.timer_err.qml4j.android.R;
 import io.github.timer_err.qml4j.runtime.color.StyleManager;
 
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 /**
  * Always-on-top lyric panel using {@code SYSTEM_ALERT_WINDOW}. No root, no
@@ -66,6 +70,16 @@ public final class OverlayLyricWindow {
     private View controls;
     private WindowManager.LayoutParams controlParams;
     private PlayerController controller;
+    // Overlay drawing used to ride PlaybackService's 100 ms checkpoint worker
+    // plus View.postInvalidateOnAnimation(). Both stall when the Activity is
+    // backgrounded: OEMs pause Choreographer vsync for the overlay, and the
+    // checkpoint executor can be deferred. Drive frames from the main Handler
+    // instead so a foreground PlaybackService keeps lyrics moving.
+    private static final long FRAME_MS = 16L;
+    private boolean ticking;
+    private final Runnable frameTick = this::onFrame;
+    private final Consumer<List<LyricLine>> lyricsListener = ignored ->
+            main.post(this::invalidateView);
 
     public static void bindSettings(SettingsCore core) {
         settings = core;
@@ -113,7 +127,11 @@ public final class OverlayLyricWindow {
     public static void detach() {
         OverlayLyricWindow live = instance;
         instance = null;
-        if (live != null) live.main.post(live::hide);
+        if (live != null) live.main.post(() -> {
+            live.unbindLyrics();
+            live.controller = null;
+            live.hide();
+        });
     }
 
     public static void tick(PlayerController controller) {
@@ -158,6 +176,7 @@ public final class OverlayLyricWindow {
         try {
             wm.addView(view, params);
             attached = true;
+            scheduleFrame();
         } catch (Throwable ignored) {
             attached = false;
             view = null;
@@ -197,6 +216,8 @@ public final class OverlayLyricWindow {
         if (attached) {
             try { wm.updateViewLayout(view, params); } catch (Throwable ignored) {}
         }
+        if (locked) hideControls();
+        else placeControls();
     }
 
     /** @return the parsed colour, or {@code fallback} for an empty/invalid value. */
@@ -211,6 +232,7 @@ public final class OverlayLyricWindow {
     }
 
     private void hide() {
+        stopFrame();
         hideControls();
         LyricView live = view;
         if (!attached || wm == null || live == null) {
@@ -244,6 +266,7 @@ public final class OverlayLyricWindow {
                     params.x = downX + Math.round(dx);
                     params.y = downY + Math.round(dy);
                     try { wm.updateViewLayout(view, params); } catch (Throwable ignored) {}
+                    placeControls();
                 }
                 return true;
             }
@@ -270,18 +293,34 @@ public final class OverlayLyricWindow {
         float d = app.getResources().getDisplayMetrics().density;
         LinearLayout bar = new LinearLayout(app);
         bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setPadding(Math.round(8 * d), Math.round(6 * d), Math.round(8 * d), Math.round(6 * d));
-        bar.setBackgroundColor(0xE628282B);
-        bar.addView(controlButton(I18n.tr("overlay.controls.prev"), () -> {
-            if (controller != null) controller.prev();
-        }));
-        bar.addView(controlButton(I18n.tr("overlay.controls.toggle"), () -> {
-            if (controller != null) controller.toggle();
-        }));
-        bar.addView(controlButton(I18n.tr("overlay.controls.next"), () -> {
-            if (controller != null) controller.next();
-        }));
-        bar.addView(controlButton(I18n.tr("overlay.controls.openApp"), this::openPlayer));
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        int pad = Math.round(8 * d);
+        bar.setPadding(pad, pad, pad, pad);
+        GradientDrawable capsule = new GradientDrawable();
+        capsule.setColor(0xE628282B);
+        capsule.setCornerRadius(28 * d);
+        bar.setBackground(capsule);
+        boolean playing = controller != null && controller.isPlaying();
+        // Five equal slots so pause sits on the capsule's centre:
+        //   [spacer] [prev] [pause] [next] [open]
+        bar.addView(slotSpacer(d));
+        bar.addView(iconButton(io.github.timer_err.qml4j.android.R.drawable.ic_overlay_prev,
+                I18n.tr("overlay.controls.prev"), false, () -> {
+                    if (controller != null) controller.prev();
+                }));
+        bar.addView(iconButton(playing
+                        ? io.github.timer_err.qml4j.android.R.drawable.ic_overlay_pause
+                        : io.github.timer_err.qml4j.android.R.drawable.ic_overlay_play,
+                I18n.tr("overlay.controls.toggle"), true, () -> {
+                    if (controller != null) controller.toggle();
+                    hideControls();
+                }));
+        bar.addView(iconButton(io.github.timer_err.qml4j.android.R.drawable.ic_overlay_next,
+                I18n.tr("overlay.controls.next"), false, () -> {
+                    if (controller != null) controller.next();
+                }));
+        bar.addView(iconButton(io.github.timer_err.qml4j.android.R.drawable.ic_overlay_open,
+                I18n.tr("overlay.controls.openApp"), false, this::openPlayer));
         int type = Build.VERSION.SDK_INT >= 26
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 : WindowManager.LayoutParams.TYPE_PHONE;
@@ -294,26 +333,96 @@ public final class OverlayLyricWindow {
                         | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                 PixelFormat.TRANSLUCENT);
         controlParams.gravity = Gravity.TOP | Gravity.START;
-        controlParams.x = params.x;
-        controlParams.y = Math.max(0, params.y - Math.round(56 * d));
         try {
             wm.addView(bar, controlParams);
             controls = bar;
+            placeControls();
+            bar.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, orr, ob) -> placeControls());
         } catch (Throwable ignored) {
             controls = null;
             controlParams = null;
         }
     }
 
-    private Button controlButton(String label, Runnable action) {
-        Button button = new Button(app);
-        button.setText(label);
-        button.setTextColor(0xFFFFFFFF);
-        button.setAllCaps(false);
-        button.setMinWidth(0);
-        button.setMinimumWidth(0);
-        button.setPadding(Math.round(10 * app.getResources().getDisplayMetrics().density), 0,
-                Math.round(10 * app.getResources().getDisplayMetrics().density), 0);
+    /** Sit the control capsule beside the lyric window, never on top of it.
+     *  Prefer above; flip below when the top of the screen is too tight; clamp
+     *  so a lyric strip parked at either extreme still leaves the bar clickable. */
+    private void placeControls() {
+        if (controls == null || controlParams == null || params == null || wm == null) return;
+        int[] screen = overlayScreenSize();
+        int screenW = screen[0];
+        int screenH = screen[1];
+        int lyricX = params.x;
+        int lyricY = params.y;
+        int lyricW = view != null && view.getWidth() > 0 ? view.getWidth() : Math.max(1, params.width);
+        int lyricH = view != null && view.getHeight() > 0 ? view.getHeight() : 0;
+        if (controls.getWidth() <= 0 || controls.getHeight() <= 0) {
+            controls.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        }
+        int barW = controls.getWidth() > 0 ? controls.getWidth() : Math.max(1, controls.getMeasuredWidth());
+        int barH = controls.getHeight() > 0 ? controls.getHeight() : Math.max(1, controls.getMeasuredHeight());
+        float d = app.getResources().getDisplayMetrics().density;
+        int gap = Math.round(8 * d);
+
+        int aboveY = lyricY - gap - barH;
+        int belowY = lyricY + lyricH + gap;
+        int y;
+        if (aboveY >= 0) {
+            y = aboveY;
+        } else if (belowY + barH <= screenH) {
+            y = belowY;
+        } else {
+            int roomAbove = Math.max(0, lyricY);
+            int roomBelow = Math.max(0, screenH - (lyricY + lyricH));
+            y = roomAbove >= roomBelow ? aboveY : belowY;
+        }
+        y = Math.max(0, Math.min(screenH - barH, y));
+
+        int x = lyricX + (lyricW - barW) / 2;
+        x = Math.max(0, Math.min(screenW - barW, x));
+
+        if (controlParams.x == x && controlParams.y == y) return;
+        controlParams.x = x;
+        controlParams.y = y;
+        try { wm.updateViewLayout(controls, controlParams); } catch (Throwable ignored) {}
+    }
+
+    private int[] overlayScreenSize() {
+        if (Build.VERSION.SDK_INT >= 30 && wm != null) {
+            Rect bounds = wm.getMaximumWindowMetrics().getBounds();
+            return new int[]{Math.max(1, bounds.width()), Math.max(1, bounds.height())};
+        }
+        DisplayMetrics dm = app.getResources().getDisplayMetrics();
+        return new int[]{Math.max(1, dm.widthPixels), Math.max(1, dm.heightPixels)};
+    }
+
+    private android.view.View slotSpacer(float density) {
+        int size = Math.round(40 * density);
+        android.view.View spacer = new android.view.View(app);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
+        lp.setMargins(Math.round(4 * density), 0, Math.round(4 * density), 0);
+        spacer.setLayoutParams(lp);
+        spacer.setImportantForAccessibility(android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        return spacer;
+    }
+
+    private ImageButton iconButton(int icon, String label, boolean emphasized, Runnable action) {
+        float d = app.getResources().getDisplayMetrics().density;
+        int size = Math.round(40 * d);
+        ImageButton button = new ImageButton(app);
+        button.setImageResource(icon);
+        button.setContentDescription(label);
+        button.setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE);
+        button.setPadding(Math.round(8 * d), Math.round(8 * d), Math.round(8 * d), Math.round(8 * d));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setShape(GradientDrawable.OVAL);
+        bg.setColor(emphasized ? 0xFF4A4458 : Color.TRANSPARENT);
+        button.setBackground(bg);
+        button.setColorFilter(emphasized ? 0xFFE8DEF8 : 0xFFCAC4D0);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
+        lp.setMargins(Math.round(4 * d), 0, Math.round(4 * d), 0);
+        button.setLayoutParams(lp);
         button.setOnClickListener(v -> action.run());
         return button;
     }
@@ -338,11 +447,11 @@ public final class OverlayLyricWindow {
     }
 
     private void update(PlayerController controller) {
-        this.controller = controller;
         if (Looper.myLooper() != Looper.getMainLooper()) {
             main.post(() -> update(controller));
             return;
         }
+        bindController(controller);
         if (!wanted) {
             hide();
             return;
@@ -351,7 +460,43 @@ public final class OverlayLyricWindow {
             if (canDraw(app)) show();
             else return;
         }
-        if (view != null) view.bind(controller);
+        if (view != null) view.bind(this.controller);
+        scheduleFrame();
+    }
+
+    private void bindController(PlayerController next) {
+        if (controller == next) return;
+        unbindLyrics();
+        controller = next;
+        if (controller != null) controller.lyrics.addListener(lyricsListener);
+    }
+
+    private void unbindLyrics() {
+        PlayerController previous = controller;
+        if (previous != null) previous.lyrics.removeListener(lyricsListener);
+    }
+
+    private void invalidateView() {
+        if (view != null) view.invalidate();
+    }
+
+    private void onFrame() {
+        ticking = false;
+        if (!wanted || !attached || view == null) return;
+        view.invalidate();
+        scheduleFrame();
+    }
+
+    private void scheduleFrame() {
+        if (ticking || !attached) return;
+        ticking = true;
+        boolean playing = controller != null && controller.isPlaying();
+        main.postDelayed(frameTick, playing ? FRAME_MS : 200L);
+    }
+
+    private void stopFrame() {
+        ticking = false;
+        main.removeCallbacks(frameTick);
     }
 
     /** Desktop-lyric look painted with the platform canvas; self-animating at the display rate. */
@@ -557,8 +702,6 @@ public final class OverlayLyricWindow {
                 drawVisual(canvas, current, left, width, h, 0f, 1f, false);
             }
             canvas.restoreToCount(save);
-
-            if (running && (snapshot.playing || outgoing != null)) postInvalidateOnAnimation();
         }
 
         private Frame readFrame() {

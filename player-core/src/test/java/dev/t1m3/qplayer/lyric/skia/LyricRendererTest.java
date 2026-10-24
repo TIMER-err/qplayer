@@ -46,6 +46,28 @@ public class LyricRendererTest {
     }
 
     @Test
+    public void cloudWindowClampsAndLingerFadesAfterFlyHome() {
+        LyricConfig cfg = LyricConfig.instance;
+        Integer previous = cfg.cloudWindow.getValue();
+        try {
+            cfg.cloudWindow.setValue(1);
+            assertEquals(3, LyricRenderer.cloudWindowSize(cfg));
+            cfg.cloudWindow.setValue(12);
+            assertEquals(12, LyricRenderer.cloudWindowSize(cfg));
+            cfg.cloudWindow.setValue(1000);
+            assertEquals(100, LyricRenderer.cloudWindowSize(cfg));
+        } finally {
+            cfg.cloudWindow.setValue(previous);
+        }
+        LyricTimeline.Prepared prepared = LyricTimeline.prepare(LrcParser.parse(
+                "[00:01.00]第一行\n[00:05.00]第二行"), false);
+        LyricTimeline.Group first = prepared.groups.get(0);
+        LyricTimeline.Group second = prepared.groups.get(1);
+        assertEquals(1f, LyricRenderer.cloudLinger(first.endMs, first, second), 0f);
+        assertEquals(0f, LyricRenderer.cloudLinger(second.startMs + 600L, first, second), 0.01f);
+    }
+
+    @Test
     public void glowFollowsTheMeasuredWordAndStaysBoundedOutsideIt() {
         assertEquals(1f, LyricRowRenderer.glowWindow(100f, 0f, 200f, 20f), 0.001f);
         assertTrue(LyricRowRenderer.glowWindow(10f, 0f, 200f, 20f) > 0f);

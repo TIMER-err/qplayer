@@ -418,8 +418,17 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
             }
             int status = connection.getResponseCode();
             collectSetCookies(connection, setCookies);
+            String location = connection.getHeaderField("Location");
             if (status >= 300 && status < 400 && followRedirects) {
-                String location = connection.getHeaderField("Location");
+                // QQ / ptlogin QR confirm answers 302 with the login URL in
+                // Location and an empty body. Following that hop drops the
+                // JSONP the plugin parses (ptuiCB('0',...,url)), so a successful
+                // scan looks like "still waiting". Hand the redirect back as a
+                // synthetic ptuiCB instead of chasing it.
+                if (isPtloginHandoff(url, location)) {
+                    return ptloginHandoffResult(status, current, location, setCookies,
+                            connection, Boolean.TRUE.equals(args.get("includeBase64")));
+                }
                 connection.disconnect();
                 if (location == null || redirect == MAX_REDIRECTS) {
                     throw new IOException("HTTP redirect limit reached");
@@ -475,6 +484,47 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
             return result;
         }
         throw new IOException("HTTP request failed");
+    }
+
+    /** ptlogin QR success is a 302 whose Location is the next login hop.
+     *  The plugin's poll parser only understands JSONP {@code ptuiCB('0',...url)}. */
+    private static boolean isPtloginHandoff(URL request, String location) {
+        if (location == null || location.isEmpty()) return false;
+        String host = request.getHost();
+        if (host == null) return false;
+        host = host.toLowerCase(java.util.Locale.ROOT);
+        if (!host.contains("ptlogin")) return false;
+        String path = request.getPath();
+        if (path == null || !path.contains("ptqrlogin")) return false;
+        String hop = location.toLowerCase(java.util.Locale.ROOT);
+        return hop.contains("uin=") && hop.contains("ptsigx=");
+    }
+
+    private static Map<String, Object> ptloginHandoffResult(int status, String finalUrl,
+            String location, List<String> setCookies, HttpURLConnection connection,
+            boolean includeBase64) {
+        String escaped = location.replace("\\", "\\\\").replace("'", "\\'");
+        String body = "ptuiCB('0','0','" + escaped + "','0','','')";
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("status", status);
+        result.put("finalUrl", finalUrl);
+        result.put("body", body);
+        if (includeBase64) {
+            result.put("bodyBase64", Base64.getEncoder()
+                    .encodeToString(body.getBytes(StandardCharsets.UTF_8)));
+        }
+        Map<String, String> responseHeaders = new LinkedHashMap<>();
+        Map<String, List<String>> headers = connection.getHeaderFields();
+        if (headers != null) {
+            for (Map.Entry<String, List<String>> header : headers.entrySet()) {
+                if (header.getKey() != null && header.getValue() != null) {
+                    responseHeaders.put(header.getKey(), String.join(", ", header.getValue()));
+                }
+            }
+        }
+        result.put("headers", responseHeaders);
+        result.put("setCookies", setCookies);
+        return result;
     }
 
     /** Login redirects often plant session cookies on the 302 itself. Dropping
