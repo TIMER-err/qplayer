@@ -201,6 +201,7 @@ Rectangle {
     onBackTickChanged: app.handleBack()
 
     function handleBack() {
+        if (mini.handleBack()) return
         if (player.temperaOpen || player.temperaOpacity > 0.001) {
             player.setTemperaOpen(false)
             return
@@ -787,7 +788,6 @@ Rectangle {
         anchors.bottomMargin: 8
         height: 80
         onLyricsRequested: app.pushPage("lyrics", 0)
-        onVolumeRequested: app.volumeOpen = true
     }
 
     // Bottom navigation (compact). On wide layouts the rail replaces it, so collapse
@@ -827,7 +827,6 @@ Rectangle {
         // TitleBar below), so the three title buttons sit flush at the very top.
         topPad: hostWindow.available ? 6 : settings.topInset + 6
         onCloseRequested: app.popPage()
-        onQueueRequested: app.replacePage("queue", 0)
         y: (1 - transitionEase) * height
     }
 

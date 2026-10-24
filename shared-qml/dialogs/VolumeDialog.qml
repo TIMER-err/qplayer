@@ -1,8 +1,7 @@
 import QtQuick
 import miuix.Core
 
-// Shared compact volume control. Desktop opens it only when the MiniPlayer is too
-// narrow for its inline slider; Android opens it from the page's top app bar.
+// Mobile volume control, opened from the page's top app bar.
 Item {
     id: control
 

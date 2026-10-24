@@ -12,7 +12,6 @@ import "."
 Item {
     id: overlay
     signal closeRequested()
-    signal queueRequested()
 
     // Landscape (wide) layout: cover + transport on the left, lyrics on the right
     // half (host-drawn). Driven by aspect so a desktop window, tablet, or phone in
@@ -212,15 +211,15 @@ Item {
         // to offsetPanelOpen would cut the zoom-out off on its first frame.
         visible: overlay.offsetPanelOpen || opacity > 0.01
         opacity: overlay.offsetPanelOpen ? 1 : 0
-        scale: overlay.offsetPanelOpen ? 1 : 0.9
-        transformOrigin: Item.TopRight
+        scale: overlay.offsetPanelOpen ? 1 : 0.8
+        transformOrigin: Item.Center
         Behavior on opacity {
-            NumberAnimation { duration: overlay.offsetPanelOpen ? 160 : 120; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: 150 }
         }
         Behavior on scale {
             NumberAnimation {
-                duration: overlay.offsetPanelOpen ? 220 : 150
-                easing.type: overlay.offsetPanelOpen ? Easing.OutBack : Easing.InCubic
+                duration: overlay.offsetPanelOpen ? 200 : 150
+                easing.type: overlay.offsetPanelOpen ? Easing.OutCubic : Easing.InCubic
             }
         }
         z: 2
@@ -440,7 +439,6 @@ Item {
             anchors.bottom: parent.bottom
             anchors.bottomMargin: 14
             gap: 18
-            onQueueRequested: overlay.queueRequested()
         }
     }
 
@@ -591,7 +589,6 @@ Item {
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
                 gap: Math.max(4, Math.min(18, (col.width - 200) / 4))
-                onQueueRequested: overlay.queueRequested()
             }
         }
     }
@@ -660,7 +657,6 @@ Item {
             anchors.top: parent.top
             anchors.topMargin: 16
             gap: 20
-            onQueueRequested: overlay.queueRequested()
         }
 
         Text {

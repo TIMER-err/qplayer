@@ -15,7 +15,6 @@ SmoothRectangle {
     id: mini
 
     signal lyricsRequested()
-    signal volumeRequested()
 
     function fmt(ms) {
         if (ms <= 0) return "0:00";
@@ -34,19 +33,6 @@ SmoothRectangle {
     // finishes the pass before the position fill returns instead of snapping.
     property bool sweeping: false
     readonly property bool desktopVolumeControl: settings.has("desktopLyricEnabled")
-    property int previousVolume: 80
-    property int volumeWatch: settings.appVolume
-
-    onVolumeWatchChanged: if (volumeWatch > 0) previousVolume = volumeWatch
-
-    function toggleMuted() {
-        if (settings.appVolume > 0) {
-            mini.previousVolume = settings.appVolume
-            settings.setAppVolume(0)
-        } else {
-            settings.setAppVolume(mini.previousVolume)
-        }
-    }
 
     property bool _loading: player.loading
     property real _targetProgress: player.durationMs > 0
@@ -196,46 +182,25 @@ SmoothRectangle {
         onClicked: player.cyclePlayMode()
     }
 
-    Item {
-        id: volumeControl
+    IconButton {
+        id: volumeButton
+        objectName: "miniPlayerVolumeButton"
         visible: mini.desktopVolumeControl
-        width: visible ? (mini.width >= 720 ? 168 : 40) : 0
-        height: 40
+        width: visible ? 40 : 0
         anchors.right: modeBtn.left
         anchors.verticalCenter: parent.verticalCenter
         anchors.verticalCenterOffset: 1
-
-        IconButton {
-            id: volumeButton
-            anchors.left: parent.left
-            anchors.verticalCenter: parent.verticalCenter
-            type: "standard"
-            icon: settings.appVolume === 0 ? "volume_off"
-                  : (settings.appVolume < 50 ? "volume_down" : "volume_up")
-            onClicked: {
-                if (volumeControl.width <= 40) mini.volumeRequested()
-                else mini.toggleMuted()
-            }
-        }
-
-        Slider {
-            id: inlineVolumeSlider
-            property int persistedVolume: settings.appVolume
-            visible: volumeControl.width > 40
-            anchors.left: volumeButton.right
-            anchors.leftMargin: 8
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            from: 0
-            to: 100
-            stepSize: 1
-            value: persistedVolume
-            valueLabelEnabled: true
-            onPersistedVolumeChanged: if (!pressed) value = persistedVolume
-            onMoved: player.setVolume(value / 100)
-            onEditingFinished: settings.setAppVolume(Math.round(value))
-        }
+        type: "standard"
+        icon: settings.appVolume === 0 ? "volume_off"
+              : (settings.appVolume < 50 ? "volume_down" : "volume_up")
+        onClicked: volumePopup.open(volumeButton)
     }
+
+    VolumePopup { id: volumePopup }
+    onWidthChanged: volumePopup.close()
+    onYChanged: volumePopup.close()
+
+    function handleBack() { return volumePopup.handleBack() }
 
     CoverImage {
         id: cover
@@ -262,7 +227,7 @@ SmoothRectangle {
     Item {
         anchors.left: cover.right
         anchors.leftMargin: 12
-        anchors.right: volumeControl.left
+        anchors.right: volumeButton.left
         anchors.rightMargin: 4
         anchors.top: track.bottom
         anchors.bottom: parent.bottom

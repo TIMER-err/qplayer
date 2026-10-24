@@ -30,8 +30,8 @@ import java.util.function.Consumer;
  * <p>Lives with {@link PlaybackService}: register while the session is up,
  * destroy when it goes away. {@link #push()} and {@link #pushPosition()} are
  * synchronized because playback callbacks run on the main thread, lyric
- * Property listeners on the render thread, and the position ticker on the
- * checkpoint worker.
+ * Property listeners on lyric-loading threads, and the position ticker on
+ * the checkpoint worker.
  */
 final class LyriconBridge {
 
@@ -40,6 +40,7 @@ final class LyriconBridge {
     private final Consumer<List<LyricLine>> lyricsListener = ignored -> push();
 
     private String lastSongId;
+    private Track lastTrack;
     private List<LyricLine> lastLyrics;
     private Boolean lastPlaying;
     private long lastPosition = Long.MIN_VALUE;
@@ -85,6 +86,7 @@ final class LyriconBridge {
         bound = controller;
         if (bound != null) bound.lyrics.addListener(lyricsListener);
         lastSongId = null;
+        lastTrack = null;
         lastLyrics = null;
         lastPlaying = null;
         lastPosition = Long.MIN_VALUE;
@@ -99,6 +101,7 @@ final class LyriconBridge {
             RemotePlayer player = p.getPlayer();
             Track t = c.currentTrack();
             if (t == null) {
+                lastTrack = null;
                 if (lastSongId != null) {
                     player.setSong(null);
                     lastSongId = null;
@@ -134,6 +137,7 @@ final class LyriconBridge {
             if (songChanged) player.seekTo(pos);
             else if (pos != lastPosition) player.setPosition(pos);
             lastPosition = pos;
+            lastTrack = t;
         } catch (Throwable e) {
             Logger.error("lyricon: push failed: {}", e.toString());
         }
@@ -142,8 +146,20 @@ final class LyriconBridge {
     synchronized void pushPosition() {
         LyriconProvider p = provider;
         PlayerController c = bound;
-        if (p == null || c == null || c.currentTrack() == null) return;
+        if (p == null || c == null) return;
         try {
+            Track track = c.currentTrack();
+            if (track == null) {
+                if (lastTrack != null || lastSongId != null || lastPlaying != Boolean.FALSE) push();
+                return;
+            }
+            // Track and play state can change without a lyric Property update.
+            // The service ticker keeps those changes visible while backgrounded.
+            if (track != lastTrack || c.lyrics.peek() != lastLyrics
+                    || lastPlaying == null || lastPlaying != c.isPlaying()) {
+                push();
+                return;
+            }
             long pos = lyricPosition(c);
             if (pos == lastPosition) return;
             p.getPlayer().setPosition(pos);
@@ -158,6 +174,7 @@ final class LyriconBridge {
         LyriconProvider p = provider;
         provider = null;
         lastSongId = null;
+        lastTrack = null;
         lastLyrics = null;
         lastPlaying = null;
         lastPosition = Long.MIN_VALUE;

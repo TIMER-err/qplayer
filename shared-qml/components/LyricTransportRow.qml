@@ -4,15 +4,14 @@ import miuix.Core
 // Three clusters so the pause button sits on the row's true centre:
 //   left  = play-mode
 //   mid   = prev / pause / next
-//   right = like + queue
-// A single 6-wide Row cannot centre an odd-positioned filled button.
+//   right = like
+// Five buttons keep the transport symmetric around pause.
 Item {
     id: row
-    signal queueRequested()
     property real gap: 18
     height: 40
     implicitHeight: 40
-    implicitWidth: 40 * 6 + gap * 5
+    implicitWidth: 40 * 5 + gap * 4
 
     Row {
         anchors.left: parent.left
@@ -56,12 +55,6 @@ Item {
             icon: player.currentLiked ? "favorite" : "favorite_border"
             contentColor: player.currentLiked ? "#FFFF5277" : "#99FFFFFF"
             onClicked: player.toggleLike()
-        }
-        IconButton {
-            type: "standard"
-            icon: "queue_music"
-            contentColor: "#FFFFFFFF"
-            onClicked: row.queueRequested()
         }
     }
 }

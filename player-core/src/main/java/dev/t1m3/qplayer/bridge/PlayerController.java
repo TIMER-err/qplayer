@@ -4948,19 +4948,10 @@ public final class PlayerController {
         worker.submit(this::saveQueue);
         final int idx = i;
         final Track t = queue.get(i);
-        // Blank the outgoing track's lyrics synchronously, on whichever thread
-        // called playAt. The post()ed applyLyrics below only runs on the render
-        // thread, which is paused while the app is backgrounded — the Android
-        // overlay's 100 ms tick reads lyrics straight off this Property and would
-        // otherwise show the PREVIOUS song's lines over the new one's play head
-        // until the app returns to the foreground. Property.set on a Property
-        // nobody is mid-iterating is safe off the render thread here; the
-        // identity-gated loaders below re-apply the real lyrics when they land.
-        // Repeat-one / same-track replay must not clear: restore is also posted,
-        // and compact lyric hosts never drain that queue. Clearing here would
-        // leave them stuck on the title for the rest of the loop. Skip the
-        // loaders too — local files without a sidecar would post an empty list
-        // that the desktop pump then applies over the lyrics we just kept.
+        // Clear outgoing lyrics immediately so background hosts cannot show the
+        // previous song while the identity-gated loaders fetch the new lyrics.
+        // Same-track replay keeps loaded lyrics and skips loaders: a missing
+        // local sidecar must not replace the retained lyrics with an empty list.
         boolean keepLyrics = outgoing != null
                 && outgoing.canonicalId().equals(t.canonicalId())
                 && lyrics.peek() != null && !lyrics.peek().isEmpty();
@@ -6550,31 +6541,31 @@ public final class PlayerController {
                 stoppedLyricPositionMs = clampedPos;
                 pendingResumeIndex = idx;
                 pendingResumeMs = clampedPos;
-                final int finalIdx = idx;
                 final Track cur = loaded.get(idx);
-                post(() -> {
-                    applyTrackLyricOffset(cur);
-                    queueTracks.set(snap);
-                    index.set(finalIdx);
-                    currentFilePath.set(cur.source == Track.Source.LOCAL && cur.filePath != null ? cur.filePath : "");
-                    currentMediaId.set(cur.canonicalId());
-                    title.set(cur.title != null ? cur.title : "");
-                    artist.set(cur.artist != null ? cur.artist : "");
-                    publishPlayingArtist(cur);
-                    album.set(cur.album != null ? cur.album : "");
-                    coverUrl.set(trackCoverUrl(cur, "512"));
-                    durationMs.set(cur.durationMs);
-                    // So the progress bar shows the resume point before playback
-                    // actually starts (toggle() only plays on the user's first tap).
-                    positionMs.set(clampedPos);
-                    // The restored track is already the current track even though its
-                    // audio source is not opened until the first Play press. Publish
-                    // the same favorite-button state as playAt() now, rather than
-                    // leaving the heart disabled for the whole pre-playback session.
-                    currentLiked.set(cur.neteaseId != 0 && likedSet.contains(cur.neteaseId));
-                    currentLikeable.set(cur.neteaseId != 0);
-                    playMode.set(Math.max(0, Math.min(2, savedMode)));
-                });
+                // Match playAt's pump-independent publication. A queued restore
+                // would overwrite newer background metadata on the next frame.
+                applyTrackLyricOffset(cur);
+                queueTracks.set(snap);
+                index.set(idx);
+                currentFilePath.set(cur.source == Track.Source.LOCAL && cur.filePath != null ? cur.filePath : "");
+                currentMediaId.set(cur.canonicalId());
+                title.set(cur.title != null ? cur.title : "");
+                artist.set(cur.artist != null ? cur.artist : "");
+                publishPlayingArtist(cur);
+                album.set(cur.album != null ? cur.album : "");
+                coverUrl.set(trackCoverUrl(cur, "512"));
+                durationMs.set(cur.durationMs);
+                // So the progress bar shows the resume point before playback
+                // actually starts (toggle() only plays on the user's first tap).
+                positionMs.set(clampedPos);
+                // The restored track is already the current track even though its
+                // audio source is not opened until the first Play press. Publish
+                // the same favorite-button state as playAt() now, rather than
+                // leaving the heart disabled for the whole pre-playback session.
+                currentLiked.set(cur.neteaseId != 0 && likedSet.contains(cur.neteaseId));
+                currentLikeable.set(cur.neteaseId != 0);
+                playMode.set(Math.max(0, Math.min(2, savedMode)));
+                wakeRenderer();
                 // Load the full cover art + lyrics now (both cache-first internally)
                 // instead of waiting for the user to press play — playAt() normally
                 // does this, but playAt() itself isn't called until then.

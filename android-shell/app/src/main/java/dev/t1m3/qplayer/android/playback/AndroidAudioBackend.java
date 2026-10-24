@@ -25,7 +25,7 @@ import java.util.Map;
  * {@code javax.sound} (which Android lacks).
  *
  * <p>Prepared asynchronously: {@link #play} kicks off {@code prepareAsync} and
- * starts on the prepared callback, honoring the requested start offset.
+ * starts after preparation and any initial seek finish, honoring the requested offset.
  */
 public final class AndroidAudioBackend implements AudioBackend {
 
@@ -35,6 +35,8 @@ public final class AndroidAudioBackend implements AudioBackend {
     private boolean wantPlay;
     private float volume = 0.8f;
     private boolean prepared;
+    private boolean seekingStart;
+    private boolean playbackStarted;
     private Runnable onComplete;
     private Runnable onStarted;
     private Runnable onPaused;
@@ -79,6 +81,7 @@ public final class AndroidAudioBackend implements AudioBackend {
         pendingSeekMs = Math.max(0L, startMs);
         wantPlay = true;
         prepared = false;
+        cacheCompletePath = null;
         requestFocus();
 
         MediaPlayer mp = new MediaPlayer();
@@ -92,18 +95,10 @@ public final class AndroidAudioBackend implements AudioBackend {
                 .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                 .build());
         mp.setOnPreparedListener(this::onPrepared);
+        mp.setOnSeekCompleteListener(this::onSeekComplete);
         mp.setOnCompletionListener(p -> onCompleted(p));
         mp.setOnErrorListener(this::onPlayerError);
-        mp.setOnInfoListener((p, what, extra) -> {
-            if (p != player) return false;
-            if (what == MediaPlayer.MEDIA_INFO_BUFFERING_START) {
-                buffering = true;
-                tryPlayCompleteCache();
-            } else if (what == MediaPlayer.MEDIA_INFO_BUFFERING_END) {
-                buffering = false;
-            }
-            return false;
-        });
+        mp.setOnInfoListener(this::onPlayerInfo);
         player = mp;
         try {
             Logger.info("MediaPlayer: setDataSource + prepareAsync");
@@ -139,19 +134,41 @@ public final class AndroidAudioBackend implements AudioBackend {
         Logger.info("MediaPlayer: prepared, duration={}ms", preparedPlayer.getDuration());
         applyVolume();
         if (pendingSeekMs > 0L) {
+            seekingStart = true;
             preparedPlayer.seekTo(pendingSeekMs, MediaPlayer.SEEK_CLOSEST);
+        } else {
+            startPreparedPlayer();
         }
-        if (wantPlay) {
-            preparedPlayer.start();
-            holdWifiLock(source);
-            scheduleStallCheck();
+    }
+
+    private synchronized void onSeekComplete(MediaPlayer seekedPlayer) {
+        if (player != seekedPlayer || !seekingStart) return;
+        seekingStart = false;
+        startPreparedPlayer();
+    }
+
+    private void startPreparedPlayer() {
+        if (player == null || !prepared || seekingStart || !wantPlay) return;
+        if (buffering && tryPlayCompleteCache()) return;
+        if (!player.isPlaying()) player.start();
+        holdWifiLock(source);
+        scheduleStallCheck();
+        // Preparing while paused defers this notification until resume really starts audio.
+        if (!playbackStarted) {
+            playbackStarted = true;
+            fire(onStarted);
         }
-        // Always announce prepare completion. A pause during prepareAsync clears
-        // wantPlay so we must not start, but the controller still needs onStarted
-        // so a later resume() is not stuck with playbackStarted=false (lyric clock
-        // frozen, fade-in skipped).
-        Runnable cb = onStarted;
-        if (cb != null) cb.run();
+    }
+
+    private synchronized boolean onPlayerInfo(MediaPlayer infoPlayer, int what, int extra) {
+        if (player != infoPlayer) return false;
+        if (what == MediaPlayer.MEDIA_INFO_BUFFERING_START) {
+            buffering = true;
+            tryPlayCompleteCache();
+        } else if (what == MediaPlayer.MEDIA_INFO_BUFFERING_END) {
+            buffering = false;
+        }
+        return false;
     }
 
     private synchronized void onCompleted(MediaPlayer completedPlayer) {
@@ -184,13 +201,9 @@ public final class AndroidAudioBackend implements AudioBackend {
     public synchronized void resume() {
         wantPlay = true;
         requestFocus();
-        if (player != null && prepared) {
-            try {
-                if (!player.isPlaying()) player.start();
-            } catch (IllegalStateException ignored) {
-            }
-            holdWifiLock(source);
-            scheduleStallCheck();
+        try {
+            startPreparedPlayer();
+        } catch (IllegalStateException ignored) {
         }
     }
 
@@ -203,6 +216,7 @@ public final class AndroidAudioBackend implements AudioBackend {
     public synchronized void seek(long ms) {
         long target = Math.max(0L, ms);
         if (player != null && prepared) {
+            if (seekingStart) pendingSeekMs = target;
             // SEEK_CLOSEST lands on the exact frame instead of the previous sync frame:
             // a basic seekTo undershoots by up to a keyframe interval, which made a
             // lyric tap (and the progress bar) land just before the target so the
@@ -215,14 +229,14 @@ public final class AndroidAudioBackend implements AudioBackend {
 
     @Override
     public synchronized long position() {
-        if (player != null && prepared) {
-            try {
-                return player.getCurrentPosition();
-            } catch (IllegalStateException e) {
-                return 0L;
-            }
+        if (player == null) return 0L;
+        // Cache recovery must not publish zero while preparing or seeking.
+        if (!prepared || seekingStart) return pendingSeekMs;
+        try {
+            return player.getCurrentPosition();
+        } catch (IllegalStateException e) {
+            return 0L;
         }
-        return 0L;
     }
 
     @Override
@@ -284,11 +298,14 @@ public final class AndroidAudioBackend implements AudioBackend {
 
     @Override
     public synchronized void notifyCacheComplete() {
-        tryPlayCompleteCache();
+        // Finishing a download must not reopen a healthy or paused stream.
+        if (buffering) tryPlayCompleteCache();
     }
 
     /** @return true if playback was restarted from the finished cache file. */
     private boolean tryPlayCompleteCache() {
+        if (!wantPlay || source == null
+                || !(source.startsWith("http://") || source.startsWith("https://"))) return false;
         String path = cacheCompletePath;
         if (path == null || path.equals(source)) return false;
         java.io.File file = new java.io.File(path);
@@ -362,14 +379,12 @@ public final class AndroidAudioBackend implements AudioBackend {
                 if (resumeOnGain || wantPlay) {
                     resumeOnGain = false;
                     wantPlay = true;
-                    if (player != null && prepared) {
+                    if (player != null && prepared && !seekingStart) {
                         try {
-                            if (!player.isPlaying()) player.start();
+                            startPreparedPlayer();
                         } catch (IllegalStateException ignored) {
                         }
-                        holdWifiLock(source);
-                        scheduleStallCheck();
-                        fire(onResumed);
+                        if (isPlaying()) fire(onResumed);
                     }
                 }
                 break;
@@ -401,7 +416,7 @@ public final class AndroidAudioBackend implements AudioBackend {
     }
 
     private synchronized void checkStall() {
-        if (!wantPlay || !prepared || player == null || buffering) return;
+        if (!wantPlay || !prepared || seekingStart || player == null || buffering) return;
         boolean playing;
         try {
             playing = player.isPlaying();
@@ -432,6 +447,7 @@ public final class AndroidAudioBackend implements AudioBackend {
                 // Detach first so callbacks queued by reset/release cannot act on a
                 // subsequently assigned player through the backend's shared fields.
                 player.setOnPreparedListener(null);
+                player.setOnSeekCompleteListener(null);
                 player.setOnCompletionListener(null);
                 player.setOnErrorListener(null);
                 player.setOnInfoListener(null);
@@ -442,6 +458,8 @@ public final class AndroidAudioBackend implements AudioBackend {
             player = null;
         }
         prepared = false;
+        seekingStart = false;
+        playbackStarted = false;
         buffering = false;
     }
 }
