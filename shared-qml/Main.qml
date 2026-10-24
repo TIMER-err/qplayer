@@ -851,6 +851,7 @@ Rectangle {
     // ever been instantiated.
     PluginDialogs { id: pluginDialogs }
     PluginDialog { id: pluginContributionDialog }
+    DownloadQualityDialog { id: downloadQualityDialog }
     PluginUpdateDialog { id: pluginUpdateDialog }
     AppUpdateDialog { id: appUpdateDialog }
 

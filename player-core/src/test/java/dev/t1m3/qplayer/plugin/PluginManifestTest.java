@@ -30,6 +30,13 @@ public class PluginManifestTest {
         assertThrows(IllegalArgumentException.class, manifest::validate);
     }
 
+    @Test
+    public void filesSaveIsAKnownPermission() {
+        PluginManifest manifest = baseManifest();
+        manifest.permissions = Arrays.asList("files.save");
+        manifest.validate();
+    }
+
     private static PluginManifest baseManifest() {
         PluginManifest manifest = new PluginManifest();
         manifest.schemaVersion = 1;

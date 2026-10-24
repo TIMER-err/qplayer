@@ -40,5 +40,12 @@
     "description": "由独立项目维护的汽水音乐音源插件，提供搜索、播放、歌词、扫码登录与用户歌单。",
     "repo": "MiaM1ku/qplayer-soda-plugin",
     "publisherKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEb20opVRUPIiFEeYdDli4uVbL1ry/+VVg5zHVC9/tN0rGcmcssS/Ko3mHjzairTmZZtIuWngooAvqOtOguaK/mg=="
+  },
+  {
+    "id": "unlock",
+    "name": "解锁下载",
+    "description": "下载工具：不提供搜索曲目。对当前播放的网易云/QQ 等歌曲弹出保存框，写成 mp3/flac。",
+    "repo": "Ink-Stained-Clouds/qplayer-unlock-plugin",
+    "publisherKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE0BAIvZ9sZOJGVhH3W37xqdWYPCC4uQmEcDKrPOmYJcpjEsCU431cTthU5ELo6nIxlHzKoqJEz8ipoDhdzcPyeg=="
   }
 ]

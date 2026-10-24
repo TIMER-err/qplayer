@@ -71,10 +71,65 @@ final class DesktopFilePicker {
     }
 
     private static final String[] PLAYLIST_EXTENSIONS = {"qpl", "json"};
+    private static final String[] AUDIO_EXTENSIONS = {"mp3", "flac", "m4a", "ogg"};
 
     static void pickPlaylist(Consumer<String> onPicked) {
         show(I18n.tr("picker.importPlaylist"), initialDirectory(documentsDirectory()), false,
                 I18n.tr("picker.playlistFiles"), PLAYLIST_EXTENSIONS, onPicked);
+    }
+
+    static void saveAudio(String suggestedFileName, Consumer<String> onPicked) {
+        if (!OPEN.compareAndSet(false, true)) return;
+        if (MacNativeDialog.isMac()) {
+            runOnMain(() -> {
+                try {
+                    File dir = initialDirectory(documentsDirectory());
+                    String path = MacNativeDialog.save(
+                            I18n.tr("picker.saveAudio"),
+                            dir.getAbsolutePath(), suggestedFileName, AUDIO_EXTENSIONS);
+                    if (path == null) return;
+                    if (!hasAudioExtension(path)) path = path + ".mp3";
+                    onPicked.accept(path);
+                } catch (Throwable t) {
+                    Logger.warn("desktop save dialog failed: {}", t.toString());
+                } finally {
+                    OPEN.set(false);
+                }
+            });
+            return;
+        }
+        SwingUtilities.invokeLater(() -> {
+            try {
+                applyLookAndFeel(darkTheme);
+                JFileChooser chooser = new JFileChooser(initialDirectory(documentsDirectory()));
+                chooser.setDialogTitle(I18n.tr("picker.saveAudio"));
+                chooser.setMultiSelectionEnabled(false);
+                chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
+                chooser.setAcceptAllFileFilterUsed(false);
+                chooser.setFileFilter(new FileNameExtensionFilter(
+                        I18n.tr("picker.audioFiles"), AUDIO_EXTENSIONS));
+                if (suggestedFileName != null && !suggestedFileName.isEmpty()) {
+                    chooser.setSelectedFile(new File(chooser.getCurrentDirectory(),
+                            suggestedFileName));
+                }
+                chooser.addHierarchyListener(event -> {
+                    if ((event.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) == 0
+                            || !chooser.isShowing()) return;
+                    Window dialog = SwingUtilities.getWindowAncestor(chooser);
+                    DesktopSwingFocus.requestForeground(dialog);
+                });
+                if (chooser.showSaveDialog(null) != JFileChooser.APPROVE_OPTION) return;
+                File selected = chooser.getSelectedFile();
+                if (selected == null) return;
+                String path = selected.getAbsolutePath();
+                if (!hasAudioExtension(path)) path = path + ".mp3";
+                onPicked.accept(path);
+            } catch (Throwable t) {
+                Logger.warn("desktop save dialog failed: {}", t.toString());
+            } finally {
+                OPEN.set(false);
+            }
+        });
     }
 
     /** Save dialog for an exported playlist, seeded with a suggested file name. */
@@ -135,8 +190,16 @@ final class DesktopFilePicker {
     }
 
     private static boolean hasPlaylistExtension(String path) {
+        return hasAnyExtension(path, PLAYLIST_EXTENSIONS);
+    }
+
+    private static boolean hasAudioExtension(String path) {
+        return hasAnyExtension(path, AUDIO_EXTENSIONS);
+    }
+
+    private static boolean hasAnyExtension(String path, String[] extensions) {
         String lower = path.toLowerCase(java.util.Locale.ROOT);
-        for (String extension : PLAYLIST_EXTENSIONS) {
+        for (String extension : extensions) {
             if (lower.endsWith('.' + extension)) return true;
         }
         return false;

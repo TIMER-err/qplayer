@@ -18,9 +18,15 @@ trust and review every requested permission.
   conversion rejects cycles, excessive nesting/items/text, and non-finite numbers.
 - Network permission is deny-by-default. Scheme, declared method, hostname,
   wildcard rules, DNS results, and local/private addresses are checked. Host HTTP,
-  artwork, and cached-audio downloads re-check every redirect. Direct platform
-  playback validates the initial stream URL, while redirects performed internally
-  by the platform media stack follow that platform's networking model.
+  artwork, and `files.save` downloads re-check every redirect. Cached-audio and
+  explicit song downloads follow the playback model: the initial stream URL must
+  sit inside the plugin grant, then CDN hops are followed without re-checking
+  `networkDomains`. Direct platform playback validates the initial stream URL,
+  while redirects performed internally by the platform media stack follow that
+  platform's networking model.
+- `files.save` is a separate grant. The plugin supplies a URL already inside its
+  network grant and a suggested file name; the host shows a save dialog and
+  writes the bytes. The plugin never receives a filesystem path.
 - `webAuth` is a separate browser-code grant. The host validates the top-level HTTPS
   origin and bounds script/result size and lifetime, but browser subresources and
   requests do not pass through the `http.request` domain/DNS/redirect policy.

@@ -80,10 +80,14 @@ public final class QPlayerActivity extends Activity {
     private static final int REQ_WEB_LOGIN = 4;
     private static final int REQ_PLUGIN_PICK = 5;
     private static final int REQ_FONT_PICK = 6;
+    private static final int REQ_AUDIO_SAVE = 7;
 
     /** Canonical playlist id awaiting a picked cover image, set right before
      *  launching the gallery picker and consumed in {@link #onActivityResult}. */
     private String pendingCoverPlaylistKey;
+    private java.util.function.BiConsumer<String, java.util.function.Consumer<Boolean>> pendingAudioWriter;
+    private android.net.Uri pendingAudioUri;
+    private java.nio.file.Path pendingAudioStage;
 
     private PlayerController controller;
     private SettingsCore settings;
@@ -206,6 +210,7 @@ public final class QPlayerActivity extends Activity {
         controller.setInstaller(this::downloadAndInstallUpdate);
         controller.setCoverPicker(this::pickPlaylistCover);
         controller.setPluginPicker(this::pickPluginPackage);
+        controller.setFileSavePicker(this::saveAudioFile);
         controller.setWebLoginLauncher(this::openWebLogin);
         webAuthScript = new AndroidWebAuthScript(this);
         controller.setWebAuthScriptLauncher(webAuthScript::run);
@@ -735,6 +740,28 @@ public final class QPlayerActivity extends Activity {
         }
     }
 
+    private void saveAudioFile(String suggestedFileName, String mimeType,
+            java.util.function.BiConsumer<String, java.util.function.Consumer<Boolean>> writer) {
+        pendingAudioWriter = writer;
+        String mime = (mimeType == null || mimeType.isEmpty() || mimeType.equals("audio/*"))
+                ? "audio/mpeg" : mimeType;
+        String name = suggestedFileName == null || suggestedFileName.isEmpty()
+                ? "audio.mp3" : suggestedFileName;
+        runOnUiThread(() -> {
+            try {
+                Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType(mime);
+                intent.putExtra(Intent.EXTRA_TITLE, name);
+                startActivityForResult(intent, REQ_AUDIO_SAVE);
+            } catch (Throwable error) {
+                pendingAudioWriter = null;
+                dev.t1m3.qplayer.util.Logger.error(
+                        "no document provider to save audio: {}", error.toString());
+            }
+        });
+    }
+
     private void pickPluginPackage() {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
@@ -802,6 +829,54 @@ public final class QPlayerActivity extends Activity {
                             "read picked font failed: {}", error.toString());
                 }
             }, "qplayer-font-pick").start();
+            return;
+        }
+        if (requestCode == REQ_AUDIO_SAVE) {
+            java.util.function.BiConsumer<String, java.util.function.Consumer<Boolean>> writer =
+                    pendingAudioWriter;
+            pendingAudioWriter = null;
+            if (writer == null) return;
+            if (resultCode != Activity.RESULT_OK || data == null || data.getData() == null) {
+                writer.accept("", ignored -> { });
+                return;
+            }
+            pendingAudioUri = data.getData();
+            try {
+                java.nio.file.Path exports = dev.t1m3.qplayer.store.AppDirs.cacheDir()
+                        .resolve("plugin-exports");
+                java.nio.file.Files.createDirectories(exports);
+                pendingAudioStage = exports.resolve(
+                        java.util.UUID.randomUUID().toString() + ".audio");
+                final java.nio.file.Path staged = pendingAudioStage;
+                final android.net.Uri uri = pendingAudioUri;
+                writer.accept(staged.toString(), ok -> {
+                    pendingAudioUri = null;
+                    pendingAudioStage = null;
+                    if (!Boolean.TRUE.equals(ok) || uri == null || staged == null) return;
+                    new Thread(() -> {
+                        try {
+                            if (!java.nio.file.Files.isRegularFile(staged)) return;
+                            try (java.io.OutputStream out = getContentResolver().openOutputStream(uri);
+                                 java.io.InputStream in = java.nio.file.Files.newInputStream(staged)) {
+                                if (out == null) return;
+                                byte[] chunk = new byte[64 * 1024];
+                                int n;
+                                while ((n = in.read(chunk)) > 0) out.write(chunk, 0, n);
+                            }
+                            java.nio.file.Files.deleteIfExists(staged);
+                        } catch (Throwable error) {
+                            dev.t1m3.qplayer.util.Logger.warn(
+                                    "write saved audio failed: {}", error.toString());
+                        }
+                    }, "qplayer-audio-save").start();
+                });
+            } catch (Throwable error) {
+                pendingAudioUri = null;
+                pendingAudioStage = null;
+                writer.accept("", ignored -> { });
+                dev.t1m3.qplayer.util.Logger.warn(
+                        "stage saved audio failed: {}", error.toString());
+            }
             return;
         }
         if (requestCode == REQ_PLUGIN_PICK) {

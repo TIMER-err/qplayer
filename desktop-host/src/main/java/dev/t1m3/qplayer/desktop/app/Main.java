@@ -259,6 +259,8 @@ public final class Main {
                         controller.setPlaylistCover(playlistKey, selected))));
         controller.setPluginPicker(() -> DesktopFilePicker.pickPlugin(
                 controller::inspectPluginPackage));
+        controller.setFileSavePicker((suggested, mime, writer) ->
+                DesktopFilePicker.saveAudio(suggested, path -> writer.accept(path, ignored -> { })));
         settings.setFontPicker(() -> DesktopFilePicker.pickFont(selected -> {
             byte[] bytes;
             try {

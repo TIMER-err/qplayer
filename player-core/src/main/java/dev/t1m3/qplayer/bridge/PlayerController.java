@@ -229,6 +229,7 @@ public final class PlayerController {
     private final PluginCatalogService pluginCatalog = new PluginCatalogService(pluginVerifier);
     private final PluginSetupState pluginSetupState = new PluginSetupState();
     private volatile PluginPicker pluginPicker;
+    private volatile FileSavePicker fileSavePicker;
     private volatile VerifiedPluginPackage pendingPluginPackage;
     private volatile boolean pendingPluginPackageTemporary;
 
@@ -1363,6 +1364,10 @@ public final class PlayerController {
                 sink.accept(text);
                 return CompletableFuture.completedFuture(Boolean.TRUE);
             }
+            case "files.save":
+                return pluginSaveFile(pluginId, args);
+            case "files.downloadCurrent":
+                return pluginDownloadCurrent();
             case "webAuth.runScript":
                 return runWebAuthScript(pluginId, args);
             default:
@@ -1451,6 +1456,358 @@ public final class PlayerController {
         String value = raw == null ? "" : String.valueOf(raw);
         if (value.length() > limit) throw new IllegalArgumentException("plugin text is too long");
         return value;
+    }
+
+
+    private CompletableFuture<Object> pluginSaveFile(String pluginId, Map<String, Object> args) {
+        String url = pluginText(args.get("url"), 16 * 1024);
+        if (url.isEmpty() || !pluginHostApi.allowsReturnedUrl(pluginId, url)) {
+            return failedPluginCall("download URL is outside the plugin network grant");
+        }
+        String filename = sanitizeDownloadName(pluginText(args.get("filename"), 180));
+        String mimeType = pluginText(args.get("mimeType"), 128);
+        Map<String, String> headers = pluginDownloadHeaders(args.get("headers"));
+        FileSavePicker picker = fileSavePicker;
+        if (picker == null) return failedPluginCall("save dialog is unavailable");
+        CompletableFuture<Object> future = new CompletableFuture<>();
+        onMain(() -> picker.save(filename, mimeType, (path, done) -> {
+            if (path == null || path.trim().isEmpty()) {
+                if (done != null) done.accept(Boolean.FALSE);
+                future.complete(Boolean.FALSE);
+                return;
+            }
+            pluginHostApi.downloadReturnedFile(pluginId, url, headers,
+                            java.nio.file.Paths.get(path), 1024L * 1024L * 1024L, 120_000)
+                    .whenComplete((ok, error) -> {
+                        boolean success = error == null && Boolean.TRUE.equals(ok);
+                        if (done != null) done.accept(success);
+                        if (error != null) future.completeExceptionally(error);
+                        else future.complete(success);
+                    });
+        }));
+        return future;
+    }
+
+    private static Map<String, String> pluginDownloadHeaders(Object raw) {
+        if (!(raw instanceof Map)) return java.util.Collections.emptyMap();
+        Map<?, ?> source = (Map<?, ?>) raw;
+        Map<String, String> headers = new LinkedHashMap<>();
+        int n = 0;
+        for (Map.Entry<?, ?> entry : source.entrySet()) {
+            if (n++ >= 64) break;
+            String key = String.valueOf(entry.getKey());
+            String value = entry.getValue() == null ? "" : String.valueOf(entry.getValue());
+            if (key.isEmpty() || value.indexOf('\n') >= 0 || value.indexOf('\r') >= 0) continue;
+            if (value.length() > 8192) continue;
+            headers.put(key, value);
+        }
+        return headers;
+    }
+
+    static String sanitizeDownloadName(String raw) {
+        String value = raw == null ? "" : raw.trim();
+        StringBuilder out = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c < 32 || c == '/' || c == '\\' || c == ':' || c == '*'
+                    || c == '?' || c == '"' || c == '<' || c == '>' || c == '|') {
+                out.append(' ');
+            } else {
+                out.append(c);
+            }
+        }
+        value = out.toString().replaceAll("\\s+", " ").trim();
+        if (value.isEmpty() || value.equals(".") || value.equals("..")) value = "audio";
+        if (value.length() > 180) value = value.substring(0, 180).trim();
+        return value;
+    }
+
+    static String suggestedAudioName(String title, String artist, String url, String mimeType) {
+        String name = title == null || title.trim().isEmpty() ? "audio" : title.trim();
+        if (artist != null && !artist.trim().isEmpty()) name = name + " - " + artist.trim();
+        name = sanitizeDownloadName(name);
+        String ext = audioExtension(url, mimeType);
+        if (!name.toLowerCase(java.util.Locale.ROOT).endsWith(ext)) name = name + ext;
+        return name;
+    }
+
+    /** Tokens accepted by {@code resolveStream} quality. Unknown values fall back
+     *  to the current playback level, then to 320 kbps. */
+    static String sanitizeDownloadQuality(String raw, String fallback) {
+        String value = raw == null ? "" : raw.trim().toLowerCase(java.util.Locale.ROOT);
+        if (isDownloadQuality(value)) return value;
+        String next = fallback == null ? "" : fallback.trim().toLowerCase(java.util.Locale.ROOT);
+        return isDownloadQuality(next) ? next : "exhigh";
+    }
+
+    private static boolean isDownloadQuality(String value) {
+        return "standard".equals(value) || "higher".equals(value) || "exhigh".equals(value)
+                || "lossless".equals(value) || "hires".equals(value);
+    }
+
+    static String audioExtension(String url, String mimeType) {
+        String mime = mimeType == null ? "" : mimeType.toLowerCase(java.util.Locale.ROOT);
+        if (mime.contains("flac")) return ".flac";
+        if (mime.contains("mp4") || mime.contains("m4a") || mime.contains("aac")) return ".m4a";
+        if (mime.contains("ogg")) return ".ogg";
+        String lower = url == null ? "" : url.toLowerCase(java.util.Locale.ROOT);
+        int q = lower.indexOf('?');
+        if (q >= 0) lower = lower.substring(0, q);
+        if (lower.endsWith(".flac")) return ".flac";
+        if (lower.endsWith(".m4a") || lower.endsWith(".mp4")) return ".m4a";
+        if (lower.endsWith(".ogg")) return ".ogg";
+        return ".mp3";
+    }
+
+    private CompletableFuture<Object> pluginDownloadCurrent() {
+        return onMainResult(() -> {
+            Track current = currentTrack();
+            if (current == null || current.canonicalId() == null || current.canonicalId().isEmpty()) {
+                throw new IllegalStateException("no song is playing");
+            }
+            requestDownloadQuality(current.canonicalId());
+            return Boolean.TRUE;
+        });
+    }
+
+    public final Property<Boolean> downloadQualityOpen = new Property<>(false);
+    public final Property<String> downloadQualityMediaId = new Property<>("");
+    public final Property<String> downloadQualityTitle = new Property<>("");
+
+    /** Open the host quality sheet. qml4j drops JS closures on Menu subItems, so
+     *  the picker cannot live in the context-menu model. */
+    public void requestDownloadQuality(String mediaId) {
+        if (mediaId == null || mediaId.isEmpty()) return;
+        FileSavePicker picker = fileSavePicker;
+        if (picker == null) {
+            showToast(I18n.tr("toast.download.unsupported"));
+            return;
+        }
+        Track track = findTrackForMedia(mediaId);
+        if (track != null && track.source == Track.Source.LOCAL) {
+            String local = track.filePath != null && !track.filePath.isEmpty()
+                    ? track.filePath : track.contentUri;
+            if (local == null || local.isEmpty()) {
+                showToast(I18n.tr("toast.download.staleSong"));
+                return;
+            }
+            saveLocalAudioCopy(picker, track, local);
+            return;
+        }
+        String title = track != null && track.title != null && !track.title.isEmpty()
+                ? track.title : mediaId;
+        downloadQualityMediaId.set(mediaId);
+        downloadQualityTitle.set(title);
+        downloadQualityOpen.set(true);
+    }
+
+    public void confirmDownloadQuality(String quality) {
+        String mediaId = downloadQualityMediaId.peek();
+        cancelDownloadQuality();
+        downloadMediaSongAtQuality(mediaId, quality);
+    }
+
+    public void cancelDownloadQuality() {
+        downloadQualityOpen.set(false);
+        downloadQualityMediaId.set("");
+        downloadQualityTitle.set("");
+    }
+
+    /** Right-click Download: show the quality sheet, then resolve the same stream
+     *  path playback uses. */
+    public void downloadMediaSong(String mediaId) {
+        requestDownloadQuality(mediaId);
+    }
+
+    /** Distinct from {@link #downloadMediaSong(String)} so QML can pass a quality
+     *  token without relying on Java overload resolution. */
+    public void downloadMediaSongAtQuality(String mediaId, String quality) {
+        if (mediaId == null || mediaId.isEmpty()) return;
+        FileSavePicker picker = fileSavePicker;
+        if (picker == null) {
+            showToast(I18n.tr("toast.download.unsupported"));
+            return;
+        }
+        final MediaId id;
+        try { id = MediaId.parse(mediaId).requireKind(dev.t1m3.qplayer.media.MediaKind.SONG); }
+        catch (IllegalArgumentException error) {
+            showToast(I18n.tr("toast.id.song"));
+            return;
+        }
+        Track track = findTrackForMedia(mediaId);
+        if ("local".equals(id.provider())) {
+            if (track == null) {
+                showToast(I18n.tr("toast.download.staleSong"));
+                return;
+            }
+        }
+        if (track != null && track.source == Track.Source.LOCAL) {
+            String local = track.filePath != null && !track.filePath.isEmpty()
+                    ? track.filePath : track.contentUri;
+            if (local == null || local.isEmpty()) {
+                showToast(I18n.tr("toast.download.staleSong"));
+                return;
+            }
+            saveLocalAudioCopy(picker, track, local);
+            return;
+        }
+        if (track == null) {
+            track = new Track();
+            track.applyCanonicalId(mediaId);
+            track.source = Track.Source.PLUGIN;
+        }
+        final Track named = track;
+        final String level = sanitizeDownloadQuality(quality, playLevel);
+        Logger.info("download {} quality={}", mediaId, level);
+        showToast(I18n.tr("toast.download.started"));
+        pluginProviders.resolveStream(id, level).whenComplete((stream, error) -> {
+            if (error != null || stream == null || stream.url == null || stream.url.isEmpty()) {
+                post(() -> showToast(I18n.tr("toast.download.failed",
+                        error != null ? safeMessage(error) : I18n.tr("toast.download.noStream"))));
+                return;
+            }
+            if (stream.trial) {
+                post(() -> showToast(I18n.tr("toast.download.trialOnly")));
+                return;
+            }
+            post(() -> saveRemoteAudio(picker, id, named, stream.url,
+                    stream.headers, stream.mimeType));
+        });
+    }
+
+    /** Copy a local library file through the same save dialog as plugin downloads. */
+    public void downloadLocalFile(String filePath) {
+        if (filePath == null || filePath.isEmpty()) return;
+        FileSavePicker picker = fileSavePicker;
+        if (picker == null) {
+            showToast(I18n.tr("toast.download.unsupported"));
+            return;
+        }
+        java.nio.file.Path source = java.nio.file.Paths.get(filePath);
+        if (!java.nio.file.Files.isRegularFile(source)) {
+            showToast(I18n.tr("toast.download.staleSong"));
+            return;
+        }
+        Track track = new Track();
+        track.title = source.getFileName().toString();
+        saveLocalAudioCopy(picker, track, filePath);
+    }
+
+    private void saveLocalAudioCopy(FileSavePicker picker, Track track, String cached) {
+        String suggested = suggestedAudioName(track.title, track.artist, cached, "");
+        picker.save(suggested, "audio/*", (path, done) -> {
+            if (path == null || path.trim().isEmpty()) {
+                if (done != null) done.accept(Boolean.FALSE);
+                return;
+            }
+            boolean ok = false;
+            try {
+                java.nio.file.Files.copy(java.nio.file.Paths.get(cached),
+                        java.nio.file.Paths.get(path),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                ok = true;
+                showToast(I18n.tr("toast.download.done"));
+            } catch (Exception error) {
+                showToast(I18n.tr("toast.download.failed", safeMessage(error)));
+            }
+            if (done != null) done.accept(ok);
+        });
+    }
+
+    private void saveRemoteAudio(FileSavePicker picker, MediaId id, Track track,
+                                 String url, Map<String, String> headers, String mimeType) {
+        String suggested = suggestedAudioName(track.title, track.artist, url, mimeType);
+        String mime = mimeType == null || mimeType.isEmpty() ? "audio/*" : mimeType;
+        picker.save(suggested, mime, (path, done) -> {
+            if (path == null || path.trim().isEmpty()) {
+                if (done != null) done.accept(Boolean.FALSE);
+                return;
+            }
+            pluginHostApi.downloadReturnedFile(id.provider(), url, headers,
+                            java.nio.file.Paths.get(path), 1024L * 1024L * 1024L, 120_000,
+                            true)
+                    .whenComplete((ok, fail) -> {
+                        boolean success = fail == null && Boolean.TRUE.equals(ok);
+                        if (success) {
+                            embedDownloadTags(id, track, path);
+                            post(() -> {
+                                if (done != null) done.accept(true);
+                                showToast(I18n.tr("toast.download.done"));
+                            });
+                            return;
+                        }
+                        post(() -> {
+                            if (done != null) done.accept(false);
+                            showToast(I18n.tr("toast.download.failed",
+                                    fail != null ? safeMessage(fail)
+                                            : I18n.tr("toast.download.noStream")));
+                        });
+                    });
+        });
+    }
+
+    private void embedDownloadTags(MediaId id, Track track, String path) {
+        try {
+            byte[] cover = loadCoverBytesForDownload(id, track);
+            String lyrics = loadLyricTextForDownload(id);
+            metadataReader.writeTags(path,
+                    track.title != null ? track.title : "",
+                    track.artist != null ? track.artist : "",
+                    track.album != null ? track.album : "",
+                    cover, lyrics);
+        } catch (Throwable error) {
+            Logger.warn("download tags failed for {}: {}", path, safeMessage(error));
+        }
+    }
+
+    private byte[] loadCoverBytesForDownload(MediaId id, Track track) {
+        if (track.coverBytes != null && track.coverBytes.length > 0) return track.coverBytes;
+        String url = track.coverUrl;
+        if (url == null || url.isEmpty()) return null;
+        String sized = trackCoverUrl(track, "1024");
+        String cached = diskCache.getImage(sized);
+        if (cached != null) {
+            byte[] data = readBytesFromFile(cached);
+            if (data != null && data.length > 0) return data;
+        }
+        try {
+            byte[] data = pluginHostApi.fetchReturnedBytes(id.provider(), sized,
+                    java.util.Collections.emptyMap(), 16L * 1024L * 1024L, 8_000)
+                    .get(12, java.util.concurrent.TimeUnit.SECONDS);
+            if (data != null && data.length > 0) {
+                String imgPath = diskCache.imagePath(sized);
+                if (imgPath != null) writeBytesToFile(data, imgPath);
+                return data;
+            }
+        } catch (Throwable error) {
+            Logger.warn("download cover fetch failed: {}", safeMessage(error));
+        }
+        return null;
+    }
+
+    private String loadLyricTextForDownload(MediaId id) {
+        if (!pluginHasCapability(id.provider(), ProviderCapability.LYRICS)) return "";
+        try {
+            dev.t1m3.qplayer.media.LyricsPayload payload = pluginProviders.lyrics(id)
+                    .get(12, java.util.concurrent.TimeUnit.SECONDS);
+            return lyricText(payload);
+        } catch (Throwable error) {
+            Logger.warn("download lyric fetch failed: {}", safeMessage(error));
+            return "";
+        }
+    }
+
+    static String lyricText(dev.t1m3.qplayer.media.LyricsPayload payload) {
+        if (payload == null || payload.assets == null) return "";
+        String original = "";
+        String fallback = "";
+        for (dev.t1m3.qplayer.media.LyricsPayload.Asset asset : payload.assets) {
+            if (asset == null || asset.text == null || asset.text.isEmpty()) continue;
+            String role = asset.role == null ? "original" : asset.role;
+            if ("original".equals(role) && original.isEmpty()) original = asset.text;
+            else if (fallback.isEmpty()) fallback = asset.text;
+        }
+        return original.isEmpty() ? fallback : original;
     }
 
     private CompletableFuture<Object> runWebAuthScript(String pluginId,
@@ -1936,6 +2293,16 @@ public final class PlayerController {
     public interface PluginPicker { void pick(); }
 
     public void setPluginPicker(PluginPicker picker) { this.pluginPicker = picker; }
+
+    /** Host-owned save dialog. The plugin never sees a filesystem path. */
+    @FunctionalInterface
+    public interface FileSavePicker {
+        void save(String suggestedFileName, String mimeType,
+                  java.util.function.BiConsumer<String, java.util.function.Consumer<Boolean>> writer);
+    }
+
+    public void setFileSavePicker(FileSavePicker picker) { this.fileSavePicker = picker; }
+
 
     // --- Plugin dialogs -----------------------------------------------------
     // A plugin contributes no QML. It returns a validated description from its
@@ -6155,7 +6522,7 @@ public final class PlayerController {
         String path = diskCache.audioPath(mediaId);
         pluginHostApi.downloadReturnedFile(id.provider(), track.streamUrl,
                         track.streamHeaders, java.nio.file.Paths.get(path),
-                        1024L * 1024L * 1024L, 120_000)
+                        1024L * 1024L * 1024L, 120_000, true)
                 .whenComplete((success, error) -> {
                     if (error == null && Boolean.TRUE.equals(success)) {
                         if (active) diskCache.markActivelyCached(mediaId);
@@ -6175,9 +6542,8 @@ public final class PlayerController {
     public void cacheMediaSong(String mediaId) {
         if (mediaId == null || mediaId.isEmpty()) return;
         if (diskCache.hasAudio(mediaId)) { showToast(I18n.tr("toast.cache.already")); return; }
-        Song song = findPluginSong(mediaId);
-        if (song == null) { showToast(I18n.tr("toast.cache.staleSong")); return; }
-        Track track = toTrackPlugin(song);
+        Track track = findTrackForMedia(mediaId);
+        if (track == null) { showToast(I18n.tr("toast.cache.staleSong")); return; }
         final MediaId id;
         try { id = MediaId.parse(mediaId).requireKind(dev.t1m3.qplayer.media.MediaKind.SONG); }
         catch (IllegalArgumentException error) { showToast(I18n.tr("toast.id.song")); return; }

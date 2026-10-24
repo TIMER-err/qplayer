@@ -230,13 +230,25 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
     }
 
     /** Stream a provider-returned asset into a host-selected cache path without
-     * exposing filesystem access to JavaScript. Every redirect is checked against
-     * the provider grant and a pending sibling is atomically promoted only after a
-     * complete bounded download. */
+     * exposing filesystem access to JavaScript. A pending sibling is atomically
+     * promoted only after a complete bounded download.
+     *
+     * <p>{@code followPlaybackRedirects} matches the media stack: the initial URL
+     * still needs the plugin grant, but CDN hops after that are not re-checked
+     * against {@code networkDomains}. Artwork, {@code http.request}, and
+     * {@code files.save} keep checking every hop. */
     public CompletableFuture<Boolean> downloadReturnedFile(String pluginId, String url,
                                                             Map<String, String> headers,
                                                             Path target, long maxBytes,
                                                             int timeoutMs) {
+        return downloadReturnedFile(pluginId, url, headers, target, maxBytes, timeoutMs, false);
+    }
+
+    public CompletableFuture<Boolean> downloadReturnedFile(String pluginId, String url,
+                                                            Map<String, String> headers,
+                                                            Path target, long maxBytes,
+                                                            int timeoutMs,
+                                                            boolean followPlaybackRedirects) {
         PluginManifest manifest = policies.get(pluginId);
         if (manifest == null) return failed(new SecurityException("plugin is not active"));
         if (target == null) return failed(new IllegalArgumentException("target is null"));
@@ -246,7 +258,8 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
                 ? new LinkedHashMap<>(headers) : Collections.<String, String>emptyMap();
         return CompletableFuture.supplyAsync(() -> {
             try {
-                downloadFile(manifest, url, safeHeaders, target, limit, timeout);
+                downloadFile(manifest, url, safeHeaders, target, limit, timeout,
+                        followPlaybackRedirects);
                 return Boolean.TRUE;
             } catch (IOException error) {
                 throw new CompletionException(error);
@@ -325,6 +338,7 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
         if (method.startsWith("notifications.")) return PluginPermission.NOTIFICATIONS;
         if (method.startsWith("clipboard.")) return PluginPermission.CLIPBOARD;
         if (method.startsWith("webAuth.")) return PluginPermission.WEB_AUTH;
+        if (method.startsWith("files.")) return PluginPermission.FILES_SAVE;
         return null;
     }
 
@@ -587,7 +601,8 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
 
     private void downloadFile(PluginManifest manifest, String initial,
                               Map<String, String> headers, Path target,
-                              long limit, int timeout) throws IOException {
+                              long limit, int timeout,
+                              boolean followPlaybackRedirects) throws IOException {
         String current = initial;
         Path normalized = target.toAbsolutePath().normalize();
         Path parent = normalized.getParent();
@@ -596,7 +611,8 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
         Path pending = StorageFiles.pendingPath(normalized);
         try {
             for (int redirect = 0; redirect <= MAX_REDIRECTS; redirect++) {
-                URL url = validateNetworkUrl(manifest, current);
+                boolean enforceDomain = !followPlaybackRedirects || redirect == 0;
+                URL url = validateNetworkUrl(manifest, current, enforceDomain);
                 HttpURLConnection connection = (HttpURLConnection) url.openConnection();
                 connection.setInstanceFollowRedirects(false);
                 connection.setRequestMethod("GET");
@@ -662,6 +678,11 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
     }
 
     private static URL validateNetworkUrl(PluginManifest manifest, String raw) throws IOException {
+        return validateNetworkUrl(manifest, raw, true);
+    }
+
+    private static URL validateNetworkUrl(PluginManifest manifest, String raw,
+                                          boolean enforceDomainGrant) throws IOException {
         if (raw == null || raw.isEmpty() || raw.length() > MAX_URL_CHARS) {
             throw new IOException("invalid plugin URL length");
         }
@@ -677,18 +698,20 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
                 && !manifest.permissionSet().contains(PluginPermission.CLEAR_TEXT_NETWORK)) {
             throw new SecurityException("clear-text HTTP permission was not granted");
         }
-        String normalized = host.toLowerCase(Locale.ROOT);
-        boolean allowed = false;
-        for (String declared : manifest.networkDomains) {
-            String domain = declared.toLowerCase(Locale.ROOT);
-            if (domain.startsWith("*.")) {
-                String suffix = domain.substring(1);
-                if (normalized.endsWith(suffix) && normalized.length() > suffix.length()) allowed = true;
-            } else if (normalized.equals(domain)) {
-                allowed = true;
+        if (enforceDomainGrant) {
+            String normalized = host.toLowerCase(Locale.ROOT);
+            boolean allowed = false;
+            for (String declared : manifest.networkDomains) {
+                String domain = declared.toLowerCase(Locale.ROOT);
+                if (domain.startsWith("*.")) {
+                    String suffix = domain.substring(1);
+                    if (normalized.endsWith(suffix) && normalized.length() > suffix.length()) allowed = true;
+                } else if (normalized.equals(domain)) {
+                    allowed = true;
+                }
             }
+            if (!allowed) throw new SecurityException("network domain is not declared: " + host);
         }
-        if (!allowed) throw new SecurityException("network domain is not declared: " + host);
         // Screen the declared host's addresses so a plugin cannot aim a permitted
         // name at the loopback/LAN services around it.
         //

@@ -31,6 +31,8 @@ Menu {
                          action: function() { player.playNextLocalFile(s.filePath) } })
             items.push({ text: i18n.t("playlist.local.addTo"), icon: "playlist_add",
                          subItems: menu._localSubItems("local", s.filePath) })
+            items.push({ text: i18n.t("menu.downloadSong"), icon: "download",
+                         action: function() { player.downloadLocalFile(s.filePath) } })
             menu.model = items
             return
         }
@@ -68,7 +70,9 @@ Menu {
             if (menu.inCacheList)
                 items.push({ text: i18n.t("menu.removeCache"), icon: "delete", action: menu._removeMediaCacheAction("" + songId) })
             else
-                items.push({ text: i18n.t("menu.cacheSong"), icon: "download", action: menu._cacheMediaAction("" + songId) })
+                items.push({ text: i18n.t("menu.cacheSong"), icon: "offline_pin", action: menu._cacheMediaAction("" + songId) })
+            items.push({ text: i18n.t("menu.downloadSong"), icon: "download",
+                         action: menu._downloadMediaAction("" + songId) })
             items.push({ text: i18n.t("menu.copyLink"), icon: "link", action: menu._shareMediaAction("" + songId) })
             menu.model = items
             return
@@ -109,8 +113,10 @@ Menu {
         if (menu.inCacheList) {
             items.push({ text: i18n.t("menu.removeCache"), icon: "delete", action: menu._removeCacheAction(songId) })
         } else {
-            items.push({ text: i18n.t("menu.cacheSong"), icon: "download", action: menu._cacheAction(songId) })
+            items.push({ text: i18n.t("menu.cacheSong"), icon: "offline_pin", action: menu._cacheAction(songId) })
         }
+        items.push({ text: i18n.t("menu.downloadSong"), icon: "download",
+                     action: menu._downloadMediaAction("netease:song:" + songId) })
         // The source plugin owns share-link generation.
         items.push({ text: i18n.t("menu.copyLink"), icon: "link", action: menu._copyAction(songId) })
         menu.model = items
@@ -200,6 +206,9 @@ Menu {
     }
     function _cacheMediaAction(mediaId) {
         return function() { player.cacheMediaSong(mediaId) }
+    }
+    function _downloadMediaAction(mediaId) {
+        return function() { player.requestDownloadQuality(mediaId) }
     }
     function _removeMediaCacheAction(mediaId) {
         return function() { player.removeMediaCache(mediaId) }

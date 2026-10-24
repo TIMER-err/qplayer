@@ -13,4 +13,8 @@ import dev.t1m3.qplayer.model.Track;
 public interface MetadataReader {
 
     void read(Track track);
+
+    /** Best-effort write of tags onto a just-downloaded audio file. */
+    default void writeTags(String path, String title, String artist, String album,
+                           byte[] cover, String lyrics) {}
 }

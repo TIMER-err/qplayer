@@ -9,6 +9,7 @@ import org.jaudiotagger.audio.AudioHeader;
 import org.jaudiotagger.tag.FieldKey;
 import org.jaudiotagger.tag.Tag;
 import org.jaudiotagger.tag.images.Artwork;
+import org.jaudiotagger.tag.images.ArtworkFactory;
 
 import java.io.File;
 import java.util.logging.Level;
@@ -51,6 +52,49 @@ public final class DesktopMetadataReader implements MetadataReader {
             // Unknown/odd formats (e.g. bare .wav) throw — keep filename defaults.
             Logger.warn("DesktopMetadataReader: {} — {}", track.filePath, e.getMessage());
         }
+    }
+
+    @Override
+    public void writeTags(String path, String title, String artist, String album,
+                          byte[] cover, String lyrics) {
+        if (path == null || path.isEmpty()) return;
+        try {
+            File file = new File(path);
+            AudioFile af = AudioFileIO.read(file);
+            Tag tag = af.getTagOrCreateAndSetDefault();
+            setTag(tag, FieldKey.TITLE, title);
+            setTag(tag, FieldKey.ARTIST, artist);
+            setTag(tag, FieldKey.ALBUM, album);
+            if (lyrics != null && !lyrics.isEmpty()) setTag(tag, FieldKey.LYRICS, lyrics);
+            if (cover != null && cover.length > 0) {
+                try {
+                    tag.deleteArtworkField();
+                    Artwork art = ArtworkFactory.getNew();
+                    art.setBinaryData(cover);
+                    art.setMimeType(coverMime(cover));
+                    tag.setField(art);
+                } catch (Throwable error) {
+                    Logger.warn("DesktopMetadataReader cover write: {} — {}", path, error.getMessage());
+                }
+            }
+            af.commit();
+        } catch (Throwable e) {
+            Logger.warn("DesktopMetadataReader write: {} — {}", path, e.getMessage());
+        }
+    }
+
+    private static void setTag(Tag tag, FieldKey key, String value) {
+        if (value == null || value.isEmpty()) return;
+        try {
+            tag.setField(key, value);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static String coverMime(byte[] cover) {
+        if (cover.length >= 3 && cover[0] == (byte) 0xFF && cover[1] == (byte) 0xD8) return "image/jpeg";
+        if (cover.length >= 8 && cover[0] == (byte) 0x89 && cover[1] == 0x50) return "image/png";
+        return "image/jpeg";
     }
 
     private static String safeTag(Tag tag, FieldKey key) {

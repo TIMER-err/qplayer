@@ -167,6 +167,8 @@ Calls are asynchronous: `qplayer.call(method, arguments)` returns a Promise.
 | `queue.replace` | `queueWrite` | validates plugin Song DTOs before replacing the queue |
 | `notifications.toast` | `notifications` | host Snackbar/Toast, including over the lyric page |
 | `clipboard.write` | `clipboard` | platform clipboard |
+| `files.downloadCurrent` | `files.save` | open the host quality sheet for the currently playing song, then download it through the save dialog. Uses that source's `resolveStream` (the same path playback uses). CDN hops after the initial granted URL are followed; cover and lyrics are written into the saved file when the host can |
+| `files.save` | `files.save` | host save dialog, then download `{url, headers, filename, mimeType}` into the user-picked path. The plugin never sees a filesystem path; the URL and every redirect must sit inside the plugin network grant |
 | `webAuth.runScript` | `webAuth` | opens an allowlisted HTTPS origin in the platform system WebView, runs up to 256 KiB of plugin JavaScript, and returns the string passed to `qplayerWebAuthDone(value)` (up to 64 KiB); arguments: `originUrl`, `script` |
 
 `http.request` negotiates `Accept-Encoding: gzip` on the plugin's behalf and hands
@@ -179,9 +181,12 @@ playlist, a list's worth of cover art — pays for one handshake instead of one 
 call.
 
 Network URLs returned for playback and artwork are checked again by the host.
-Host-fetched artwork and cached audio enforce the policy on every redirect. A
-platform playback backend validates the initial stream URL; redirects performed
-inside the platform media stack are subject to that platform's networking model.
+Host-fetched artwork and `files.save` enforce the policy on every redirect.
+Cached audio and explicit song downloads match playback: the initial stream URL
+must sit inside the plugin grant, then CDN hops are followed without a second
+`networkDomains` check. A platform playback backend validates the initial stream
+URL; redirects performed inside the platform media stack are subject to that
+platform's networking model.
 
 ## Login and credentials
 
