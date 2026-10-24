@@ -19,6 +19,44 @@ public class TemperaTextContrastTest {
     private static final int HEIGHT = 160;
 
     @Test
+    public void invertedHanLyricRemainsVisible() throws Exception {
+        try (Surface surface = Surface.makeRasterN32Premul(WIDTH, HEIGHT)) {
+            Canvas canvas = surface.getCanvas();
+            canvas.clear(0xFF5C8A96);
+            TemperaTextView.View glyph = new TemperaTextView.View();
+            glyph.charText = "裂";
+            glyph.fontWeight = 600;
+            glyph.fontSize = 96;
+            glyph.baseX = WIDTH / 2f;
+            glyph.baseY = HEIGHT / 2f;
+            glyph.displayColor = "#111111";
+            glyph.motion.startTime = 0;
+            glyph.motion.settleTime = 0.5;
+            glyph.motion.endTime = 10;
+            glyph.motion.releaseTime = 12;
+            glyph.motion.enterScale = 1;
+            TemperaTextView.paint(canvas, List.of(glyph), 2, 0, 0, true, true);
+            try (Image image = surface.makeImageSnapshot()) {
+                ByteBuffer pixels = image.peekPixels();
+                assertNotNull(pixels);
+                int contrasted = 0;
+                while (pixels.remaining() >= 4) {
+                    int b = pixels.get() & 255;
+                    int g = pixels.get() & 255;
+                    int r = pixels.get() & 255;
+                    pixels.get();
+                    if ((Math.abs(r - 0x5C) + Math.abs(g - 0x8A) + Math.abs(b - 0x96)) / 3 > 40) contrasted++;
+                }
+                assertTrue("readable Han pixels = " + contrasted, contrasted > 250);
+            }
+        } finally {
+            TemperaTextView.dispose();
+            TemperaMeasure.dispose();
+            TemperaFonts.dispose();
+        }
+    }
+
+    @Test
     public void invertedTextRemainsVisibleOnDarkAndLightArtworkInEitherTheme() throws Exception {
         Path output = Path.of("target", "tempera-contrast");
         Files.createDirectories(output);
