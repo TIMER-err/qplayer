@@ -2,9 +2,13 @@ package dev.t1m3.qplayer.lyric.tempera;
 
 import io.github.humbleui.skija.BlendMode;
 import io.github.humbleui.skija.Canvas;
+import io.github.humbleui.skija.ColorFilter;
+import io.github.humbleui.skija.ColorMatrix;
 import io.github.humbleui.skija.Font;
 import io.github.humbleui.skija.FontMetrics;
+import io.github.humbleui.skija.ImageFilter;
 import io.github.humbleui.skija.Paint;
+import io.github.humbleui.skija.SaveLayerRec;
 import io.github.humbleui.skija.TextLine;
 
 import java.util.ArrayList;
@@ -116,7 +120,10 @@ public final class TemperaTextView {
      * 原生对象继续画，直接崩在 Skia 里。
      */
     private static Paint sharedPaint;
-    private static Paint inversionPaint;
+    /** Backdrop invert. BlendMode.DIFFERENCE is dropped by some Windows GL drivers, taking the glyphs with it. */
+    private static ColorFilter inversionFilter;
+    private static ImageFilter inversionBackdrop;
+    private static Paint inversionMask;
 
     private static Paint paint() {
         if (sharedPaint == null) sharedPaint = new Paint().setAntiAlias(true);
@@ -153,9 +160,17 @@ public final class TemperaTextView {
     public static void dispose() {
         LINES.values().forEach(TextLine::close);
         LINES.clear();
-        if (inversionPaint != null) {
-            inversionPaint.close();
-            inversionPaint = null;
+        if (inversionBackdrop != null) {
+            inversionBackdrop.close();
+            inversionBackdrop = null;
+        }
+        if (inversionFilter != null) {
+            inversionFilter.close();
+            inversionFilter = null;
+        }
+        if (inversionMask != null) {
+            inversionMask.close();
+            inversionMask = null;
         }
         if (sharedPaint != null) {
             sharedPaint.close();
@@ -164,15 +179,31 @@ public final class TemperaTextView {
     }
 
     /**
-     * 画一个字素（含影子的调用方自行传偏移）。
+     * Opens a layer whose coverage inverts the backdrop.
      *
-     * <p>{@code difference} 为真时用 DIFFERENCE 混合，这是「凝彩」把字从作品里反色出来的那一步。
-     * 差分算的是 {@code |字色 - 背景|}，反色源固定为白色才能得到背景的补色。
-     * 不能使用主题纸色：深色主题的纸色接近黑色，差分几乎保持背景不变，字形就消失了。
+     * <p>White drawn inside (SrcOver) is the mask. Restore pops both layers.
+     * Equivalent to Difference against opaque white, without the advanced blend
+     * some GL drivers discard.
      */
+    private static int saveInversion(Canvas canvas) {
+        if (inversionBackdrop == null) {
+            inversionFilter = ColorFilter.makeMatrix(new ColorMatrix(
+                    -1f, 0f, 0f, 0f, 1f,
+                    0f, -1f, 0f, 0f, 1f,
+                    0f, 0f, -1f, 0f, 1f,
+                    0f, 0f, 0f, 1f, 0f));
+            inversionBackdrop = ImageFilter.makeColorFilter(inversionFilter, null);
+            inversionMask = new Paint().setBlendMode(BlendMode.DST_IN).setColor(0xFFFFFFFF);
+        }
+        int layer = canvas.saveLayer(new SaveLayerRec(null, null, inversionBackdrop));
+        canvas.saveLayer(null, inversionMask);
+        return layer;
+    }
+
+    /** 画一个字素（含影子的调用方自行传偏移）。反色由 {@link #saveInversion} 包在外面。 */
     private static void drawGlyph(Canvas canvas, View view, float x, float y,
                                   float rotation, float scaleX, float scaleY,
-                                  float alpha, String color, boolean difference) {
+                                  float alpha, String color) {
         if (alpha <= 0.002f) return;
         Font font = TemperaMeasure.fontFor(view.fontWeight, view.fontSize, view.charText);
         if (font == null) return;
@@ -185,9 +216,9 @@ public final class TemperaTextView {
         canvas.translate(x, y);
         if (rotation != 0f) canvas.rotate((float) Math.toDegrees(rotation));
         if (scaleX != 1f || scaleY != 1f) canvas.scale(scaleX, scaleY);
-        paint().setColor(difference ? 0xFFFFFFFF : TemperaColor.withAlpha(color, 1f));
+        paint().setColor(TemperaColor.withAlpha(color, 1f));
         paint().setAlphaf(alpha);
-        paint().setBlendMode(difference ? BlendMode.DIFFERENCE : BlendMode.SRC_OVER);
+        paint().setBlendMode(BlendMode.SRC_OVER);
         canvas.drawTextLine(line, -width / 2f, baseline, paint());
         canvas.restoreToCount(save);
     }
@@ -203,11 +234,7 @@ public final class TemperaTextView {
         for (int i = 0; i < views.size(); i++) {
             frames[i] = TemperaMotion.resolve(views.get(i).motion, time, motionAmount);
         }
-        int layer = -1;
-        if (inversion) {
-            if (inversionPaint == null) inversionPaint = new Paint().setBlendMode(BlendMode.DIFFERENCE);
-            layer = canvas.saveLayer(null, inversionPaint);
-        }
+        int layer = inversion ? saveInversion(canvas) : -1;
         try {
             if (shadowEnabled) {
                 for (int i = 0; i < views.size(); i++) {
@@ -218,7 +245,7 @@ public final class TemperaTextView {
                             view.baseY + frame.y + view.shadowDY,
                             frame.rotation, frame.scaleX, frame.scaleY,
                             frame.alpha * SHADOW_ALPHA,
-                            inversion ? "#FFFFFF" : view.shadowColor, false);
+                            inversion ? "#FFFFFF" : view.shadowColor);
                 }
             }
             if (echoCount > 0) {
@@ -232,7 +259,7 @@ public final class TemperaTextView {
                                 view.baseX + frame.echoX * depth,
                                 view.baseY + frame.echoY * depth,
                                 frame.rotation, frame.scaleX, frame.scaleY,
-                                frame.echoAlpha / (index + 1.4f), view.echoColor, false);
+                                frame.echoAlpha / (index + 1.4f), view.echoColor);
                     }
                 }
             }
@@ -243,7 +270,7 @@ public final class TemperaTextView {
                 if (view.keyword || !frame.visible) continue;
                 drawGlyph(canvas, view, view.baseX + frame.x, view.baseY + frame.y,
                         frame.rotation, frame.scaleX, frame.scaleY,
-                        frame.alpha, inversion ? "#FFFFFF" : view.displayColor, false);
+                        frame.alpha, inversion ? "#FFFFFF" : view.displayColor);
             }
         } finally {
             if (layer >= 0) canvas.restoreToCount(layer);
@@ -254,7 +281,7 @@ public final class TemperaTextView {
             if (!view.keyword || !frame.visible) continue;
             drawGlyph(canvas, view, view.baseX + frame.x, view.baseY + frame.y,
                     frame.rotation, frame.scaleX, frame.scaleY,
-                    frame.alpha, view.displayColor, false);
+                    frame.alpha, view.displayColor);
         }
     }
 
@@ -297,14 +324,16 @@ public final class TemperaTextView {
         TextLine line = lineFor(font, fragment.charText);
         FontMetrics metrics = font.getMetrics();
         float baseline = -(metrics.getAscent() + metrics.getDescent()) / 2f;
+        int invert = inversion ? saveInversion(canvas) : -1;
         int save = canvas.save();
         canvas.translate(fragment.x * width, fragment.y * height);
         if (fragment.rotation != 0f) canvas.rotate((float) Math.toDegrees(fragment.rotation));
         paint().setColor(inversion ? 0xFFFFFFFF : TemperaColor.withAlpha(palette.ink, 1f));
         paint().setAlphaf(0.42f);
-        paint().setBlendMode(inversion ? BlendMode.DIFFERENCE : BlendMode.SRC_OVER);
+        paint().setBlendMode(BlendMode.SRC_OVER);
         canvas.drawTextLine(line, -line.getWidth() / 2f, baseline, paint());
         canvas.restoreToCount(save);
+        if (invert >= 0) canvas.restoreToCount(invert);
     }
 
     /** 大字号标题（片尾卡/水印级别的整句）。 */
@@ -348,13 +377,15 @@ public final class TemperaTextView {
         }
         FontMetrics metrics = font.getMetrics();
         float baseline = -(metrics.getAscent() + metrics.getDescent()) / 2f;
+        int invert = difference ? saveInversion(canvas) : -1;
         int save = canvas.save();
         canvas.translate(centerX, centerY);
         paint().setColor(difference ? 0xFFFFFFFF : TemperaColor.withAlpha(color, 1f));
         paint().setAlphaf(alpha);
-        paint().setBlendMode(difference ? BlendMode.DIFFERENCE : BlendMode.SRC_OVER);
+        paint().setBlendMode(BlendMode.SRC_OVER);
         canvas.drawTextLine(line, -line.getWidth() / 2f, baseline, paint());
         canvas.restoreToCount(save);
+        if (invert >= 0) canvas.restoreToCount(invert);
         return fontSize;
     }
 }
