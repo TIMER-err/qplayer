@@ -1314,6 +1314,32 @@ public class LyricRenderer {
         return Math.max(3, Math.min(100, n));
     }
 
+    static boolean cloudKeepSungLines(int n, int nearest, int window) {
+        if (n <= 0) return false;
+        int idx = Math.max(0, Math.min(n - 1, nearest));
+        return (n - 1 - idx) < Math.max(1, window);
+    }
+
+    /** Inclusive [from, to] of nearby lines kept on screen in lyric-cloud layout.
+     *  Unused budget past the last (or before the first) line is spent on the
+     *  other side so a large window does not blank already-sung lines when few
+     *  upcoming ones remain. */
+    static int[] cloudVisibleRange(int n, int nearest, int window) {
+        if (n <= 0) return new int[] {0, -1};
+        int clampedNearest = Math.max(0, Math.min(n - 1, nearest));
+        int w = Math.max(1, Math.min(window, n));
+        int half = Math.max(1, w / 2);
+        int from = Math.max(0, clampedNearest - half);
+        int to = Math.min(n - 1, clampedNearest + half);
+        int unused = w - (to - from + 1);
+        if (unused > 0) {
+            from = Math.max(0, from - unused);
+            unused = w - (to - from + 1);
+            if (unused > 0) to = Math.min(n - 1, to + unused);
+        }
+        return new int[] {from, to};
+    }
+
     /** After a line has flown home, fade it out instead of leaving it parked. */
     static float cloudLinger(long positionMs, LyricTimeline.Group group, LyricTimeline.Group next) {
         if (group == null) return 0f;
@@ -1345,9 +1371,14 @@ public class LyricRenderer {
             if (groups.get(g).startMs > positionMs) break;
             nearest = groups.get(g).from;
         }
+        int[] range = cloudVisibleRange(n, nearest, window);
+        int from = range[0];
+        int to = range[1];
         int half = Math.max(1, window / 2);
-        int from = Math.max(0, nearest - half);
-        int to = Math.min(n - 1, nearest + half);
+        // When the configured window is larger than the upcoming remainder,
+        // already-sung lines in the (now backward-expanded) range stay put
+        // instead of linger-fading off the page.
+        boolean keepSung = cloudKeepSungLines(n, nearest, window);
         for (int i = from; i <= to; i++) {
             if (cachedShapedRows == null || cachedShapedRows[i] == null) continue;
             LyricLine line = lines.get(i);
@@ -1361,7 +1392,7 @@ public class LyricRenderer {
 
             int dist = Math.abs(i - nearest);
             float linger = 1f;
-            if (i < nearest && fly <= 0.001f) {
+            if (!keepSung && i < nearest && fly <= 0.001f) {
                 linger = cloudLinger(positionMs, myGroup, nextGroup);
                 if (linger <= 0.02f) continue;
             }

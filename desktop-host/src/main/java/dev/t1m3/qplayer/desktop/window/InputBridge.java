@@ -10,6 +10,9 @@ import dev.t1m3.qplayer.lyric.skia.LyricCompositor;
 import dev.t1m3.qplayer.lyric.skia.LyricConfig;
 
 import org.lwjgl.glfw.GLFW;
+import org.lwjgl.glfw.GLFWDropCallback;
+
+import java.util.Locale;
 
 /**
  * Translates GLFW input (fired on the main thread) into qml4j dispatch calls, by
@@ -179,6 +182,46 @@ final class InputBridge {
                 if (v != null && !s.isEmpty()) v.dispatchKey(0, s, true);
             });
         });
+        // Same path as Settings → 从文件导入: a dropped .qplug opens the
+        // install warning, not silent extraction. Paths are copied here —
+        // GLFW only keeps the name pointer valid for this callback.
+        GLFW.glfwSetDropCallback(window, (w, count, names) -> {
+            String[] paths = copyDroppedPaths(count, names);
+            win.postRenderTask(() -> handleDroppedPaths(paths));
+        });
+    }
+
+    static String[] copyDroppedPaths(int count, long names) {
+        if (count <= 0 || names == 0L) return new String[0];
+        String[] paths = new String[count];
+        for (int i = 0; i < count; i++) {
+            paths[i] = GLFWDropCallback.getName(names, i);
+        }
+        return paths;
+    }
+
+    /** First *.qplug in a drop; later files are ignored so one warning dialog
+     *  cannot be stacked by a mixed folder drop. */
+    static String firstDroppedPlugin(String[] paths) {
+        if (paths == null) return null;
+        for (String path : paths) {
+            if (path == null) continue;
+            String trimmed = path.trim();
+            if (trimmed.toLowerCase(Locale.ROOT).endsWith(".qplug")) return trimmed;
+        }
+        return null;
+    }
+
+    private void handleDroppedPaths(String[] paths) {
+        String plugin = firstDroppedPlugin(paths);
+        if (plugin == null) return;
+        PlayerController controller = win.controller();
+        if (controller == null) return;
+        // Lyric / tempera host passes skip the main scene (and PluginDialogs
+        // living there). Close them first so the install warning is visible.
+        if (Boolean.TRUE.equals(controller.lyricsOpen.peek())) controller.setLyricsOpen(false);
+        if (Boolean.TRUE.equals(controller.temperaOpen.peek())) controller.setTemperaOpen(false);
+        controller.inspectPluginPackage(plugin);
     }
 
     private void handleEscape(int action) {

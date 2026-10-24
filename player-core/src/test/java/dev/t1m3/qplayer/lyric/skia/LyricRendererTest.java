@@ -68,6 +68,28 @@ public class LyricRendererTest {
     }
 
     @Test
+    public void cloudWindowSpendsUnusedFutureBudgetOnSungLines() {
+        int[] mid = LyricRenderer.cloudVisibleRange(20, 10, 12);
+        assertEquals(4, mid[0]);
+        assertEquals(16, mid[1]);
+
+        int[] nearEnd = LyricRenderer.cloudVisibleRange(10, 8, 12);
+        assertEquals("window 12 on 10 lines near the end keeps the sung ones", 0, nearEnd[0]);
+        assertEquals(9, nearEnd[1]);
+        assertTrue(LyricRenderer.cloudKeepSungLines(10, 8, 12));
+
+        int[] last = LyricRenderer.cloudVisibleRange(8, 7, 12);
+        assertEquals(0, last[0]);
+        assertEquals(7, last[1]);
+
+        int[] first = LyricRenderer.cloudVisibleRange(20, 0, 12);
+        assertEquals(0, first[0]);
+        assertEquals(11, first[1]);
+        assertFalse("plenty of upcoming lines: sung ones still linger-fade",
+                LyricRenderer.cloudKeepSungLines(20, 0, 12));
+    }
+
+    @Test
     public void glowFollowsTheMeasuredWordAndStaysBoundedOutsideIt() {
         assertEquals(1f, LyricRowRenderer.glowWindow(100f, 0f, 200f, 20f), 0.001f);
         assertTrue(LyricRowRenderer.glowWindow(10f, 0f, 200f, 20f) > 0f);
