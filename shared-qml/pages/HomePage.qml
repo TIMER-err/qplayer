@@ -209,13 +209,16 @@ Item {
             }
 
             Repeater {
-                model: page.visible ? page.sectionCards : null
+                model: page.sectionCards
                 windowStart: page.firstSectionCard
                 windowCount: page.sectionWindow
                 PlaylistCard {
                     objectName: "homeSectionPlaylistCard"
                     playlistId: modelData.id
                     tile: page.tile
+                    textAnimationEnabled: page.visible
+                        && y + height >= homeFlick.scrollOffset
+                        && y <= homeFlick.scrollOffset + homeFlick.height
                     x: page.sectionCardX[index]
                     y: page.sectionCardY[index]
                     name: modelData.name
@@ -237,12 +240,15 @@ Item {
             }
 
             Repeater {
-                model: page.visible ? page.homePlaylists : null
+                model: page.homePlaylists
                 windowStart: page.firstCard
                 windowCount: page.cardWindow
                 PlaylistCard {
                     playlistId: modelData.id
                     tile: page.tile
+                    textAnimationEnabled: page.visible
+                        && y + height >= homeFlick.scrollOffset
+                        && y <= homeFlick.scrollOffset + homeFlick.height
                     x: page.pad + (index % page.cols) * (page.tile + page.gap)
                     y: page.gridTop + Math.floor(index / page.cols) * (page.cardH + page.gap)
                     name: modelData.name
@@ -264,7 +270,7 @@ Item {
             }
 
             Repeater {
-                model: page.visible ? page.homeSongs : null
+                model: page.homeSongs
                 windowStart: page.firstSong
                 windowCount: page.songWindow
                 SongRow {

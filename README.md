@@ -150,7 +150,13 @@ mvn -q -pl player-core -am install
 # 构建 APK(qml4j-core 从 Maven Central 解析)
 cd android-shell && ./gradlew :app:assembleDebug
 # → app/build/outputs/apk/debug/app-debug.apk
+
+# 性能排查使用独立的 perf 包，复用 release 构建配置
+./gradlew :app:assemblePerf
+# → app/build/outputs/apk/perf/app-perf.apk
 ```
+
+只有 `perf` 变体允许 shell 性能采集，正式发布包不因此开启 profiling。首次安装或更新后，等待 `qplayer.lifecycle` 输出 `ready activity=...`，确认权限和插件提示已关闭，再比较相同页面与滚动操作，避免把 QML 编译或弹窗当成滚动耗时。
 
 **桌面**
 

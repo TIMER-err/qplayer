@@ -614,6 +614,7 @@ Rectangle {
                     sourceComponent: Component {
                         LibraryPage {
                             id: libraryPage
+                            visible: app.page === app.libraryPageIndex
                             onOpenPlaylist: {
                                 player.openMediaPlaylist("" + libraryPage.pendingPlaylist.id)
                                 app.replacePage("detail", libraryPage.pendingPlaylist.id)

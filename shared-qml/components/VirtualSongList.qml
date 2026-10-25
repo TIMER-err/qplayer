@@ -348,9 +348,6 @@ Flickable {
                 // Only present on SearchPage.qml's unified list (SearchRow.kindLabel);
                 // every other model shape leaves this "" so no tag renders.
                 tag: modelData.kindLabel || ""
-                lazyLoad: true
-                flickContentY: view.viewportY
-                flickHeight: view.viewportHeight
                 highlighted: view.isLocal && view.highlightCurrent && (view.highlightByFilePath
                     ? (player.currentFilePath !== "" && modelData.filePath === player.currentFilePath)
                     : (player.currentMediaId !== "" && view.rowId(modelData) === player.currentMediaId))

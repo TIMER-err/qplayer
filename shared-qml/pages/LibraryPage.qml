@@ -83,10 +83,20 @@ Item {
             Layout.fillHeight: true
             readonly property bool listView: settings.value("libraryListView") === true
             readonly property real cardSize: settings.value("libraryCardSize") || 200
+            // Reuse visited presentations without building the unused one.
+            property bool gridLoaded: false
+            property bool listLoaded: false
+            function ensureViewLoaded() {
+                if (settings.value("libraryListView") === true) contentArea.listLoaded = true
+                else contentArea.gridLoaded = true
+            }
+            onListViewChanged: ensureViewLoaded()
+            Component.onCompleted: ensureViewLoaded()
 
             PlaylistGrid {
                 id: localGrid
                 anchors.fill: parent
+                pageActive: page.visible
                 // enabled, not just visible: an inactive grid/list still sits at the
                 // same anchors.fill geometry as whichever one IS shown, and qml4j does
                 // not skip an invisible item's children during hit-testing — without
@@ -94,7 +104,7 @@ Item {
                 // opens ITS plain context menu instead of the visible list row's.
                 enabled: visible
                 visible: page.showLocal && !contentArea.listView
-                list: page.showLocal ? player.localPlaylists : null
+                list: page.showLocal && contentArea.gridLoaded ? player.localPlaylists : null
                 minTile: contentArea.cardSize
                 // Same as the local list view — the only order these have.
                 reorderable: true
@@ -114,7 +124,7 @@ Item {
                 anchors.fill: parent
                 enabled: visible
                 visible: page.showLocal && contentArea.listView
-                list: page.showLocal ? player.localPlaylists : null
+                list: page.showLocal && contentArea.listLoaded ? player.localPlaylists : null
                 // The only order a set of local playlists has — no mode to pick.
                 reorderable: true
                 onOpenPlaylist: {
@@ -131,9 +141,10 @@ Item {
             PlaylistGrid {
                 id: grid
                 anchors.fill: parent
+                pageActive: page.visible
                 enabled: visible
                 visible: !page.showLocal && !contentArea.listView && (player.loggedIn || page.hasPlaylists)
-                list: !page.showLocal
+                list: !page.showLocal && contentArea.gridLoaded
                       ? ((player.sourceContentActive || page.hasPlaylists)
                          ? player.sourceMyPlaylists : player.myPlaylists)
                       : null
@@ -159,7 +170,7 @@ Item {
                 anchors.fill: parent
                 enabled: visible
                 visible: !page.showLocal && contentArea.listView && (player.loggedIn || page.hasPlaylists)
-                list: !page.showLocal
+                list: !page.showLocal && contentArea.listLoaded
                       ? ((player.sourceContentActive || page.hasPlaylists)
                          ? player.sourceMyPlaylists : player.myPlaylists)
                       : null

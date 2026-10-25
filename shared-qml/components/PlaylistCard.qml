@@ -33,11 +33,13 @@ Item {
     // reorderable, never at risk of the long-press ambiguity) stays exactly as
     // it was rather than growing a button nobody there asked for.
     property bool showOverflow: false
+    property bool textAnimationEnabled: true
     property real tile: 160
     property bool _menuArmed: false
     onPlaylistIdChanged: {
         card._menuArmed = false
         if (cardMenu && cardMenu.opened) cardMenu.dismissImmediately()
+        if (dragArea && !dragArea._longFired) dragArea.cancelGesture()
     }
     signal clicked()
     signal deleteRequested()
@@ -47,6 +49,8 @@ Item {
     // PlaylistListRow's, but 2D: the grid needs both axes to convert a pointer
     // position into a row/column drop target.
     property bool reorderable: false
+    property var scrollView: null
+    onReorderableChanged: if (!card.reorderable && dragArea) dragArea.cancelGesture()
     property real reorderContentX: 0
     property real reorderContentY: 0
     property real reorderGrabOffsetX: 0
@@ -58,6 +62,11 @@ Item {
     signal reorderPressed()
     signal reorderDragged()
     signal reorderReleased()
+    signal reorderCanceled()
+
+    function cancelReorder() {
+        dragArea.cancelGesture()
+    }
 
     scale: card.dragging ? 1.05 : 1.0
     Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
@@ -143,6 +152,7 @@ Item {
         textColor: Theme.color.onSurfaceColor
         fontSize: card.titleSize
         fontWeight: Font.Medium
+        scrollingEnabled: card.textAnimationEnabled
     }
 
     // Count is kept in a fixed row (including the zero case) so cards do not
@@ -208,11 +218,28 @@ Item {
         property real _lastX: 0
         property real _lastY: 0
         property bool _longFired: false
+        property bool _gestureActive: false
+        property var _pressedPlaylistId: null
+
+        function cancelGesture() {
+            var wasDragging = dragArea._longFired
+            holdTimer.stop()
+            dragArea._gestureActive = false
+            dragArea._longFired = false
+            if (wasDragging) card.reorderCanceled()
+        }
 
         Timer {
             id: holdTimer
             interval: 480
             onTriggered: {
+                if (!dragArea.pressed || !dragArea._gestureActive
+                        || !card.reorderable || !card.enabled
+                        || dragArea._pressedPlaylistId !== card.playlistId
+                        || (card.scrollView && card.scrollView.moving)) {
+                    dragArea.cancelGesture()
+                    return
+                }
                 dragArea._longFired = true
                 card.reorderGrabOffsetX = dragArea._downX
                 card.reorderGrabOffsetY = dragArea._downY
@@ -227,9 +254,12 @@ Item {
             dragArea._lastX = mouse.x
             dragArea._lastY = mouse.y
             dragArea._longFired = false
+            dragArea._gestureActive = true
+            dragArea._pressedPlaylistId = card.playlistId
             holdTimer.restart()
         }
         onPositionChanged: (mouse) => {
+            if (!dragArea.pressed || !dragArea._gestureActive) return
             dragArea._lastX = mouse.x
             dragArea._lastY = mouse.y
             if (dragArea._longFired) {
@@ -241,28 +271,28 @@ Item {
             if (holdTimer.running) {
                 var dx = mouse.x - dragArea._downX
                 var dy = mouse.y - dragArea._downY
-                if (dx * dx + dy * dy > 100) holdTimer.stop()
+                if (dx * dx + dy * dy > 100) {
+                    holdTimer.stop()
+                    dragArea._gestureActive = false
+                }
             }
         }
         onReleased: {
             holdTimer.stop()
-            if (dragArea._longFired) {
+            var wasDragging = dragArea._longFired
+            var validTap = dragArea._gestureActive
+                && dragArea._pressedPlaylistId === card.playlistId
+                && !(card.scrollView && card.scrollView.moving)
+            dragArea._gestureActive = false
+            dragArea._longFired = false
+            if (wasDragging) {
                 card.reorderReleased()
-                dragArea._longFired = false
                 return
             }
-            // A slide that never became a drag is a scroll attempt, not a tap.
-            var dx = dragArea._lastX - dragArea._downX
-            var dy = dragArea._lastY - dragArea._downY
-            if (dx * dx + dy * dy > 100) return
-            card.clicked()
+            if (validTap) card.clicked()
         }
         onCanceled: {
-            holdTimer.stop()
-            if (dragArea._longFired) {
-                card.reorderReleased()
-                dragArea._longFired = false
-            }
+            dragArea.cancelGesture()
         }
     }
 

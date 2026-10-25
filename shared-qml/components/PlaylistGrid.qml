@@ -18,6 +18,12 @@ Flickable {
     objectName: "virtualPlaylistGrid"
 
     property var list
+    property bool pageActive: true
+    onPageActiveChanged: if (!grid.pageActive) grid._cancelDrag()
+    onVisibleChanged: if (!grid.visible) grid._cancelDrag()
+    onEnabledChanged: if (!grid.enabled) grid._cancelDrag()
+    onReorderableChanged: if (!grid.reorderable) grid._cancelDrag()
+    onListChanged: grid._cancelDrag()
     property real gap: 16
     property real pad: width >= 840 ? 28 : 16
     property var pendingPlaylist
@@ -36,6 +42,8 @@ Flickable {
 
     property int _dragFrom: -1
     property int _dropIndex: -1
+    property string _dragPlaylistId: ""
+    property var _dragCard: null
     property real _dragFloatX: 0
     property real _dragFloatY: 0
     property real _dragGrabOffsetX: 0
@@ -52,7 +60,7 @@ Flickable {
     // Watchdog: see VirtualSongList's identical timer — something outside the
     // gesture (an OS screenshot tool, alt-tab, ...) can swallow the mouse-up
     // before onReorderReleased/onCanceled fires, leaving the carried card
-    // stuck until an app restart. Auto-release once no drag activity has
+    // stuck until an app restart. Cancel once no drag activity has
     // landed for a while, since a real drag keeps producing onReorderDragged
     // every frame the finger moves.
     property real _dragLastActivityMs: 0
@@ -61,7 +69,7 @@ Flickable {
         repeat: true
         running: grid._dragFrom >= 0
         onTriggered: {
-            if (Date.now() - grid._dragLastActivityMs > 15000) grid._endDrag()
+            if (Date.now() - grid._dragLastActivityMs > 15000) grid._cancelDrag()
         }
     }
 
@@ -94,14 +102,26 @@ Flickable {
         grid._dropIndex = grid._indexAt(centerX, centerY)
     }
 
+    function _cancelDrag() {
+        var activeCard = grid._dragCard
+        grid._dragCard = null
+        grid._dragFrom = -1
+        grid._dropIndex = -1
+        grid._dragPlaylistId = ""
+        grid._autoScrollStep = 0
+        if (activeCard) activeCard.cancelReorder()
+    }
+
     function _endDrag() {
         var from = grid._dragFrom
         var to = grid._dropIndex
-        grid._dragFrom = -1
-        grid._dropIndex = -1
-        grid._autoScrollStep = 0
-        if (from < 0) return
-        if (to >= 0 && to !== from) {
+        var valid = grid.pageActive && grid.visible && grid.enabled && grid.reorderable
+            && grid.list && from >= 0 && from < grid.list.length
+            && to >= 0 && to < grid.list.length
+            && ("" + grid.list[from].id) === grid._dragPlaylistId
+        grid._cancelDrag()
+        if (!valid) return
+        if (to !== from) {
             grid.moveFrom = from
             grid.moveTo = to
             grid.moveRequested()
@@ -181,8 +201,12 @@ Flickable {
             windowStart: grid.firstCard
             windowCount: grid.cardWindow
             PlaylistCard {
+                id: playlistCard
                 objectName: "virtualPlaylistCard"
                 playlistId: modelData.id
+                scrollView: grid
+                textAnimationEnabled: grid.pageActive && grid.visible
+                    && y + height >= grid.contentY && y <= grid.contentY + grid.height
                 tile: grid.tile
                 // While a drag is live, every card between the lifted slot and the
                 // current drop target renders one slot closer to where it started —
@@ -200,14 +224,18 @@ Flickable {
                     }
                     return index
                 }
-                x: grid._indexToX(_effectiveIndex)
-                y: grid._indexToY(_effectiveIndex)
-                Behavior on x {
-                    enabled: grid._dragFrom >= 0
+                // Recycling changes the base slot immediately; only a real
+                // drag's gap offset animates, as in SongRow.reorderShift.
+                property real _reorderOffsetX: grid._dragFrom < 0 ? 0
+                    : grid._indexToX(_effectiveIndex) - grid._indexToX(index)
+                property real _reorderOffsetY: grid._dragFrom < 0 ? 0
+                    : grid._indexToY(_effectiveIndex) - grid._indexToY(index)
+                x: grid._indexToX(index) + _reorderOffsetX
+                y: grid._indexToY(index) + _reorderOffsetY
+                Behavior on _reorderOffsetX {
                     NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
                 }
-                Behavior on y {
-                    enabled: grid._dragFrom >= 0
+                Behavior on _reorderOffsetY {
                     NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
                 }
                 // The carried card is drawn once, by the floating copy below, so
@@ -233,6 +261,13 @@ Flickable {
                     grid.unsubscribePlaylistRequested()
                 }
                 onReorderPressed: {
+                    if (!grid.pageActive || !grid.visible || !grid.enabled || !grid.reorderable
+                            || grid.moving || !grid.list || index < 0 || index >= grid.list.length) {
+                        playlistCard.cancelReorder()
+                        return
+                    }
+                    grid._dragPlaylistId = "" + modelData.id
+                    grid._dragCard = playlistCard
                     grid._dragFrom = index
                     grid._dropIndex = index
                     grid._dragGrabOffsetX = reorderGrabOffsetX
@@ -250,6 +285,7 @@ Flickable {
                     grid._applyDragTarget(reorderContentX, reorderContentY)
                 }
                 onReorderReleased: grid._endDrag()
+                onReorderCanceled: grid._cancelDrag()
             }
         }
 
@@ -261,6 +297,7 @@ Flickable {
             visible: grid._dragFrom >= 0 && grid._dragRow !== null
             z: 5
             tile: grid.tile
+            textAnimationEnabled: grid.pageActive && grid.visible
             width: grid.tile
             height: grid.cardH
             x: grid._dragFloatX

@@ -82,6 +82,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Queue;
 import java.util.Random;
 import java.util.Set;
@@ -8685,8 +8686,41 @@ public final class PlayerController {
         if (MyPlaylistOrderStore.MODE_CUSTOM.equals(librarySortMode.peek())) {
             merged = applyMyPlaylistOrder(merged);
         }
-        sourceMyPlaylists.set(Collections.unmodifiableList(merged));
+        // Providers return fresh DTOs on every visit. Preserve the live model
+        // when all content is unchanged so virtual delegates keep their covers.
+        if (!samePlaylistRows(sourceMyPlaylists.peek(), merged)) {
+            sourceMyPlaylists.set(Collections.unmodifiableList(merged));
+        }
         playlistCount.set(merged.size());
+    }
+
+    private static boolean samePlaylistRows(List<Playlist> previous, List<Playlist> next) {
+        if (previous == next) return true;
+        if (previous == null || previous.size() != next.size()) return false;
+        for (int i = 0; i < next.size(); i++) {
+            Playlist a = previous.get(i), b = next.get(i);
+            if (a == b) continue;
+            if (a == null || b == null
+                    || !Objects.equals(a.id, b.id)
+                    || !Objects.equals(a.name, b.name)
+                    || !Objects.equals(a.description, b.description)
+                    || !Objects.equals(a.artworkUrl, b.artworkUrl)
+                    || !Objects.equals(a.coverUrl, b.coverUrl)
+                    || !Objects.equals(a.coverThumbPath, b.coverThumbPath)
+                    || !Objects.equals(a.sourceName, b.sourceName)
+                    || a.trackCount != b.trackCount || a.playCount != b.playCount
+                    || a.subscribed != b.subscribed || a.owned != b.owned
+                    || a.mutable != b.mutable || a.deletable != b.deletable
+                    || !Objects.equals(a.songs, b.songs)) {
+                return false;
+            }
+            if (a.owner != b.owner && (a.owner == null || b.owner == null
+                    || !Objects.equals(a.owner.id, b.owner.id)
+                    || !Objects.equals(a.owner.name, b.owner.name))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** Reorders {@code merged} (already grouped by source) against the stored

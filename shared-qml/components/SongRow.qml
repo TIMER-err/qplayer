@@ -8,10 +8,9 @@ import "."
 // marks the playing entry. A pre-cached local-file Image replaces the glyph
 // when a thumbnail is available — zero network overhead while scrolling.
 //
-// Lazy image loading: when `lazyLoad` is true, the cover Image only sets its
-// source when the row is within the Flickable viewport (+/- 3 rows preload).
-// This prevents hundreds of off-screen images from being decoded into memory
-// simultaneously in long playlists.
+// VirtualSongList already bounds live rows to the viewport plus its preload
+// margin. Row covers follow those reused slots directly, without another set of
+// scroll-position bindings and viewport checks on every row.
 Rectangle {
     id: row
 
@@ -81,12 +80,6 @@ Rectangle {
     // Latched when a long-press fired, so the release's click doesn't also play the
     // song; cleared when the menu closes (or on the guarded click).
     property bool _menuArmed: false
-    /** Enable lazy image loading based on viewport position. */
-    property bool lazyLoad: false
-    /** Parent Flickable's contentY (scroll offset). */
-    property real flickContentY: 0
-    /** Parent Flickable's visible height. */
-    property real flickHeight: 0
     // Small "cached, plays offline" badge on the cover's corner. Only meaningful
     // (and only ever true) while the containing list is actually in an offline
     // state — see VirtualSongList.showOfflineBadge — so it stays invisible during
@@ -104,7 +97,6 @@ Rectangle {
         row._menuArmed = false
         if (menuLoader.item && menuLoader.item.opened) menuLoader.item.dismissImmediately()
     }
-    onCoverThumbPathChanged: row._loadTriggered = row._inViewport
     signal activated()
     signal removeRequested()
 
@@ -182,11 +174,8 @@ Rectangle {
             }
         }
 
-        // Cover image with native clipRRect rounding (qml4j Image.radius).
-        // When lazyLoad is on, source is set once when the row enters the viewport
-        // preload zone and never cleared — this avoids re-fetching/re-decoding on
-        // scroll-back while still preventing all-off-screen images from loading
-        // at list creation time.
+        // The virtual window is the preload bound. A reused slot changes directly
+        // from one cover path to the next, never through an empty scroll gate.
         Image {
             id: coverImg
             objectName: "songRowCover"
@@ -194,7 +183,7 @@ Rectangle {
             height: leading.height
             clip: true
             visible: coverImg.source !== ""
-            source: row._stableCover
+            source: row.coverThumbPath
             radius: leading.cornerRadius
             // PreserveAspectCrop is broken on non-square sources in this engine
             // (CLAUDE.md): it scales from the top-left instead of cropping
@@ -538,29 +527,4 @@ Rectangle {
         onClicked: row.likeToggled()
     }
 
-    // Whether this row is within (or near) the Flickable viewport.
-    // Preload margin: 3 rows above/below the visible area.
-    readonly property bool _inViewport: !row.lazyLoad
-        || (row.y >= row.flickContentY - row.height * 3
-            && row.y <= row.flickContentY + row.flickHeight + row.height * 3)
-
-    // Latches to true the first time _inViewport becomes true, so that once
-    // an image starts loading it is never unloaded (avoids re-fetch flicker).
-    property bool _loadTriggered: row._inViewport
-    on_InViewportChanged: { if (row._inViewport) row._loadTriggered = true; }
-    // Keep the last decoded path while a recycled row waits for its next thumb.
-    // Clearing Image.source on every window slide re-decodes and flashes the
-    // placeholder (issue #60).
-    property string _stableCover: ""
-    onCoverThumbPathChanged: row._refreshStableCover()
-    on_LoadTriggeredChanged: row._refreshStableCover()
-    function _refreshStableCover() {
-        if (row.coverThumbPath === "") {
-            row._stableCover = ""
-            return
-        }
-        if (!row.lazyLoad || row._loadTriggered)
-            row._stableCover = row.coverThumbPath
-    }
-    Component.onCompleted: row._refreshStableCover()
 }

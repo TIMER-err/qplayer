@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Allow shell profiling only in the side-by-side release-speed build. -->
+        <profileable android:shell="true" />
+    </application>
+</manifest>

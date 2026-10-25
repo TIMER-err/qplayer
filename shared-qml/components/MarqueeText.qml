@@ -22,6 +22,7 @@ Item {
     property int fontWeight: Font.Normal
     property bool centered: false
     property real fadeWidth: 20
+    property bool scrollingEnabled: true
     // Gap between the tail of one copy and the beginning of the next, written as
     // real spacer glyphs rather than a pixel offset: both copies are shaped into
     // ONE line, so no width arithmetic can ever place the next copy on top of the
@@ -69,7 +70,7 @@ Item {
     function restartScrolling() {
         scrollAnimation.stop()
         label.scrollX = 0
-        if (root.overflowing && root.visible) scrollAnimation.start()
+        if (root.overflowing && root.visible && root.scrollingEnabled) scrollAnimation.start()
     }
 
     onWidthChanged: restartScrolling()
@@ -77,6 +78,7 @@ Item {
     onCycleWidthChanged: restartScrolling()
     onOverflowingChanged: restartScrolling()
     onVisibleChanged: restartScrolling()
+    onScrollingEnabledChanged: restartScrolling()
     Component.onCompleted: restartScrolling()
 
     // The common, zero-offscreen-cost path for text that fits. Emptied rather than
