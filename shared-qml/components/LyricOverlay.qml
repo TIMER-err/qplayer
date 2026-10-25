@@ -653,7 +653,7 @@ Item {
             anchors.left: parent.left
             anchors.leftMargin: 28
             anchors.right: parent.right
-            anchors.rightMargin: 120
+            anchors.rightMargin: 28
             anchors.top: parent.top
             anchors.topMargin: 16
             gap: 20

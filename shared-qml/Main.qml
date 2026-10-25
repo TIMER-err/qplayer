@@ -801,9 +801,10 @@ Rectangle {
         anchors.rightMargin: settings.rightInset
         anchors.bottom: parent.bottom
         visible: !app.wide
-        // Nav content sits in the top 76; the extra height is background that fills
-        // behind the gesture/navigation bar (edge-to-edge).
-        height: app.wide ? settings.bottomInset : (65 + settings.bottomInset)
+        // The optional floating pill keeps the upstream safe-area spacing.
+        // Wide layouts retain the rail and their original bottom inset.
+        liquidGlass: !app.wide && settings.value("liquidGlassNavigation") === true
+        height: app.wide ? settings.bottomInset : bottomNav.barHeight
         bottomInset: settings.bottomInset
         currentIndex: app.page
         items: app.navItems

@@ -108,6 +108,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     // Logical-pixel scale: QML is authored in dp; render at the screen density so
     // Material components are physically sized (and the canvas drawn larger).
     private final float uiScale;
+    private final LiquidGlassTilt liquidGlassTilt;
 
     public QmlGLSurfaceView(Context ctx, QmlEngine engine, String qmlSource, ResourceLoader resources,
                             float uiScale) {
@@ -116,6 +117,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         this.qmlSource = qmlSource;
         this.resources = resources;
         this.uiScale = uiScale > 0 ? uiScale : 1f;
+        liquidGlassTilt = new LiquidGlassTilt(this, renderWake);
         setEGLContextClientVersion(2);
         setEGLConfigChooser(8, 8, 8, 8, 0, 8);
         // Release the EGL context while backgrounded. Keeping a full-screen Skija
@@ -132,6 +134,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     @Override
     public void onPause() {
         pauseRequested = true;
+        liquidGlassTilt.onPause();
         // QmlView.load() performs the first D8 compilation on the GL thread. The
         // platform GLSurfaceView.onPause() waits for that thread without a timeout,
         // which turns a quick Home gesture during cold start into a main-thread ANR.
@@ -156,11 +159,14 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
 
     @Override
     public void onResume() {
+        if (disposed) return;
         pauseRequested = false;
+        liquidGlassTilt.onResume();
         if (glThreadPaused) {
             super.onResume();
             glThreadPaused = false;
         }
+        wakeRenderer();
     }
 
     /** Tear down QML bindings, images, shaders and decoder workers before an
@@ -170,6 +176,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     public void dispose() {
         if (disposed) return;
         disposed = true;
+        liquidGlassTilt.dispose();
         runOnGlThreadAndWait(this::releaseSceneResources);
     }
 
@@ -656,18 +663,20 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 // The QML main scene, the host lyric overlay (fluid backdrop + per-syllable
                 // column) and the QML lyric chrome subtree are composited by the shared
                 // LyricCompositor — the same code path the desktop LWJGL host runs.
+                compositor.setLiquidGlassGravityAngle(liquidGlassTilt.angle());
                 compositor.composite(canvas, renderer, view, controller, settings,
                         surface.recordingContext(), uiScale, surface.width(), surface.height());
+                liquidGlassTilt.setActive(compositor.liquidGlassActive());
                 if (compositor.skippedLayout()) profSkips++;
                 long t1b = System.nanoTime();
                 surface.present();
                 profileFrame(t0, t1, t1b, System.nanoTime());
-                boolean hostAnimation = controller != null && (
+                boolean hostAnimation = compositor.liquidGlassAnimating() || (controller != null && (
                         controller.isPlaying()
                         || compositor.temperaVisible(controller)
                         || Boolean.TRUE.equals(controller.lyricsOpen.peek())
                         || (controller.lyricSlide.peek() != null
-                            && controller.lyricSlide.peek() > 0.001));
+                            && controller.lyricSlide.peek() > 0.001)));
                 boolean needContinuous = AndroidRenderPolicy.shouldRenderContinuously(
                         hostAnimation, frameChanges > 0, consumeWakeSettleFrame(), view.root());
                 if (!needContinuous && compositor.skippedLayout()) {
@@ -748,6 +757,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         if (failed) return;
         ErrorListener l = errorListener;
         disposed = true;
+        liquidGlassTilt.setActive(false);
         // showError() detaches this SurfaceView and stops its GL thread. Release
         // the failed scene here, while that thread/context can still clean up.
         releaseSceneResources();

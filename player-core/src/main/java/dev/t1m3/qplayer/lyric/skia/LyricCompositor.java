@@ -119,6 +119,14 @@ public final class LyricCompositor {
     // normal root render, so this subtree is replayed once more as the final layer.
     private Item fullscreenExitIndicator;
 
+    // A live Skija child at the bottom bar's normal QML z-order position.
+    // The QML tree owns its resources; the compositor only drives native motion.
+    private LiquidGlassNode liquidGlass;
+    private Item liquidGlassBoundary;
+    private boolean liquidGlassLookupDone;
+    private boolean liquidGlassActive;
+    private float liquidGlassGravityAngle = (float) (-Math.PI / 2);
+
     // Wall-clock extrapolation of the coarse backend position for smooth lyric motion.
     // The clock uses PlayerController's actual-started state, not its play-button intent:
     // lyrics can finish loading before an async audio source has made a sound.
@@ -283,9 +291,16 @@ public final class LyricCompositor {
     public void composite(Canvas canvas, Renderer renderer, QmlView view,
                           PlayerController controller, SettingsBridge settings,
                           DirectContext ctx, float uiScale, int fbW, int fbH) {
+        prepareLiquidGlass(view, renderer);
+        if (liquidGlass != null) {
+            liquidGlass.setGravityAngle(liquidGlassGravityAngle);
+            liquidGlass.advance(System.nanoTime());
+        }
         temperaPage.advanceFade(controller, System.nanoTime());
         view.dirtyQueue().flush();
         boolean temperaActive = temperaVisible(controller);
+        liquidGlassActive = liquidGlass != null && liquidGlass.isActive()
+                && !temperaActive && lyricSlide <= 0.001f;
         if (temperaActive) {
             configureTempera(settings);
             if (temperaChrome == null) temperaChrome = view.findByObjectName("temperaChrome");
@@ -301,6 +316,34 @@ public final class LyricCompositor {
         if (temperaActive || lyricActive) {
             drawFullscreenExitIndicator(canvas, renderer, view, uiScale, fbW, fbH);
         }
+    }
+
+    private void prepareLiquidGlass(QmlView view, Renderer renderer) {
+        if (liquidGlassLookupDone) return;
+        liquidGlassLookupDone = true;
+        Item marker = view.findByObjectName("liquidGlassNavigationSurface");
+        if (marker == null) return;
+        liquidGlass = new LiquidGlassNode(marker, renderer);
+        liquidGlass.parent.set(marker);
+        marker.children.add(liquidGlass);
+        liquidGlass.anchors.fill.set(marker);
+        liquidGlassBoundary = marker;
+        while (liquidGlassBoundary.parent.peek() != null
+                && liquidGlassBoundary.parent.peek() != view.root()) {
+            liquidGlassBoundary = liquidGlassBoundary.parent.peek();
+        }
+    }
+
+    public void setLiquidGlassGravityAngle(float radians) {
+        liquidGlassGravityAngle = radians;
+    }
+
+    public boolean liquidGlassActive() {
+        return liquidGlassActive;
+    }
+
+    public boolean liquidGlassAnimating() {
+        return liquidGlassActive && liquidGlass != null && liquidGlass.isAnimating();
     }
 
     private void drawFullscreenExitIndicator(Canvas canvas, Renderer renderer, QmlView view,
@@ -360,6 +403,13 @@ public final class LyricCompositor {
             canvas.scale(uiScale, uiScale);
             boolean skipLayout = Property.changeVersion() == renderedVersion;
             skippedLayout = skipLayout;
+            if (liquidGlass != null && liquidGlass.isActive() && liquidGlassBoundary != null) {
+                // qml4j 0.2.33's hot-boundary path draws directly instead of recording
+                // a snapshot-dependent node into a PictureRecorder (which has no Surface).
+                // Other root boundaries retain their picture caches.
+                liquidGlassBoundary.contentDirty = true;
+                liquidGlassBoundary.dirtyStreak = 3;
+            }
             renderer.render(canvas, view.root(), skipLayout);
             renderedVersion = Property.changeVersion();
             canvas.restoreToCount(sc);
@@ -784,6 +834,10 @@ public final class LyricCompositor {
         temperaChrome = null;
         lyricChrome = null;
         fullscreenExitIndicator = null;
+        liquidGlass = null;
+        liquidGlassBoundary = null;
+        liquidGlassLookupDone = false;
+        liquidGlassActive = false;
         renderedVersion = -1;
     }
 
@@ -791,5 +845,6 @@ public final class LyricCompositor {
     public void invalidateGpuContext() {
         temperaPage.releaseResources();
         fluidBg.invalidateGpuContext();
+        if (liquidGlass != null) liquidGlass.invalidateGpuContext();
     }
 }

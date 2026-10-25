@@ -1,0 +1,18 @@
+// Copyright 2026, compose-miuix-ui contributors
+// SPDX-License-Identifier: Apache-2.0
+// Modified Skija port of DOWNSAMPLE_2X/4X_SHADER, miuix-blur/internal/Shaders.kt,
+// miuix b587aaf2c907c77a8c3c02d8df0aede2937ef8f0. Explicit child coordinate scaling.
+uniform shader content;
+uniform float factor;
+uniform float spread;
+uniform float2 maxCoord;
+half4 main(float2 xy) {
+    xy *= factor;
+    if (spread == 0.0) return content.eval(clamp(xy, float2(0.5), maxCoord));
+    half4 c = half4(0.0);
+    c += content.eval(clamp(xy + float2(-spread, -spread), float2(0.5), maxCoord));
+    c += content.eval(clamp(xy + float2( spread, -spread), float2(0.5), maxCoord));
+    c += content.eval(clamp(xy + float2(-spread,  spread), float2(0.5), maxCoord));
+    c += content.eval(clamp(xy + float2( spread,  spread), float2(0.5), maxCoord));
+    return c * 0.25;
+}

@@ -1,0 +1,13 @@
+// Copyright 2026, compose-miuix-ui contributors
+// SPDX-License-Identifier: Apache-2.0
+// Modified Skija port of miuix-blur/internal/Shaders.kt color controls,
+// miuix b587aaf2c907c77a8c3c02d8df0aede2937ef8f0 (Vibrancy.kt saturation 1.5).
+uniform shader content;
+half4 main(float2 coord) {
+    half4 src = content.eval(coord);
+    if (src.a < 0.001) return src;
+    half3 c = src.rgb / src.a;
+    half lum = dot(c, half3(0.2126, 0.7152, 0.0722));
+    c = clamp(lum + 1.5 * (c - lum), 0.0, 1.0);
+    return half4(c * src.a, src.a);
+}

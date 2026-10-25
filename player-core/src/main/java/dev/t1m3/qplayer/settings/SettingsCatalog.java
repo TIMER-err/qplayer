@@ -183,6 +183,11 @@ public final class SettingsCatalog {
                 .accessory("swatch")
                 .group("interface")
                 .build());
+        out.add(SettingSpec.toggle("liquidGlassNavigation", APPEARANCE,
+                        "settings.liquidGlassNavigation.title", false)
+                .desc("settings.liquidGlassNavigation.desc")
+                .group("interface")
+                .build());
         out.add(SettingSpec.action("pickFont", APPEARANCE, "settings.font.title",
                         "settings.font.button")
                 .provider("fontName")

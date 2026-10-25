@@ -158,6 +158,8 @@ cd android-shell && ./gradlew :app:assembleDebug
 
 只有 `perf` 变体允许 shell 性能采集，正式发布包不因此开启 profiling。首次安装或更新后，等待 `qplayer.lifecycle` 输出 `ready activity=...`，确认权限和插件提示已关闭，再比较相同页面与滚动操作，避免把 QML 编译或弹窗当成滚动耗时。
 
+Android 测试包拥有独立沙箱。复制正式版的本地库缓存时，必须先将索引中的封面路径重定位到测试包目录，再以测试包 UID 写入对应缓存文件；直接保留 `/data/user/0/<正式包名>/…` 会因权限隔离而无法显示封面，测试包内未被正确引用的封面还可能被缓存清理。此操作只针对测试副本，不修改正式版数据。
+
 **桌面**
 
 Linux 从源码运行和发布版 AppImage 都依赖系统提供的原生库；AppImage 内置 JVM

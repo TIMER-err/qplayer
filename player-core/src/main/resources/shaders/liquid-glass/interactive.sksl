@@ -1,0 +1,12 @@
+// Copyright 2026, compose-miuix-ui contributors
+// SPDX-License-Identifier: Apache-2.0
+// Modified Skija port of InteractiveHighlight.kt, miuix b587aaf2c907c77a8c3c02d8df0aede2937ef8f0.
+// Adapted upstream from Kyant0/AndroidLiquidGlass (Apache-2.0).
+uniform float2 center;
+uniform float radius;
+uniform float progress;
+half4 main(float2 coord) {
+    float intensity = smoothstep(radius, radius * 0.5, distance(coord, center));
+    half a = half((0.06 + 0.12 * intensity) * progress);
+    return half4(a);
+}

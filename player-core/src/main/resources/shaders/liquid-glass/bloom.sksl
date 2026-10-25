@@ -1,0 +1,44 @@
+// Copyright 2026, compose-miuix-ui contributors
+// SPDX-License-Identifier: Apache-2.0
+// Modified Skija port of miuix-blur/internal/Shaders.kt buildBloomStrokeShader(true),
+// miuix b587aaf2c907c77a8c3c02d8df0aede2937ef8f0. Uniform capsule radii; dp-to-device conversion.
+uniform float2 size;
+uniform float density;
+uniform float highlightAlpha;
+uniform float3 lightDir1;
+uniform float3 lightDir2;
+float roundedBoxSDF(float2 p, float2 halfSize, float r) {
+    float2 d = p - halfSize + r;
+    return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - r;
+}
+half4 main(float2 coord) {
+    float2 fragCoord = coord * density;
+    float2 halfView = size * density * 0.5;
+    float2 halfViewFloor = floor(halfView);
+    float innerBlurRadius = 2.0 * density;
+    float strokeWidth = density;
+    float radius = min(halfView.x, halfView.y);
+    float R = max(radius, innerBlurRadius);
+    float2 xy = abs(fragCoord - halfView);
+    if (all(lessThan(xy, halfView - R))) return half4(0.0);
+    float sdf = roundedBoxSDF(xy, halfView, radius);
+    half outMask = half(smoothstep(0.0, -1.0, sdf));
+    float strokeAlpha = smoothstep(-strokeWidth, -strokeWidth + 1.0, sdf);
+    half3 rgb = half3(0.12 * strokeAlpha * strokeAlpha);
+    float2 q = fragCoord - halfViewFloor;
+    float2 qa = abs(q);
+    float t = smoothstep(-innerBlurRadius, 0.0, sdf);
+    float z = sqrt(max(innerBlurRadius * innerBlurRadius - t * t, 0.0));
+    float3 c = float3(qa, -z);
+    float2 corner = min(halfView - R, qa);
+    float2 dir = normalize(c.xy - corner);
+    corner += dir * (R - innerBlurRadius);
+    float3 n;
+    if (any(lessThan(qa, corner))) n = float3(0.0, 0.0, -1.0);
+    else { n = normalize(c - float3(corner, 0.0)); n.xy *= sign(q); }
+    float l1 = dot(n.xy, lightDir1.xy);
+    rgb += half(l1 * l1);
+    float l2 = dot(n.xy, lightDir2.xy);
+    rgb += half(l2 * l2 * 0.4);
+    return half4(rgb * half(highlightAlpha), 1.0) * outMask;
+}
