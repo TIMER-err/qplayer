@@ -18,6 +18,7 @@ Flickable {
     objectName: "virtualPlaylistGrid"
 
     property var list
+    property real bottomContentInset: 0
     property bool pageActive: true
     onPageActiveChanged: if (!grid.pageActive) grid._cancelDrag()
     onVisibleChanged: if (!grid.visible) grid._cancelDrag()
@@ -94,7 +95,7 @@ Flickable {
     function _applyDragTarget(pointerContentX, pointerContentY) {
         if (grid._dragFrom < 0 || grid.count <= 0) return
         var maxX = Math.max(0, grid.width - grid.tile)
-        var maxY = Math.max(0, grid.contentHeight - grid.cardH)
+        var maxY = Math.max(0, grid.contentHeight - grid.bottomContentInset - grid.cardH)
         grid._dragFloatX = Math.max(0, Math.min(maxX, pointerContentX - grid._dragGrabOffsetX))
         grid._dragFloatY = Math.max(0, Math.min(maxY, pointerContentY - grid._dragGrabOffsetY))
         var centerX = grid._dragFloatX + grid.tile / 2
@@ -186,7 +187,7 @@ Flickable {
 
     clip: true
     contentWidth: width
-    contentHeight: count > 0 ? Math.ceil(count / cols) * cardRowH - gap + 2 * pad : 0
+    contentHeight: (count > 0 ? Math.ceil(count / cols) * cardRowH - gap + 2 * pad : 0) + bottomContentInset
     onContentHeightChanged: contentY = Math.max(0, Math.min(contentY, Math.max(0, contentHeight - height)))
 
     Item {

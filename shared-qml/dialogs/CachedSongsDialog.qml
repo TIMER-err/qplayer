@@ -13,6 +13,7 @@ import "../components"
 // touching the network.
 Rectangle {
     id: page
+    property real bottomContentInset: 0
     signal back()
     signal home()
     color: Theme.color.surface
@@ -51,6 +52,7 @@ Rectangle {
             id: list
             Layout.fillWidth: true
             Layout.fillHeight: true
+            bottomContentInset: page.bottomContentInset
             // Only hold row delegates while the page is actually shown (same guard
             // as QueuePage): a closed page is invisible but still in the tree.
             list: page.visible ? player.cachedSongs : null

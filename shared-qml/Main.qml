@@ -157,6 +157,12 @@ Rectangle {
     // a phone in landscape adopts it automatically once the width threshold is met.
     property bool wide: app.width >= 600
     property bool expanded: app.width >= 840
+    readonly property bool liquidGlassEffects: settings.value("liquidGlassNavigation") === true
+    readonly property bool floatingBottomChrome: !app.wide && app.liquidGlassEffects
+    // Scroll padding, not a smaller viewport: rows can pass behind both capsules,
+    // while the final row can still be brought above the player.
+    readonly property real bottomContentInset: floatingBottomChrome
+        ? Math.max(0, app.height - mini.y + 8) : 0
     // Java has no window-layout awareness of its own -- mirror this over so
     // playlist covers fetch/cache at a resolution matching how big they're
     // actually shown (512 compact, 1024 once wide). Decided once per playlist
@@ -568,7 +574,7 @@ Rectangle {
         anchors.left: rail.right
         anchors.right: parent.right
         anchors.rightMargin: settings.rightInset
-        anchors.bottom: mini.top
+        anchors.bottom: app.floatingBottomChrome ? parent.bottom : mini.top
         clip: true
 
         Item {
@@ -595,6 +601,7 @@ Rectangle {
                 HomePage {
                     id: home
                     anchors.fill: parent
+                    bottomContentInset: app.bottomContentInset
                     visible: app.page === 0
                     onOpenPlaylist: {
                         player.openMediaPlaylist("" + home.pendingPlaylist.id)
@@ -605,7 +612,9 @@ Rectangle {
                     anchors.fill: parent
                     active: app.searchLoaded
                     visible: app.page === 1
-                    sourceComponent: Component { SearchPage {} }
+                    sourceComponent: Component {
+                        SearchPage { bottomContentInset: app.bottomContentInset }
+                    }
                 }
                 Loader {
                     anchors.fill: parent
@@ -613,6 +622,7 @@ Rectangle {
                     visible: app.page === app.libraryPageIndex
                     sourceComponent: Component {
                         LibraryPage {
+                            bottomContentInset: app.bottomContentInset
                             id: libraryPage
                             visible: app.page === app.libraryPageIndex
                             onOpenPlaylist: {
@@ -631,7 +641,9 @@ Rectangle {
                     anchors.fill: parent
                     active: app.localLoaded
                     visible: app.page === app.localPageIndex
-                    sourceComponent: Component { LocalPage {} }
+                    sourceComponent: Component {
+                        LocalPage { bottomContentInset: app.bottomContentInset }
+                    }
                 }
             }
 
@@ -644,6 +656,7 @@ Rectangle {
                 active: app.detailLoaded
                 sourceComponent: Component {
                     PlaylistDetailPage {
+                        bottomContentInset: app.bottomContentInset
                         onHome: app.goHome()
                         onBack: app.popPage()
                         onOpenQueue: app.replacePage("queue", 0)
@@ -658,6 +671,7 @@ Rectangle {
                 active: app.localPlaylistLoaded
                 sourceComponent: Component {
                     LocalPlaylistPage {
+                        bottomContentInset: app.bottomContentInset
                         onHome: app.goHome()
                         onBack: app.popPage()
                         onOpenQueue: app.replacePage("queue", 0)
@@ -672,6 +686,7 @@ Rectangle {
                 active: app.artistLoaded
                 sourceComponent: Component {
                     ArtistDetailPage {
+                        bottomContentInset: app.bottomContentInset
                         onHome: app.goHome()
                         onBack: app.popPage()
                     }
@@ -685,6 +700,7 @@ Rectangle {
                 active: app.albumLoaded
                 sourceComponent: Component {
                     AlbumDetailPage {
+                        bottomContentInset: app.bottomContentInset
                         onHome: app.goHome()
                         onBack: app.popPage()
                     }
@@ -698,6 +714,7 @@ Rectangle {
                 active: app.queueLoaded
                 sourceComponent: Component {
                     QueuePage {
+                        bottomContentInset: app.bottomContentInset
                         onHome: app.goHome()
                         onBack: app.popPage()
                     }
@@ -711,6 +728,7 @@ Rectangle {
                 active: app.settingsLoaded
                 sourceComponent: Component {
                     SettingsPage {
+                        bottomContentInset: app.bottomContentInset
                         onHome: app.goHome()
                         onBack: app.popPage()
                         onOpenDebugLog: app.showLog = true
@@ -725,6 +743,7 @@ Rectangle {
                 active: app.accountLoaded
                 sourceComponent: Component {
                     AccountPage {
+                        bottomContentInset: app.bottomContentInset
                         onHome: app.goHome()
                         onBack: app.popPage()
                         onRequestLogin: app.loginOpen = true
@@ -739,6 +758,7 @@ Rectangle {
                 active: app.pluginSettingsLoaded
                 sourceComponent: Component {
                     PluginSettingsPage {
+                        bottomContentInset: app.bottomContentInset
                         pluginId: player.pluginSettingsId
                         onHome: app.goHome()
                         onBack: app.popPage()
@@ -753,6 +773,7 @@ Rectangle {
                 active: app.cacheListLoaded
                 sourceComponent: Component {
                     CachedSongsDialog {
+                        bottomContentInset: app.bottomContentInset
                         onHome: app.goHome()
                         onBack: app.popPage()
                     }
@@ -783,11 +804,12 @@ Rectangle {
         id: mini
         anchors.left: rail.right
         anchors.right: parent.right
-        anchors.leftMargin: 12
-        anchors.rightMargin: settings.rightInset + 12
+        anchors.leftMargin: app.floatingBottomChrome ? 24 : 12
+        anchors.rightMargin: settings.rightInset + (app.floatingBottomChrome ? 24 : 12)
         anchors.bottom: bottomNav.top
         anchors.bottomMargin: 8
         height: 80
+        liquidGlass: app.floatingBottomChrome
         onLyricsRequested: app.pushPage("lyrics", 0)
     }
 
@@ -803,7 +825,7 @@ Rectangle {
         visible: !app.wide
         // The optional floating pill keeps the upstream safe-area spacing.
         // Wide layouts retain the rail and their original bottom inset.
-        liquidGlass: !app.wide && settings.value("liquidGlassNavigation") === true
+        liquidGlass: app.floatingBottomChrome
         height: app.wide ? settings.bottomInset : bottomNav.barHeight
         bottomInset: settings.bottomInset
         currentIndex: app.page

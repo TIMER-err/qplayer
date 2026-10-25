@@ -7,6 +7,7 @@ import "../components"
 // Drill-in playlist view: header with back + title, then the tracks.
 Rectangle {
     id: page
+    property real bottomContentInset: 0
     signal back()
     signal home()
     signal openQueue()
@@ -193,6 +194,7 @@ Rectangle {
             VirtualSongList {
                 id: tracks
                 anchors.fill: parent
+                bottomContentInset: page.bottomContentInset
                 // Playlist metadata and filtering belong to the scroll content.
                 // On a phone this gives the track list the full viewport after the
                 // first swipe instead of permanently reserving half the screen.
@@ -335,53 +337,59 @@ Rectangle {
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
                 anchors.margins: 16
+                anchors.bottomMargin: 16 + page.bottomContentInset
                 target: tracks
             }
         }
 
-        Rectangle {
+        Item {
             objectName: "playlistDetailSelectBar"
             Layout.fillWidth: true
             Layout.preferredHeight: 56
             visible: page.selectMode
-            color: Theme.color.surfaceContainer
-            Text {
-                anchors.left: parent.left
-                anchors.leftMargin: 16
-                anchors.verticalCenter: parent.verticalCenter
-                text: i18n.t("playlist.selectCount", tracks.selectedN)
-                color: Theme.color.onSurfaceColor
-                font.pixelSize: 14
-            }
-            Row {
-                anchors.right: parent.right
-                anchors.rightMargin: 8
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: 4
-                IconButton {
-                    type: "standard"
-                    icon: "done_all"
-                    onClicked: tracks.selectAll()
+            Rectangle {
+                width: parent.width
+                height: parent.height
+                y: -page.bottomContentInset
+                color: Theme.color.surfaceContainer
+                Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: 16
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: i18n.t("playlist.selectCount", tracks.selectedN)
+                    color: Theme.color.onSurfaceColor
+                    font.pixelSize: 14
                 }
-                IconButton {
-                    objectName: "playlistDetailUnlikeSelected"
-                    type: "standard"
-                    icon: "favorite_border"
-                    enabled: tracks.selectedN > 0
-                    onClicked: {
-                        player.unlikeMediaMany(tracks.selectedKey)
-                        page.exitSelectMode()
+                Row {
+                    anchors.right: parent.right
+                    anchors.rightMargin: 8
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 4
+                    IconButton {
+                        type: "standard"
+                        icon: "done_all"
+                        onClicked: tracks.selectAll()
                     }
-                }
-                IconButton {
-                    objectName: "playlistDetailDeleteSelected"
-                    type: "standard"
-                    icon: "delete"
-                    visible: player.playlistOwned
-                    enabled: tracks.selectedN > 0
-                    onClicked: {
-                        player.removeMediaManyFromCurrentPlaylist(tracks.selectedKey)
-                        page.exitSelectMode()
+                    IconButton {
+                        objectName: "playlistDetailUnlikeSelected"
+                        type: "standard"
+                        icon: "favorite_border"
+                        enabled: tracks.selectedN > 0
+                        onClicked: {
+                            player.unlikeMediaMany(tracks.selectedKey)
+                            page.exitSelectMode()
+                        }
+                    }
+                    IconButton {
+                        objectName: "playlistDetailDeleteSelected"
+                        type: "standard"
+                        icon: "delete"
+                        visible: player.playlistOwned
+                        enabled: tracks.selectedN > 0
+                        onClicked: {
+                            player.removeMediaManyFromCurrentPlaylist(tracks.selectedKey)
+                            page.exitSelectMode()
+                        }
                     }
                 }
             }

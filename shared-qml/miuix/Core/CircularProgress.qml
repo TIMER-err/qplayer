@@ -8,6 +8,8 @@ Item {
     property bool showTrack: true
     property bool wavy: false
     property real strokeWidth: 4
+    // Rotate the arc geometry inside a fixed canvas, not its rasterized image.
+    property real startAngle: -90
     readonly property real progress: Math.max(0, Math.min(1, value))
     
     implicitWidth: 30
@@ -55,6 +57,7 @@ Item {
     onValueChanged: canvas.requestPaint()
     onShowTrackChanged: canvas.requestPaint()
     onWavyChanged: canvas.requestPaint()
+    onStartAngleChanged: canvas.requestPaint()
     on_WavyPhaseChanged: canvas.requestPaint()
 
     NumberAnimation on _rotation {
@@ -126,8 +129,8 @@ Item {
                     for (var a = startAngle; a <= endAngle; a += step) {
                         var r = safeRadius + waveAmplitude * Math.sin(a * waveCount + control._wavyPhase);
                         
-                        // Convert polar to cartesian (Canvas 0 is 3 o'clock, adjust to 12 o'clock)
-                        var adjustedA = a - Math.PI/2 + (control._rotation * Math.PI / 180);
+                        // Canvas zero is three o'clock; startAngle defaults to twelve.
+                        var adjustedA = a + (control.startAngle + control._rotation) * Math.PI / 180;
                         
                         var x = centerX + r * Math.cos(adjustedA);
                         var y = centerY + r * Math.sin(adjustedA);
@@ -182,7 +185,7 @@ Item {
                     // Canvas arc angles are in radians. 0 is 3 o'clock.
                     // We want to start from 12 o'clock (-PI/2) plus rotation.
                     
-                    var rotationRad = (control._rotation - 90) * Math.PI / 180;
+                    var rotationRad = (control.startAngle + control._rotation) * Math.PI / 180;
                     var offsetRad = control._arcOffset * Math.PI / 180;
                     var sweepRad = control._arcSweep * Math.PI / 180;
                     
@@ -193,7 +196,7 @@ Item {
                     ctx.stroke();
                 } else {
                     {
-                        startAngle = -Math.PI / 2; // -90 degrees (12 o'clock)
+                        startAngle = control.startAngle * Math.PI / 180;
                         endAngle = startAngle + ((0.1 + 359.9 * control.progress) * Math.PI / 180);
                         ctx.arc(centerX, centerY, radius, startAngle, endAngle, false);
                         ctx.stroke();

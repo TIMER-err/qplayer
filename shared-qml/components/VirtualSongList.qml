@@ -27,6 +27,8 @@ Flickable {
     // rows and drag coordinates without instantiating an unbounded delegate list.
     property Component header
     property real headerHeight: 0
+    // Trailing scroll space for floating page controls; row coordinates stay unchanged.
+    property real bottomContentInset: 0
     property bool isLocal: false
     // Decoupled from isLocal: a list can use the local title/artist field mapping
     // (isLocal) without actually being the live queue (e.g. the custom-playlist tab),
@@ -287,7 +289,7 @@ Flickable {
 
     clip: true
     contentWidth: width
-    contentHeight: headerHeight + count * rowH
+    contentHeight: headerHeight + count * rowH + bottomContentInset
 
     function scrollToIndex(i) {
         if (i < 0 || i >= view.count) return
@@ -296,8 +298,8 @@ Flickable {
     }
 
     function requestMoreIfNeeded() {
-        if (!loadMoreEnabled || contentHeight <= 0) return
-        if (viewportY + viewportHeight >= contentHeight - loadMoreThresholdRows * rowH)
+        if (!loadMoreEnabled || headerHeight + count * rowH <= 0) return
+        if (viewportY + viewportHeight >= contentHeight - bottomContentInset - loadMoreThresholdRows * rowH)
             loadMoreRequested()
     }
 

@@ -13,6 +13,7 @@ Flickable {
     objectName: "virtualPlaylistList"
 
     property var list
+    property real bottomContentInset: 0
     property var pendingPlaylist
     property bool reorderable: false
     property int revealedIndex: -1
@@ -124,7 +125,7 @@ Flickable {
 
     clip: true
     contentWidth: width
-    contentHeight: count * rowH
+    contentHeight: count * rowH + bottomContentInset
 
     Item {
         width: view.width

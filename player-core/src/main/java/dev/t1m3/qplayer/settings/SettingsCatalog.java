@@ -184,8 +184,8 @@ public final class SettingsCatalog {
                 .group("interface")
                 .build());
         out.add(SettingSpec.toggle("liquidGlassNavigation", APPEARANCE,
-                        "settings.liquidGlassNavigation.title", false)
-                .desc("settings.liquidGlassNavigation.desc")
+                        "settings.liquidGlassEffects.title", false)
+                .desc("settings.liquidGlassEffects.desc")
                 .group("interface")
                 .build());
         out.add(SettingSpec.action("pickFont", APPEARANCE, "settings.font.title",

@@ -10,6 +10,7 @@ import "../components"
 // (a real Repeater-in-Layout can't host two differently-shaped sections).
 Rectangle {
     id: page
+    property real bottomContentInset: 0
     signal back()
     signal home()
     color: Theme.color.surface
@@ -93,7 +94,7 @@ Rectangle {
                 visible: !player.artistLoading
                 clip: true
                 contentWidth: width
-                contentHeight: page.songsTop + page.songCount * page.rowH + 24
+                contentHeight: page.songsTop + page.songCount * page.rowH + 24 + page.bottomContentInset
 
                 Item {
                     width: scroller.width

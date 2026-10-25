@@ -119,11 +119,11 @@ public final class LyricCompositor {
     // normal root render, so this subtree is replayed once more as the final layer.
     private Item fullscreenExitIndicator;
 
-    // A live Skija child at the bottom bar's normal QML z-order position.
-    // The QML tree owns its resources; the compositor only drives native motion.
-    private LiquidGlassNode liquidGlass;
-    private Item liquidGlassBoundary;
-    private boolean liquidGlassLookupDone;
+    // Live Skija children at each floating capsule's normal QML z-order position.
+    // The QML tree owns their resources; the compositor only drives native motion.
+    private final LiquidGlassNode[] liquidGlass = new LiquidGlassNode[2];
+    private final Item[] liquidGlassBoundary = new Item[2];
+    private boolean chromeLookupDone;
     private boolean liquidGlassActive;
     private float liquidGlassGravityAngle = (float) (-Math.PI / 2);
 
@@ -291,15 +291,17 @@ public final class LyricCompositor {
     public void composite(Canvas canvas, Renderer renderer, QmlView view,
                           PlayerController controller, SettingsBridge settings,
                           DirectContext ctx, float uiScale, int fbW, int fbH) {
-        prepareLiquidGlass(view, renderer);
-        if (liquidGlass != null) {
-            liquidGlass.setGravityAngle(liquidGlassGravityAngle);
-            liquidGlass.advance(System.nanoTime());
+        prepareChrome(view, renderer);
+        long glassTime = System.nanoTime();
+        for (LiquidGlassNode node : liquidGlass) {
+            if (node == null) continue;
+            node.setGravityAngle(liquidGlassGravityAngle);
+            node.advance(glassTime);
         }
         temperaPage.advanceFade(controller, System.nanoTime());
         view.dirtyQueue().flush();
         boolean temperaActive = temperaVisible(controller);
-        liquidGlassActive = liquidGlass != null && liquidGlass.isActive()
+        liquidGlassActive = anyLiquidGlassActive()
                 && !temperaActive && lyricSlide <= 0.001f;
         if (temperaActive) {
             configureTempera(settings);
@@ -318,20 +320,37 @@ public final class LyricCompositor {
         }
     }
 
-    private void prepareLiquidGlass(QmlView view, Renderer renderer) {
-        if (liquidGlassLookupDone) return;
-        liquidGlassLookupDone = true;
-        Item marker = view.findByObjectName("liquidGlassNavigationSurface");
-        if (marker == null) return;
-        liquidGlass = new LiquidGlassNode(marker, renderer);
-        liquidGlass.parent.set(marker);
-        marker.children.add(liquidGlass);
-        liquidGlass.anchors.fill.set(marker);
-        liquidGlassBoundary = marker;
-        while (liquidGlassBoundary.parent.peek() != null
-                && liquidGlassBoundary.parent.peek() != view.root()) {
-            liquidGlassBoundary = liquidGlassBoundary.parent.peek();
+    private void prepareChrome(QmlView view, Renderer renderer) {
+        if (chromeLookupDone) return;
+        chromeLookupDone = true;
+        Item miniPlayer = view.findByObjectName("miniPlayer");
+        if (miniPlayer != null) {
+            MiniPlayerLoadingAnimation clock = new MiniPlayerLoadingAnimation(miniPlayer);
+            clock.parent.set(miniPlayer);
+            miniPlayer.children.add(clock);
         }
+        String[] names = {"liquidGlassNavigationSurface", "liquidGlassMiniPlayerSurface"};
+        for (int i = 0; i < names.length; i++) {
+            Item marker = view.findByObjectName(names[i]);
+            if (marker == null) continue;
+            LiquidGlassNode node = new LiquidGlassNode(marker, renderer, i == 0);
+            liquidGlass[i] = node;
+            node.parent.set(marker);
+            marker.children.add(node);
+            node.anchors.fill.set(marker);
+            Item boundary = marker;
+            while (boundary.parent.peek() != null && boundary.parent.peek() != view.root()) {
+                boundary = boundary.parent.peek();
+            }
+            liquidGlassBoundary[i] = boundary;
+        }
+    }
+
+    private boolean anyLiquidGlassActive() {
+        for (LiquidGlassNode node : liquidGlass) {
+            if (node != null && node.isActive()) return true;
+        }
+        return false;
     }
 
     public void setLiquidGlassGravityAngle(float radians) {
@@ -343,7 +362,11 @@ public final class LyricCompositor {
     }
 
     public boolean liquidGlassAnimating() {
-        return liquidGlassActive && liquidGlass != null && liquidGlass.isAnimating();
+        if (!liquidGlassActive) return false;
+        for (LiquidGlassNode node : liquidGlass) {
+            if (node != null && node.isAnimating()) return true;
+        }
+        return false;
     }
 
     private void drawFullscreenExitIndicator(Canvas canvas, Renderer renderer, QmlView view,
@@ -403,12 +426,15 @@ public final class LyricCompositor {
             canvas.scale(uiScale, uiScale);
             boolean skipLayout = Property.changeVersion() == renderedVersion;
             skippedLayout = skipLayout;
-            if (liquidGlass != null && liquidGlass.isActive() && liquidGlassBoundary != null) {
+            for (int i = 0; i < liquidGlass.length; i++) {
+                LiquidGlassNode node = liquidGlass[i];
+                Item boundary = liquidGlassBoundary[i];
+                if (node == null || !node.isActive() || boundary == null) continue;
                 // qml4j 0.2.33's hot-boundary path draws directly instead of recording
-                // a snapshot-dependent node into a PictureRecorder (which has no Surface).
+                // snapshot-dependent nodes into PictureRecorder (which has no Surface).
                 // Other root boundaries retain their picture caches.
-                liquidGlassBoundary.contentDirty = true;
-                liquidGlassBoundary.dirtyStreak = 3;
+                boundary.contentDirty = true;
+                boundary.dirtyStreak = 3;
             }
             renderer.render(canvas, view.root(), skipLayout);
             renderedVersion = Property.changeVersion();
@@ -834,9 +860,11 @@ public final class LyricCompositor {
         temperaChrome = null;
         lyricChrome = null;
         fullscreenExitIndicator = null;
-        liquidGlass = null;
-        liquidGlassBoundary = null;
-        liquidGlassLookupDone = false;
+        for (int i = 0; i < liquidGlass.length; i++) {
+            liquidGlass[i] = null;
+            liquidGlassBoundary[i] = null;
+        }
+        chromeLookupDone = false;
         liquidGlassActive = false;
         renderedVersion = -1;
     }
@@ -845,6 +873,8 @@ public final class LyricCompositor {
     public void invalidateGpuContext() {
         temperaPage.releaseResources();
         fluidBg.invalidateGpuContext();
-        if (liquidGlass != null) liquidGlass.invalidateGpuContext();
+        for (LiquidGlassNode node : liquidGlass) {
+            if (node != null) node.invalidateGpuContext();
+        }
     }
 }

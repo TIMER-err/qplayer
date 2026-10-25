@@ -7,6 +7,7 @@ import "../components"
 // Flickable with absolute positioning (the layout primitive that behaves here).
 Item {
     id: page
+    property real bottomContentInset: 0
     property var pendingPlaylist
     signal openPlaylist()
 
@@ -167,7 +168,7 @@ Item {
         objectName: "homePullToRefresh"
         anchors.fill: parent
         clip: true
-        contentHeight: page.contentH
+        contentHeight: page.contentH + page.bottomContentInset
         enabled: !player.sourceSetupRequired
         refreshing: page.refreshBusy
         refreshTexts: [i18n.t("refresh.pull"), i18n.t("refresh.release"), i18n.t("refresh.loading"), i18n.t("refresh.complete")]

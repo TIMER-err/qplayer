@@ -23,6 +23,7 @@ import "../components"
 // used everywhere else avoids leaning on untested qml4j behavior.
 Item {
     id: page
+    property real bottomContentInset: 0
 
     property int sortMode: 0     // 0 default(scan order) 1 title 2 artist 3 duration
     property bool sortDesc: false
@@ -189,6 +190,7 @@ Item {
             id: local
             Layout.fillWidth: true
             Layout.fillHeight: true
+            bottomContentInset: page.bottomContentInset
             // Guard with page.visible (see QueuePage): every page is instantiated at
             // startup and only toggled by visibility, but a bare `list: ...` still
             // builds live delegates the moment the startup scan populates tracks —

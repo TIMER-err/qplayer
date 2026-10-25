@@ -15,6 +15,7 @@ import "../components"
 // thing.
 Rectangle {
     id: page
+    property real bottomContentInset: 0
     signal back()
     signal home()
     color: Theme.color.surface
@@ -60,6 +61,7 @@ Rectangle {
             id: q
             Layout.fillWidth: true
             Layout.fillHeight: true
+            bottomContentInset: page.bottomContentInset
             // Only hold row delegates while the page is actually shown (visible
             // tracks the open/close fade). A closed queue page is invisible but
             // still in the tree, so binding straight to the list kept N hidden

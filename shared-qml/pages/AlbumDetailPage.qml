@@ -8,6 +8,7 @@ import "../components"
 // then the tracklist (VirtualSongList handles arbitrarily long tracklists).
 Rectangle {
     id: page
+    property real bottomContentInset: 0
     signal back()
     signal home()
     color: Theme.color.surface
@@ -115,6 +116,7 @@ Rectangle {
             VirtualSongList {
                 id: tracks
                 anchors.fill: parent
+                bottomContentInset: page.bottomContentInset
                 visible: !player.albumLoading
                 // Drop the row delegates when the detail page is closed (see
                 // QueuePage): an invisible detail otherwise keeps the whole

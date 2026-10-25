@@ -7,6 +7,7 @@ import "../components"
 // Search: history + hot keywords while empty, live results while typing.
 Item {
     id: page
+    property real bottomContentInset: 0
     // 0 = collapsed (5), 1 = 30, 2 = 70, 3 = everything (100)
     property int historyExpandLevel: 0
 
@@ -152,7 +153,7 @@ Item {
                 anchors.fill: parent
                 clip: true
                 contentWidth: width
-                contentHeight: hotArea.totalH
+                contentHeight: hotArea.totalH + page.bottomContentInset
 
                 // --- History header ---
                 Item {
@@ -476,6 +477,7 @@ Item {
             VirtualSongList {
                 id: unifiedResults
                 anchors.fill: parent
+                bottomContentInset: page.bottomContentInset
                 visible: player.searchMode === "song"
                 list: player.searchMode === "song" ? player.searchRows : null
                 songMenu: true
@@ -500,7 +502,7 @@ Item {
                 property var results: player.sourceContentActive
                                       ? player.sourceSearchAlbumResults : player.searchAlbumResults
                 property int count: results ? results.length : 0
-                contentHeight: Math.ceil(count / page.gridCols) * (page.cardH + page.gridGap) + page.gridGap
+                contentHeight: Math.ceil(count / page.gridCols) * (page.cardH + page.gridGap) + page.gridGap + page.bottomContentInset
 
                 Item {
                     width: albumGrid.width
@@ -544,7 +546,7 @@ Item {
                 property var results: player.sourceContentActive
                                       ? player.sourceSearchArtistResults : player.searchArtistResults
                 property int count: results ? results.length : 0
-                contentHeight: Math.ceil(count / page.gridCols) * (page.cardH + page.gridGap) + page.gridGap
+                contentHeight: Math.ceil(count / page.gridCols) * (page.cardH + page.gridGap) + page.gridGap + page.bottomContentInset
 
                 Item {
                     width: artistGrid.width

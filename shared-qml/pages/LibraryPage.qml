@@ -10,6 +10,7 @@ import "../components"
 // can be exported, while a source playlist lives on that service.
 Item {
     id: page
+    property real bottomContentInset: 0
     property var pendingPlaylist
     signal openPlaylist()
     signal openLocalPlaylist()
@@ -96,6 +97,7 @@ Item {
             PlaylistGrid {
                 id: localGrid
                 anchors.fill: parent
+                bottomContentInset: page.bottomContentInset
                 pageActive: page.visible
                 // enabled, not just visible: an inactive grid/list still sits at the
                 // same anchors.fill geometry as whichever one IS shown, and qml4j does
@@ -122,6 +124,7 @@ Item {
             VirtualPlaylistList {
                 id: localList
                 anchors.fill: parent
+                bottomContentInset: page.bottomContentInset
                 enabled: visible
                 visible: page.showLocal && contentArea.listView
                 list: page.showLocal && contentArea.listLoaded ? player.localPlaylists : null
@@ -141,6 +144,7 @@ Item {
             PlaylistGrid {
                 id: grid
                 anchors.fill: parent
+                bottomContentInset: page.bottomContentInset
                 pageActive: page.visible
                 enabled: visible
                 visible: !page.showLocal && !contentArea.listView && (player.loggedIn || page.hasPlaylists)
@@ -168,6 +172,7 @@ Item {
             VirtualPlaylistList {
                 id: sourceList
                 anchors.fill: parent
+                bottomContentInset: page.bottomContentInset
                 enabled: visible
                 visible: !page.showLocal && contentArea.listView && (player.loggedIn || page.hasPlaylists)
                 list: !page.showLocal && contentArea.listLoaded
@@ -241,7 +246,7 @@ Item {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.rightMargin: 16
-        anchors.bottomMargin: 88
+        anchors.bottomMargin: 88 + page.bottomContentInset
         visible: page.showLocal && player.playlistTransferAvailable
         type: "standard"
         icon: "file_download"
@@ -254,7 +259,7 @@ Item {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.rightMargin: 16
-        anchors.bottomMargin: 16
+        anchors.bottomMargin: 16 + page.bottomContentInset
         visible: page.showLocal
                  || (player.loggedIn && (!player.sourceContentActive
                                          || player.sourcePlaylistMutationAvailable))

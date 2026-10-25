@@ -9,6 +9,7 @@ import "../components"
 // renders from the plugin's validated description.
 Rectangle {
     id: page
+    property real bottomContentInset: 0
     signal back()
     signal home()
 
@@ -77,7 +78,7 @@ Rectangle {
             Layout.fillHeight: true
             clip: true
             contentWidth: width
-            contentHeight: content.implicitHeight + 24
+            contentHeight: content.implicitHeight + 24 + page.bottomContentInset
 
             ColumnLayout {
                 id: content

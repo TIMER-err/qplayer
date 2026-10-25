@@ -2,8 +2,8 @@ import QtQuick
 import miuix.Core
 import "."
 
-// Bottom transport bar: cover placeholder + title/artist, a tappable progress
-// line, and like / prev / play-pause / next. Spans the full window width.
+// Bottom transport: cover/title, seekable progress and playback actions.
+// Glass mode uses a circular cover and progress ring; other layouts keep the bar.
 //
 // Plain anchors — NOT nested RowLayout/ColumnLayout. This bar is always visible
 // and the play clock sets player.positionMs ~5x/s; every such set bumps the
@@ -15,6 +15,7 @@ SmoothRectangle {
     id: mini
 
     signal lyricsRequested()
+    property bool liquidGlass: false
 
     function fmt(ms) {
         if (ms <= 0) return "0:00";
@@ -25,13 +26,24 @@ SmoothRectangle {
     }
 
     implicitHeight: 80
-    radius: 20
-    color: Theme.color.surfaceContainer
+    radius: liquidGlass ? height / 2 : 20
+    color: liquidGlass ? "transparent" : Theme.color.surfaceContainer
 
-    // Loading sweep state: enter as soon as player.loading rises; leave only when the
-    // current sweep pass ends (ScriptAction below), so a track that loads mid-sweep
-    // finishes the pass before the position fill returns instead of snapping.
+    // Drawn before the ordinary controls: their hit regions and playback state
+    // stay in QML while the host samples only this capsule's live backdrop.
+    Item {
+        objectName: "liquidGlassMiniPlayerSurface"
+        anchors.fill: parent
+        visible: mini.liquidGlass
+        property color surfaceColor: Theme.color.surfaceContainer
+        property bool darkTheme: Theme.dark
+    }
+
+    // The host's frame-driven clock finishes the current loading cycle before
+    // returning to the actual play position, without a loop-restart pause.
     property bool sweeping: false
+    property real _sweepPhase: 0
+    property real _sweepCycle: 0
     readonly property bool desktopVolumeControl: settings.has("desktopLyricEnabled")
 
     property bool _loading: player.loading
@@ -50,6 +62,9 @@ SmoothRectangle {
     on_TargetProgressChanged: {
         if (!mini.sweeping && !mini._catchingUp)
             mini._visualProgress = mini._targetProgress
+    }
+    on_SweepCycleChanged: {
+        if (mini._sweepCycle > 0 && !player.loading) mini.finishSweep()
     }
 
     function finishSweep() {
@@ -77,9 +92,12 @@ SmoothRectangle {
         }
     }
 
-    // progress line along the very top edge
+
+    // Keep the original linear progress only in the ordinary player.
     Rectangle {
         id: track
+        visible: !mini.liquidGlass
+        enabled: visible
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
@@ -105,22 +123,12 @@ SmoothRectangle {
         // in place of the frozen position fill. Only ticks while sweeping + visible.
         Rectangle {
             id: sweep
+            x: -width + (track.width + width) * (1 - Math.cos(mini._sweepPhase * Math.PI)) / 2
             anchors.top: parent.top
             anchors.bottom: parent.bottom
             visible: mini.sweeping
             width: track.width * 0.3
             color: Theme.color.primary
-            SequentialAnimation {
-                running: mini.sweeping && mini.visible
-                loops: Animation.Infinite
-                NumberAnimation {
-                    target: sweep; property: "x"
-                    from: -sweep.width; to: track.width
-                    duration: 1000; easing.type: Easing.InOutSine
-                }
-                // End the sweep only at a pass boundary once loading is done.
-                ScriptAction { onTrigger: if (!player.loading) mini.finishSweep() }
-            }
         }
         MouseArea {
             anchors.fill: parent
@@ -210,7 +218,7 @@ SmoothRectangle {
         anchors.verticalCenter: parent.verticalCenter
         anchors.verticalCenterOffset: 1
         width: 60; height: 60
-        radius: 10
+        radius: mini.liquidGlass ? width / 2 : 10
         // Prefer the on-disk cached cover (shows offline) over the network url.
         source: player.coverPath !== "" ? player.coverPath : player.coverUrl
 
@@ -219,7 +227,43 @@ SmoothRectangle {
         // space on its own.
         MouseArea {
             anchors.fill: parent
+            enabled: !mini.liquidGlass
             onClicked: mini.lyricsRequested()
+        }
+    }
+
+    Item {
+        id: coverProgress
+        objectName: "miniPlayerProgressRing"
+        anchors.centerIn: cover
+        width: cover.width + 8
+        height: cover.height + 8
+        visible: mini.liquidGlass
+        enabled: visible
+        CircularProgress {
+            anchors.fill: parent
+            strokeWidth: 3
+            value: mini.liquidGlass ? (mini.sweeping ? 0.3 : mini._visualProgress) : 0
+            startAngle: -90 + (mini.liquidGlass && mini.sweeping ? mini._sweepPhase * 360 : 0)
+        }
+
+        // Centre opens lyrics; the outer band seeks clockwise from twelve.
+        MouseArea {
+            anchors.fill: parent
+            onClicked: (mouse) => {
+                var dx = mouse.x - width / 2
+                var dy = mouse.y - height / 2
+                var distanceSq = dx * dx + dy * dy
+                var innerRadius = Math.max(0, cover.width / 2 - 4)
+                var outerRadius = width / 2 + 4
+                if (distanceSq < innerRadius * innerRadius) {
+                    mini.lyricsRequested()
+                } else if (distanceSq <= outerRadius * outerRadius && player.durationMs > 0) {
+                    var angle = Math.atan2(dy, dx) + Math.PI / 2
+                    if (angle < 0) angle += Math.PI * 2
+                    player.seek(Math.round(angle / (Math.PI * 2) * player.durationMs))
+                }
+            }
         }
     }
 
@@ -229,7 +273,8 @@ SmoothRectangle {
         anchors.leftMargin: 12
         anchors.right: volumeButton.left
         anchors.rightMargin: 4
-        anchors.top: track.bottom
+        anchors.top: mini.liquidGlass ? parent.top : track.bottom
+        anchors.topMargin: mini.liquidGlass ? 2 : 0
         anchors.bottom: parent.bottom
 
         MarqueeText {

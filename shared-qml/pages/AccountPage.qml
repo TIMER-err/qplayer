@@ -12,6 +12,7 @@ import "../dialogs"
 // md3 Card is fixed-size.
 Rectangle {
     id: page
+    property real bottomContentInset: 0
     signal back()
     signal home()
     signal requestLogin()
@@ -56,7 +57,7 @@ Rectangle {
             Layout.fillHeight: true
             clip: true
             contentWidth: width
-            contentHeight: content.implicitHeight + 24
+            contentHeight: content.implicitHeight + 24 + page.bottomContentInset
 
             ColumnLayout {
                 id: content

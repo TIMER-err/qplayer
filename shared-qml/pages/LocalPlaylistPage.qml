@@ -10,6 +10,7 @@ import "../components"
 // only for forcing one — it is never the only way to get fresh content.
 Rectangle {
     id: page
+    property real bottomContentInset: 0
     signal back()
     signal home()
     signal openQueue()
@@ -317,6 +318,7 @@ Rectangle {
             VirtualSongList {
                 id: tracks
                 anchors.fill: parent
+                bottomContentInset: page.bottomContentInset
                 list: page.visible ? page.filteredTracks : null
                 isLocal: true
                 songMenu: true
@@ -380,52 +382,58 @@ Rectangle {
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
                 anchors.margins: 16
+                anchors.bottomMargin: 16 + page.bottomContentInset
                 target: tracks
             }
         }
 
-        Rectangle {
+        Item {
             objectName: "localPlaylistSelectBar"
             Layout.fillWidth: true
             Layout.preferredHeight: 56
             visible: page.selectMode
-            color: Theme.color.surfaceContainer
-            Text {
-                anchors.left: parent.left
-                anchors.leftMargin: 16
-                anchors.verticalCenter: parent.verticalCenter
-                text: i18n.t("playlist.selectCount", tracks.selectedN)
-                color: Theme.color.onSurfaceColor
-                font.pixelSize: 14
-            }
-            Row {
-                anchors.right: parent.right
-                anchors.rightMargin: 8
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: 4
-                IconButton {
-                    type: "standard"
-                    icon: "done_all"
-                    onClicked: tracks.selectAll()
+            Rectangle {
+                width: parent.width
+                height: parent.height
+                y: -page.bottomContentInset
+                color: Theme.color.surfaceContainer
+                Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: 16
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: i18n.t("playlist.selectCount", tracks.selectedN)
+                    color: Theme.color.onSurfaceColor
+                    font.pixelSize: 14
                 }
-                IconButton {
-                    objectName: "localPlaylistUnlikeSelected"
-                    type: "standard"
-                    icon: "favorite_border"
-                    enabled: tracks.selectedN > 0
-                    onClicked: {
-                        player.unlikeMediaMany(tracks.selectedKey)
-                        page.exitSelectMode()
+                Row {
+                    anchors.right: parent.right
+                    anchors.rightMargin: 8
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 4
+                    IconButton {
+                        type: "standard"
+                        icon: "done_all"
+                        onClicked: tracks.selectAll()
                     }
-                }
-                IconButton {
-                    objectName: "localPlaylistDeleteSelected"
-                    type: "standard"
-                    icon: "delete"
-                    enabled: tracks.selectedN > 0
-                    onClicked: {
-                        player.removeMediaManyFromLocalPlaylist(page.playlistId, tracks.selectedKey)
-                        page.exitSelectMode()
+                    IconButton {
+                        objectName: "localPlaylistUnlikeSelected"
+                        type: "standard"
+                        icon: "favorite_border"
+                        enabled: tracks.selectedN > 0
+                        onClicked: {
+                            player.unlikeMediaMany(tracks.selectedKey)
+                            page.exitSelectMode()
+                        }
+                    }
+                    IconButton {
+                        objectName: "localPlaylistDeleteSelected"
+                        type: "standard"
+                        icon: "delete"
+                        enabled: tracks.selectedN > 0
+                        onClicked: {
+                            player.removeMediaManyFromLocalPlaylist(page.playlistId, tracks.selectedKey)
+                            page.exitSelectMode()
+                        }
                     }
                 }
             }

@@ -36,7 +36,7 @@ matrices and OkHSV transforms from color/core/Transforms.kt, Copyright 2025
 compose-miuix-ui contributors, Apache License 2.0. The OkHSV gamut boundary
 is solved numerically instead of using the reference polynomial approximation.
 
-QPlayer's optional liquid-glass phone navigation is a modified Java/QML/Skija
+QPlayer's optional liquid-glass phone navigation and MiniPlayer backdrop are a modified Java/QML/Skija
 port of example/component/liquid/{LiquidGlassNavigationBar,Lens,Vibrancy,
 InnerShadow,CombinedBackdrop}, example/component/animation/{DampedDragAnimation,
 InteractiveHighlight}, and miuix-blur's shaders, blur and device-tilt code.
@@ -46,7 +46,7 @@ The upstream liquid and animation components are adapted from
 Kyant0/AndroidLiquidGlass, also under Apache License 2.0:
 https://github.com/Kyant0/AndroidLiquidGlass
 
-The modified port is in components/LiquidGlassNavigation.qml,
+The modified port is in components/LiquidGlassNavigation.qml and MiniPlayer.qml,
 player-core's LiquidGlassNode/LiquidGlassMotion and shaders/liquid-glass,
 and Android's LiquidGlassTilt. Geometry, shader formulas and spring parameters
 are translated to qml4j/Skija; GPU capture, lifecycle and hidden-source layout

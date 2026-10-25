@@ -16,6 +16,7 @@ import "../components"
 // markup is now one Repeater plus one Component per row type.
 Rectangle {
     id: page
+    property real bottomContentInset: 0
     signal back()
     signal home()
     signal openDebugLog()
@@ -136,7 +137,7 @@ Rectangle {
             Layout.topMargin: 16
             clip: true
             contentWidth: width
-            contentHeight: groupsColumn.implicitHeight + 40
+            contentHeight: groupsColumn.implicitHeight + 40 + page.bottomContentInset
 
             ColumnLayout {
                 id: groupsColumn
