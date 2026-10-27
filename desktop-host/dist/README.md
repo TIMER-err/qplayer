@@ -109,6 +109,10 @@ desktop-host/target/qplayer -Dqplayer.width=430 -Dqplayer.height=900
 A `v*` tag triggers `.github/workflows/release.yml`. The Android job uses JDK 21.
 The Linux, Windows, and macOS jobs use GraalVM JDK 25 and native SDK prerequisites.
 All jobs attach their artifacts to the same GitHub Release.
+Tags containing a prerelease suffix (for example `v1.9.3-rc.1`) publish a GitHub
+prerelease without replacing the latest stable release. Android and the application
+version retain the suffix; macOS bundle and Windows binary version fields use the
+numeric version required by their platforms.
 
 CI produces an Apple Silicon DMG on `macos-14`. Intel Mac users build locally;
 the Maven OS profiles select native dependencies for the current architecture.

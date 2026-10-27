@@ -2,9 +2,8 @@ name: Release
 
 # One unified release pipeline. It builds, in parallel:
 #   • android  — the signed release APK
-#   • desktop  — the jpackage bundle (app + jlinked JRE) on Linux / Windows /
-#                macOS; jpackage only targets the OS it runs on, so each platform
-#                builds on its own runner.
+#   • desktop  — GraalVM native bundles on Linux / Windows / macOS; each
+#                platform builds on its own runner with its native toolchain.
 # Every job attaches its artifact(s) to the GitHub Release for the tag
 # (action-gh-release creates the release on first upload and appends after).
 #
@@ -125,6 +124,7 @@ jobs:
         with:
           files: out/*
           tag_name: ${{ github.event.release.tag_name || github.ref_name }}
+          prerelease: ${{ contains(github.event.release.tag_name || github.ref_name, '-') }}
 
   desktop:
     strategy:
@@ -273,3 +273,4 @@ jobs:
         with:
           files: out/*
           tag_name: ${{ github.event.release.tag_name || github.ref_name }}
+          prerelease: ${{ contains(github.event.release.tag_name || github.ref_name, '-') }}

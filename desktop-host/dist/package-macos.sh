@@ -23,6 +23,9 @@ if [ -z "$VERSION" ]; then
   VERSION="${VERSION#v}"
 fi
 [ -n "$VERSION" ] || VERSION="0.0.0"
+# Apple bundle versions are numeric; the application retains the full RC version.
+BUNDLE_VERSION="${VERSION%%-*}"
+BUNDLE_VERSION="${BUNDLE_VERSION%%+*}"
 echo "packaging QPlayer $VERSION"
 
 # Native Image's main() already owns the initial OS thread; no JVM launcher flags.
@@ -53,8 +56,8 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>CFBundleName</key><string>QPlayer</string>
   <key>CFBundleDisplayName</key><string>QPlayer</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>$VERSION</string>
-  <key>CFBundleVersion</key><string>$VERSION</string>
+  <key>CFBundleShortVersionString</key><string>$BUNDLE_VERSION</string>
+  <key>CFBundleVersion</key><string>$BUNDLE_VERSION</string>
   <key>CFBundleIconFile</key><string>qplayer.icns</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
