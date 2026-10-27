@@ -1,0 +1,11 @@
+[
+  {
+    "name": "dev.t1m3.qplayer.desktop.app.DesktopNativeBrowser$Bridge",
+    "methods": [ { "name": "invoke", "parameterTypes": ["java.lang.String", "long"] } ]
+  },
+  {
+    "name": "dev.t1m3.qplayer.desktop.app.DesktopNativeBrowser$CookieReply",
+    "methods": [ { "name": "completed", "parameterTypes": ["java.lang.String", "java.lang.String"] } ]
+  },
+  { "name": "java.lang.IllegalStateException" }
+]

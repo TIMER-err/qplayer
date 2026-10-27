@@ -5,6 +5,8 @@
 # Build output
 target/
 build/
+# This package contains build-tool sources, not generated output.
+!qml-aot-tool/src/main/java/dev/t1m3/qplayer/aot/build/
 .gradle/
 *.class
 

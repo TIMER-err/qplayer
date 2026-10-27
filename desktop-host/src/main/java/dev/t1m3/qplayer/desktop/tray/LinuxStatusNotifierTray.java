@@ -7,11 +7,14 @@ import com.sun.jna.Pointer;
 import com.sun.jna.Structure;
 import dev.t1m3.qplayer.util.Logger;
 
-import javax.imageio.ImageIO;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
-import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
+import io.github.humbleui.skija.Bitmap;
+import io.github.humbleui.skija.ColorAlphaType;
+import io.github.humbleui.skija.ColorType;
+import io.github.humbleui.skija.Image;
+import io.github.humbleui.skija.ImageInfo;
+import io.github.humbleui.skija.SamplingMode;
+import io.github.humbleui.skija.Surface;
+import io.github.humbleui.types.Rect;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -532,57 +535,39 @@ final class LinuxStatusNotifierTray extends LinuxTrayBackend {
         } catch (Throwable ignored) { }
     }
 
-    private static String encodeIconPixmaps(byte[] png) throws Exception {
+    private static String encodeIconPixmaps(byte[] png) {
         if (png == null || png.length == 0) return "@a(iiay) []";
-        BufferedImage source = ImageIO.read(new ByteArrayInputStream(png));
-        if (source == null) return "@a(iiay) []";
-        // Plasma uses the first pixmap as the source for panel scaling. Supplying
-        // tiny 16/22 px entries first therefore makes a HiDPI panel enlarge them
-        // and exposes jagged edges. Electron/QQ exports one 128 px source; doing
-        // the same leaves the final downsampling to the compositor at its exact
-        // physical panel size.
+        // Plasma scales the first pixmap; a single 128 px source avoids upscaling
+        // a tiny entry on HiDPI panels. Rasterize in premultiplied color to prevent
+        // hidden RGB in transparent border pixels from bleeding into the edge.
         int size = 128;
-        BufferedImage image = scale(source, size);
-        StringBuilder out = new StringBuilder("@a(iiay) [(128,128,[");
-        boolean first = true;
-        for (int y = 0; y < size; y++) {
-            for (int x = 0; x < size; x++) {
-                int argb = image.getRGB(x, y);
-                for (int shift : new int[]{24, 16, 8, 0}) {
-                    if (!first) out.append(',');
-                    first = false;
-                    out.append((argb >>> shift) & 0xff);
-                }
+        try (Image source = Image.makeFromEncoded(png);
+             Surface surface = Surface.makeRasterN32Premul(size, size);
+             Bitmap pixels = new Bitmap()) {
+            surface.getCanvas().clear(0);
+            surface.getCanvas().drawImageRect(source,
+                    Rect.makeWH(source.getWidth(), source.getHeight()),
+                    Rect.makeWH(size, size), SamplingMode.MITCHELL, null, true);
+            // SNI requires unpremultiplied ARGB in network byte order, not Skia's
+            // platform-native N32 layout. Explicit RGBA readback also makes this
+            // independent of CPU endianness; emit A,R,G,B below.
+            if (!pixels.allocPixels(new ImageInfo(size, size,
+                    ColorType.RGBA_8888, ColorAlphaType.UNPREMUL))
+                    || !surface.readPixels(pixels, 0, 0)) {
+                throw new IllegalStateException("Tray icon pixel readback failed");
             }
+            byte[] rgba = pixels.readPixels();
+            StringBuilder out = new StringBuilder(size * size * 16);
+            out.append("@a(iiay) [(128,128,[");
+            for (int i = 0; i < rgba.length; i += 4) {
+                if (i != 0) out.append(',');
+                out.append(rgba[i + 3] & 0xff).append(',')
+                        .append(rgba[i] & 0xff).append(',')
+                        .append(rgba[i + 1] & 0xff).append(',')
+                        .append(rgba[i + 2] & 0xff);
+            }
+            return out.append("])]").toString();
         }
-        return out.append("])]").toString();
-    }
-
-    private static BufferedImage scale(BufferedImage source, int size) {
-        // Interpolate premultiplied color so transparent border pixels cannot
-        // bleed their hidden RGB value into the rounded icon edge.
-        BufferedImage premultiplied = new BufferedImage(
-                source.getWidth(), source.getHeight(), BufferedImage.TYPE_INT_ARGB_PRE);
-        Graphics2D sourceGraphics = premultiplied.createGraphics();
-        try {
-            sourceGraphics.drawImage(source, 0, 0, null);
-        } finally {
-            sourceGraphics.dispose();
-        }
-        BufferedImage image = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB_PRE);
-        Graphics2D graphics = image.createGraphics();
-        try {
-            graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
-                    RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-            graphics.setRenderingHint(RenderingHints.KEY_RENDERING,
-                    RenderingHints.VALUE_RENDER_QUALITY);
-            graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
-                    RenderingHints.VALUE_ANTIALIAS_ON);
-            graphics.drawImage(premultiplied, 0, 0, size, size, null);
-        } finally {
-            graphics.dispose();
-        }
-        return image;
     }
 
     private static String esc(String value) {

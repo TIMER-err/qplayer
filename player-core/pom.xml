@@ -12,7 +12,7 @@
 
     <artifactId>player-core</artifactId>
     <name>Player Core</name>
-    <description>Platform-neutral player logic (netease, lyrics, audio abstraction, QML bridge, and the host-drawn lyric page) — must stay Android-dexable: no javax.sound, no platform-native deps. The native Skija .so/.dylib is supplied by each shell.</description>
+    <description>Platform-neutral player logic and packaged-QML scene runtime. Must stay Android-dexable: bundled UI classes are produced by qml-aot-tool before either host compiles/packages, never ASM/D8-compiled at runtime. Native Skija libraries are supplied by each shell.</description>
 
     <dependencies>
         <!-- QML engine: the reactive Property bridge to QML + Renderer/QmlView used

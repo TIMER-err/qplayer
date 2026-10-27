@@ -18,8 +18,8 @@ import java.util.List;
  * <p>GLFW already owns thread 0 / {@code NSApplication}. Creating an AWT
  * {@code SystemTray} on that same process starts a nested
  * {@code NSApplication.run} inside GLFW's wait, so the main window never
- * shows (issue #61). This backend talks to AppKit directly and never loads
- * {@code java.awt.Toolkit}.
+ * shows (issue #61). This backend talks to AppKit directly without starting
+ * another toolkit event loop.
  *
  * <p>Must be installed on the GLFW main thread.
  */

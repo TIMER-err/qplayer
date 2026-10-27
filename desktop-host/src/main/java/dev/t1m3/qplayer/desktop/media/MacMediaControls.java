@@ -19,8 +19,8 @@ import java.util.List;
 /**
  * macOS Control Center / menu-bar Now Playing integration through MediaPlayer.
  *
- * <p>The Objective-C runtime is used directly so the regular jlinked JVM remains
- * the only runtime in the app bundle. MediaPlayer supplies both halves of the
+ * <p>The Objective-C runtime is used directly through JNA, without a Java UI
+ * toolkit. MediaPlayer supplies both halves of the
  * native contract: MPNowPlayingInfoCenter publishes metadata/timeline state and
  * MPRemoteCommandCenter routes system buttons back to PlayerController.
  */

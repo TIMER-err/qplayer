@@ -1,6 +1,7 @@
 package dev.t1m3.qplayer.desktop.window;
 
 import dev.t1m3.qplayer.lyric.skia.DesktopLyricRenderer;
+import dev.t1m3.qplayer.qml.BundledQml;
 import dev.t1m3.qplayer.util.Logger;
 import io.github.humbleui.skija.Canvas;
 import io.github.humbleui.skija.Paint;
@@ -38,6 +39,7 @@ final class DesktopLyricRenderThread extends Thread {
     @Override
     public void run() {
         QmlView view = null;
+        BundledQml qmlBundle = null;
         DesktopLyricRenderer lyricRenderer = null;
         Paint backgroundPaint = null;
         Paint outlinePaint = null;
@@ -54,10 +56,8 @@ final class DesktopLyricRenderThread extends Thread {
             Item chromeCanvas;
             Item lockedControl;
             synchronized (QmlRuntimeLock.MONITOR) {
-                view = QmlView.withStockTypes(new QmlEngine())
-                        .resources(owner.resources())
-                        .compilationCache(owner.qmlCompilationCache(),
-                                owner.qmlCompilationCache().sceneKey("DesktopLyric.qml"));
+                qmlBundle = new BundledQml("DesktopLyric.qml");
+                view = qmlBundle.configure(QmlView.withStockTypes(new QmlEngine(qmlBundle)), owner.resources());
                 // QmlView defaults picture caching to false. In qml4j 0.2.x the
                 // corresponding Item.contentCacheEnabled switch is unfortunately
                 // static, so constructing this second, otherwise independent view
@@ -67,7 +67,7 @@ final class DesktopLyricRenderThread extends Thread {
                 view.renderer().setPictureCache(true);
                 DesktopWindow.loadFonts(view, owner.resources());
                 view.context("desktopLyric", state);
-                view.load(owner.qmlSource());
+                qmlBundle.load(view);
                 if (view.root() != null) {
                     view.root().width.set((double) DesktopLyricWindow.WIDTH);
                     view.root().height.set((double) DesktopLyricWindow.HEIGHT);
@@ -185,6 +185,11 @@ final class DesktopLyricRenderThread extends Thread {
                 try {
                     if (view != null) view.dispose();
                 } catch (Throwable ignored) {
+                }
+                try {
+                    if (qmlBundle != null) qmlBundle.close();
+                } catch (Throwable error) {
+                    Logger.warn("desktop lyric QML cleanup failed: {}", error);
                 }
             }
             if (lyricRenderer != null) lyricRenderer.close();

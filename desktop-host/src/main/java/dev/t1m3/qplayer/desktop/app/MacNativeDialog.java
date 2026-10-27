@@ -42,8 +42,10 @@ final class MacNativeDialog {
         try {
             ensureLoaded();
             Pointer panel = send(cls("NSOpenPanel"), "openPanel");
-            if (panel == null) return null;
-            configure(panel, title, initialDirectory, directoryOnly, !directoryOnly, extensions);
+            if (panel == null) throw new IllegalStateException("NSOpenPanel creation failed");
+            configure(panel, title, initialDirectory, extensions);
+            sendVoid(panel, "setCanChooseDirectories:", directoryOnly);
+            sendVoid(panel, "setCanChooseFiles:", !directoryOnly);
             sendVoid(panel, "setAllowsMultipleSelection:", false);
             sendVoid(panel, "setCanCreateDirectories:", directoryOnly);
             if (sendLong(panel, "runModal") != MODAL_OK) return null;
@@ -59,8 +61,8 @@ final class MacNativeDialog {
         try {
             ensureLoaded();
             Pointer panel = send(cls("NSSavePanel"), "savePanel");
-            if (panel == null) return null;
-            configure(panel, title, initialDirectory, false, false, extensions);
+            if (panel == null) throw new IllegalStateException("NSSavePanel creation failed");
+            configure(panel, title, initialDirectory, extensions);
             sendVoid(panel, "setCanCreateDirectories:", true);
             if (suggestedFileName != null && !suggestedFileName.isEmpty()) {
                 sendVoid(panel, "setNameFieldStringValue:", nsString(suggestedFileName));
@@ -74,10 +76,8 @@ final class MacNativeDialog {
     }
 
     private static void configure(Pointer panel, String title, String initialDirectory,
-                                  boolean directories, boolean files, String[] extensions) {
+                                  String[] extensions) {
         if (title != null && !title.isEmpty()) sendVoid(panel, "setTitle:", nsString(title));
-        sendVoid(panel, "setCanChooseDirectories:", directories);
-        sendVoid(panel, "setCanChooseFiles:", files);
         if (initialDirectory != null && !initialDirectory.isEmpty()) {
             Pointer url = send(cls("NSURL"), "fileURLWithPath:isDirectory:",
                     nsString(initialDirectory), true);

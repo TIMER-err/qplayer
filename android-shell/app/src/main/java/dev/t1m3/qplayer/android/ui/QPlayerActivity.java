@@ -23,9 +23,8 @@ import android.content.res.Configuration;
 import android.os.Build;
 import android.os.Bundle;
 
-import io.github.timer_err.qml4j.android.DexClassLoaderBackend;
+import dev.t1m3.qplayer.qml.BundledQml;
 import io.github.timer_err.qml4j.android.QmlGLSurfaceView;
-import io.github.timer_err.qml4j.engine.QmlEngine;
 
 import dev.t1m3.qplayer.audio.AudioBackend;
 import dev.t1m3.qplayer.audio.MetadataReader;
@@ -39,7 +38,6 @@ import dev.t1m3.qplayer.resources.DiskDecompressedResourceCache;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -114,9 +112,8 @@ public final class QPlayerActivity extends Activity {
         super.onCreate(savedInstanceState);
         logSceneLifecycle("create");
 
-        // Paint a real loading UI before PlayerController / plugins / QML compile.
-        // Android 11 has no system splash, and a SurfaceView punch-through would
-        // otherwise leave a black window for the whole first-launch compile (#51).
+        // Paint a loading UI before PlayerController, plugins, and scene construction.
+        // Android 11 has no system splash; a SurfaceView otherwise leaves a black window.
         splashView = buildSplash();
         android.widget.FrameLayout root = new android.widget.FrameLayout(this);
         root.addView(splashView, new android.widget.FrameLayout.LayoutParams(
@@ -229,7 +226,7 @@ public final class QPlayerActivity extends Activity {
         PlaybackService.attachController(controller, bootstrap);
         // Back on the home screen sends the app to the background (like Home) instead
         // of finishing — playback keeps running and the QML scene survives, so
-        // re-entering doesn't recompile/reload the whole UI.
+        // re-entering doesn't reconstruct/reload the whole UI.
         controller.setExitListener(() -> runOnUiThread(() -> moveTaskToBack(true)));
 
         // Immersive system bars: fullscreen when landscape, and on the lyric page in
@@ -288,12 +285,6 @@ public final class QPlayerActivity extends Activity {
         OverlayLyricWindow.setWanted(getApplicationContext(),
                 settings.bool(SettingsCatalog.OVERLAY_LYRIC_KEY));
 
-        String qml;
-        try {
-            qml = readAsset("Main.qml");
-        } catch (IOException e) {
-            throw new RuntimeException("failed to read Main.qml", e);
-        }
 
         // Lyric renderer fonts: the bundled PingFang SC weights from shared-qml
         // (the lyric face must itself cover CJK + Latin — no automatic fallback).
@@ -341,18 +332,13 @@ public final class QPlayerActivity extends Activity {
             });
         }));
 
-        // Cache D8-dexed QML across launches (dexing is the slow part of startup);
-        // wipe it whenever the apk is (re)installed so stale dex never loads.
-        java.io.File dexCache = new java.io.File(getCacheDir(), "qml-dex");
-        invalidateDexCacheOnReinstall(dexCache);
-        QmlEngine engine = new QmlEngine(
-                new DexClassLoaderBackend(getClass().getClassLoader(), 26, dexCache));
+        BundledQml bundle = new BundledQml("Main.qml");
         float density = getResources().getDisplayMetrics().density;
         // QML is authored in dp and qml4j does not scale Image.sourceSize by the
         // density, so covers need it to decode at display resolution rather than at
         // 1x and be upscaled -- see CoverImage.qml.
         controller.setPixelRatio(density);
-        glView = new QmlGLSurfaceView(this, engine, qml, resources, density);
+        glView = new QmlGLSurfaceView(this, bundle, resources, density);
         glView.setController(controller);
         glView.setSettings(settings);
         glView.setErrorListener(trace -> runOnUiThread(() -> showError(trace)));
@@ -365,13 +351,6 @@ public final class QPlayerActivity extends Activity {
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT));
         if (splashView != null) splashView.bringToFront();
         glView.setSplashListener(new QmlGLSurfaceView.SplashListener() {
-            @Override public void onProgress(String name, int count) {
-                runOnUiThread(() -> {
-                    if (splashStatus != null) {
-                        splashStatus.setText(I18n.tr("splash.compiling", count));
-                    }
-                });
-            }
             @Override public void onReady() {
                 runOnUiThread(QPlayerActivity.this::onSceneReady);
             }
@@ -381,10 +360,7 @@ public final class QPlayerActivity extends Activity {
 
         controller.loadHome();
         registerDebugReceiver();
-        // The audio-permission dialog is deferred to onSceneReady: requesting it
-        // here pops a system dialog during the QML compile, and the resulting
-        // pause/resume + the concurrent MediaStore scan racing the dex compile
-        // crashes on first launch. Once the scene has rendered, it's safe.
+        // Wait for the first painted scene before presenting a permission dialog.
     }
 
     /** {@code adb shell am broadcast -a dev.t1m3.qplayer.DEBUG --es cmd status} */
@@ -1135,32 +1111,6 @@ public final class QPlayerActivity extends Activity {
         }
     }
 
-    /** Clear the QML dex cache when the apk's install timestamp changes (install,
-     *  reinstall, or update), so a new build never loads dex compiled from the old one. */
-    private void invalidateDexCacheOnReinstall(java.io.File dexCache) {
-        try {
-            long lastUpdate = getPackageManager()
-                    .getPackageInfo(getPackageName(), 0).lastUpdateTime;
-            android.content.SharedPreferences p =
-                    getSharedPreferences("qplayer.cache", MODE_PRIVATE);
-            if (p.getLong("apkStamp", -1L) != lastUpdate) {
-                deleteRecursively(dexCache);
-                p.edit().putLong("apkStamp", lastUpdate).apply();
-            }
-        } catch (Exception e) {
-            deleteRecursively(dexCache); // on any doubt, recompile from scratch
-        }
-    }
-
-    private static void deleteRecursively(java.io.File f) {
-        if (f == null || !f.exists()) return;
-        java.io.File[] kids = f.listFiles();
-        if (kids != null) {
-            for (java.io.File k : kids) deleteRecursively(k);
-        }
-        f.delete();
-    }
-
     private void showError(String trace) {
         android.widget.TextView tv = new android.widget.TextView(this);
         tv.setText(trace);
@@ -1293,10 +1243,6 @@ public final class QPlayerActivity extends Activity {
                 + Integer.toHexString(System.identityHashCode(this))
                 + " javaMiB=" + (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024)
                 + " nativeMiB=" + android.os.Debug.getNativeHeapAllocatedSize() / (1024 * 1024));
-    }
-
-    private String readAsset(String name) throws IOException {
-        return new String(readAssetBytes(name), StandardCharsets.UTF_8);
     }
 
     private byte[] readAssetBytes(String name) throws IOException {

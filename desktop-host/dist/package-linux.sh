@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# Package the Linux desktop app with jpackage, then wrap it in a single-file AppImage.
-# Run AFTER `mvn -pl desktop-host -Pdist package` (under a JDK 21).
+# Wrap the GraalVM native executable in a single-file AppImage; no JVM is shipped.
+# Run AFTER `mvn -pl desktop-host -am -Pdist package` under GraalVM JDK 25.
 #   bash desktop-host/dist/package-linux.sh
 # Output: desktop-host/target/QPlayer-x86_64.AppImage
 set -euo pipefail
 cd "$(dirname "$0")/../.."                      # repo root
 DIST="desktop-host/dist"
 T=desktop-host/target
-APP="$T/app"
-[ -f "$APP/qplayer.jar" ] || { echo "$APP/qplayer.jar not found — run 'mvn -pl desktop-host -Pdist package' first"; exit 1; }
+BINARY="$T/qplayer"
+[ -x "$BINARY" ] || { echo "$BINARY not found — run 'mvn -pl desktop-host -am -Pdist package' first"; exit 1; }
+[ -d "$T/native-legal" ] || { echo "$T/native-legal not found — rebuild with -Pdist"; exit 1; }
 
 # Version for the bundle metadata. CI passes the release tag; a local build falls
 # back to the latest git tag, then 0.0.0. Leading "v" stripped either way.
@@ -21,43 +22,21 @@ fi
 [ -n "$VERSION" ] || VERSION="0.0.0"
 echo "packaging QPlayer $VERSION"
 
-# Shared module list (see jre-modules.txt), comments stripped.
-MODS=$(sed 's/#.*//' "$DIST/jre-modules.txt" | tr -d '[:blank:]' | grep . | paste -sd, -)
-JAVA_OPTION_ARGS=()
-while IFS= read -r option; do
-  JAVA_OPTION_ARGS+=(--java-options "$option")
-done < <(sed 's/#.*//' "$DIST/jvm-options.txt" | awk 'NF')
-
-rm -rf "$T/pkg" "$T/AppDir"
-
-# jpackage jlinks the runtime from --add-modules and emits qplayer/{bin,lib}.
-# Skija/LWJGL keep extracting their own natives out of the jars in lib/app, so
-# there is nothing to hand-place here.
-jpackage --type app-image \
-  --name qplayer --app-version "$VERSION" --vendor t1m3 --description "QPlayer" \
-  --input "$APP" --main-jar qplayer.jar --main-class dev.t1m3.qplayer.desktop.app.Main \
-  --dest "$T/pkg" \
-  --add-modules "$MODS" \
-  "${JAVA_OPTION_ARGS[@]}" \
-  --jlink-options "--strip-native-commands --strip-debug --no-man-pages --no-header-files --compress=zip-6 --dedup-legal-notices=error-if-not-same-content"
-
-# AppDir = the jpackage image plus AppRun and freedesktop metadata. appimagetool
-# requires the launcher, desktop entry and icon at the root; copies under usr/
-# let AppStream consumers associate the installed metadata with the application.
-mv "$T/pkg/qplayer" "$T/AppDir"
-rmdir "$T/pkg"
-
-# Temurin's Linux jmods retain the native symbol table in libjvm even with
-# jlink --strip-debug. It is useful to JDK developers but not required to run
-# QPlayer; removing it saves roughly another 4 MiB from the runtime image.
-if command -v strip >/dev/null 2>&1; then
-  strip --strip-unneeded "$T/AppDir/lib/runtime/lib/server/libjvm.so"
-fi
+# Keep the same release asset and freedesktop identity, without a bundled JRE.
+rm -rf "$T/AppDir"
+install -Dm755 "$BINARY" "$T/AppDir/usr/bin/qplayer"
+# Keep Native Image's emitted JNI libraries next to the executable.
+for library in "$T"/*.so "$T"/*.so.*; do
+  [ -f "$library" ] || continue
+  install -m755 "$library" "$T/AppDir/usr/bin/"
+done
+mkdir -p "$T/AppDir/usr/share/licenses/qplayer"
+cp -a "$T/native-legal/." "$T/AppDir/usr/share/licenses/qplayer/"
 
 cat > "$T/AppDir/AppRun" <<'EOF'
 #!/bin/sh
 HERE="$(dirname "$(readlink -f "$0")")"
-exec "$HERE/bin/qplayer" "$@"
+exec "$HERE/usr/bin/qplayer" "$@"
 EOF
 chmod +x "$T/AppDir/AppRun"
 

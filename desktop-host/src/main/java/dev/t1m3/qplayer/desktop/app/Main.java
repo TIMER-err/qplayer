@@ -1,7 +1,5 @@
 package dev.t1m3.qplayer.desktop.app;
 
-import io.github.timer_err.qml4j.engine.QmlEngine;
-
 import dev.t1m3.qplayer.audio.AudioBackend;
 import dev.t1m3.qplayer.audio.MetadataReader;
 import dev.t1m3.qplayer.bridge.PlayerController;
@@ -14,7 +12,6 @@ import dev.t1m3.qplayer.desktop.media.MacMediaControls;
 import dev.t1m3.qplayer.desktop.media.MprisControls;
 import dev.t1m3.qplayer.desktop.media.WindowsMediaControls;
 import dev.t1m3.qplayer.desktop.resources.ClasspathResourceLoader;
-import dev.t1m3.qplayer.desktop.resources.DiskCompiledSceneCache;
 import dev.t1m3.qplayer.resources.DiskDecompressedResourceCache;
 import dev.t1m3.qplayer.desktop.security.DesktopCredentialProtection;
 import dev.t1m3.qplayer.desktop.settings.DesktopThemeMonitor;
@@ -36,7 +33,6 @@ import org.jetbrains.annotations.NotNull;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
@@ -53,36 +49,22 @@ import java.util.List;
  */
 public final class Main {
 
-    /** True when running from a jpackage-produced bundle (the launcher sets this
-     *  property), false on a plain `mvn exec:exec` dev run. */
-    private static final boolean PACKAGED = System.getProperty("jpackage.app-path") != null;
+    /** Native executables use the packaged Windows console policy; JVM dev runs do not. */
+    private static final boolean PACKAGED =
+            "runtime".equals(System.getProperty("org.graalvm.nativeimage.imagecode"));
 
     public static void main(String[] args) {
         long startupStartedNanos = System.nanoTime();
-        // The jpackage launcher hands the command line straight to main() instead of
-        // to the JVM (and drops -J flags), so pull the -Dkey=value ones back out
-        // ourselves. Keeps the packaged app's launch knobs identical to a dev run:
-        // -Dqplayer.gfx=vulkan, -Dqplayer.width/height=…, -Dqplayer.tray=false.
-        for (String a : args) {
-            if (!a.startsWith("-D")) continue;
-            int eq = a.indexOf('=');
-            if (eq > 2) System.setProperty(a.substring(2, eq), a.substring(eq + 1));
-        }
-
-        // GLFW owns thread 0 / NSApplication on macOS. The first headful AWT
-        // call (ImageIO, SystemTray, JFileChooser) starts a nested
-        // NSApplication.run inside glfwWaitEvents, so the queued glfwShowWindow
-        // never runs (issue #61). Force headless AWT; macOS uses NSStatusItem
-        // and NSOpenPanel instead.
-        String osName = System.getProperty("os.name", "").toLowerCase();
-        if (osName.contains("mac") && System.getProperty("java.awt.headless") == null) {
-            System.setProperty("java.awt.headless", "true");
+        String osName = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
+        // No jemalloc module is shipped; avoid probing an absent runtime class.
+        if (System.getProperty("org.lwjgl.system.allocator") == null) {
+            System.setProperty("org.lwjgl.system.allocator", "system");
         }
 
         // Windows packaged launcher (GUI subsystem): no console on double-click, but
         // attach to the launching terminal's console so logs still stream there.
         // Before anything writes to stdout (log4j console appender resolves it).
-        if (PACKAGED && System.getProperty("os.name", "").toLowerCase().contains("win")) {
+        if (PACKAGED && osName.contains("win")) {
             WinConsole.attachParentConsole();
         }
 
@@ -120,9 +102,6 @@ public final class Main {
         DiskDecompressedResourceCache resources = new DiskDecompressedResourceCache(
                 classpathResources, AppDirs.cacheDir().resolve("expanded-resources"));
         String currentVersion = appVersion();
-        DiskCompiledSceneCache qmlCompilationCache = new DiskCompiledSceneCache(
-                AppDirs.cacheDir().resolve("qml"),
-                classpathResources.qmlFingerprint(currentVersion));
 
         // Before the controller: it starts the enabled plugins while it is being
         // built, and each one is version-checked against this.
@@ -160,7 +139,6 @@ public final class Main {
         settings.registerInfo("cacheUsage", () -> controller.cacheSizeMB.peek() + " MB");
         JsonSettingsStore desktopStore = new JsonSettingsStore();
         settings.load(desktopStore, SettingsCatalog.DESKTOP);
-        DesktopFilePicker.initializeLookAndFeel(settings.resolvedDarkValue());
 
         // Fonts for the host-drawn lyric renderer (the QML scene fonts are set on the
         // view in DesktopWindow.ensureView).
@@ -176,21 +154,13 @@ public final class Main {
         // was chosen last run resolves on the first try.
         Fonts.addFileIndex(dev.t1m3.qplayer.lyric.skia.ImportedFonts.instance());
         Fonts.warmupFromConfig();
-        byte[] qmlBytes = resources.load("Main.qml");
-        if (qmlBytes == null) throw new IllegalStateException("Main.qml not found on classpath");
-        String qml = new String(qmlBytes, StandardCharsets.UTF_8);
-
-        QmlEngine engine = new QmlEngine();
-        DesktopWindow window = new DesktopWindow(engine, qml, resources, controller, settings,
-                qmlCompilationCache);
+        DesktopWindow window = new DesktopWindow(resources, controller, settings);
         settings.onChange("darkMode", ignored -> {
-            DesktopFilePicker.setDarkTheme(settings.resolvedDarkValue());
             window.refreshSystemChromeTheme();
         });
         DesktopThemeMonitor themeMonitor = new DesktopThemeMonitor(initialSystemDark, dark ->
                 window.postRenderTask(() -> {
                     settings.setSystemDark(dark);
-                    DesktopFilePicker.setDarkTheme(settings.resolvedDarkValue());
                     window.refreshSystemChromeTheme();
                 }));
         // Desktop lyrics shares SettingsCore's store so its settings-page toggle
@@ -375,6 +345,9 @@ public final class Main {
         tray.shutdown();
         DesktopWebLogin.shutdown();
         DesktopWebAuthScript.shutdown();
+        // Native WKWebView close requests must drain on the AppKit main loop
+        // before GLFW destroys the application's native event infrastructure.
+        org.lwjgl.glfw.GLFW.glfwPollEvents();
         try {
             controller.shutdown();
         } catch (Throwable ignored) {

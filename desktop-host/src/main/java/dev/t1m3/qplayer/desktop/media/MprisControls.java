@@ -25,8 +25,8 @@ import java.util.List;
  *
  * <p>Implemented straight on GLib's GDBus through JNA — the same approach as
  * {@link LinuxTray}'s libappindicator binding, and for the same reason: no new
- * dependency, nothing extra to fold into the jlink module list or the packaged
- * runtime. D-Bus is a protocol, not a library, so the only thing GDBus provides
+ * dependency. Native Image metadata covers the JNA interfaces.
+ * D-Bus is a protocol, not a library, so the only thing GDBus provides
  * here is the connection and the marshalling.
  *
  * <p>Two objects are exported at {@code /org/mpris/MediaPlayer2}:

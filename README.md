@@ -88,7 +88,7 @@ Android 在线播放的后台缓存完成后不会重新起播。缓冲或停滞
 **界面**　整套 UI 使用 Miuix QML（`miuix.Core`），运行在 qml4j 引擎上，通过内置 `StyleManager` 将封面颜色映射到 Miuix 莫奈配色（可关闭），
 支持深色 / 浅色 / 跟随系统，以及简体中文与英文。布局由宽度
 驱动（断点 600 / 840）：窄屏使用底部导航，宽屏切换为左侧 `NavigationRail`，歌单
-栅格列数随宽度增减，因此安卓横屏与平板无需单独适配。设置页始终使用单列分组，相关设置共用一个卡片；歌曲、歌单、搜索结果和选择器采用窗口化虚拟列表。Android 冷启动时由系统启动画面与原生加载层连续覆盖首次 QML 编译，不暴露尚未绘制的 GL 黑帧。
+栅格列数随宽度增减，因此安卓横屏与平板无需单独适配。设置页始终使用单列分组，相关设置共用一个卡片；歌曲、歌单、搜索结果和选择器采用窗口化虚拟列表。随包 QML 组件在构建期编译，两端运行时只装载预编译类。Android 启动画面与原生加载层覆盖首次界面装载，不暴露尚未绘制的 GL 黑帧。
 
 界面迁移说明见 [Miuix 界面](docs/miuix-ui.md)。
 
@@ -127,6 +127,7 @@ Service/KWallet 保管。系统密码库不可用时，用户可以明确选择�
 |---|---|
 | `player-core/` | 跨平台核心（Maven，`dev.t1m3.qplayer`）：面向 QML 的 `PlayerController`、插件 ABI 与沙箱、歌词解析（LRC / YRC / TTML）、音频与元数据抽象，以及宿主绘制的歌词页。**不含任何在线音源端点或协议实现**。 |
 | `shared-qml/` | 共享 QML：`Main.qml` + 各页面 + 组件、vendored 的 `miuix.Core` 组件库、内置字体（PingFang / Material Symbols）。放在仓库根目录，两端加载同一份，响应式布局因此天然通用。 |
+| `qml-aot-tool/` | 仅构建期使用的 QML 编译器与 Native Image 元数据生成器。生成组件类、场景清单和反射配置，不进入 APK 或桌面运行时。 |
 | `android-shell/` | 安卓应用（Gradle，`applicationId dev.t1m3.qplayer`，minSdk 26）。宿主集成在 `…/android/`，界面与歌词都来自上面两个模块。 |
 | `desktop-host/` | 桌面宿主（Maven）：LWJGL3 + GLFW 开窗、Skija 渲染、可切换的 `GraphicsBackend`、可销毁重建的渲染线程、系统托盘，以及桌面音频（OpenAL Soft 输出 + PCM 解码）。 |
 | [qml4j](https://github.com/TIMER-err/qml4j) | QML 引擎。是一个已发布的依赖，**不在**本仓库内。 |
@@ -139,7 +140,7 @@ Service/KWallet 保管。系统密码库不可用时，用户可以明确选择�
 
 ## 构建
 
-需要 JDK 21；构建安卓还需 Android SDK。
+Android 与 JVM 开发需要 JDK 21、Maven；Android 还需 Android SDK。桌面原生分发包使用 GraalVM JDK 25。
 
 **安卓**
 
@@ -156,14 +157,14 @@ cd android-shell && ./gradlew :app:assembleDebug
 # → app/build/outputs/apk/perf/app-perf.apk
 ```
 
-只有 `perf` 变体允许 shell 性能采集，正式发布包不因此开启 profiling。首次安装或更新后，等待 `qplayer.lifecycle` 输出 `ready activity=...`，确认权限和插件提示已关闭，再比较相同页面与滚动操作，避免把 QML 编译或弹窗当成滚动耗时。
+只有 `perf` 变体允许 shell 性能采集，正式发布包不因此开启 profiling。首次安装或更新后，等待 `qplayer.lifecycle` 输出 `ready activity=...`，确认权限和插件提示已关闭，再比较相同页面与滚动操作，避免把首次界面装载或弹窗当成滚动耗时。Gradle 在构建主机编译全部随包 QML，再由常规 D8 步骤生成 DEX；应用内不再运行 D8，也没有动态编译回退。
 
 Android 测试包拥有独立沙箱。复制正式版的本地库缓存时，必须先将索引中的封面路径重定位到测试包目录，再以测试包 UID 写入对应缓存文件；直接保留 `/data/user/0/<正式包名>/…` 会因权限隔离而无法显示封面，测试包内未被正确引用的封面还可能被缓存清理。此操作只针对测试副本，不修改正式版数据。
 
 **桌面**
 
-Linux 从源码运行和发布版 AppImage 都依赖系统提供的原生库；AppImage 内置 JVM
-和 Java 依赖，但不会捆绑宿主的图形与 WebView 栈：
+Linux 从源码运行和发布版 AppImage 都依赖系统提供的原生库。AppImage 包含原生可执行文件，
+不包含 JVM，也不捆绑宿主的图形与 WebView 栈：
 
 - OpenGL/EGL、Vulkan Loader、Fontconfig 与 C++ 运行库：Skija/LWJGL 渲染；
 - GLib/GIO、GTK 3、Cairo 与 X11：MPRIS、系统托盘和 WebView；
@@ -197,28 +198,29 @@ mvn -pl desktop-host exec:exec -Dwin.w=480 -Dwin.h=800   # 窄屏(底部导航)
 ```
 
 > 关闭按钮为最小化到托盘（渲染线程销毁，音频继续播放），从托盘「退出」才会真正退出。
-> macOS 启动需加 `-XstartOnFirstThread`。
+> macOS 的 JVM 开发运行需加 `-XstartOnFirstThread`；原生可执行文件不使用此参数。
 
-**桌面分发包（jpackage + jlink）**
+**桌面原生分发包（GraalVM Native Image）**
 
-需要完整的 **JDK 21**（非 JRE，需包含 `jpackage`/`jlink`）。产物内置按需裁剪的运行时，
-用户无需自行安装 Java。`jpackage` 只能为当前系统打包，**每个平台需在对应机器上构建**。
+使用 **GraalVM JDK 25**、C/C++ 工具链和 CMake。Linux 还需 `pkg-config`、zlib、GTK 3、WebKitGTK 4.1 与 X11 的开发包。Windows 需要 MSVC 与 WebView2 SDK；macOS 需要 Xcode Command Line Tools。详见[桌面打包说明](desktop-host/dist/README.md)。
+
+用户无需安装 Java。原生镜像不能跨平台编译，**每个平台与架构需在对应机器上构建**。
 
 ```sh
 # 1) 安装共享模块
 mvn -DskipTests -pl player-core -am install
 
-# 2) 组装 target/app(qplayer.jar + lib/ 下全部运行时依赖)
-mvn -DskipTests -pl desktop-host -Pdist package
+# 2) 预编译 QML，并生成 target/qplayer（Windows 为 qplayer.exe）
+mvn -DskipTests -pl desktop-host -am -Pdist package
 
-# 3) 打成各平台分发包(jpackage 顺带 jlink 出运行时)
+# 3) 将原生程序与许可证打成各平台分发包
 bash       desktop-host/dist/package-linux.sh      # Linux   → target/QPlayer-x86_64.AppImage(单文件)
 pwsh -File desktop-host/dist/package-windows.ps1   # Windows → target/QPlayer-windows-x64.zip
 bash       desktop-host/dist/package-macos.sh      # macOS   → target/QPlayer.dmg(随当前架构)
 ```
 
-> 裁进运行时的 JDK 模块列表在 `desktop-host/dist/jre-modules.txt`，三个脚本共用。
-> macOS 的 `.dmg` 未签名，对外分发需自行 codesign + 公证，否则 Gatekeeper 会拦截。
+> 反射、JNI 和资源配置由 `qml-aot-tool` 与原生 WebView 构建步骤生成；新增动态入口后须实际运行原生程序验证。文件选择器使用系统原生 API；WebView 保留原系统内核，由独立 JNI 层承载，不加载 Swing。
+> macOS 的 `.dmg` 未经 Developer ID 签名与公证，对外分发需完成这两步，否则 Gatekeeper 会拦截。
 > 打 `v*` tag 时，`.github/workflows/release.yml` 会在三平台 CI 上完成上述构建并附到
 > GitHub Release。
 
@@ -253,7 +255,7 @@ chmod +x ~/.local/bin/qplayer.AppImage
 - [miuix-qml](https://github.com/TIMER-err/miuix-qml) —— Miuix QML 组件库（`miuix.Core`），视觉参考 [compose-miuix-ui/miuix](https://github.com/compose-miuix-ui/miuix)。版本与许可见 `shared-qml/miuix/`。
 - [SPlayer](https://github.com/imsyy/SPlayer) —— 流体歌词背景的视觉与实现参考。
 - [AMLL](https://github.com/amll-dev/amll-player) —— Apple Music 风格歌词与流体背景的设计参考。
-- [swingwebview](https://github.com/webliteca/swingwebview) —— 桌面端调用系统 WebView 完成网页登录。
+- [swingwebview](https://github.com/webliteca/swingwebview) —— 保留其系统 WebView 原生后端，以独立 JNI 层完成桌面网页登录，不加载 Swing 层。
 - 图标使用 Material Symbols Rounded。
 
 > QPlayer 不提供在线音源，也不分发受版权保护的媒体。插件作者与用户需自行遵守服务条款

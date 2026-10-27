@@ -34,9 +34,7 @@ import java.util.function.BooleanSupplier;
  * Windows system tray driven straight through the Win32 shell API via JNA —
  * {@code Shell_NotifyIcon} for the icon/tooltip and a native {@code CreatePopupMenu}
  * /{@code TrackPopupMenu} for the menu. The menu is rendered by the OS (GDI), so
- * CJK labels show correctly with zero {@code java.awt} font-manager init — which
- * is what dies in the native image ({@code sun.awt.FontConfiguration} NPEs because
- * the bare binary has no JDK lib dir).
+ * CJK labels use the system font without initializing a Java font manager.
  *
  * <p>A message-only window on a dedicated pump thread receives the tray callback
  * ({@code WM_TRAYICON}); left-click restores the window, while right-click opens

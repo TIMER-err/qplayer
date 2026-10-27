@@ -1,0 +1,61 @@
+QPlayer standalone browser host
+
+Backend source: ca.weblite/webview (swingwebview) 1.10.0
+https://github.com/webliteca/swingwebview/tree/e4204268e5cdb4b51c6b5e093a8a591d96e56acc
+Tag: v1.10.0; commit: e4204268e5cdb4b51c6b5e093a8a591d96e56acc
+Retrieved: 2026-10-27
+License: MIT; original license retained in upstream/LICENSE and source headers.
+
+Vendored files retain the original WebKitGTK/WKWebView/WebView2 engine and
+native cookie-store implementations. Local modifications expose standalone
+GTK windows while retaining native input methods, add ephemeral WebKitGTK
+contexts and WKWebsiteDataStore, add standalone WebView2 HWND/profile ownership,
+fix the extra WebView2 reference and apartment cleanup, and make legacy JAWT
+symbol resolution optional (no JAWT library is linked or loaded by this host).
+qplayer_webview.cpp adapts these engines to a small Swing-free JNI API. No Java
+sources from the upstream Swing component or dispatcher layer are shipped.
+
+Build requirements:
+- JDK headers via JAVA_HOME; CMake >= 3.20, C++17 compiler.
+- Linux: pkg-config, GTK3, X11 and WebKitGTK 4.1 or 4.0 development headers.
+  Runtime WebKitGTK/JavaScriptCore/libsoup are resolved by the upstream loader.
+  Debian/Ubuntu: libgtk-3-dev libwebkit2gtk-4.1-dev libx11-dev.
+- macOS: Xcode command-line tools, Cocoa/WebKit/QuartzCore/Security frameworks;
+  Objective-C++ and blocks. GLFW must continue to pump AppKit on the main thread.
+- Windows: VS C++ tools and unpacked Microsoft.Web.WebView2 1.0.2592.51 SDK:
+  https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.2592.51
+  Pass -DWEBVIEW2_SDK=<SDK root>. The SDK's WebView2LoaderStatic.lib is linked;
+  its Microsoft license applies. Runtime requires the installed WebView2 Runtime.
+  SDK binaries are downloaded at build time, not vendored here.
+
+Build from repository root (INSTALL_ROOT must be an absolute path):
+  cmake -S desktop-host/native/webview -B desktop-host/target/webview-native \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=<INSTALL_ROOT>
+  cmake --build desktop-host/target/webview-native --config Release
+  cmake --install desktop-host/target/webview-native --config Release
+Set INSTALL_ROOT to desktop-host/target/classes before Maven packages resources.
+The install writes native-webview/{libqplayerwebview.so,libqplayerwebview.dylib,
+qplayerwebview.dll} for the current platform and Native Image JNI/resource
+metadata under META-INF/native-image/dev.t1m3.qplayer/webview.
+Also copy this NOTICE and upstream/LICENSE to distribution notices.
+
+JNI API: dev.t1m3.qplayer.desktop.app.DesktopNativeBrowser native methods
+create/navigate/evaluate/cookies/isOpen/focus/destroy. Native callbacks are
+DesktopNativeBrowser$Bridge.invoke(String,long) and
+DesktopNativeBrowser$CookieReply.completed(String,String). No reflection-based
+browser APIs, dynamic class generation, AWT event dispatch or JVM subprocess.
+DesktopNativeBrowser and its nested Library must initialize at runtime in
+Native Image; they create executors and extract/load the native resource.
+
+Smoke scenarios for the integrated host (not run by this change):
+- Official HTTPS login, HttpOnly credential cookie scoped to the configured URL;
+  close/cancel, repeated open/focus, reopen with no previous account cookie.
+- Native window resize, HiDPI and CJK input; login redirects and native dialogs.
+- Hidden plugin JS: same-origin XHR/fetch, qplayerWebAuthDone, null result,
+  thrown script, cancellation, 45-second timeout, redirect to a different origin.
+- Close while cookie/eval callbacks are pending, and exit with either session
+  active; no leftover browser windows/processes/profile directories.
+- Windows: WebView2 unavailable, fresh independent profiles for overlapping
+  login/script sessions, and successful profile removal after controller close.
+- Native Image: run without a JDK/JRE, no java.desktop/Swing classes loaded;
+  JNI callbacks and native libraries available on Linux/macOS/Windows.

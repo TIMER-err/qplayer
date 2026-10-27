@@ -8,6 +8,7 @@ import io.github.timer_err.qml4j.render.Renderer;
 
 import dev.t1m3.qplayer.bridge.PlayerController;
 import dev.t1m3.qplayer.lyric.skia.LyricCompositor;
+import dev.t1m3.qplayer.util.Logger;
 
 import java.util.concurrent.locks.LockSupport;
 
@@ -54,6 +55,7 @@ final class RenderThread extends Thread {
      *  destroyed on this thread before it exits. */
     void shutdown() {
         running = false;
+        LockSupport.unpark(this);
     }
 
     GraphicsBackend.Kind kind() {
@@ -197,6 +199,13 @@ final class RenderThread extends Thread {
             try {
                 if (view != null) GpuCaches.invalidate(view.root());
             } catch (Throwable ignored) {
+            }
+            if (win.isClosing()) {
+                try {
+                    win.disposeScene();
+                } catch (Throwable error) {
+                    Logger.warn("QML scene cleanup failed: {}", error);
+                }
             }
             try {
                 backend.dispose();

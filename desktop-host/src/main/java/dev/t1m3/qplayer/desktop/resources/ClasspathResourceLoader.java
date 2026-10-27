@@ -1,6 +1,5 @@
 package dev.t1m3.qplayer.desktop.resources;
 
-import dev.t1m3.qplayer.util.Logger;
 import io.github.timer_err.qml4j.render.ResourceLoader;
 
 import java.io.ByteArrayOutputStream;
@@ -11,27 +10,10 @@ import java.net.URI;
 import java.nio.file.Files;
 
 /**
- * Resolves QML, fonts and assets off the classpath. The shared-qml tree
- * (Main.qml, the app pages, miuix/Core/*, fonts/*) is mounted as a Maven resource
- * directory, so {@code load("Main.qml")} reads {@code /Main.qml} and
- * {@code import miuix.Core} resolves {@code /miuix/Core/X.qml} — the same layout the
- * Android shell sees through its merged assets.
+ * Resolves runtime fonts, images and JavaScript modules from the classpath or disk.
+ * BundledQml supplies precompiled component classes and scene manifests separately.
  */
 public final class ClasspathResourceLoader implements ResourceLoader {
-
-    /**
-     * Fingerprints every packaged QML, qmldir and JavaScript module together with
-     * the qml4j runtime. A changed resource or engine therefore selects a fresh
-     * compiled-scene cache entry without relying on timestamps.
-     */
-    public String qmlFingerprint(String applicationVersion) {
-        try {
-            return QmlResourceFingerprint.create(applicationVersion);
-        } catch (Exception error) {
-            Logger.warn("QML cache disabled: cannot fingerprint resources ({})", error);
-            return null;
-        }
-    }
 
     @Override
     public byte[] load(String source) {

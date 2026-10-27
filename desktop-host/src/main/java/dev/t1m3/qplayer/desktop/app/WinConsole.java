@@ -16,7 +16,7 @@ import java.util.Arrays;
 /**
  * Windows console handling for the GUI-subsystem launcher.
  *
- * <p>The {@code qplayer.exe} jpackage emits is a Windows (GUI) subsystem binary, so
+ * <p>The native {@code qplayer.exe} is a Windows (GUI) subsystem binary, so
  * double-clicking shows no console at all — not even a flash. The trade-off is that
  * a GUI-subsystem process doesn't inherit a parent terminal's console, so when
  * launched from a shell it would print nothing. So at

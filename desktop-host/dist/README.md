@@ -1,91 +1,114 @@
-# Desktop release (jpackage + jlink)
+# Desktop release (GraalVM Native Image)
 
-The desktop app ships as a **jpackage bundle**: the app jars plus a jlinked JRE
-trimmed to the modules in [`jre-modules.txt`](jre-modules.txt). No JVM install
-required on the user's machine, and — unlike the GraalVM native image this
-replaced — it's an ordinary JVM at runtime, so the QML engine generates its
-classes normally, Rhino JITs, AWT/Swing work, and Skija/LWJGL extract their own
-natives out of the jars exactly like a dev run does. There is no reachability
-metadata to maintain.
+Desktop distributions contain a native executable and licenses, not application
+JARs or a bundled JVM. Build each operating system and architecture on its target
+machine or CI runner. JVM development runs remain available.
 
-`jpackage` only targets the OS it runs on, so each platform is built on its own
-machine / CI runner.
+`qml-aot-tool` compiles bundled QML into ordinary classes before packaging. Both
+hosts load those classes through `BundledQml`; neither host compiles QML at runtime.
+Rhino executes scripts in interpreter mode. The Android build converts the same
+class output to DEX through its regular build pipeline.
 
-## Build (per platform, under a full JDK 21 — not a JRE)
+## Build prerequisites
+
+Use GraalVM JDK 25 with `native-image`, Maven, CMake, and a C/C++ toolchain.
+Set `JAVA_HOME` to that installation and put its `bin` directory on `PATH`.
+
+- **Linux:** Install `pkg-config`, zlib, GTK 3, WebKitGTK 4.1, and X11 development
+  packages. On Debian/Ubuntu, use `build-essential zlib1g-dev libgtk-3-dev
+  libwebkit2gtk-4.1-dev libx11-dev`. Packaging also requires `curl` and `file`.
+- **Windows:** Use an x64 MSVC developer shell with the Windows SDK. Install
+  `Microsoft.Web.WebView2` version `1.0.2592.51` with NuGet. Set `WEBVIEW2_SDK` to
+  that package directory, which contains `build/native/include` and
+  `build/native/x64/WebView2LoaderStatic.lib`.
+  Desktop login requires the Evergreen WebView2 Runtime on the user's machine.
+- **macOS:** Install Xcode Command Line Tools. The build targets macOS 13 or newer.
 
 ```sh
-# install the shared modules once
+# Install player-core for consumers outside this Maven reactor, including Android.
 mvn -DskipTests -pl player-core -am install
-# stage target/app: qplayer.jar (Class-Path -> lib/) + every runtime dep in lib/
-mvn -DskipTests -pl desktop-host -Pdist package
+
+# Build the QML compiler, native WebView backend, metadata, and native executable.
+mvn -DskipTests -pl desktop-host -am -Pdist package
+# -> desktop-host/target/qplayer (qplayer.exe on Windows)
 ```
+
+For a nonstandard SDK layout, pass its native library directories explicitly:
+
+```sh
+mvn -DskipTests -pl desktop-host -am -Pdist package \
+  "-Dqplayer.native.library.path=$(pkg-config --variable=libdir zlib)"
+```
+
+Multiple library directories use a comma separator. On NixOS, also expose the
+native development packages through `PKG_CONFIG_PATH`. Runtime library and TLS
+module requirements are listed in the root README.
 
 ## Package
 
 ```sh
-bash       desktop-host/dist/package-linux.sh     # → target/QPlayer-x86_64.AppImage (single file)
-bash       desktop-host/dist/package-macos.sh     # → target/QPlayer.dmg  (intel or apple-silicon by arch)
-pwsh -File desktop-host/dist/package-windows.ps1  # → target/QPlayer/ + QPlayer-windows-x64.zip
+bash       desktop-host/dist/package-linux.sh     # -> target/QPlayer-x86_64.AppImage
+bash       desktop-host/dist/package-macos.sh     # -> target/QPlayer.dmg
+pwsh -File desktop-host/dist/package-windows.ps1  # -> target/QPlayer/ and QPlayer-windows-x64.zip
 ```
 
-Each script runs `jpackage` over `target/app`, then wraps the result in the
-platform's usual container. `QPLAYER_VERSION` (or the latest git tag) sets the
-version baked into the bundle metadata. They also read the shared
-[`jvm-options.txt`](jvm-options.txt), which bounds heap/address-space growth and
-keeps G1/JIT worker counts independent of the host's CPU count.
+The scripts package the native executable, emitted JNI libraries, and
+`target/native-legal`. They do not create a JRE. Native Image can emit small JNI
+shim libraries named `libjava` or `libjvm`; these are not a HotSpot runtime.
+`QPLAYER_VERSION`, then `GITHUB_REF_NAME`, then the latest Git tag sets container
+metadata. The application version comes from `version.properties`.
 
-The four large PingFang weights in `shared-qml/fonts` are stored as XZ assets
-(8 MiB dictionary) and decompressed only when a host asks for that weight. This
-keeps the packaged JAR small without retaining the compressed or raw font bytes
-after Skija has created its cached typeface. Always compare package size from a
-clean build: Maven's resource-copy step does not remove stale resources from an
-existing `target/classes` directory.
+- **Linux:** The AppImage includes the desktop entry, icon, and
+  `usr/share/metainfo/dev.t1m3.qplayer.appdata.xml`. System graphics, audio,
+  WebKitGTK, and GLib libraries remain external dependencies.
+- **Windows:** Native Image links a GUI-subsystem executable with the application
+  icon and version resource. `WinConsole` attaches to a parent console for shell
+  launches. CI builds the Inno Setup installer over the packaged `QPlayer/` folder.
+- **macOS:** Native Image starts on the initial OS thread; the native executable
+  does not use the Java launcher's `-XstartOnFirstThread` option. The script creates
+  an ad-hoc-signed application. Public distribution still requires Developer ID
+  signing and notarization.
 
-### Platform notes
+The four large PingFang weights remain XZ assets. The resource loader decompresses
+a weight only when requested, then Skija caches its typeface. Use a clean build
+when comparing artifact sizes; Maven resource copying can leave old files in
+`target/classes`.
 
-- **macOS** needs `-XstartOnFirstThread` (GLFW must own thread 0; the java
-  launcher otherwise runs `main` on a thread it spawns). The script passes it via
-  `--java-options`. It also bumps a `0.x` version to `1.x` for `CFBundleVersion`
-  only — Apple rejects a zero major, and the version the app *reports* comes from
-  `version.properties`, not the bundle. The `.app`/`.dmg` is **unsigned**; for
-  distribution it must be codesigned + notarized or Gatekeeper blocks it.
-- **Windows** gets a GUI-subsystem launcher from jpackage, so double-clicking
-  shows no console; `WinConsole` re-attaches to a parent terminal's console when
-  started from a shell. CI additionally builds an Inno Setup installer
-  (`qplayer.iss`) over the packaged `QPlayer/` folder.
-- **Linux** additionally strips the symbol table that Temurin leaves in
-  `libjvm.so` after `jlink --strip-debug`; this does not affect exported JNI/VM
-  symbols and saves roughly 4 MiB in the uncompressed runtime.
-- **Linux** embeds [`dev.t1m3.qplayer.appdata.xml`](dev.t1m3.qplayer.appdata.xml)
-  under `usr/share/metainfo`, together with the desktop entry and icon. AppImage
-  catalogs read its localized description and the two showcase images in
-  `docs/screenshots`; catalog pages update after they ingest a newly published
-  AppImage.
-- **Building with a GraalVM JDK** works, but its `jvmcicompiler.dll`/`.so` adds
-  ~48 MB to the runtime. CI uses Temurin.
-- The jpackage launcher passes the command line to `main()` rather than the JVM,
-  so `Main` re-reads `-Dkey=value` args itself. The packaged app therefore takes
-  the same knobs as a dev run: `qplayer.exe -Dqplayer.gfx=vulkan -Dqplayer.width=900`.
+## Native integration and metadata
 
-## Runtime modules
+File dialogs use Windows COM, the Linux desktop portal, and macOS AppKit. There
+is no Swing chooser or AWT tray fallback.
 
-`jre-modules.txt` is the common source of truth read by all three scripts;
-Windows adds `jdk.httpserver` for its SMTC cover endpoint. Raw `jdeps` output
-also reports optional Gson SQL adapters and the Windows-only class on every OS,
-so review its output rather than copying it wholesale. Inspect it with:
+WebView retains swingwebview's original native engines: WebView2 on Windows,
+WKWebView on macOS, and WebKitGTK on Linux. A standalone JNI bridge replaces the
+Swing host, not the browser engine. Vendored sources and license attribution live
+in `desktop-host/native/webview`.
+
+Metadata is generated at build time:
+
+- `QmlBundleCompiler` registers generated components, QML context types, stock
+  types, and untyped input/model payloads.
+- `DesktopNativeMetadata` registers host models, JNA libraries and callbacks,
+  Skija JNI entry points, reflective audio-tag factories, Rhino reflection, and required resources.
+- The WebView CMake install step registers its JNI bridge and native library.
+
+Change the generators when adding a dynamic entry point. Do not edit generated
+JSON or disable strict metadata checks. Exercise the affected interaction in the
+native executable; a successful image build does not prove dynamic reachability.
+The image includes all locales and charsets, with a default maximum heap of
+768 MiB. These options live in `desktop-host/pom.xml`.
+
+Native Image accepts startup properties directly:
 
 ```sh
-jdeps --multi-release 21 --ignore-missing-deps --print-module-deps \
-      desktop-host/target/app/qplayer.jar desktop-host/target/app/lib/*.jar
+desktop-host/target/qplayer -Dqplayer.width=430 -Dqplayer.height=900
 ```
 
 ## CI release
 
-`.github/workflows/release.yml` is the unified release pipeline: a `v*` tag push
-builds the Android APK and the desktop bundle on an `ubuntu` / `windows` /
-`macos-14` (Apple Silicon) matrix in parallel, and attaches every artifact to the
-same GitHub Release.
+A `v*` tag triggers `.github/workflows/release.yml`. The Android job uses JDK 21.
+The Linux, Windows, and macOS jobs use GraalVM JDK 25 and native SDK prerequisites.
+All jobs attach their artifacts to the same GitHub Release.
 
-> **Intel Mac**: GitHub retired the free Intel `macos-13` runner, so CI ships an
-> Apple-Silicon `.dmg` only. Intel users build locally with `package-macos.sh`
-> (it picks up the natives for the host arch through the Maven os profiles).
+CI produces an Apple Silicon DMG on `macos-14`. Intel Mac users build locally;
+the Maven OS profiles select native dependencies for the current architecture.

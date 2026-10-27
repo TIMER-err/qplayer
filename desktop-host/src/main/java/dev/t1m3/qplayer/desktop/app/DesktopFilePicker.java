@@ -1,296 +1,129 @@
 package dev.t1m3.qplayer.desktop.app;
 
-import com.formdev.flatlaf.themes.FlatMacDarkLaf;
 import dev.t1m3.qplayer.i18n.I18n;
-import com.formdev.flatlaf.themes.FlatMacLightLaf;
 import dev.t1m3.qplayer.util.Logger;
 
-import javax.swing.JFileChooser;
-import javax.swing.SwingUtilities;
-import javax.swing.filechooser.FileNameExtensionFilter;
-import java.awt.Window;
-import java.awt.event.HierarchyEvent;
 import java.io.File;
+import java.util.Locale;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
-/**
- * Non-blocking host file chooser shared by all desktop builds. It deliberately
- * uses the pure-Java Swing chooser: FlatLaf's native Linux chooser loads GTK in a
- * separate native thread alongside GLFW and has been observed crashing in GTK.
- * The chooser is modal only on the AWT event thread, so GLFW keeps running.
- */
+/** Native system dialogs; no AWT toolkit or GTK is loaded into the GLFW process. */
 final class DesktopFilePicker {
-
     private static final AtomicBoolean OPEN = new AtomicBoolean(false);
-    private static volatile boolean darkTheme;
-    private static volatile Boolean installedDarkTheme;
+    private static final String[] PLAYLIST_EXTENSIONS = {"qpl", "json"};
+    private static final String[] AUDIO_EXTENSIONS = {"mp3", "flac", "m4a", "ogg"};
     private static volatile Thread mainThread;
-    private static volatile java.util.function.Consumer<Runnable> mainExec;
+    private static volatile Consumer<Runnable> mainExec;
 
     private DesktopFilePicker() {}
 
-    /** macOS NSOpenPanel/NSSavePanel must run on the GLFW/AppKit thread. */
-    static void setMainLoop(Thread thread, java.util.function.Consumer<Runnable> exec) {
-        mainThread = thread;
-        mainExec = exec;
-    }
-
-    /** Remember the theme without loading Swing/FlatLaf on the startup path. */
-    static void initializeLookAndFeel(boolean dark) {
-        darkTheme = dark;
-    }
-
-    /** The next chooser reflects an in-app light/dark-mode change. */
-    static void setDarkTheme(boolean dark) {
-        darkTheme = dark;
+    /** AppKit panels must be presented on the GLFW/AppKit main thread. */
+    static void setMainLoop(Thread thread, Consumer<Runnable> exec) {
+        mainThread = Objects.requireNonNull(thread);
+        mainExec = Objects.requireNonNull(exec);
     }
 
     static void pickDirectory(String initialPath, Consumer<String> onPicked) {
-        show(I18n.tr("settings.folder.choose"), initialDirectory(initialPath), true, null, null, onPicked);
+        show(I18n.tr("settings.folder.choose"), initialDirectory(initialPath), true,
+                null, null, null, null, onPicked);
     }
 
     static void pickImage(Consumer<String> onPicked) {
-        File pictures = new File(System.getProperty("user.home", "."), "Pictures");
-        show(I18n.tr("picker.playlistCover"), initialDirectory(pictures.getAbsolutePath()), false,
-                I18n.tr("picker.imageFiles"),
-                new String[]{"png", "jpg", "jpeg", "webp", "gif", "bmp"}, onPicked);
+        show(I18n.tr("picker.playlistCover"), initialDirectory(homeSubdirectory("Pictures")), false,
+                I18n.tr("picker.imageFiles"), new String[]{"png", "jpg", "jpeg", "webp", "gif", "bmp"},
+                null, null, onPicked);
     }
 
     static void pickPlugin(Consumer<String> onPicked) {
-        File downloads = new File(System.getProperty("user.home", "."), "Downloads");
-        show(I18n.tr("picker.importPlugin"), initialDirectory(downloads.getAbsolutePath()), false,
-                I18n.tr("picker.pluginFiles"), new String[]{"qplug"}, onPicked);
+        show(I18n.tr("picker.importPlugin"), initialDirectory(homeSubdirectory("Downloads")), false,
+                I18n.tr("picker.pluginFiles"), new String[]{"qplug"}, null, null, onPicked);
     }
 
     static void pickFont(Consumer<String> onPicked) {
-        File downloads = new File(System.getProperty("user.home", "."), "Downloads");
-        show(I18n.tr("picker.importFont"), initialDirectory(downloads.getAbsolutePath()), false,
-                I18n.tr("picker.fontFiles"),
-                dev.t1m3.qplayer.lyric.skia.ImportedFonts.EXTENSIONS, onPicked);
+        show(I18n.tr("picker.importFont"), initialDirectory(homeSubdirectory("Downloads")), false,
+                I18n.tr("picker.fontFiles"), dev.t1m3.qplayer.lyric.skia.ImportedFonts.EXTENSIONS,
+                null, null, onPicked);
     }
 
-    private static final String[] PLAYLIST_EXTENSIONS = {"qpl", "json"};
-    private static final String[] AUDIO_EXTENSIONS = {"mp3", "flac", "m4a", "ogg"};
-
     static void pickPlaylist(Consumer<String> onPicked) {
-        show(I18n.tr("picker.importPlaylist"), initialDirectory(documentsDirectory()), false,
-                I18n.tr("picker.playlistFiles"), PLAYLIST_EXTENSIONS, onPicked);
+        show(I18n.tr("picker.importPlaylist"), initialDirectory(homeSubdirectory("Documents")), false,
+                I18n.tr("picker.playlistFiles"), PLAYLIST_EXTENSIONS, null, null, onPicked);
     }
 
     static void saveAudio(String suggestedFileName, Consumer<String> onPicked) {
-        if (!OPEN.compareAndSet(false, true)) return;
-        if (MacNativeDialog.isMac()) {
-            runOnMain(() -> {
-                try {
-                    File dir = initialDirectory(documentsDirectory());
-                    String path = MacNativeDialog.save(
-                            I18n.tr("picker.saveAudio"),
-                            dir.getAbsolutePath(), suggestedFileName, AUDIO_EXTENSIONS);
-                    if (path == null) return;
-                    if (!hasAudioExtension(path)) path = path + ".mp3";
-                    onPicked.accept(path);
-                } catch (Throwable t) {
-                    Logger.warn("desktop save dialog failed: {}", t.toString());
-                } finally {
-                    OPEN.set(false);
-                }
-            });
-            return;
-        }
-        SwingUtilities.invokeLater(() -> {
-            try {
-                applyLookAndFeel(darkTheme);
-                JFileChooser chooser = new JFileChooser(initialDirectory(documentsDirectory()));
-                chooser.setDialogTitle(I18n.tr("picker.saveAudio"));
-                chooser.setMultiSelectionEnabled(false);
-                chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
-                chooser.setAcceptAllFileFilterUsed(false);
-                chooser.setFileFilter(new FileNameExtensionFilter(
-                        I18n.tr("picker.audioFiles"), AUDIO_EXTENSIONS));
-                if (suggestedFileName != null && !suggestedFileName.isEmpty()) {
-                    chooser.setSelectedFile(new File(chooser.getCurrentDirectory(),
-                            suggestedFileName));
-                }
-                chooser.addHierarchyListener(event -> {
-                    if ((event.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) == 0
-                            || !chooser.isShowing()) return;
-                    Window dialog = SwingUtilities.getWindowAncestor(chooser);
-                    DesktopSwingFocus.requestForeground(dialog);
-                });
-                if (chooser.showSaveDialog(null) != JFileChooser.APPROVE_OPTION) return;
-                File selected = chooser.getSelectedFile();
-                if (selected == null) return;
-                String path = selected.getAbsolutePath();
-                if (!hasAudioExtension(path)) path = path + ".mp3";
-                onPicked.accept(path);
-            } catch (Throwable t) {
-                Logger.warn("desktop save dialog failed: {}", t.toString());
-            } finally {
-                OPEN.set(false);
-            }
-        });
+        show(I18n.tr("picker.saveAudio"), initialDirectory(homeSubdirectory("Documents")), false,
+                I18n.tr("picker.audioFiles"), AUDIO_EXTENSIONS,
+                suggestedFileName == null ? "" : suggestedFileName, ".mp3", onPicked);
     }
 
-    /** Save dialog for an exported playlist, seeded with a suggested file name. */
     static void savePlaylist(String suggestedFileName, Consumer<String> onPicked) {
+        show(I18n.tr("picker.exportPlaylist"), initialDirectory(homeSubdirectory("Documents")), false,
+                I18n.tr("picker.playlistFiles"), PLAYLIST_EXTENSIONS,
+                suggestedFileName == null ? "" : suggestedFileName, ".qpl.json", onPicked);
+    }
+
+    private static void show(String title, File directory, boolean directoryOnly,
+                             String description, String[] extensions, String suggestedName,
+                             String suffix, Consumer<String> onPicked) {
+        Objects.requireNonNull(onPicked);
         if (!OPEN.compareAndSet(false, true)) return;
-        if (MacNativeDialog.isMac()) {
-            runOnMain(() -> {
-                try {
-                    File dir = initialDirectory(documentsDirectory());
-                    String path = MacNativeDialog.save(
-                            I18n.tr("picker.exportPlaylist"),
-                            dir.getAbsolutePath(), suggestedFileName, PLAYLIST_EXTENSIONS);
-                    if (path == null) return;
-                    if (!hasPlaylistExtension(path)) path = path + ".qpl.json";
-                    onPicked.accept(path);
-                } catch (Throwable t) {
-                    Logger.warn("desktop save dialog failed: {}", t.toString());
-                } finally {
-                    OPEN.set(false);
-                }
-            });
-            return;
-        }
-        SwingUtilities.invokeLater(() -> {
+        Runnable dialog = () -> {
             try {
-                applyLookAndFeel(darkTheme);
-                JFileChooser chooser = new JFileChooser(initialDirectory(documentsDirectory()));
-                chooser.setDialogTitle(I18n.tr("picker.exportPlaylist"));
-                chooser.setMultiSelectionEnabled(false);
-                chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
-                chooser.setAcceptAllFileFilterUsed(false);
-                chooser.setFileFilter(new FileNameExtensionFilter(
-                        I18n.tr("picker.playlistFiles"), PLAYLIST_EXTENSIONS));
-                if (suggestedFileName != null && !suggestedFileName.isEmpty()) {
-                    chooser.setSelectedFile(new File(chooser.getCurrentDirectory(),
-                            suggestedFileName));
+                boolean save = suffix != null;
+                String path;
+                if (MacNativeDialog.isMac()) {
+                    path = save
+                            ? MacNativeDialog.save(title, directory.getAbsolutePath(), suggestedName, extensions)
+                            : MacNativeDialog.open(title, directory.getAbsolutePath(), directoryOnly, extensions);
+                } else if (System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win")) {
+                    path = WindowsFileDialog.show(title, directory.getAbsolutePath(), directoryOnly,
+                            description, extensions, suggestedName, save);
+                } else {
+                    path = LinuxPortalFileDialog.show(title, directory.getAbsolutePath(), directoryOnly,
+                            description, extensions, suggestedName, save);
                 }
-                chooser.addHierarchyListener(event -> {
-                    if ((event.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) == 0
-                            || !chooser.isShowing()) return;
-                    Window dialog = SwingUtilities.getWindowAncestor(chooser);
-                    DesktopSwingFocus.requestForeground(dialog);
-                });
-                if (chooser.showSaveDialog(null) != JFileChooser.APPROVE_OPTION) return;
-                File selected = chooser.getSelectedFile();
-                if (selected == null) return;
-                // A chooser with a filter still hands back whatever was typed, so
-                // give a bare name the suffix the filter implies.
-                String path = selected.getAbsolutePath();
-                if (!hasPlaylistExtension(path)) path = path + ".qpl.json";
-                onPicked.accept(path);
-            } catch (Throwable t) {
-                Logger.warn("desktop save dialog failed: {}", t.toString());
+                // Cancel never calls the consumer. Keep the guard set through the callback,
+                // just as with the old chooser, including callbacks that throw.
+                if (path != null) {
+                    if (save && !hasAnyExtension(path, extensions)) path += suffix;
+                    onPicked.accept(path);
+                }
+            } catch (Throwable error) {
+                Logger.warn("desktop native file dialog failed: {}", error.toString());
             } finally {
                 OPEN.set(false);
             }
-        });
-    }
-
-    private static boolean hasPlaylistExtension(String path) {
-        return hasAnyExtension(path, PLAYLIST_EXTENSIONS);
-    }
-
-    private static boolean hasAudioExtension(String path) {
-        return hasAnyExtension(path, AUDIO_EXTENSIONS);
+        };
+        try {
+            if (MacNativeDialog.isMac()) {
+                if (Thread.currentThread() == mainThread) dialog.run();
+                else if (mainExec != null) mainExec.accept(dialog);
+                else throw new IllegalStateException("AppKit file dialog main loop is not initialized");
+            } else {
+                // COM owns its STA and GIO owns its thread-default context. Neither blocks
+                // GLFW's main loop or the render thread while the system dialog is open.
+                Thread worker = new Thread(dialog, "qplayer-native-file-dialog");
+                worker.setDaemon(true);
+                worker.start();
+            }
+        } catch (Throwable error) {
+            OPEN.set(false);
+            Logger.warn("desktop native file dialog dispatch failed: {}", error.toString());
+        }
     }
 
     private static boolean hasAnyExtension(String path, String[] extensions) {
-        String lower = path.toLowerCase(java.util.Locale.ROOT);
+        String lower = path.toLowerCase(Locale.ROOT);
         for (String extension : extensions) {
             if (lower.endsWith('.' + extension)) return true;
         }
         return false;
     }
 
-    private static String documentsDirectory() {
-        File documents = new File(System.getProperty("user.home", "."), "Documents");
-        return documents.isDirectory()
-                ? documents.getAbsolutePath() : System.getProperty("user.home", ".");
-    }
-
-    private static void runOnMain(Runnable task) {
-        Thread t = mainThread;
-        java.util.function.Consumer<Runnable> exec = mainExec;
-        if (t != null && Thread.currentThread() == t) {
-            task.run();
-        } else if (exec != null) {
-            exec.accept(task);
-        } else {
-            task.run();
-        }
-    }
-
-    private static void show(String title, File initialDirectory, boolean directoryOnly,
-                             String filterDescription, String[] extensions,
-                             Consumer<String> onPicked) {
-        if (!OPEN.compareAndSet(false, true)) return;
-        if (MacNativeDialog.isMac()) {
-            runOnMain(() -> {
-                try {
-                    String path = MacNativeDialog.open(title,
-                            initialDirectory != null ? initialDirectory.getAbsolutePath() : null,
-                            directoryOnly, extensions);
-                    if (path != null) onPicked.accept(path);
-                } catch (Throwable t) {
-                    Logger.warn("desktop file chooser failed: {}", t.toString());
-                } finally {
-                    OPEN.set(false);
-                }
-            });
-            return;
-        }
-        SwingUtilities.invokeLater(() -> {
-            try {
-                applyLookAndFeel(darkTheme);
-                JFileChooser chooser = new JFileChooser(initialDirectory);
-                chooser.setDialogTitle(title);
-                chooser.setMultiSelectionEnabled(false);
-                if (directoryOnly) {
-                    chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-                    chooser.setAcceptAllFileFilterUsed(false);
-                } else {
-                    chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
-                    chooser.setAcceptAllFileFilterUsed(false);
-                    if (filterDescription != null && extensions != null) {
-                        chooser.setFileFilter(new FileNameExtensionFilter(
-                                filterDescription, extensions));
-                    }
-                }
-
-                // The GLFW main window cannot be passed as an AWT owner. Bring
-                // the JFileChooser-created dialog forward as soon as it becomes
-                // visible instead of letting Windows place it behind QPlayer.
-                chooser.addHierarchyListener(event -> {
-                    if ((event.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) == 0
-                            || !chooser.isShowing()) return;
-                    Window dialog = SwingUtilities.getWindowAncestor(chooser);
-                    DesktopSwingFocus.requestForeground(dialog);
-                });
-
-                if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-                    File selected = chooser.getSelectedFile();
-                    if (selected != null) onPicked.accept(selected.getAbsolutePath());
-                }
-            } catch (Throwable t) {
-                Logger.warn("desktop file chooser failed: {}", t.toString());
-            } finally {
-                OPEN.set(false);
-            }
-        });
-    }
-
-    private static void applyLookAndFeel(boolean dark) {
-        if (installedDarkTheme != null && installedDarkTheme == dark) return;
-        try {
-            if (dark) FlatMacDarkLaf.setup();
-            else FlatMacLightLaf.setup();
-            installedDarkTheme = dark;
-        } catch (Throwable t) {
-            Logger.warn("install FlatLaf look and feel failed: {}", t.toString());
-        }
+    private static String homeSubdirectory(String name) {
+        return new File(System.getProperty("user.home", "."), name).getAbsolutePath();
     }
 
     private static File initialDirectory(String path) {
@@ -300,6 +133,6 @@ final class DesktopFilePicker {
             File parent = candidate.getParentFile();
             if (parent != null && parent.isDirectory()) return parent;
         }
-        return new File(System.getProperty("user.home", "."));
+        return new File(System.getProperty("user.home", ".")).getAbsoluteFile();
     }
 }

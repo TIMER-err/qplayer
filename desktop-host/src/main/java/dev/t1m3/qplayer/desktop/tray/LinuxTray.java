@@ -15,8 +15,7 @@ import java.util.List;
  * Linux system tray via libayatana-appindicator (falling back to the older
  * libappindicator) + GTK, driven through JNA. The menu is a {@code GtkMenu} whose
  * items are created with {@code gtk_menu_item_new_with_label} (UTF-8), so GTK
- * renders CJK with the system font — no {@code java.awt} font manager, which is
- * what dies in the native image.
+ * renders CJK with the system font, without initializing a Java font manager.
  *
  * <p>All GTK calls run on a dedicated thread that owns {@code gtk_main}; updates
  * from other threads (the play/pause relabel) are marshalled back with

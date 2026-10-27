@@ -131,7 +131,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             name: linux-x64
             package: bash desktop-host/dist/package-linux.sh
             artifact: desktop-host/target/QPlayer-x86_64.AppImage
@@ -139,9 +139,8 @@ jobs:
             name: windows-x64
             package: powershell -ExecutionPolicy Bypass -File desktop-host/dist/package-windows.ps1
             artifact: desktop-host/target/QPlayer-windows-x64.zip
-          # Apple Silicon only: GitHub retired the free Intel (macos-13) runner and
-          # jpackage builds for the machine it runs on, so an arm64 runner can't emit
-          # an Intel bundle. Intel Mac users build locally (dist/package-macos.sh).
+          # Native Image targets the host architecture. Intel Mac users build
+          # locally; the hosted release remains Apple Silicon.
           - os: macos-14            # apple silicon
             name: macos-arm64
             package: bash desktop-host/dist/package-macos.sh
@@ -150,12 +149,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
+      - name: Set up GraalVM JDK 25
+        uses: graalvm/setup-graalvm@v1
         with:
-          # A full JDK (not a JRE) — jpackage and jlink come from here.
-          distribution: temurin
-          java-version: '21'
+          distribution: graalvm-community
+          java-version: '25'
+          native-image-job-reports: 'false'
+
+      - name: Install Linux WebView build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config build-essential zlib1g-dev libgtk-3-dev libwebkit2gtk-4.1-dev libx11-dev
+
+      - name: Set up Windows C++ toolchain
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install WebView2 build SDK
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $sdkRoot = "$env:RUNNER_TEMP\webview2-sdk"
+          nuget install Microsoft.Web.WebView2 -Version 1.0.2592.51 -OutputDirectory $sdkRoot -NonInteractive -Source https://api.nuget.org/v3/index.json
+          if ($LASTEXITCODE -ne 0) { throw "WebView2 SDK download failed" }
+          "WEBVIEW2_SDK=$sdkRoot\Microsoft.Web.WebView2.1.0.2592.51" >> $env:GITHUB_ENV
+
+      - name: Set macOS deployment target
+        if: runner.os == 'macOS'
+        run: echo "MACOSX_DEPLOYMENT_TARGET=13.0" >> "$GITHUB_ENV"
 
       # Explicit Maven cache (per-OS — GitHub caches don't cross OS): the LWJGL +
       # Skija jars are large, and restore/save show up plainly in the log.
@@ -187,7 +211,7 @@ jobs:
       - name: Install player-core to local Maven repo
         run: mvn -B -DskipTests -pl player-core -am install
 
-      - name: Stage the app bundle
+      - name: Compile native app and bundled QML
         # bash on every runner (git-bash on Windows) so the same command line works
         # everywhere. Bakes the release tag (sans leading v) into version.properties
         # so the in-app update check reports the real version, matching the tag.
@@ -197,12 +221,10 @@ jobs:
         run: |
           VER="${QPLAYER_VERSION#v}"
           mvn -B -DskipTests -Dqplayer.app.version="${VER:-0.0.0}" \
-            -pl desktop-host -Pdist package
+            -pl desktop-host -am -Pdist package
 
       - name: Package
-        # Each script runs jpackage (jlinked runtime + app image) and wraps the
-        # result: AppImage / zip / dmg. QPLAYER_VERSION is the bundle version they
-        # bake into the launcher metadata.
+        # Wrap the native executable and license notices as AppImage / zip / DMG.
         env:
           QPLAYER_VERSION: ${{ github.event.release.tag_name || (github.ref_type == 'tag' && github.ref_name) || inputs.version || '0.0.0' }}
         run: ${{ matrix.package }}

@@ -1,7 +1,6 @@
 package dev.t1m3.qplayer.desktop.window;
 
 import dev.t1m3.qplayer.bridge.PlayerController;
-import dev.t1m3.qplayer.desktop.resources.DiskCompiledSceneCache;
 import dev.t1m3.qplayer.lyric.LyricLine;
 import dev.t1m3.qplayer.lyric.LyricTimeline;
 import dev.t1m3.qplayer.lyric.skia.LyricConfig;
@@ -17,7 +16,6 @@ import org.lwjgl.system.MemoryUtil;
 
 import java.nio.DoubleBuffer;
 import java.nio.IntBuffer;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicReference;
@@ -88,8 +86,6 @@ public final class DesktopLyricWindow {
 
     private final SettingsStore store;
     private final ResourceLoader resources;
-    private final DiskCompiledSceneCache qmlCompilationCache;
-    private final String qmlSource;
     private final Consumer<Boolean> settingsWriter;
     /** Mirrors a lock-button toggle back into the settings page, so the floating
      *  window's own control and the 锁定歌词窗口 row never disagree. */
@@ -149,14 +145,13 @@ public final class DesktopLyricWindow {
     private static final int RESIZE_GRIP_SIZE = 20;
 
     DesktopLyricWindow(SettingsStore store, ResourceLoader resources,
-                       GraphicsBackend.Kind kind, DiskCompiledSceneCache qmlCompilationCache,
+                       GraphicsBackend.Kind kind,
                        Consumer<Boolean> settingsWriter,
                        Consumer<Boolean> passthroughWriter,
                        Consumer<Runnable> mainPoster,
                        Runnable playerRestorer) {
         this.store = store;
         this.resources = resources;
-        this.qmlCompilationCache = qmlCompilationCache;
         this.kind = transparentBackend(kind);
         this.settingsWriter = settingsWriter;
         this.passthroughWriter = passthroughWriter;
@@ -165,9 +160,6 @@ public final class DesktopLyricWindow {
         this.enabled = store.getBool(ENABLED_KEY, false);
         this.mousePassthrough = store.getBool(PASSTHROUGH_KEY, false);
         reloadAppearance();
-        byte[] bytes = resources.load("DesktopLyric.qml");
-        if (bytes == null) throw new IllegalStateException("DesktopLyric.qml not found on classpath");
-        this.qmlSource = new String(bytes, StandardCharsets.UTF_8);
     }
 
     public boolean isEnabled() {
@@ -203,13 +195,6 @@ public final class DesktopLyricWindow {
         return resources;
     }
 
-    DiskCompiledSceneCache qmlCompilationCache() {
-        return qmlCompilationCache;
-    }
-
-    String qmlSource() {
-        return qmlSource;
-    }
 
     DesktopLyricSnapshot snapshot() {
         return snapshot.get();
@@ -575,11 +560,15 @@ public final class DesktopLyricWindow {
         DesktopLyricRenderThread thread = renderThread;
         if (thread == null) return;
         thread.shutdown();
-        try {
-            thread.join(5000L);
-        } catch (InterruptedException ignored) {
-            Thread.currentThread().interrupt();
+        boolean interrupted = false;
+        while (thread.isAlive()) {
+            try {
+                thread.join();
+            } catch (InterruptedException ignored) {
+                interrupted = true;
+            }
         }
+        if (interrupted) Thread.currentThread().interrupt();
         renderThread = null;
     }
 

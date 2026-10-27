@@ -32,6 +32,7 @@ import io.github.timer_err.qml4j.render.items.input.TextEditable;
 import dev.t1m3.qplayer.android.app.AndroidFontIndex;
 import dev.t1m3.qplayer.bridge.PlayerController;
 import dev.t1m3.qplayer.bridge.WindowChromeStub;
+import dev.t1m3.qplayer.qml.BundledQml;
 import dev.t1m3.qplayer.settings.SettingsCore;
 import dev.t1m3.qplayer.lyric.skia.LyricCompositor;
 import dev.t1m3.qplayer.lyric.skia.LyricConfig;
@@ -48,7 +49,7 @@ import javax.microedition.khronos.opengles.GL10;
 
 public final class QmlGLSurfaceView extends GLSurfaceView {
 
-    private final String qmlSource;
+    private final BundledQml bundle;
     private final QmlEngine engine;
     private final ResourceLoader resources;
     private QmlView view;
@@ -72,10 +73,8 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     private final AtomicInteger wakeSettleFrames = new AtomicInteger();
     private final Runnable renderWake = this::wakeRenderer;
 
-    /** Drives a host splash while the QML tree compiles: per-component progress
-     *  (on the GL thread) and a one-shot ready signal at the first painted frame. */
+    /** One-shot ready signal on the GL thread after the first painted frame. */
     public interface SplashListener {
-        void onProgress(String name, int count);
         void onReady();
     }
 
@@ -110,11 +109,11 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     private final float uiScale;
     private final LiquidGlassTilt liquidGlassTilt;
 
-    public QmlGLSurfaceView(Context ctx, QmlEngine engine, String qmlSource, ResourceLoader resources,
+    public QmlGLSurfaceView(Context ctx, BundledQml bundle, ResourceLoader resources,
                             float uiScale) {
         super(ctx);
-        this.engine = engine;
-        this.qmlSource = qmlSource;
+        this.bundle = bundle;
+        this.engine = new QmlEngine(bundle);
         this.resources = resources;
         this.uiScale = uiScale > 0 ? uiScale : 1f;
         liquidGlassTilt = new LiquidGlassTilt(this, renderWake);
@@ -135,10 +134,8 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     public void onPause() {
         pauseRequested = true;
         liquidGlassTilt.onPause();
-        // QmlView.load() performs the first D8 compilation on the GL thread. The
-        // platform GLSurfaceView.onPause() waits for that thread without a timeout,
-        // which turns a quick Home gesture during cold start into a main-thread ANR.
-        // Let compilation finish off-screen, then pause from the ready callback.
+        // GLSurfaceView.onPause() waits indefinitely for the render thread. Let
+        // initial scene construction finish before asking that thread to pause.
         if (!readyFired || disposed || glThreadPaused) return;
         pauseGlThread();
     }
@@ -191,11 +188,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 view = null;
             }
         });
-        cleanup("QML classes", () -> {
-            if (engine.backend() instanceof DexClassLoaderBackend) {
-                ((DexClassLoaderBackend) engine.backend()).dispose();
-            }
-        });
+        cleanup("QML singletons", bundle::close);
         cleanup("lyric compositor", compositor::dispose);
         compositor.onSceneReloaded();
         cleanup("Skija surface", () -> {
@@ -577,7 +570,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
             surface.resize(width, height);
             try {
                 if (view == null) {
-                    view = QmlView.withStockTypes(engine).resources(resources);
+                    view = bundle.configure(QmlView.withStockTypes(engine), resources);
                     // Cache stable top-level QML subtrees as SkPictures. This must be
                     // enabled before load() so every constructed Item participates in
                     // content invalidation; the lyric compositor also uses the cache-
@@ -595,16 +588,8 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                     }
                     if (settings != null) view.context("settings", settings);
                     view.context("i18n", dev.t1m3.qplayer.i18n.I18n.instance());
-                    // hostWindow (the desktop-only custom title bar bridge) must still
-                    // resolve to something here: qml4j's compiler rejects an undeclared
-                    // top-level identifier at compile time, even one only referenced
-                    // inside a typeof guard, so shared-qml can't have it be simply
-                    // absent on Android. See WindowChromeStub's javadoc (player-core).
+                    // Context values remain host-provided, not baked into generated classes.
                     view.context("hostWindow", new WindowChromeStub());
-                    view.setCompileProgressListener((name, count) -> {
-                        SplashListener l = splashListener;
-                        if (l != null) l.onProgress(name, count);
-                    });
                     // Provide the app fonts to the engine (it ships none of its own):
                     // the selected font for the whole UI (Latin + CJK), falling back
                     // to the bundled PingFang, plus Material Symbols for icon glyphs.
@@ -632,7 +617,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                     if (reg != null || med != null) view.uiTypefaces(reg, med);
                     byte[] iconFont = resources.load("fonts/MaterialSymbolsRounded.ttf");
                     if (iconFont != null) view.iconTypeface(iconFont);
-                    view.load(qmlSource);
+                    bundle.load(view);
                 }
                 if (view.root() != null) {
                     view.root().width.set(width / uiScale);
@@ -690,7 +675,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                     if (l != null) l.onReady();
                     // Do not call GLSurfaceView.onPause() from its own GL thread.
                     // Re-check on the UI thread because the Activity may already
-                    // have resumed while the initial QML compilation was running.
+                    // have resumed while the initial scene was being constructed.
                     post(() -> {
                         if (pauseRequested && !disposed && !glThreadPaused) {
                             pauseGlThread();

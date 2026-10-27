@@ -138,9 +138,10 @@ other unprivileged operating-system accounts from reading the credentials direct
 | Module | What's in it |
 |---|---|
 | `player-core/` | Platform-neutral core (Maven, `dev.t1m3.qplayer`): the QML-facing `PlayerController`, the plugin ABI and sandbox, lyric parsers (LRC / YRC / TTML), audio and metadata abstractions, and the host-drawn lyric page. **No online-source endpoints or protocol code.** |
-| `shared-qml/` | Shared QML: `Main.qml`, the pages and components, the vendored `md3.Core` library and bundled fonts (PingFang / Material Symbols). It sits at the repo root and both shells load the same copy, which is why the responsive layout is automatically shared. |
+| `shared-qml/` | Shared QML: `Main.qml`, pages, components, the vendored `miuix.Core` library, and bundled fonts. Both hosts load compiled classes generated from these sources. |
+| `qml-aot-tool/` | Build-only QML compiler and Native Image metadata generator. Produces component classes, scene manifests, and reflection metadata; excluded from application runtimes. |
 | `android-shell/` | The Android app (Gradle, `applicationId dev.t1m3.qplayer`, minSdk 26). Host integration lives in `…/android/`; UI and lyrics come from the two modules above. |
-| `desktop-host/` | The desktop host (Maven): an LWJGL3 + GLFW window rendered with Skija, a switchable `GraphicsBackend`, a disposable render thread, a system tray, and desktop audio (javax.sound + SPI decoders). |
+| `desktop-host/` | The desktop host (Maven): LWJGL3 + GLFW, Skija rendering, a switchable `GraphicsBackend`, disposable render threads, a system tray, OpenAL Soft audio output, and PCM decoders. Distributions use GraalVM Native Image. |
 | [qml4j](https://github.com/TIMER-err/qml4j) | The QML engine. A published dependency, **not** part of this repo. |
 
 `qml4j-core` resolves from Maven Central; `player-core` and `desktop-host` are built
@@ -154,7 +155,7 @@ available as a starting point.
 
 ## Build
 
-Requires JDK 21; Android builds also need the Android SDK.
+Android and JVM development require JDK 21 and Maven. Android also requires the Android SDK. Native desktop distributions require GraalVM JDK 25.
 
 **Android**
 
@@ -167,11 +168,13 @@ cd android-shell && ./gradlew :app:assembleDebug
 # → app/build/outputs/apk/debug/app-debug.apk
 ```
 
+Gradle compiles bundled QML on the build host. The regular Android build converts the generated classes to DEX. The application contains no runtime D8 compiler or dynamic-compilation fallback.
+
 **Desktop**
 
 Both source runs and the released AppImage depend on native libraries supplied by
-the Linux system. The AppImage bundles the JVM and Java dependencies, but not the
-host graphics and WebView stack:
+the Linux system. The AppImage contains a native executable, not a JVM. It does
+not bundle the host graphics and WebView stack:
 
 - OpenGL/EGL, the Vulkan loader, Fontconfig and the C++ runtime for Skija/LWJGL rendering;
 - PipeWire, PulseAudio or ALSA client libraries for OpenAL Soft audio output;
@@ -209,31 +212,30 @@ mvn -pl desktop-host exec:exec -Dwin.w=480 -Dwin.h=800   # narrow (bottom bar)
 ```
 
 > The close button minimizes to the tray (the render thread is destroyed, audio keeps
-> playing); only "Quit" from the tray exits. On macOS, launch with
-> `-XstartOnFirstThread`.
+> playing); only "Quit" from the tray exits. On macOS, JVM development runs require
+> `-XstartOnFirstThread`; native executables do not use that launcher option.
 
-**Self-contained desktop bundle (jpackage + jlink)**
+**Native desktop distribution (GraalVM Native Image)**
 
-Requires a full **JDK 21** (not a JRE — `jpackage`/`jlink` must be present). The
-bundle ships a jlinked runtime, so users do not install Java. `jpackage` only targets
-the OS it runs on, so **each platform is built on its own machine**.
+Use **GraalVM JDK 25**, a C/C++ toolchain, and CMake. Linux also requires `pkg-config` and development packages for zlib, GTK 3, WebKitGTK 4.1, and X11. Windows requires MSVC and the WebView2 SDK. macOS requires Xcode Command Line Tools. See the [desktop release guide](desktop-host/dist/README.md).
+
+Users do not install Java. Native Image does not cross-compile: **build each platform and architecture on its target system**.
 
 ```sh
 # 1) install the shared module
 mvn -DskipTests -pl player-core -am install
 
-# 2) stage target/app (qplayer.jar + every runtime dependency under lib/)
-mvn -DskipTests -pl desktop-host -Pdist package
+# 2) compile QML and build target/qplayer (qplayer.exe on Windows)
+mvn -DskipTests -pl desktop-host -am -Pdist package
 
-# 3) package per platform (jpackage jlinks the runtime as it goes)
+# 3) package the native executable and licenses
 bash       desktop-host/dist/package-linux.sh      # Linux   → target/QPlayer-x86_64.AppImage (single file)
 pwsh -File desktop-host/dist/package-windows.ps1   # Windows → target/QPlayer-windows-x64.zip
 bash       desktop-host/dist/package-macos.sh      # macOS   → target/QPlayer.dmg (host arch)
 ```
 
-> The JDK modules linked into the runtime are listed in
-> `desktop-host/dist/jre-modules.txt`, shared by all three scripts. The macOS `.dmg`
-> is unsigned; distributing it needs codesign + notarization or Gatekeeper blocks it.
+> `qml-aot-tool` and the native WebView build generate reflection, JNI, and resource metadata. Exercise new dynamic entry points in the native executable. File dialogs use native OS APIs. WebView retains the original system engines through standalone JNI, without the Swing layer.
+> Public macOS distribution requires Developer ID signing and notarization.
 > On a `v*` tag, `.github/workflows/release.yml` runs all of the above across the
 > three-platform CI and attaches the artifacts to the GitHub Release.
 
@@ -256,7 +258,7 @@ version from `build.gradle.kts` and builds that engine from its matching `v*` ta
 - [material-components-qml](https://github.com/sudoevolve/material-components-qml) — the Material 3 QML component library (`md3.Core`) the UI is built from, vendored and engine-adapted.
 - [SPlayer](https://github.com/imsyy/SPlayer) — visual and implementation reference for the fluid lyrics backdrop.
 - [AMLL](https://github.com/amll-dev/amll-player) — design reference for Apple Music-style lyrics and fluid backdrops.
-- [swingwebview](https://github.com/webliteca/swingwebview) — system WebView for website login on desktop.
+- [swingwebview](https://github.com/webliteca/swingwebview) — its native system WebView backends, hosted through standalone JNI without the Swing layer.
 - Icons are Material Symbols Rounded.
 
 > QPlayer provides no online source and no copyrighted media. Plugin authors and

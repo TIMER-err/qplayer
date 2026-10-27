@@ -12,23 +12,22 @@
 
     <artifactId>desktop-host</artifactId>
     <name>Desktop Host</name>
-    <description>LWJGL/GLFW host + desktop audio backend (javax.sound + SPI decoders + jaudiotagger). Dev/run target.</description>
+    <description>LWJGL/Skija desktop host with build-time QML and GraalVM Native Image distribution.</description>
 
     <properties>
-        <!-- Desktop-only module, always built/run on JDK 21. Override the parent's
-             release 8 (kept for the Android-shared player-core) so we can use
-             modern APIs here. -->
+        <!-- Java 17 source; JVM development uses JDK 21+, Native Image uses GraalVM 25.
+             Keep the Android-shared player-core on Java 8. -->
         <maven.compiler.release>17</maven.compiler.release>
         <lwjgl.version>3.3.3</lwjgl.version>
         <!-- The native classifiers for THIS build host. Defaults target Linux x64;
              the os-activated profiles below flip them for Windows / macOS (intel &
-             apple-silicon). jpackage can't cross-build either, so each platform's
+             apple-silicon). Native Image cannot cross-build, so each platform's
              release is produced on its own runner with the matching natives. -->
         <lwjgl.natives>natives-linux</lwjgl.natives>
         <qplayer.skija.platform>linux-x64</qplayer.skija.platform>
         <log4j.version>2.25.5</log4j.version>
         <jna.version>5.14.0</jna.version>
-        <flatlaf.version>3.7.2</flatlaf.version>
+        <native.buildtools.version>1.1.17</native.buildtools.version>
         <!-- App version baked into version.properties (read by Main → the update
              check). Local dev default; the release workflow overrides it with the
              git tag (-Dqplayer.app.version=…) so release binaries match the tag
@@ -48,6 +47,35 @@
     </properties>
 
     <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.graalvm.buildtools</groupId>
+                    <artifactId>native-maven-plugin</artifactId>
+                    <version>${native.buildtools.version}</version>
+                    <configuration>
+                        <imageName>qplayer</imageName>
+                        <mainClass>dev.t1m3.qplayer.desktop.app.Main</mainClass>
+                        <metadataRepository>
+                            <enabled>true</enabled>
+                            <version>1.0.20</version>
+                        </metadataRepository>
+                        <buildArgs>
+                            <buildArg>-march=compatibility</buildArg>
+                            <buildArg>--enable-url-protocols=http,https</buildArg>
+                            <buildArg>--exact-reachability-metadata</buildArg>
+                            <buildArg>--enable-native-access=ALL-UNNAMED</buildArg>
+                            <buildArg>-H:+UnlockExperimentalVMOptions</buildArg>
+                            <buildArg>-H:MissingRegistrationReportingMode=Exit</buildArg>
+                            <buildArg>-H:+AddAllCharsets</buildArg>
+                            <buildArg>-H:+IncludeAllLocales</buildArg>
+                            <buildArg>-R:MaxHeapSize=768m</buildArg>
+                            <buildArg>--initialize-at-run-time=org.lwjgl,io.github.humbleui.skija,com.sun.jna,org.mozilla.javascript,io.github.timer_err.qml4j,dev.t1m3.qplayer</buildArg>
+                        </buildArgs>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
         <resources>
             <!-- Keep the default resource dir (log4j2.xml) — declaring <resources>
                  at all otherwise replaces it. -->
@@ -67,6 +95,9 @@
             <resource>
                 <directory>${project.basedir}/../shared-qml</directory>
             </resource>
+            <resource>
+                <directory>${project.build.directory}/qml-aot/classes</directory>
+            </resource>
         </resources>
 
         <plugins>
@@ -81,6 +112,13 @@
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.1.0</version>
+                <dependencies>
+                    <dependency>
+                        <groupId>dev.t1m3.qplayer</groupId>
+                        <artifactId>qml-aot-tool</artifactId>
+                        <version>${project.version}</version>
+                    </dependency>
+                </dependencies>
                 <configuration>
                     <executable>java</executable>
                     <arguments>
@@ -96,6 +134,76 @@
                         <argument>dev.t1m3.qplayer.desktop.app.Main</argument>
                     </arguments>
                 </configuration>
+                <executions>
+                    <execution>
+                        <id>compile-bundled-qml</id>
+                        <phase>generate-resources</phase>
+                        <goals><goal>java</goal></goals>
+                        <configuration>
+                            <mainClass>dev.t1m3.qplayer.aot.build.QmlBundleCompiler</mainClass>
+                            <includeProjectDependencies>false</includeProjectDependencies>
+                            <includePluginDependencies>true</includePluginDependencies>
+                            <arguments combine.self="override">
+                                <argument>--input</argument><argument>${project.basedir}/../shared-qml</argument>
+                                <argument>--output</argument><argument>${project.build.directory}/qml-aot</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>configure-native-webview</id>
+                        <phase>generate-resources</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration>
+                            <executable>cmake</executable>
+                            <environmentVariables><JAVA_HOME>${java.home}</JAVA_HOME></environmentVariables>
+                            <arguments combine.self="override">
+                                <argument>-S</argument><argument>${project.basedir}/native/webview</argument>
+                                <argument>-B</argument><argument>${project.build.directory}/webview-native</argument>
+                                <argument>-DCMAKE_BUILD_TYPE=Release</argument>
+                                <argument>-DCMAKE_INSTALL_PREFIX=${project.build.outputDirectory}</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>build-native-webview</id>
+                        <phase>generate-resources</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration>
+                            <executable>cmake</executable>
+                            <arguments combine.self="override">
+                                <argument>--build</argument><argument>${project.build.directory}/webview-native</argument>
+                                <argument>--config</argument><argument>Release</argument>
+                                <argument>--parallel</argument><argument>2</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>install-native-webview</id>
+                        <phase>generate-resources</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration>
+                            <executable>cmake</executable>
+                            <arguments combine.self="override">
+                                <argument>--install</argument><argument>${project.build.directory}/webview-native</argument>
+                                <argument>--config</argument><argument>Release</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>native-host-metadata</id>
+                        <phase>process-classes</phase>
+                        <goals><goal>java</goal></goals>
+                        <configuration>
+                            <mainClass>dev.t1m3.qplayer.aot.build.DesktopNativeMetadata</mainClass>
+                            <includeProjectDependencies>true</includeProjectDependencies>
+                            <includePluginDependencies>true</includePluginDependencies>
+                            <classpathScope>runtime</classpathScope>
+                            <arguments combine.self="override">
+                                <argument>--output</argument><argument>${project.build.outputDirectory}</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
@@ -226,10 +334,8 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- System tray. On Windows we drive Shell_NotifyIcon + a native Win32
-             popup menu directly via JNA (TrayController → WinTray): the menu is
-             rendered by the OS, so CJK renders correctly regardless of the AWT
-             font configuration. Other platforms still use the AWT tray. -->
+        <!-- Native system integration: Win32/COM, Cocoa and GLib/D-Bus.
+             No AWT or Swing runtime is required. -->
         <dependency>
             <groupId>net.java.dev.jna</groupId>
             <artifactId>jna</artifactId>
@@ -239,25 +345,6 @@
             <groupId>net.java.dev.jna</groupId>
             <artifactId>jna-platform</artifactId>
             <version>${jna.version}</version>
-        </dependency>
-
-        <!-- Cross-platform Swing file/directory dialogs with FlatMac themes.
-             Deliberately use no-natives: FlatLaf's Linux SystemFileChooser loads
-             GTK alongside GLFW and can crash the process inside libgtk-3. -->
-        <dependency>
-            <groupId>com.formdev</groupId>
-            <artifactId>flatlaf</artifactId>
-            <version>${flatlaf.version}</version>
-            <classifier>no-natives</classifier>
-        </dependency>
-
-        <!-- Upstream swingwebview embeds the installed system browser engine in
-             the existing JVM and exposes native CookieManager access so HttpOnly
-             MUSIC_U can be handed to player-core securely. -->
-        <dependency>
-            <groupId>ca.weblite</groupId>
-            <artifactId>webview</artifactId>
-            <version>${swingwebview.version}</version>
         </dependency>
 
         <!-- Desktop audio decoders. We drive these libraries directly (no
@@ -298,6 +385,45 @@
                 <lwjgl.natives>natives-windows</lwjgl.natives>
                 <qplayer.skija.platform>windows-x64</qplayer.skija.platform>
             </properties>
+            <build>
+                <pluginManagement>
+                    <plugins>
+                        <plugin>
+                            <groupId>org.graalvm.buildtools</groupId>
+                            <artifactId>native-maven-plugin</artifactId>
+                            <configuration>
+                                <buildArgs combine.children="append">
+                                    <buildArg>-H:NativeLinkerOption=/SUBSYSTEM:WINDOWS</buildArg>
+                                    <buildArg>-H:NativeLinkerOption=/ENTRY:mainCRTStartup</buildArg>
+                                    <buildArg>-H:NativeLinkerOption=${project.build.directory}/qplayer-version.res</buildArg>
+                                </buildArgs>
+                            </configuration>
+                        </plugin>
+                    </plugins>
+                </pluginManagement>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>windows-executable-resources</id>
+                                <phase>generate-resources</phase>
+                                <goals><goal>exec</goal></goals>
+                                <configuration>
+                                    <executable>powershell</executable>
+                                    <arguments combine.self="override">
+                                        <argument>-NoProfile</argument><argument>-ExecutionPolicy</argument><argument>Bypass</argument>
+                                        <argument>-File</argument><argument>${project.basedir}/dist/native-windows-resources.ps1</argument>
+                                        <argument>-AppVersion</argument><argument>${qplayer.app.version}</argument>
+                                        <argument>-OutputDirectory</argument><argument>${project.build.directory}</argument>
+                                    </arguments>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
         </profile>
         <profile>
             <id>os-macos-x64</id>
@@ -316,72 +442,85 @@
             </properties>
         </profile>
 
-        <!-- `mvn -Pdist package`: lay out everything jpackage needs under
-             target/app — the app jar (with a lib/-relative Class-Path manifest) plus
-             every runtime dependency in target/app/lib. The dist/ scripts then run
-             jpackage over that directory to produce the per-OS bundle. -->
+        <!-- Explicit SDK search path for nonstandard toolchains (e.g. Nix zlib).
+             Values are comma-separated linker directories, never machine paths in the pom. -->
+        <profile>
+            <id>native-library-path</id>
+            <activation><property><name>qplayer.native.library.path</name></property></activation>
+            <build>
+                <pluginManagement>
+                    <plugins>
+                        <plugin>
+                            <groupId>org.graalvm.buildtools</groupId>
+                            <artifactId>native-maven-plugin</artifactId>
+                            <configuration>
+                                <buildArgs combine.children="append">
+                                    <buildArg>-H:CLibraryPath=${qplayer.native.library.path}</buildArg>
+                                </buildArgs>
+                            </configuration>
+                        </plugin>
+                    </plugins>
+                </pluginManagement>
+            </build>
+        </profile>
+
+        <!-- The distribution contains a real native executable, not a JVM launcher. -->
         <profile>
             <id>dist</id>
             <build>
                 <plugins>
-                    <!-- The app jar jpackage launches. Class-Path lists the sibling
-                         lib/*.jar so the generated launcher needs no -cp of its own. -->
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-jar-plugin</artifactId>
-                        <version>3.4.1</version>
-                        <configuration>
-                            <archive>
-                                <manifest>
-                                    <addClasspath>true</addClasspath>
-                                    <classpathPrefix>lib/</classpathPrefix>
-                                    <mainClass>dev.t1m3.qplayer.desktop.app.Main</mainClass>
-                                </manifest>
-                            </archive>
-                        </configuration>
-                    </plugin>
-
-                    <!-- Runtime classpath (player-core, qml4j, Skija, LWJGL + its
-                         native jars, log4j, JNA, swingwebview, and the decoders) into
-                         target/app/lib. Skija/LWJGL/swingwebview extract their native
-                         libraries from these jars at runtime. -->
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-dependency-plugin</artifactId>
                         <version>3.6.1</version>
                         <executions>
                             <execution>
-                                <id>stage-libs</id>
+                                <id>stage-native-dependency-licenses</id>
                                 <phase>prepare-package</phase>
-                                <goals><goal>copy-dependencies</goal></goals>
+                                <goals><goal>unpack-dependencies</goal></goals>
                                 <configuration>
-                                    <outputDirectory>${project.build.directory}/app/lib</outputDirectory>
                                     <includeScope>runtime</includeScope>
-                                    <!-- jlayer declares junit at compile scope; it has
-                                         no business in a shipped bundle. -->
-                                    <excludeArtifactIds>junit</excludeArtifactIds>
+                                    <includes>META-INF/LICENSE*,META-INF/NOTICE*,META-INF/licenses/**,LICENSE*,NOTICE*,license/**,licenses/**</includes>
+                                    <outputDirectory>${project.build.directory}/native-legal/dependencies</outputDirectory>
+                                    <useSubDirectoryPerArtifact>true</useSubDirectoryPerArtifact>
                                 </configuration>
                             </execution>
                         </executions>
                     </plugin>
-
-                    <!-- Drop the app jar next to lib/ under a stable name, so the
-                         packaging scripts always pass the same main jar to jpackage. -->
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-antrun-plugin</artifactId>
                         <version>3.1.0</version>
                         <executions>
                             <execution>
-                                <id>stage-app-jar</id>
-                                <phase>package</phase>
+                                <id>stage-native-runtime-licenses</id>
+                                <phase>prepare-package</phase>
                                 <goals><goal>run</goal></goals>
                                 <configuration>
                                     <target>
-                                        <copy file="${project.build.directory}/${project.build.finalName}.jar"
-                                              tofile="${project.build.directory}/app/qplayer.jar"/>
+                                        <copy todir="${project.build.directory}/native-legal/graalvm">
+                                            <fileset dir="${java.home}/legal"/>
+                                        </copy>
+                                        <copy file="${project.basedir}/../LICENSE.md" todir="${project.build.directory}/native-legal/qplayer"/>
+                                        <copy file="${project.basedir}/../shared-qml/miuix/LICENSE.md" todir="${project.build.directory}/native-legal/miuix"/>
+                                        <copy todir="${project.build.directory}/native-legal/qplayer/META-INF">
+                                            <fileset dir="${project.build.outputDirectory}/META-INF">
+                                                <include name="LICENSE*"/><include name="NOTICE*"/><include name="licenses/**"/>
+                                            </fileset>
+                                        </copy>
                                     </target>
                                 </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.graalvm.buildtools</groupId>
+                        <artifactId>native-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>compile-native-executable</id>
+                                <phase>package</phase>
+                                <goals><goal>compile-no-fork</goal></goals>
                             </execution>
                         </executions>
                     </plugin>

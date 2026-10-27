@@ -6,7 +6,7 @@ import io.github.timer_err.qml4j.render.ResourceLoader;
 import io.github.timer_err.qml4j.render.items.core.Item;
 
 import dev.t1m3.qplayer.bridge.PlayerController;
-import dev.t1m3.qplayer.desktop.resources.DiskCompiledSceneCache;
+import dev.t1m3.qplayer.qml.BundledQml;
 import dev.t1m3.qplayer.lyric.skia.Fonts;
 import dev.t1m3.qplayer.resources.CompressedResources;
 import dev.t1m3.qplayer.settings.SettingsCore;
@@ -22,15 +22,16 @@ import org.lwjgl.glfw.GLFWVidMode;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
 
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
-import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
-import java.nio.ByteBuffer;
+import io.github.humbleui.skija.Bitmap;
+import io.github.humbleui.skija.ColorAlphaType;
+import io.github.humbleui.skija.ColorSpace;
+import io.github.humbleui.skija.ColorType;
+import io.github.humbleui.skija.Image;
+import io.github.humbleui.skija.ImageInfo;
+import io.github.humbleui.skija.Pixmap;
+import io.github.humbleui.skija.SamplingMode;
 import java.nio.IntBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -58,11 +59,10 @@ public final class DesktopWindow {
     private static final double TITLE_BAR_HEIGHT = 40.0;
 
     private final QmlEngine engine;
-    private final String qmlSource;
+    private final BundledQml qmlBundle;
     private final ResourceLoader resources;
     private final PlayerController controller;
     private final SettingsCore settings;
-    private final DiskCompiledSceneCache qmlCompilationCache;
     private final LyricCompositor compositor = new LyricCompositor();
     /** Desktop lyrics floating window (issue #25) -- null until {@link
      *  #setLyricSettingsStore} is called (before {@link #init}). */
@@ -102,6 +102,7 @@ public final class DesktopWindow {
     private volatile Thread mainThread;
     private volatile RenderThread renderThread;
     private volatile boolean quitRequested;
+    private volatile boolean closing;
     private volatile boolean hiddenToTray;
     private volatile boolean windowIconified;
     private volatile boolean fullscreen;
@@ -129,15 +130,12 @@ public final class DesktopWindow {
     private boolean nudgeApplied = false;
     private static volatile Boolean windows11OrLater;
 
-    public DesktopWindow(QmlEngine engine, String qmlSource, ResourceLoader resources,
-                  PlayerController controller, SettingsCore settings,
-                  DiskCompiledSceneCache qmlCompilationCache) {
-        this.engine = engine;
-        this.qmlSource = qmlSource;
+    public DesktopWindow(ResourceLoader resources, PlayerController controller, SettingsCore settings) {
+        this.qmlBundle = new BundledQml("Main.qml");
+        this.engine = new QmlEngine(qmlBundle);
         this.resources = resources;
         this.controller = controller;
         this.settings = settings;
-        this.qmlCompilationCache = qmlCompilationCache;
         this.kind = GraphicsBackend.Kind.resolve(settings);
     }
 
@@ -226,7 +224,7 @@ public final class DesktopWindow {
      * SettingsCore. The enabled value is synchronized with the generated settings
      * page; host-only window coordinates stay beside it in that same store. */
     public void setLyricSettingsStore(dev.t1m3.qplayer.settings.SettingsStore store) {
-        this.lyricWindow = new DesktopLyricWindow(store, resources, kind, qmlCompilationCache,
+        this.lyricWindow = new DesktopLyricWindow(store, resources, kind,
                 enabled -> postRenderTask(() -> settings.put("desktopLyricEnabled", enabled)),
                 locked -> postRenderTask(() -> settings.put(
                         dev.t1m3.qplayer.settings.SettingsCatalog.DESKTOP_LYRIC_LOCKED_KEY, locked)),
@@ -490,30 +488,27 @@ public final class DesktopWindow {
             return view;
         }
         lastSpawnWasRespawn = false;
-        QmlView v = QmlView.withStockTypes(engine)
-                .resources(resources)
-                .compilationCache(qmlCompilationCache,
-                        qmlCompilationCache.sceneKey("Main.qml"));
-        // Cache stable top-level QML subtrees as SkPictures. Enable it before
-        // load() so the constructed Items wire content invalidation from their
-        // first frame; LyricCompositor uses the same cache for settled lyric chrome.
-        v.renderer().setPictureCache(true);
-        v.setClipboard(clipboard);
-        if (controller != null) {
-            v.context("player", controller);
-            v.networkPolicy(controller::allowRemoteQmlResource);
+        QmlView v = qmlBundle.configure(QmlView.withStockTypes(engine), resources);
+        try {
+            // Keep settled subtree pictures; only live glass boundaries bypass them.
+            v.renderer().setPictureCache(true);
+            v.setClipboard(clipboard);
+            if (controller != null) {
+                v.context("player", controller);
+                v.networkPolicy(controller::allowRemoteQmlResource);
+            }
+            if (settings != null) v.context("settings", settings);
+            v.context("i18n", dev.t1m3.qplayer.i18n.I18n.instance());
+            v.context("hostWindow", windowChrome != null
+                    ? windowChrome : new dev.t1m3.qplayer.bridge.WindowChromeStub());
+            loadFonts(v, resources);
+            qmlBundle.load(v);
+            view = v;
+            return v;
+        } catch (RuntimeException | Error error) {
+            try { v.dispose(); } finally { qmlBundle.close(); }
+            throw error;
         }
-        if (settings != null) v.context("settings", settings);
-        v.context("i18n", dev.t1m3.qplayer.i18n.I18n.instance());
-        // hostWindow must always be registered: desktop uses its live bridge for
-        // fullscreen state even when no custom title bar is present, while Android
-        // supplies the shape-compatible no-op stub.
-        v.context("hostWindow", windowChrome != null
-                ? windowChrome : new dev.t1m3.qplayer.bridge.WindowChromeStub());
-        loadFonts(v, resources);
-        v.load(qmlSource);
-        view = v;
-        return v;
     }
 
     /** Copy application-generated text through the same GLFW/X11/Wayland bridge
@@ -1107,79 +1102,51 @@ public final class DesktopWindow {
     }
 
     private void setWindowIcon() {
-        // macOS uses the app-bundle icon. ImageIO here would boot AWT on the
-        // GLFW/AppKit thread (issue #61) even with java.awt.headless=true.
-        if (System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("mac")) {
-            return;
-        }
+        // macOS uses the icon in the native application bundle.
+        if (System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("mac")) return;
         byte[] png = resources.load("app-icon.png");
         if (png == null) return;
-        List<ByteBuffer> pixelBuffers = new ArrayList<>();
-        try {
-            BufferedImage source = javax.imageio.ImageIO.read(new ByteArrayInputStream(png));
-            if (source == null) return;
-            int[] sizes = {16, 20, 24, 32, 40, 48, 64, 256};
-            try (MemoryStack stack = MemoryStack.stackPush()) {
+        int[] sizes = {256, 64, 48, 40, 32, 24, 20, 16};
+        Bitmap[] bitmaps = new Bitmap[sizes.length];
+        try (Image source = Image.makeFromEncoded(png); MemoryStack stack = MemoryStack.stackPush()) {
+            Image level = source;
+            try {
                 GLFWImage.Buffer icons = GLFWImage.malloc(sizes.length, stack);
                 for (int i = 0; i < sizes.length; i++) {
-                    BufferedImage image = smoothScale(source, sizes[i], sizes[i]);
-                    ByteBuffer pixels = rgba(image);
-                    pixelBuffers.add(pixels);
-                    icons.position(i)
-                            .width(image.getWidth())
-                            .height(image.getHeight())
-                            .pixels(pixels);
+                    int size = sizes[i];
+                    // Share the halving pyramid while retaining the existing
+                    // multi-pass cubic downsampling for small notification icons.
+                    while (level.getWidth() / 2 >= size && level.getHeight() / 2 >= size) {
+                        Image next = level.makeScaled(new ImageInfo(level.getWidth() / 2, level.getHeight() / 2,
+                                ColorType.RGBA_8888, ColorAlphaType.PREMUL, ColorSpace.getSRGB()),
+                                SamplingMode.CATMULL_ROM);
+                        if (next == null) throw new IllegalStateException("Cannot scale window icon");
+                        if (level != source) level.close();
+                        level = next;
+                    }
+                    Bitmap bitmap = bitmaps[i] = new Bitmap();
+                    if (!bitmap.allocPixels(new ImageInfo(size, size, ColorType.RGBA_8888,
+                            ColorAlphaType.UNPREMUL, ColorSpace.getSRGB()))) {
+                        throw new IllegalStateException("Cannot allocate window icon");
+                    }
+                    try (Pixmap pixels = bitmap.peekPixels()) {
+                        if (!level.scalePixels(pixels, SamplingMode.CATMULL_ROM, false)) {
+                            throw new IllegalStateException("Cannot read window icon");
+                        }
+                        // GLFW copies these borrowed native buffers before returning.
+                        icons.position(i).width(size).height(size).pixels(pixels.getBuffer());
+                    }
                 }
                 icons.position(0);
                 GLFW.glfwSetWindowIcon(window, icons);
+            } finally {
+                if (level != source) level.close();
             }
-        } catch (Throwable t) {
-            Logger.warn("window icon load failed: {}", t);
+        } catch (Throwable error) {
+            Logger.warn("window icon load failed: {}", error);
         } finally {
-            for (ByteBuffer pixels : pixelBuffers) MemoryUtil.memFree(pixels);
+            for (Bitmap bitmap : bitmaps) if (bitmap != null) bitmap.close();
         }
-    }
-
-    private static BufferedImage smoothScale(BufferedImage source, int width, int height) {
-        BufferedImage current = source;
-        while (current.getWidth() / 2 >= width && current.getHeight() / 2 >= height) {
-            current = scale(current,
-                    Math.max(width, current.getWidth() / 2),
-                    Math.max(height, current.getHeight() / 2));
-        }
-        return current.getWidth() == width && current.getHeight() == height
-                ? current : scale(current, width, height);
-    }
-
-    private static BufferedImage scale(BufferedImage source, int width, int height) {
-        BufferedImage result = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D graphics = result.createGraphics();
-        try {
-            graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
-                    RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-            graphics.setRenderingHint(RenderingHints.KEY_RENDERING,
-                    RenderingHints.VALUE_RENDER_QUALITY);
-            graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
-                    RenderingHints.VALUE_ANTIALIAS_ON);
-            graphics.drawImage(source, 0, 0, width, height, null);
-        } finally {
-            graphics.dispose();
-        }
-        return result;
-    }
-
-    private static ByteBuffer rgba(BufferedImage image) {
-        ByteBuffer pixels = MemoryUtil.memAlloc(image.getWidth() * image.getHeight() * 4);
-        for (int y = 0; y < image.getHeight(); y++) {
-            for (int x = 0; x < image.getWidth(); x++) {
-                int p = image.getRGB(x, y);
-                pixels.put((byte) ((p >> 16) & 0xFF));
-                pixels.put((byte) ((p >> 8) & 0xFF));
-                pixels.put((byte) (p & 0xFF));
-                pixels.put((byte) ((p >> 24) & 0xFF));
-            }
-        }
-        return pixels.flip();
     }
 
     public void spawnRenderThread() {
@@ -1194,11 +1161,16 @@ public final class DesktopWindow {
         RenderThread rt = renderThread;
         if (rt == null) return;
         rt.shutdown();
-        try {
-            rt.join(5000);
-        } catch (InterruptedException ignored) {
-            Thread.currentThread().interrupt();
+        // A timeout must never let GLFW destroy a display still used by the GPU thread.
+        boolean interrupted = false;
+        while (rt.isAlive()) {
+            try {
+                rt.join();
+            } catch (InterruptedException ignored) {
+                interrupted = true;
+            }
         }
+        if (interrupted) Thread.currentThread().interrupt();
         renderThread = null;
     }
 
@@ -1294,16 +1266,30 @@ public final class DesktopWindow {
         }
     }
 
+    boolean isClosing() {
+        return closing;
+    }
+
+    void disposeScene() {
+        QmlView current = view;
+        view = null;
+        try {
+            if (current != null) current.dispose();
+        } finally {
+            qmlBundle.close();
+        }
+    }
+
     public void shutdown() {
+        closing = true;
         stopRenderThread();
         if (lyricWindow != null) {
             try { lyricWindow.shutdown(); } catch (Throwable ignored) {}
         }
-        if (view != null) {
-            try {
-                view.dispose();
-            } catch (Throwable ignored) {
-            }
+        try {
+            disposeScene();
+        } catch (Throwable error) {
+            Logger.warn("QML scene cleanup failed: {}", error);
         }
         try {
             compositor.dispose();

@@ -4,9 +4,10 @@
 
 ## 环境约束
 
-- 需要 **JDK 21** 与 **Maven**；安装位置随开发机而定，不要写死盘符或绝对路径，一切以各机实际的 `JAVA_HOME`、`mvn`（在 `PATH` 上）和本地仓库为准。
+- Android 与 JVM 开发需要 **JDK 21** 与 **Maven**；桌面原生分发使用 **GraalVM JDK 25**、C/C++ 工具链与 CMake。安装位置随开发机而定，不要写死盘符或绝对路径，以实际 `JAVA_HOME`、`mvn`（在 `PATH` 上）和本地仓库为准。
 - 用中文回复。
 - 编辑 `player-core` 后必须 `mvn -pl player-core install`（不能只 `package`），否则 `desktop-host` 会继续用本地仓库里的旧 jar。
+- 随包 QML 统一由 `qml-aot-tool` 在构建期编译。Android 由 Gradle 编译主机工具并将生成类交给 D8；桌面由 Maven 生成类并交给 Native Image。修改 QML 后必须重新构建，不能依赖运行时编译或旧场景缓存。
 
 ## 仓库与分支
 
@@ -23,7 +24,7 @@
   - `desktop-host/pom.xml` 的 `<qplayer.app.version>`
   - 漏改会导致 APK 内置版本号跟 tag 对不上，App 自带的更新检查（比较 `PackageInfo.versionName` 和 GitHub 最新 release tag）会无限提示更新。
 - 打 `v<versionName>` tag 触发 `.github/workflows/release.yml`：android + linux/macos/windows 桌面共 4 个 job 并行构建，都会把产物传到同一个 GitHub Release。**这 4 个并发上传偶尔会互相顶掉、丢文件**（比如 android job 构建成功但 apk 没挂上 release）；遇到这种情况用 GitHub API 单独 rerun 那一个 job（`POST /repos/{owner}/{repo}/actions/jobs/{job_id}/rerun`）。
-- 桌面端打包是 **jpackage + jlink**（不再是 GraalVM native-image）：`mvn -pl desktop-host -Pdist package` 组装 `target/app`，再由 `desktop-host/dist/package-{linux,windows,macos}` 调 jpackage。运行时就是普通 JVM，不存在反射元数据/闭世界那套约束。裁剪进运行时的 JDK 模块列表在 `desktop-host/dist/jre-modules.txt`，三个脚本共用——**加了新依赖后如果启动崩在 `NoClassDefFoundError`/`ClassNotFoundException`，先怀疑这里少了模块**。
+- 桌面端打包使用 **GraalVM Native Image**：在 GraalVM JDK 25 下运行 `mvn -pl desktop-host -am -Pdist package` 生成 `target/qplayer`（Windows 为 `.exe`），再运行 `desktop-host/dist/package-{linux,windows,macos}`。不捆绑 JVM。`qml-aot-tool` 与 WebView 原生构建生成反射、JNI 和资源配置；新增动态入口后必须实际运行原生程序验证，不能关闭严格元数据检查来绕过问题。文件选择器使用系统 API；WebView 保留原生系统内核，以独立 JNI 层移除 Swing 依赖。详见 `desktop-host/dist/README.md`。
 - Release notes 手写中文，格式：`### 新功能` / `### 优化` / `### 修复` 三段式，结尾 `Full Changelog: vX...vY` 对比链接。改 release body 用 GitHub API PATCH 即可（不会重新触发 CI）；改 tag message 必须删掉 tag 重新打（会重新触发一次完整构建）。
 - 这台开发机在国内网络下直连 `api.github.com` 下载大文件很慢（~25KB/s），能用 GitHub 自己的基础设施做的事（如上面的单独 rerun）优先别走本地下载。
 
@@ -43,14 +44,14 @@
 # player-core 改动后先装到本地仓库
 mvn -pl player-core install -DskipTests -q
 
-# 桌面端：编译
-mvn -pl desktop-host package -DskipTests -q
+# 桌面端：编译并安装构建期工具（后续 exec:exec 需要）
+mvn -pl desktop-host -am install -DskipTests -q
 # 桌面端：运行
 mvn -pl desktop-host exec:exec -q
 
-# 桌面端：出分发包（需完整 JDK 21，带 jpackage/jlink）
+# 桌面端：出原生分发包（需 GraalVM JDK 25 与系统原生开发依赖）
 # PowerShell 会把裸的 -Dqplayer.app.version=... 拆开，必须整体加引号
-mvn -pl desktop-host -Pdist package -DskipTests -q "-Dqplayer.app.version=0.8.22"
+mvn -pl desktop-host -am -Pdist package -DskipTests -q "-Dqplayer.app.version=0.8.22"
 powershell -ExecutionPolicy Bypass -File desktop-host\dist\package-windows.ps1
 
 # Android：编译（这台机器内存紧张，需要限制 Gradle 堆）
