@@ -16,6 +16,9 @@ MouseArea {
     property real pressX: 0
     property real pressY: 0
     signal longPressed()
+    // Desktop right-click. Distinct from longPressed so a reorderable row can
+    // still open its menu instead of revealing the drag grip.
+    signal contextMenuRequested()
 
     hoverEnabled: true
     acceptedButtons: longPressEnabled ? (Qt.LeftButton | Qt.RightButton) : Qt.LeftButton
@@ -44,7 +47,7 @@ MouseArea {
         indicationRoot.pressX = mouse.x
         indicationRoot.pressY = mouse.y
         if (indicationRoot.longPressEnabled && mouse.button === Qt.RightButton) {
-            indicationRoot.longPressed()
+            indicationRoot.contextMenuRequested()
         } else if (indicationRoot.longPressEnabled) {
             holdTimer.restart()
         }

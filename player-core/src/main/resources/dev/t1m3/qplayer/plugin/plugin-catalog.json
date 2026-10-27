@@ -44,7 +44,7 @@
   {
     "id": "unlock",
     "name": "解锁下载",
-    "description": "下载工具：不提供搜索曲目。对当前播放的网易云/QQ 等歌曲弹出保存框，写成 mp3/flac。",
+    "description": "下载工具：需要先启用 QQ 音乐或网易云。对当前播放的歌曲弹出保存框，写成 mp3/flac。歌单行提供下载按钮。",
     "repo": "Ink-Stained-Clouds/qplayer-unlock-plugin",
     "publisherKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE0BAIvZ9sZOJGVhH3W37xqdWYPCC4uQmEcDKrPOmYJcpjEsCU431cTthU5ELo6nIxlHzKoqJEz8ipoDhdzcPyeg=="
   }
