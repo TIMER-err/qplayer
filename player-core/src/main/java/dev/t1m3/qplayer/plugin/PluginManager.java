@@ -83,6 +83,10 @@ public final class PluginManager implements AutoCloseable {
         return true;
     }
 
+    public synchronized boolean isEnabled(String pluginId) {
+        return pluginId != null && runtimes.containsKey(pluginId);
+    }
+
     /** Install/update and switch runtimes as one recoverable operation. A staged
      * package is already preflighted by the installer; if real-host startup still
      * fails, restore the previous registry entry and runtime before returning. */

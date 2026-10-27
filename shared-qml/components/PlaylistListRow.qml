@@ -144,6 +144,10 @@ Rectangle {
             if (row.reorderable) row.revealToggled()
             else row._openMenu()
         }
+        onContextMenuRequested: {
+            row._menuArmed = true
+            row._openMenu()
+        }
     }
 
     Loader {

@@ -193,6 +193,11 @@ Item {
             cardMenu.rebuild()
             cardMenu.open(cardRipple, cardRipple.pressX, cardRipple.pressY)
         }
+        onContextMenuRequested: {
+            card._menuArmed = true
+            cardMenu.rebuild()
+            cardMenu.open(cardRipple, cardRipple.pressX, cardRipple.pressY)
+        }
     }
 
     // Reorderable cards get a plain MouseArea instead: a long-press (real hold,

@@ -373,6 +373,8 @@ Flickable {
                 onRevealToggled: view.revealedIndex = (view.revealedIndex === index) ? -1 : index
                 showLikeButton: view.showLikeButton
                 likeable: view.showLikeButton && player.isMediaLikeable(view.rowId(modelData))
+                showDownloadButton: !!player.downloadHelperEnabled && view.songMenu && !view.selectMode
+                onDownloadRequested: player.requestDownloadQuality(view.rowId(modelData))
                 // likedRevision is the observable half: isMediaLiked() is a plain
                 // Java method, so without reading a Property here the heart would
                 // never refill after a like (or after the liked list arrives).
@@ -437,6 +439,7 @@ Flickable {
             song: null
             menuEnabled: false
             removable: view.removable
+            showDownloadButton: !!player.downloadHelperEnabled && view.songMenu
             highlighted: false
             rowTitle: view._dragRow ? (view.isLocal ? view._dragRow.title : view._dragRow.name) : ""
             rowArtist: view._dragRow ? view._dragRow.artist : ""

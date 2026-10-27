@@ -93,6 +93,8 @@ Rectangle {
     property bool likeable: true
     property bool liked: false
     signal likeToggled()
+    property bool showDownloadButton: false
+    signal downloadRequested()
     onSongChanged: {
         row._menuArmed = false
         if (menuLoader.item && menuLoader.item.opened) menuLoader.item.dismissImmediately()
@@ -260,6 +262,7 @@ Rectangle {
     property real _rightReserve: (row.removable ? 68 : (tagPill.visible ? (tagPill.width + 24) : 16))
                                  + (row.reorderable ? 44 : 0)
                                  + (row.showLikeButton ? 40 : 0)
+                                 + (row.showDownloadButton ? 40 : 0)
 
     Text {
         id: titleText
@@ -309,7 +312,8 @@ Rectangle {
         id: tagPill
         objectName: "songSourceBadge"
         visible: row.tag !== "" && !row.removable && width >= 32
-        x: Math.max(0, row.width - width - 12 - (row.showLikeButton ? 40 : 0))
+        x: Math.max(0, row.width - width - 12 - (row.showLikeButton ? 40 : 0)
+                   - (row.showDownloadButton ? 40 : 0))
         y: (row.height - height) / 2
         radius: 8
         color: Theme.color.surfaceContainerHighest
@@ -364,6 +368,11 @@ Rectangle {
             if (row.reorderable) row.revealToggled()
             else row._openMenu()
         }
+        onContextMenuRequested: {
+            if (row.selectMode) { row.selectionToggled(); return }
+            row._menuArmed = true
+            row._openMenu()
+        }
     }
 
     // Tap only the actually-painted artist text. The separate probe measures the
@@ -416,7 +425,9 @@ Rectangle {
         visible: row.reorderable && row.controlsRevealed
         width: 44
         height: 44
-        x: Math.max(0, row.width - width - (row.removable ? 72 : 16))
+        x: Math.max(0, row.width - width - (row.removable ? 72 : 16)
+                   - (row.showDownloadButton ? 40 : 0)
+                   - (row.showLikeButton ? 40 : 0))
         y: (row.height - height) / 2
 
         // Not an Icon: that centres its glyph with anchors.centerIn, which the
@@ -487,7 +498,9 @@ Rectangle {
         enabled: !row.reorderable || row.controlsRevealed
         width: 40
         height: 40
-        x: Math.max(0, row.width - width - 16)
+        x: Math.max(0, row.width - width - 16
+                   - (row.showDownloadButton ? 40 : 0)
+                   - (row.showLikeButton ? 40 : 0))
         y: (row.height - height) / 2
 
         Text {
@@ -519,12 +532,26 @@ Rectangle {
         enabled: row.likeable
         width: 36
         height: 36
-        x: Math.max(0, row.width - width - 12)
+        x: Math.max(0, row.width - width - 12
+                   - (row.showDownloadButton ? 40 : 0))
         y: (row.height - height) / 2
         type: "standard"
         icon: row.liked ? "favorite" : "favorite_border"
         contentColor: row.liked ? "#FF5277" : Theme.color.onSurfaceVariantColor
         onClicked: row.likeToggled()
+    }
+
+    IconButton {
+        objectName: "songRowDownloadButton"
+        visible: row.showDownloadButton && !row.selectMode
+        width: 36
+        height: 36
+        x: Math.max(0, row.width - width - 12)
+        y: (row.height - height) / 2
+        type: "standard"
+        icon: "download"
+        contentColor: Theme.color.onSurfaceVariantColor
+        onClicked: row.downloadRequested()
     }
 
 }
