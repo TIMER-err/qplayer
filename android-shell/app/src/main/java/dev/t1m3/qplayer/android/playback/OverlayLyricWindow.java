@@ -220,6 +220,14 @@ public final class OverlayLyricWindow {
         else placeControls();
     }
 
+    /** Same idle rule as {@code DesktopLyricState.fallback}: keep the current
+     *  track while paused. "未播放" is only for no-track. */
+    static String fallbackText(boolean playing, String title, String artist) {
+        if (title == null || title.isEmpty()) return playing ? "" : I18n.tr("player.idle");
+        if (artist == null || artist.isEmpty()) return title;
+        return title + "  ·  " + artist;
+    }
+
     /** @return the parsed colour, or {@code fallback} for an empty/invalid value. */
     private static int parseColor(String hex, int fallback) {
         if (hex == null || hex.isEmpty()) return fallback;
@@ -713,13 +721,11 @@ public final class OverlayLyricWindow {
             String artist = c.artist.peek();
             title = title == null ? "" : title.trim();
             artist = artist == null ? "" : artist.trim();
-            if (!out.playing) {
-                out.fallback = I18n.tr("player.idle");
-                return out;
-            }
-            if (!title.isEmpty()) {
-                out.fallback = artist.isEmpty() ? title : title + "  ·  " + artist;
-            }
+            // Same idle rule as DesktopLyricState.fallback: keep the current
+            // track's lyrics (and title) while paused. "未播放" is only for
+            // no-track. lyricClockPosition() already freezes at the pause point.
+            out.fallback = fallbackText(out.playing, title, artist);
+            if (title.isEmpty() && !out.playing) return out;
             // Lyrics are applied asynchronously after a track switch, and the
             // render thread that publishes them pauses while the app is
             // backgrounded — the controller clears the list on the calling thread

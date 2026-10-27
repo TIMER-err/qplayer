@@ -92,6 +92,16 @@ Item {
                 font.pixelSize: 18
                 color: contentColor
                 visible: control.icon !== ""
+                // Fixed em box, NOT the glyph's measured advance: the icon
+                // typeface can resolve after the first measure pass, and a
+                // 0-width icon measure would undercount contentRow.width and
+                // leave the button background short on the right (and its text
+                // overlapping the icon). A stable 18dp box keeps the row width
+                // independent of typeface load timing; AlignHCenter centres the
+                // glyph inside it at paint time (see SongRow's cachedLayout note
+                // for why anchors alone are not reliable here).
+                width: 18
+                horizontalAlignment: Text.AlignHCenter
                 anchors.verticalCenter: parent.verticalCenter
             }
 
