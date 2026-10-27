@@ -155,7 +155,7 @@ available as a starting point.
 
 ## Build
 
-Android and JVM development require JDK 21 and Maven. Android also requires the Android SDK. Native desktop distributions require GraalVM JDK 25.
+Android and JVM development require JDK 21 and Maven. Android also requires the Android SDK. Native desktop distributions require GraalVM Community 25 Innovation 4, matching CI.
 
 **Android**
 
@@ -217,7 +217,7 @@ mvn -pl desktop-host exec:exec -Dwin.w=480 -Dwin.h=800   # narrow (bottom bar)
 
 **Native desktop distribution (GraalVM Native Image)**
 
-Use **GraalVM JDK 25**, a C/C++ toolchain, and CMake. Linux also requires `pkg-config` and development packages for zlib, GTK 3, WebKitGTK 4.1, and X11. Windows requires MSVC and the WebView2 SDK. macOS requires Xcode Command Line Tools. See the [desktop release guide](desktop-host/dist/README.md).
+Use **GraalVM Community 25 Innovation 4**, a C/C++ toolchain, and CMake. Linux also requires `pkg-config` and development packages for zlib, GTK 3, WebKitGTK 4.1, and X11. Windows requires MSVC and the WebView2 SDK. macOS requires Xcode Command Line Tools. See the [desktop release guide](desktop-host/dist/README.md) for the pinned compiler version.
 
 Users do not install Java. Native Image does not cross-compile: **build each platform and architecture on its target system**.
 

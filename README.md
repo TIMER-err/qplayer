@@ -140,7 +140,7 @@ Service/KWallet 保管。系统密码库不可用时，用户可以明确选择�
 
 ## 构建
 
-Android 与 JVM 开发需要 JDK 21、Maven；Android 还需 Android SDK。桌面原生分发包使用 GraalVM JDK 25。
+Android 与 JVM 开发需要 JDK 21、Maven；Android 还需 Android SDK。桌面原生分发包使用 GraalVM Community 25 Innovation 4，版本与 CI 保持一致。
 
 **安卓**
 
@@ -202,7 +202,7 @@ mvn -pl desktop-host exec:exec -Dwin.w=480 -Dwin.h=800   # 窄屏(底部导航)
 
 **桌面原生分发包（GraalVM Native Image）**
 
-使用 **GraalVM JDK 25**、C/C++ 工具链和 CMake。Linux 还需 `pkg-config`、zlib、GTK 3、WebKitGTK 4.1 与 X11 的开发包。Windows 需要 MSVC 与 WebView2 SDK；macOS 需要 Xcode Command Line Tools。详见[桌面打包说明](desktop-host/dist/README.md)。
+使用 **GraalVM Community 25 Innovation 4**、C/C++ 工具链和 CMake。Linux 还需 `pkg-config`、zlib、GTK 3、WebKitGTK 4.1 与 X11 的开发包。Windows 需要 MSVC 与 WebView2 SDK；macOS 需要 Xcode Command Line Tools。编译器具体版本见[桌面打包说明](desktop-host/dist/README.md)。
 
 用户无需安装 Java。原生镜像不能跨平台编译，**每个平台与架构需在对应机器上构建**。
 

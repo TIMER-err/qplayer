@@ -4,7 +4,7 @@
 
 ## 环境约束
 
-- Android 与 JVM 开发需要 **JDK 21** 与 **Maven**；桌面原生分发使用 **GraalVM JDK 25**、C/C++ 工具链与 CMake。安装位置随开发机而定，不要写死盘符或绝对路径，以实际 `JAVA_HOME`、`mvn`（在 `PATH` 上）和本地仓库为准。
+- Android 与 JVM 开发需要 **JDK 21** 与 **Maven**；桌面原生分发使用 **GraalVM Community 25 Innovation 4 / 25.4.4.1.1**（与 CI 保持一致）、C/C++ 工具链与 CMake。安装位置随开发机而定，不要写死盘符或绝对路径，以实际 `JAVA_HOME`、`mvn`（在 `PATH` 上）和本地仓库为准。
 - 用中文回复。
 - 编辑 `player-core` 后必须 `mvn -pl player-core install`（不能只 `package`），否则 `desktop-host` 会继续用本地仓库里的旧 jar。
 - 随包 QML 统一由 `qml-aot-tool` 在构建期编译。Android 由 Gradle 编译主机工具并将生成类交给 D8；桌面由 Maven 生成类并交给 Native Image。修改 QML 后必须重新构建，不能依赖运行时编译或旧场景缓存。
@@ -49,7 +49,7 @@ mvn -pl desktop-host -am install -DskipTests -q
 # 桌面端：运行
 mvn -pl desktop-host exec:exec -q
 
-# 桌面端：出原生分发包（需 GraalVM JDK 25 与系统原生开发依赖）
+# 桌面端：出原生分发包（需 GraalVM Community 25 Innovation 4 与系统原生开发依赖）
 # PowerShell 会把裸的 -Dqplayer.app.version=... 拆开，必须整体加引号
 mvn -pl desktop-host -am -Pdist package -DskipTests -q "-Dqplayer.app.version=0.8.22"
 powershell -ExecutionPolicy Bypass -File desktop-host\dist\package-windows.ps1

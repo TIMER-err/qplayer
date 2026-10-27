@@ -155,11 +155,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up GraalVM JDK 25
+      - name: Set up verified GraalVM 25 Innovation 4
         uses: graalvm/setup-graalvm@v1
         with:
           distribution: graalvm-community
+          # Match the compiler used for local native runtime verification.
+          # LTS 25.0.2 cannot parse the logical callback bulk-query metadata.
+          version: '25.4.4.1.1'
           java-version: '25'
+          check-for-updates: 'false'
           native-image-job-reports: 'false'
 
       - name: Install Linux WebView build dependencies

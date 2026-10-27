@@ -11,7 +11,10 @@ class output to DEX through its regular build pipeline.
 
 ## Build prerequisites
 
-Use GraalVM JDK 25 with `native-image`, Maven, CMake, and a C/C++ toolchain.
+Use GraalVM Community **25 Innovation 4 / 25.4.4.1.1** (JDK 25.0.4.1.1) with
+`native-image`, Maven, CMake, and a C/C++ toolchain. This matches the locally verified
+compiler and the version pinned in CI; LTS 25.0.2 rejects the logical callback
+reflection metadata used by this build.
 Set `JAVA_HOME` to that installation and put its `bin` directory on `PATH`.
 
 - **Linux:** Install `pkg-config`, zlib, GTK 3, WebKitGTK 4.1, and X11 development
@@ -107,7 +110,8 @@ desktop-host/target/qplayer -Dqplayer.width=430 -Dqplayer.height=900
 ## CI release
 
 A `v*` tag triggers `.github/workflows/release.yml`. The Android job uses JDK 21.
-The Linux, Windows, and macOS jobs use GraalVM JDK 25 and native SDK prerequisites.
+The Linux, Windows, and macOS jobs use the pinned GraalVM Innovation 4 compiler
+and native SDK prerequisites.
 All jobs attach their artifacts to the same GitHub Release.
 Tags containing a prerelease suffix (for example `v1.9.3-rc.1`) publish a GitHub
 prerelease without replacing the latest stable release. Android and the application
