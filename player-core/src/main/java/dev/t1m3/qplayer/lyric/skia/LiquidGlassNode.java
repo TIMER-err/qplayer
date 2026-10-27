@@ -77,6 +77,15 @@ public final class LiquidGlassNode extends SkijaItem {
     private Surface raw;
     private Surface combined;
     private Surface shadow;
+    private Image outerShadowMask;
+    private boolean outerShadowMaskDark;
+    private Image outerShadowImage;
+    private Surface outerShadowSurface;
+    private final float[] outerShadowTransform = new float[9];
+    private float outerShadowOffset = Float.NaN;
+    private boolean outerShadowDark;
+    private int outerShadowLeft;
+    private int outerShadowTop;
     private BlurLevel low;
     private BlurLevel high;
     private float blurBlend;
@@ -183,7 +192,7 @@ public final class LiquidGlassNode extends SkijaItem {
                 renderBlur();
                 int saved = alpha < 1 ? canvas.saveLayerAlpha(null, Math.round(alpha * 255)) : canvas.save();
                 try {
-                    drawOuterShadow(canvas, width, height, 0, dark);
+                    drawOuterShadow(canvas, owner, transform, width, height, 0, dark);
                     drawPanel(painter, canvas, width, height, 1, 0, 0,
                             surfaceColor, null, false, 0, 0);
                     drawBloom(canvas, width, height, 0.75f, gravityAngle - (float) Math.PI / 4);
@@ -216,7 +225,7 @@ public final class LiquidGlassNode extends SkijaItem {
             int saved = alpha < 1 ? canvas.saveLayerAlpha(null, Math.round(alpha * 255)) : canvas.save();
             try {
                 // Shadow is outside the base press-scale graphics layer, as in the source modifier chain.
-                drawOuterShadow(canvas, width, HEIGHT, offset, dark);
+                drawOuterShadow(canvas, owner, transform, width, HEIGHT, offset, dark);
                 int baseSaved = canvas.save();
                 canvas.translate(width / 2 + offset, HEIGHT / 2).scale(scale, scale)
                         .translate(-width / 2, -HEIGHT / 2);
@@ -433,23 +442,68 @@ public final class LiquidGlassNode extends SkijaItem {
         drawProgram(canvas, capsule(w, h), bloom, additivePaint);
     }
 
-    private void drawOuterShadow(Canvas canvas, float w, float h, float offset, boolean dark) {
-        Canvas mask = shadow.getCanvas();
-        mask.clear(0);
-        int saved = mask.save();
-        mask.scale(density, density).translate(PADDING, PADDING);
-        overlayPaint.setColor(0xFF000000).setAlphaf(dark ? 0.2f : 0.1f);
-        mask.drawRRect(capsule(w, h), overlayPaint);
-        mask.restoreToCount(saved);
-        try (Image image = shadow.makeImageSnapshot()) {
-            filterPaint.setImageFilter(outerShadow).setAlphaf(1);
-            int mainSaved = canvas.save();
-            canvas.translate(offset, 0).clipRect(outerShadowClip);
-            canvas.translate(-PADDING, -PADDING).scale(1 / density, 1 / density);
-            canvas.drawImage(image, 0, 0, filterPaint);
-            canvas.restoreToCount(mainSaved);
-            filterPaint.setImageFilter(null);
+    private void drawOuterShadow(Canvas canvas, Surface owner, Matrix33 transform,
+                                 float w, float h, float offset, boolean dark) {
+        float[] m = transform._mat;
+        boolean unchanged = outerShadowOffset == offset && outerShadowDark == dark
+                && Arrays.equals(outerShadowTransform, m);
+        if (!unchanged) {
+            if (outerShadowImage != null) { outerShadowImage.close(); outerShadowImage = null; }
+            System.arraycopy(m, 0, outerShadowTransform, 0, 9);
+            outerShadowOffset = offset;
+            outerShadowDark = dark;
         }
+        // Cache only a stationary shadow, on the exact device-pixel grid. Moving,
+        // rotated or nonuniformly scaled layers keep the original filter path.
+        if (!unchanged || m[0] != density || m[4] != density || m[1] != 0 || m[3] != 0
+                || m[6] != 0 || m[7] != 0 || m[8] != 1) {
+            drawOuterShadowFiltered(canvas, w, h, offset, dark);
+            return;
+        }
+        if (outerShadowImage == null) {
+            // Include a guard pixel for fractional CTM/clip rounding.
+            outerShadowLeft = (int) Math.floor((offset - 10) * m[0] + m[2]) - 1;
+            outerShadowTop = (int) Math.floor(-10 * m[4] + m[5]) - 1;
+            int right = (int) Math.ceil((offset + w + 10) * m[0] + m[2]) + 1;
+            int bottom = (int) Math.ceil((h + 10) * m[4] + m[5]) + 1;
+            int width = Math.max(1, right - outerShadowLeft);
+            int height = Math.max(1, bottom - outerShadowTop);
+            if (outerShadowSurface == null || outerShadowSurface.getWidth() != width || outerShadowSurface.getHeight() != height) {
+                if (outerShadowSurface != null) outerShadowSurface.close();
+                outerShadowSurface = gpuSurface(owner, width, height);
+            }
+            Canvas cached = outerShadowSurface.getCanvas();
+            cached.clear(0);
+            cached.setMatrix(Matrix33.makeTranslate(-outerShadowLeft, -outerShadowTop).makeConcat(transform));
+            drawOuterShadowFiltered(cached, w, h, offset, dark);
+            outerShadowImage = outerShadowSurface.makeImageSnapshot();
+        }
+        int saved = canvas.save();
+        canvas.resetMatrix();
+        canvas.drawImage(outerShadowImage, outerShadowLeft, outerShadowTop);
+        canvas.restoreToCount(saved);
+    }
+
+    private void drawOuterShadowFiltered(Canvas canvas, float w, float h, float offset, boolean dark) {
+        if (outerShadowMask == null || outerShadowMaskDark != dark) {
+            if (outerShadowMask != null) outerShadowMask.close();
+            Canvas mask = shadow.getCanvas();
+            mask.clear(0);
+            int saved = mask.save();
+            mask.scale(density, density).translate(PADDING, PADDING);
+            overlayPaint.setColor(0xFF000000).setAlphaf(dark ? 0.2f : 0.1f);
+            mask.drawRRect(capsule(w, h), overlayPaint);
+            mask.restoreToCount(saved);
+            outerShadowMask = shadow.makeImageSnapshot();
+            outerShadowMaskDark = dark;
+        }
+        filterPaint.setImageFilter(outerShadow).setAlphaf(1);
+        int saved = canvas.save();
+        canvas.translate(offset, 0).clipRect(outerShadowClip);
+        canvas.translate(-PADDING, -PADDING).scale(1 / density, 1 / density);
+        canvas.drawImage(outerShadowMask, 0, 0, filterPaint);
+        canvas.restoreToCount(saved);
+        filterPaint.setImageFilter(null);
     }
 
     private void drawInnerShadow(Canvas canvas, float w, float p) {
@@ -532,7 +586,8 @@ public final class LiquidGlassNode extends SkijaItem {
         private final Surface vertical;
         private final Surface refracted;
         private final Matrix33 imageMatrix;
-        private final Rect paddedLogicalRect;
+        private final Rect panelLensRect;
+        private final Rect accentLensRect;
         private final RuntimeEffectBuilder horizontalBuilder;
         private final RuntimeEffectBuilder verticalBuilder;
         private final int factor;
@@ -562,7 +617,11 @@ public final class LiquidGlassNode extends SkijaItem {
             refracted = gpuSurface(owner, w, h);
             float pixelScale = density / factor;
             imageMatrix = new Matrix33(1 / pixelScale, 0, -PADDING, 0, 1 / pixelScale, -PADDING, 0, 0, 1);
-            paddedLogicalRect = Rect.makeXYWH(-PADDING, -PADDING, w / pixelScale, h / pixelScale);
+            // Only the capsule and its linear-sampling footprint consume this output.
+            // Keep the full padded INPUT: refraction and blur still sample outside the capsule.
+            float guard = 2 / pixelScale;
+            panelLensRect = Rect.makeXYWH(-guard, -guard, logicalWidth + 2 * guard, logicalHeight + 2 * guard);
+            accentLensRect = navigation ? Rect.makeXYWH(-guard, -guard, logicalWidth + 2 * guard, 56 + 2 * guard) : null;
             rect = Rect.makeWH(w, h);
             float variance = Math.max(0.1f, (sigmaSquared - BOX_VARIANCE[exponent]) / (factor * factor));
             float[] offsets = new float[7];
@@ -625,7 +684,7 @@ public final class LiquidGlassNode extends SkijaItem {
             try (Image image = vertical.makeImageSnapshot();
                  Shader child = image.makeShader(FilterTileMode.CLAMP, FilterTileMode.CLAMP, SamplingMode.LINEAR, imageMatrix)) {
                 configureLens(child, w, h, 24, -24, 0, 0, scale, scale, x, y);
-                drawProgram(result, paddedLogicalRect, lens, paint);
+                drawProgram(result, h == logicalHeight ? panelLensRect : accentLensRect, lens, paint);
             } finally {
                 result.restoreToCount(saved);
             }
@@ -731,6 +790,10 @@ public final class LiquidGlassNode extends SkijaItem {
     }
 
     private void closeSurfaces() {
+        if (outerShadowImage != null) { outerShadowImage.close(); outerShadowImage = null; }
+        if (outerShadowSurface != null) { outerShadowSurface.close(); outerShadowSurface = null; }
+        if (outerShadowMask != null) { outerShadowMask.close(); outerShadowMask = null; }
+        outerShadowOffset = Float.NaN;
         if (low != null) { low.close(); low = null; }
         if (high != null) { high.close(); high = null; }
         if (raw != null) { raw.close(); raw = null; }
