@@ -25,6 +25,11 @@ on:
         required: false
         default: '0.0.0'
         type: string
+      desktop_only:
+        description: Build desktop artifacts only, keeping a successful Android preflight
+        required: false
+        default: false
+        type: boolean
 
 # Push-a-tag and publish-a-release can both fire for the same version; collapse
 # them into one run per ref instead of building everything twice.
@@ -37,6 +42,7 @@ permissions:
 
 jobs:
   android:
+    if: github.event_name != 'workflow_dispatch' || !inputs.desktop_only
     runs-on: ubuntu-latest
     env:
       QPLAYER_STORE_PASSWORD: ${{ secrets.QPLAYER_STORE_PASSWORD }}
@@ -159,8 +165,16 @@ jobs:
       - name: Install Linux WebView build dependencies
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake pkg-config build-essential zlib1g-dev libgtk-3-dev libwebkit2gtk-4.1-dev libx11-dev
+          # The Azure mirror can take many minutes per package. Use Ubuntu's
+          # HTTPS archives without changing the runner's system source files.
+          sources="$RUNNER_TEMP/qplayer-ubuntu.list"
+          printf '%s\n' \
+            'deb https://archive.ubuntu.com/ubuntu jammy main universe' \
+            'deb https://archive.ubuntu.com/ubuntu jammy-updates main universe' \
+            'deb https://security.ubuntu.com/ubuntu jammy-security main universe' > "$sources"
+          apt_options=(-o "Dir::Etc::sourcelist=$sources" -o 'Dir::Etc::sourceparts=-')
+          sudo apt-get "${apt_options[@]}" update
+          sudo apt-get "${apt_options[@]}" install -y --no-install-recommends cmake pkg-config build-essential zlib1g-dev libgtk-3-dev libwebkit2gtk-4.1-dev libx11-dev
 
       - name: Set up Windows C++ toolchain
         if: runner.os == 'Windows'
@@ -176,6 +190,9 @@ jobs:
           nuget install Microsoft.Web.WebView2 -Version 1.0.2592.51 -OutputDirectory $sdkRoot -NonInteractive -Source https://api.nuget.org/v3/index.json
           if ($LASTEXITCODE -ne 0) { throw "WebView2 SDK download failed" }
           "WEBVIEW2_SDK=$sdkRoot\Microsoft.Web.WebView2.1.0.2592.51" >> $env:GITHUB_ENV
+          # Use the active MSVC environment, not Visual Studio autodiscovery.
+          "CMAKE_GENERATOR=Ninja" >> $env:GITHUB_ENV
+          "CXX=cl.exe" >> $env:GITHUB_ENV
 
       - name: Set macOS deployment target
         if: runner.os == 'macOS'
@@ -243,12 +260,11 @@ jobs:
       - name: Build Windows installer
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          QPLAYER_VERSION: ${{ github.event.release.tag_name || (github.ref_type == 'tag' && github.ref_name) || inputs.version || '0.0.0' }}
         run: |
           choco install innosetup -y --no-progress
-          $ver = "${{ github.event.release.tag_name }}"
-          if (-not $ver) { $ver = "${{ github.ref_name }}" }
-          $ver = $ver -replace '^v',''
-          if (-not $ver) { $ver = "0.0.0" }
+          $ver = $env:QPLAYER_VERSION -replace '^v',''
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           & "$iscc" /DAppVersion=$ver `
             /DSourceFolder="$PWD\desktop-host\target\QPlayer" `

@@ -66,7 +66,7 @@
                             <buildArg>--exact-reachability-metadata</buildArg>
                             <buildArg>--enable-native-access=ALL-UNNAMED</buildArg>
                             <buildArg>-H:+UnlockExperimentalVMOptions</buildArg>
-                            <buildArg>-H:MissingRegistrationReportingMode=Exit</buildArg>
+                            <buildArg>-R:MissingRegistrationReportingMode=Exit</buildArg>
                             <buildArg>-H:+AddAllCharsets</buildArg>
                             <buildArg>-H:+IncludeAllLocales</buildArg>
                             <buildArg>-R:MaxHeapSize=768m</buildArg>
