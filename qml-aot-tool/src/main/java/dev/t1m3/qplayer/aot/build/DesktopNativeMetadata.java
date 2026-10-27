@@ -25,6 +25,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashSet;
@@ -228,9 +229,11 @@ public final class DesktopNativeMetadata {
         }
         Class<?> library = type("com.sun.jna.Library");
         Class<?> callback = type("com.sun.jna.Callback");
+        Class<?> gsonTypeToken = type("com.google.gson.reflect.TypeToken");
         for (String name : classes) {
             Class<?> candidate = type(name);
             collectCallbackLambdas(name, callback);
+            if (gsonTypeToken.isAssignableFrom(candidate)) model(candidate.getGenericSuperclass());
             if (candidate.isInterface() && library.isAssignableFrom(candidate)) library(name);
             if (callback.isAssignableFrom(candidate)) callback(name);
             if (structure.isAssignableFrom(candidate) || nativeMapped.isAssignableFrom(candidate)) interop(candidate);
@@ -314,6 +317,12 @@ public final class DesktopNativeMetadata {
             Class<?> type = (Class<?>) value;
             if (!type.isPrimitive()) queriedTypes.add(type.getTypeName());
             if (type.isArray()) { model(type.getComponentType()); return; }
+            // Gson constructs concrete JSON containers reflectively, without
+            // treating their implementation fields as application model fields.
+            if (Map.class.isAssignableFrom(type) || Collection.class.isAssignableFrom(type)) {
+                entry(reflect, type.getName()).addProperty("allDeclaredConstructors", true);
+                return;
+            }
             if (!type.getName().startsWith("dev.t1m3.qplayer.") || !models.add(type.getName())) return;
             JsonObject entry = entry(reflect, type.getName());
             entry.addProperty("allDeclaredFields", true);

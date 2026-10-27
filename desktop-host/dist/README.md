@@ -91,13 +91,17 @@ Metadata is generated at build time:
 
 - `QmlBundleCompiler` registers generated components, QML context types, stock
   types, and untyped input/model payloads.
-- `DesktopNativeMetadata` registers host models, JNA libraries and callbacks,
-  Skija JNI entry points, reflective audio-tag factories, Rhino reflection, and required resources.
+- `DesktopNativeMetadata` discovers Gson `TypeToken` roots and registers JSON models
+  and container constructors, JNA libraries and callbacks, Skija JNI entry points,
+  reflective audio-tag factories, Rhino reflection, and required resources.
 - The WebView CMake install step registers its JNI bridge and native library.
 
 Change the generators when adding a dynamic entry point. Do not edit generated
 JSON or disable strict metadata checks. Exercise the affected interaction in the
 native executable; a successful image build does not prove dynamic reachability.
+For plugin metadata changes, exercise download, publisher-signature verification,
+consent, and first installation with an empty profile. An existing plugin does not
+exercise package hash-map deserialization.
 The image includes all locales and charsets, with a default maximum heap of
 768 MiB. These options live in `desktop-host/pom.xml`.
 
