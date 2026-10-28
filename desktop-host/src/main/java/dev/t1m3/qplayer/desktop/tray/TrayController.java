@@ -32,6 +32,8 @@ public final class TrayController implements PlayerController.PlaybackListener {
     private final PlayerController controller;
     private final DesktopWindow win;
     private final byte[] iconPng;
+    /** macOS-specific status-item artwork; falls back to {@link #iconPng}. */
+    private byte[] macIconData;
     /** Multi-size .ico for the Windows tray; see setIcoBytes. */
     private byte[] iconIco;
     private BooleanSupplier darkTheme;
@@ -64,6 +66,11 @@ public final class TrayController implements PlayerController.PlaybackListener {
      *  PNG. Set before {@link #install}. */
     public void setIcoBytes(byte[] ico) {
         this.iconIco = ico;
+    }
+
+    /** Keep compact menu-bar artwork separate from the full application icon. */
+    public void setMacIconData(byte[] data) {
+        this.macIconData = data;
     }
 
     /** Read at each menu open, so an in-app theme change applies without restart. */
@@ -169,12 +176,14 @@ public final class TrayController implements PlayerController.PlaybackListener {
     private boolean installMac() {
         try {
             macTray = new MacTray();
-            macTray.setIconPng(iconPng != null ? iconPng : placeholderPng());
+            byte[] icon = macIconData != null ? macIconData : iconPng;
+            macTray.setIconPng(icon != null ? icon : placeholderPng());
             Runnable quit = () -> win.postMainTask(() -> {
                 shutdown();
                 win.requestQuit();
             });
             macTray.setApplicationQuitAction(quit);
+            macTray.setApplicationReopenAction(() -> win.postMainTask(win::restoreFromTray));
             macTray.addItem(I18n.tr("tray.previous"), () -> win.postMainTask(controller::prev));
             macPlayPause = macTray.addItem(I18n.tr("tray.playPause"),
                     () -> win.postMainTask(controller::toggle));

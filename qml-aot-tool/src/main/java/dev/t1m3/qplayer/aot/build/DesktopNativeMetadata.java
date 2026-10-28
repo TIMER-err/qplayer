@@ -143,7 +143,7 @@ public final class DesktopNativeMetadata {
         JsonArray resourceGlobs = new JsonArray();
         for (String glob : new String[]{
                 "META-INF/qplayer/qml/**", "fonts/**", "lang/**", "shaders/**", "tempera/**",
-                "app-icon.*", "version.properties", "log4j2*", "rhino*.config",
+                "app-icon.*", "tray-icon-macos.svg", "version.properties", "log4j2*", "rhino*.config",
                 "META-INF/log4j*", "META-INF/org/apache/logging/log4j/**",
                 "META-INF/services/**", "META-INF/**/*.sha1",
                 "javazoom/jl/decoder/sfd.ser", "dev/t1m3/qplayer/plugin/**/*.json",

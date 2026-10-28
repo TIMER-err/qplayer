@@ -34,6 +34,7 @@ final class MacTray {
 
     interface ObjC extends Library {
         Pointer objc_getClass(String name);
+        Pointer object_getClass(Pointer object);
         Pointer sel_registerName(String name);
         Pointer objc_allocateClassPair(Pointer superclass, String name, long extraBytes);
         void objc_registerClassPair(Pointer cls);
@@ -43,6 +44,10 @@ final class MacTray {
 
     interface ActionCallback extends Callback {
         void invoke(Pointer self, Pointer selector, Pointer sender);
+    }
+
+    interface ReopenCallback extends Callback {
+        byte invoke(Pointer self, Pointer selector, Pointer sender, byte hasVisibleWindows);
     }
 
     private static final class Item {
@@ -70,6 +75,7 @@ final class MacTray {
     private Pointer menu;
     private Pointer target;
     private Runnable applicationQuitAction;
+    private Runnable applicationReopenAction;
     private byte[] iconPng;
     private String tooltip = "QPlayer";
     private int nextTag = 1;
@@ -100,6 +106,10 @@ final class MacTray {
 
     void setApplicationQuitAction(Runnable action) {
         this.applicationQuitAction = action;
+    }
+
+    void setApplicationReopenAction(Runnable action) {
+        this.applicationReopenAction = action;
     }
 
     void setTooltip(String tip) {
@@ -143,6 +153,7 @@ final class MacTray {
             sendVoid(statusItem, "setMenu:", menu);
             sendVoid(statusItem, "setToolTip:", nsString(tooltip));
             installApplicationQuitAction();
+            installApplicationReopenAction();
             applyIcon();
             installed = true;
             Logger.info("system tray initialized: macOS NSStatusItem");
@@ -242,14 +253,51 @@ final class MacTray {
         return false;
     }
 
+    /**
+     * A Dock click for an already-running application is delivered to AppKit's
+     * reopen delegate method, not to QPlayer's second-launch socket. GLFW does
+     * not install that optional method, so add it to GLFW's existing delegate
+     * class without replacing the delegate or disturbing its other callbacks.
+     */
+    private void installApplicationReopenAction() {
+        if (applicationReopenAction == null) return;
+        Pointer app = send(cls("NSApplication"), "sharedApplication");
+        Pointer delegate = send(app, "delegate");
+        Pointer delegateClass = delegate == null ? null : objc.object_getClass(delegate);
+        if (delegateClass == null) {
+            Logger.warn("macOS application delegate unavailable; Dock reopen disabled");
+            return;
+        }
+        ReopenCallback reopen = (self, selector, sender, hasVisibleWindows) -> {
+            try {
+                applicationReopenAction.run();
+            } catch (Throwable t) {
+                Logger.warn("macOS Dock reopen action failed: {}", t);
+            }
+            return 1;
+        };
+        keepAlive.add(reopen);
+        if (!objc.class_addMethod(delegateClass,
+                sel("applicationShouldHandleReopen:hasVisibleWindows:"),
+                reopen, "B@:@B")) {
+            Logger.warn("macOS application delegate already handles Dock reopen");
+        }
+    }
+
     private void applyIcon() {
         if (statusItem == null || iconPng == null || iconPng.length == 0) return;
         Pointer image = nsImage(iconPng);
         if (image == null) return;
         sendVoid(image, "setTemplate:", false);
         Pointer button = send(statusItem, "button");
-        if (button != null) sendVoid(button, "setImage:", image);
-        else sendVoid(statusItem, "setImage:", image);
+        if (button != null) {
+            // NSImageScaleProportionallyDown prevents a large source image from
+            // being cropped to the status-item button bounds.
+            sendVoid(button, "setImageScaling:", 0L);
+            sendVoid(button, "setImage:", image);
+        } else {
+            sendVoid(statusItem, "setImage:", image);
+        }
     }
 
     private Pointer nsImage(byte[] png) {
