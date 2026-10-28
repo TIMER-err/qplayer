@@ -1141,6 +1141,7 @@ public final class QPlayerActivity extends Activity {
         if (glView != null) {
             glView.onSystemNightChanged(isSystemDark(this));
         }
+        OverlayLyricWindow.onConfigurationChanged();
     }
 
     @Override

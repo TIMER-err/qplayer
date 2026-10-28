@@ -1,11 +1,13 @@
 package dev.t1m3.qplayer.android.app;
 
+import dev.t1m3.qplayer.android.playback.OverlayLyricWindow;
 import dev.t1m3.qplayer.android.playback.PlaybackService;
 import dev.t1m3.qplayer.android.security.AndroidKeystoreKeyProtector;
 
 import android.app.Application;
 import android.app.NotificationManager;
 import android.content.Context;
+import android.content.res.Configuration;
 import android.os.Process;
 
 import dev.t1m3.qplayer.util.Logger;
@@ -68,5 +70,11 @@ public final class QPlayerApplication extends Application {
                 System.exit(10);
             }
         });
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        OverlayLyricWindow.onConfigurationChanged();
     }
 }

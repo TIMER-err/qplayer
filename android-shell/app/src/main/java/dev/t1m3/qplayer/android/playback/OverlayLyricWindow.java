@@ -92,6 +92,13 @@ public final class OverlayLyricWindow {
         if (live != null) live.main.post(live::applyStyle);
     }
 
+    /** Activity kept this overlay alive across rotation via configChanges.
+     *  Re-clamp the stored fractional position onto the new screen. */
+    public static void onConfigurationChanged() {
+        OverlayLyricWindow live = instance;
+        if (live != null) live.main.post(live::relayoutForScreen);
+    }
+
     public static void setWanted(Context ctx, boolean on) {
         wanted = on;
         OverlayLyricWindow live = instance;
@@ -170,9 +177,8 @@ public final class OverlayLyricWindow {
                         | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                 PixelFormat.TRANSLUCENT);
         params.gravity = Gravity.TOP | Gravity.START;
-        params.x = prefs.getInt("x", Math.round(16 * d));
-        params.y = prefs.getInt("y", Math.round(dm.heightPixels * 0.72f));
         applyStyle();
+        restorePosition();
         try {
             wm.addView(view, params);
             attached = true;
@@ -216,8 +222,100 @@ public final class OverlayLyricWindow {
         if (attached) {
             try { wm.updateViewLayout(view, params); } catch (Throwable ignored) {}
         }
+        clampPosition();
         if (locked) hideControls();
         else placeControls();
+    }
+
+    private void relayoutForScreen() {
+        if (!attached || params == null) return;
+        applyStyle();
+        restorePosition();
+        if (attached) {
+            try { wm.updateViewLayout(view, params); } catch (Throwable ignored) {}
+        }
+        placeControls();
+    }
+
+    private void restorePosition() {
+        if (params == null) return;
+        float d = app.getResources().getDisplayMetrics().density;
+        int[] screen = overlayScreenSize();
+        int lyricW = overlayWidth();
+        int lyricH = overlayHeight();
+        int savedW = prefs.getInt("sw", screen[0]);
+        int savedH = prefs.getInt("sh", screen[1]);
+        float nx = prefs.contains("nx")
+                ? prefs.getFloat("nx", 0.5f)
+                : storedFraction(prefs.getInt("x", Math.round(16 * d)), savedW, lyricW, 0.5f);
+        float ny = prefs.contains("ny")
+                ? prefs.getFloat("ny", 0.72f)
+                : storedFraction(prefs.getInt("y", Math.round(savedH * 0.72f)), savedH, lyricH, 0.72f);
+        params.x = mappedPosition(nx, screen[0], lyricW);
+        params.y = mappedPosition(ny, screen[1], lyricH);
+    }
+
+    private void persistPosition() {
+        if (params == null) return;
+        int[] screen = overlayScreenSize();
+        prefs.edit()
+                .putFloat("nx", storedFraction(params.x, screen[0], overlayWidth(), 0.5f))
+                .putFloat("ny", storedFraction(params.y, screen[1], overlayHeight(), 0.72f))
+                .putInt("x", params.x)
+                .putInt("y", params.y)
+                .putInt("sw", screen[0])
+                .putInt("sh", screen[1])
+                .apply();
+    }
+
+    private void clampPosition() {
+        if (params == null) return;
+        int[] screen = overlayScreenSize();
+        int x = mappedPosition(storedFraction(params.x, screen[0], overlayWidth(), 0.5f),
+                screen[0], overlayWidth());
+        int y = mappedPosition(storedFraction(params.y, screen[1], overlayHeight(), 0.72f),
+                screen[1], overlayHeight());
+        if (params.x == x && params.y == y) return;
+        params.x = x;
+        params.y = y;
+        if (attached) {
+            try { wm.updateViewLayout(view, params); } catch (Throwable ignored) {}
+        }
+    }
+
+    /** 0–1 fraction of the movable range [0, screen - size]. */
+    static int mappedPosition(float fraction, int screen, int size) {
+        int max = Math.max(0, screen - Math.max(1, size));
+        if (max == 0) return 0;
+        float f = Math.max(0f, Math.min(1f, fraction));
+        return Math.round(f * max);
+    }
+
+    static float storedFraction(int pos, int screen, int size, float fallback) {
+        int max = Math.max(0, screen - Math.max(1, size));
+        if (max == 0) return fallback;
+        return Math.max(0f, Math.min(1f, pos / (float) max));
+    }
+
+    private int overlayWidth() {
+        if (params != null && params.width > 0) return params.width;
+        if (view != null && view.getWidth() > 0) return view.getWidth();
+        int[] screen = overlayScreenSize();
+        return Math.max(1, screen[0]);
+    }
+
+    private int overlayHeight() {
+        if (view != null) {
+            int h = view.getHeight();
+            if (h <= 0) h = view.getMeasuredHeight();
+            if (h > 0) return h;
+        }
+        float density = app.getResources().getDisplayMetrics().density;
+        return Math.max(1, Math.round(64 * density));
+    }
+
+    private static float clamp01(float v) {
+        return Math.max(0f, Math.min(1f, v));
     }
 
     /** Same idle rule as {@code DesktopLyricState.fallback}: keep the current
@@ -281,7 +379,7 @@ public final class OverlayLyricWindow {
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
                 if (dragging) {
-                    prefs.edit().putInt("x", params.x).putInt("y", params.y).apply();
+                    persistPosition();
                 } else if (event.getActionMasked() == MotionEvent.ACTION_UP) {
                     toggleControls();
                 }
@@ -310,8 +408,9 @@ public final class OverlayLyricWindow {
         bar.setBackground(capsule);
         boolean playing = controller != null && controller.isPlaying();
         // Five equal slots so pause sits on the capsule's centre:
-        //   [spacer] [prev] [pause] [next] [open]
-        bar.addView(slotSpacer(d));
+        //   [lock] [prev] [pause] [next] [open]
+        bar.addView(iconButton(io.github.timer_err.qml4j.android.R.drawable.ic_overlay_lock,
+                I18n.tr("overlay.controls.lock"), false, OverlayLyricWindow::toggleLocked));
         bar.addView(iconButton(io.github.timer_err.qml4j.android.R.drawable.ic_overlay_prev,
                 I18n.tr("overlay.controls.prev"), false, () -> {
                     if (controller != null) controller.prev();
@@ -352,26 +451,42 @@ public final class OverlayLyricWindow {
         }
     }
 
-    /** Sit the control capsule beside the lyric window, never on top of it.
-     *  Prefer above; flip below when the top of the screen is too tight; clamp
-     *  so a lyric strip parked at either extreme still leaves the bar clickable. */
+    /** Sit the control capsule centred above or below the lyric window.
+     *  Prefer above; flip below when the top of the screen is too tight. Never
+     *  clamp onto the lyrics themselves. */
     private void placeControls() {
         if (controls == null || controlParams == null || params == null || wm == null) return;
         int[] screen = overlayScreenSize();
-        int screenW = screen[0];
-        int screenH = screen[1];
-        int lyricX = params.x;
-        int lyricY = params.y;
         int lyricW = view != null && view.getWidth() > 0 ? view.getWidth() : Math.max(1, params.width);
-        int lyricH = view != null && view.getHeight() > 0 ? view.getHeight() : 0;
+        int lyricH = view != null && view.getHeight() > 0 ? view.getHeight() : overlayHeight();
         if (controls.getWidth() <= 0 || controls.getHeight() <= 0) {
             controls.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
                     View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         }
         int barW = controls.getWidth() > 0 ? controls.getWidth() : Math.max(1, controls.getMeasuredWidth());
         int barH = controls.getHeight() > 0 ? controls.getHeight() : Math.max(1, controls.getMeasuredHeight());
-        float d = app.getResources().getDisplayMetrics().density;
-        int gap = Math.round(8 * d);
+        int gap = Math.round(8 * app.getResources().getDisplayMetrics().density);
+        int[] xy = controlPosition(params.x, params.y, lyricW, lyricH, barW, barH,
+                screen[0], screen[1], gap);
+        if (controlParams.x == xy[0] && controlParams.y == xy[1]) return;
+        controlParams.x = xy[0];
+        controlParams.y = xy[1];
+        try { wm.updateViewLayout(controls, controlParams); } catch (Throwable ignored) {}
+    }
+
+    /** Centre the bar on the lyric window's horizontal midpoint. Prefer a gap
+     *  above; if that would leave the screen, use the matching gap below.
+     *  When neither side has a full gap, keep the bar off the lyric strip
+     *  (even if that clips a few pixels of the bar). */
+    static int[] controlPosition(int lyricX, int lyricY, int lyricW, int lyricH,
+                                 int barW, int barH, int screenW, int screenH, int gap) {
+        barW = Math.max(1, barW);
+        barH = Math.max(1, barH);
+        screenW = Math.max(1, screenW);
+        screenH = Math.max(1, screenH);
+        gap = Math.max(0, gap);
+        int x = lyricX + (lyricW - barW) / 2;
+        x = Math.max(0, Math.min(Math.max(0, screenW - barW), x));
 
         int aboveY = lyricY - gap - barH;
         int belowY = lyricY + lyricH + gap;
@@ -380,20 +495,12 @@ public final class OverlayLyricWindow {
             y = aboveY;
         } else if (belowY + barH <= screenH) {
             y = belowY;
+        } else if (lyricY >= screenH - (lyricY + lyricH)) {
+            y = Math.min(aboveY, 0);
         } else {
-            int roomAbove = Math.max(0, lyricY);
-            int roomBelow = Math.max(0, screenH - (lyricY + lyricH));
-            y = roomAbove >= roomBelow ? aboveY : belowY;
+            y = belowY;
         }
-        y = Math.max(0, Math.min(screenH - barH, y));
-
-        int x = lyricX + (lyricW - barW) / 2;
-        x = Math.max(0, Math.min(screenW - barW, x));
-
-        if (controlParams.x == x && controlParams.y == y) return;
-        controlParams.x = x;
-        controlParams.y = y;
-        try { wm.updateViewLayout(controls, controlParams); } catch (Throwable ignored) {}
+        return new int[]{x, y};
     }
 
     private int[] overlayScreenSize() {
@@ -403,16 +510,6 @@ public final class OverlayLyricWindow {
         }
         DisplayMetrics dm = app.getResources().getDisplayMetrics();
         return new int[]{Math.max(1, dm.widthPixels), Math.max(1, dm.heightPixels)};
-    }
-
-    private android.view.View slotSpacer(float density) {
-        int size = Math.round(40 * density);
-        android.view.View spacer = new android.view.View(app);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
-        lp.setMargins(Math.round(4 * density), 0, Math.round(4 * density), 0);
-        spacer.setLayoutParams(lp);
-        spacer.setImportantForAccessibility(android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        return spacer;
     }
 
     private ImageButton iconButton(int icon, String label, boolean emphasized, Runnable action) {
