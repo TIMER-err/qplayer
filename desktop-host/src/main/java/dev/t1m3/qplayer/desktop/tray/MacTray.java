@@ -69,6 +69,7 @@ final class MacTray {
     private Pointer statusItem;
     private Pointer menu;
     private Pointer target;
+    private Runnable applicationQuitAction;
     private byte[] iconPng;
     private String tooltip = "QPlayer";
     private int nextTag = 1;
@@ -95,6 +96,10 @@ final class MacTray {
     void setIconPng(byte[] png) {
         this.iconPng = png;
         if (installed) applyIcon();
+    }
+
+    void setApplicationQuitAction(Runnable action) {
+        this.applicationQuitAction = action;
     }
 
     void setTooltip(String tip) {
@@ -137,6 +142,7 @@ final class MacTray {
             }
             sendVoid(statusItem, "setMenu:", menu);
             sendVoid(statusItem, "setToolTip:", nsString(tooltip));
+            installApplicationQuitAction();
             applyIcon();
             installed = true;
             Logger.info("system tray initialized: macOS NSStatusItem");
@@ -183,14 +189,57 @@ final class MacTray {
                 Logger.warn("macOS tray action failed: {}", t);
             }
         };
+        ActionCallback quitCallback = (self, selector, sender) -> {
+            try {
+                if (applicationQuitAction != null) applicationQuitAction.run();
+            } catch (Throwable t) {
+                Logger.warn("macOS application quit action failed: {}", t);
+            }
+        };
         keepAlive.add(callback);
+        keepAlive.add(quitCallback);
         if (newlyAllocated) {
             if (!objc.class_addMethod(targetClass, sel("qplayerTray:"), callback, "v@:@")) {
                 Logger.warn("macOS tray selector already exists");
             }
+            if (!objc.class_addMethod(targetClass, sel("qplayerQuit:"), quitCallback, "v@:@")) {
+                Logger.warn("macOS quit selector already exists");
+            }
             objc.objc_registerClassPair(targetClass);
         }
         target = send(send(targetClass, "alloc"), "init");
+    }
+
+    /**
+     * GLFW maps the native application Quit command to the window-close callback.
+     * QPlayer deliberately vetoes that callback so the red close button can hide
+     * to the tray, which also (incorrectly) turns Command-Q into hide-to-tray.
+     * Redirect AppKit's terminate menu item to the explicit quit path instead.
+     */
+    private void installApplicationQuitAction() {
+        if (applicationQuitAction == null || target == null) return;
+        Pointer app = send(cls("NSApplication"), "sharedApplication");
+        Pointer mainMenu = send(app, "mainMenu");
+        if (!replaceTerminateAction(mainMenu)) {
+            Logger.warn("macOS application Quit menu item unavailable");
+        }
+    }
+
+    private boolean replaceTerminateAction(Pointer nativeMenu) {
+        if (nativeMenu == null) return false;
+        long count = sendLong(nativeMenu, "numberOfItems");
+        Pointer terminate = sel("terminate:");
+        for (long i = 0; i < count; i++) {
+            Pointer menuItem = send(nativeMenu, "itemAtIndex:", i);
+            Pointer action = send(menuItem, "action");
+            if (action != null && Pointer.nativeValue(action) == Pointer.nativeValue(terminate)) {
+                sendVoid(menuItem, "setTarget:", target);
+                sendVoid(menuItem, "setAction:", sel("qplayerQuit:"));
+                return true;
+            }
+            if (replaceTerminateAction(send(menuItem, "submenu"))) return true;
+        }
+        return false;
     }
 
     private void applyIcon() {
