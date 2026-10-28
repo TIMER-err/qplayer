@@ -170,6 +170,11 @@ public final class TrayController implements PlayerController.PlaybackListener {
         try {
             macTray = new MacTray();
             macTray.setIconPng(iconPng != null ? iconPng : placeholderPng());
+            Runnable quit = () -> win.postMainTask(() -> {
+                shutdown();
+                win.requestQuit();
+            });
+            macTray.setApplicationQuitAction(quit);
             macTray.addItem(I18n.tr("tray.previous"), () -> win.postMainTask(controller::prev));
             macPlayPause = macTray.addItem(I18n.tr("tray.playPause"),
                     () -> win.postMainTask(controller::toggle));
@@ -178,10 +183,7 @@ public final class TrayController implements PlayerController.PlaybackListener {
             macLyricToggle = macTray.addItem(lyricToggleLabel(),
                     () -> win.postMainTask(this::toggleLyricWindow));
             macTray.addItem(I18n.tr("tray.show"), () -> win.postMainTask(win::restoreFromTray));
-            macTray.addItem(I18n.tr("tray.quit"), () -> win.postMainTask(() -> {
-                shutdown();
-                win.requestQuit();
-            }));
+            macTray.addItem(I18n.tr("tray.quit"), quit);
             if (macTray.install()) return true;
             macTray = null;
             return false;
