@@ -29,7 +29,7 @@ BUNDLE_VERSION="${BUNDLE_VERSION%%+*}"
 echo "packaging QPlayer $VERSION"
 
 # Native Image's main() already owns the initial OS thread; no JVM launcher flags.
-rm -rf "$APP" "$T/dmg-root" "$T/qplayer.iconset"
+rm -rf "$APP" "$T/dmg-root"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/licenses" "$T/dmg-root"
 cp "$BINARY" "$APP/Contents/MacOS/qplayer"
 chmod +x "$APP/Contents/MacOS/qplayer"
@@ -39,14 +39,7 @@ for library in "$T"/*.dylib "$T"/*.jnilib; do
 done
 cp -R "$T/native-legal/." "$APP/Contents/Resources/licenses/"
 
-SET="$T/qplayer.iconset"
-mkdir -p "$SET"
-for pair in 16x16:16 16x16@2x:32 32x32:32 32x32@2x:64 \
-            128x128:128 128x128@2x:256 256x256:256 256x256@2x:512 512x512:512; do
-  sips -z "${pair##*:}" "${pair##*:}" docs/icon.png --out "$SET/icon_${pair%%:*}.png" >/dev/null
-done
-iconutil -c icns "$SET" -o "$APP/Contents/Resources/qplayer.icns"
-rm -rf "$SET"
+sips -s format icns docs/icon.png --out "$APP/Contents/Resources/qplayer.icns" >/dev/null
 cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

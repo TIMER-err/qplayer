@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36">
+  <!-- Every enclosed area remains transparent, matching macOS menu-bar glyphs. -->
+  <rect x="3.2" y="3.2" width="29.6" height="29.6" rx="6.2"
+        fill="none" stroke="#E2E2E2" stroke-width="1.8"/>
+
+  <circle cx="18" cy="18" r="9.2"
+          fill="none" stroke="#FFFFFF" stroke-width="2.2"/>
+  <circle cx="18" cy="18" r="1.7" fill="#FFFFFF"/>
+
+  <path d="M27.4 8.5 L23.2 18.3 L21.6 21.2"
+        fill="none" stroke="#FFFFFF" stroke-width="2.2"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="27" cy="8.5" r="2.1" fill="#FFFFFF"/>
+</svg>

@@ -196,6 +196,9 @@ public final class Main {
         controller.setInstaller(urls -> downloadAndInstallUpdate(controller, window, urls));
 
         TrayController tray = new TrayController(controller, window, resources.load("app-icon.png"));
+        // AppKit can decode SVG data directly. Keeping the status-item artwork
+        // vector preserves transparency and remains crisp at menu-bar scale.
+        tray.setMacIconData(resources.load("tray-icon-macos.svg"));
         tray.setDarkTheme(settings::resolvedDarkValue);
         window.setDesktopLyricStateListener(ignored -> tray.onDesktopLyricChanged());
         // Windows tray: hand it the multi-size .ico the installer also uses.
