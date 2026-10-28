@@ -297,7 +297,7 @@ final class InputBridge {
 
         QmlView v = win.view();
         if (v == null) return;
-        float scale = win.uiScale();
+        float scale = pointerScale();
         float lx = (float) cursorX / scale, ly = (float) cursorY / scale;
 
         // The lyric column is host-drawn Skia, not a QML Flickable, so dispatchWheel's
@@ -309,8 +309,9 @@ final class InputBridge {
         boolean offsetPanelOpen = controllerForGesture != null
                 && Boolean.TRUE.equals(controllerForGesture.lyricOffsetPanelOpen.peek());
         float topInset = win.settings() != null ? win.settings().topInset() : 0f;
-        float surfaceWLogical = win.framebufferSize()[0] / scale;
-        float surfaceHLogical = win.framebufferSize()[1] / scale;
+        float uiScale = win.uiScale();
+        float surfaceWLogical = win.framebufferSize()[0] / uiScale;
+        float surfaceHLogical = win.framebufferSize()[1] / uiScale;
         boolean overLyric = !win.temperaPageVisible() && !offsetPanelOpen && c != null
                 && c.lyricsScrollable(lx, ly, surfaceWLogical, surfaceHLogical, topInset);
 
@@ -378,14 +379,16 @@ final class InputBridge {
     private void onPress(float x, float y) {
         QmlView v = win.view();
         if (v == null) return;
-        // glfwGetCursorPos on Windows (Per-Monitor DPI V2) returns physical pixels;
-        // QML coordinate space is logical (physical / uiScale). Divide so all
-        // downstream consumers (QML + lyric compositor) receive logical coordinates.
-        float scale = win.uiScale();
+        // Windows/X11 cursor coordinates follow framebuffer pixels and need DPI
+        // normalization. Cocoa already reports cursor positions in logical points,
+        // matching the QML root; dividing those by the Retina scale a second time
+        // shifts every hit test toward the top-left.
+        float scale = pointerScale();
         float lx = x / scale, ly = y / scale;
         float topInset = win.settings() != null ? win.settings().topInset() : 0f;
-        float surfaceWLogical = win.framebufferSize()[0] / scale;
-        float surfaceHLogical = win.framebufferSize()[1] / scale;
+        float uiScale = win.uiScale();
+        float surfaceWLogical = win.framebufferSize()[0] / uiScale;
+        float surfaceHLogical = win.framebufferSize()[1] / uiScale;
         LyricCompositor c = win.compositor();
         PlayerController controllerForGesture = win.controller();
         boolean offsetPanelOpen = controllerForGesture != null
@@ -405,7 +408,7 @@ final class InputBridge {
     }
 
     private void onMove(float x, float y) {
-        float scale = win.uiScale();
+        float scale = pointerScale();
         float lx = x / scale, ly = y / scale;
         if (lyGrab) {
             LyricCompositor c = win.compositor();
@@ -425,7 +428,7 @@ final class InputBridge {
     }
 
     private void onRelease(float x, float y) {
-        float scale = win.uiScale();
+        float scale = pointerScale();
         float lx = x / scale, ly = y / scale;
         if (lyGrab) {
             lyGrab = false;
@@ -453,10 +456,20 @@ final class InputBridge {
     private void onRightClick(float x, float y) {
         QmlView v = win.view();
         if (v == null) return;
-        float scale = win.uiScale();
+        float scale = pointerScale();
         float lx = x / scale, ly = y / scale;
         v.dispatchPointerDown(lx, ly, MouseEvent.RIGHT_BUTTON);
         v.dispatchPointerUp(lx, ly, MouseEvent.RIGHT_BUTTON);
+    }
+
+    private float pointerScale() {
+        return pointerScale(System.getProperty("os.name", ""), win.uiScale());
+    }
+
+    static float pointerScale(String osName, float uiScale) {
+        String os = osName == null ? "" : osName.toLowerCase(Locale.ROOT);
+        if (os.contains("mac")) return 1f;
+        return uiScale > 0f ? uiScale : 1f;
     }
 
     // Printable characters arrive via the char callback; this maps only the control
