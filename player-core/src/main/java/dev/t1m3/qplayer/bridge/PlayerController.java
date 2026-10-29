@@ -6698,7 +6698,9 @@ public final class PlayerController {
         if (keyword == null || keyword.trim().isEmpty()) return;
         String kw = keyword.trim();
         synchronized (historyList) {
-            historyList.remove(kw);
+            for (int i = historyList.size() - 1; i >= 0; i--) {
+                if (historyList.get(i).equalsIgnoreCase(kw)) historyList.remove(i);
+            }
             historyList.add(0, kw);
             if (historyList.size() > HISTORY_MAX) historyList.remove(historyList.size() - 1);
             List<String> snap = new ArrayList<>(historyList);

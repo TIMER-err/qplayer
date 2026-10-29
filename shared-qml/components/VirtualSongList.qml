@@ -217,6 +217,8 @@ Flickable {
     property int loadMoreThresholdRows: 6
     signal activated()
     signal removeRequested()
+    signal likeClicked()
+    signal downloadClicked()
 
     function rowId(item) {
         if (!item) return ""
@@ -374,13 +376,20 @@ Flickable {
                 showLikeButton: view.showLikeButton
                 likeable: view.showLikeButton && player.isMediaLikeable(view.rowId(modelData))
                 showDownloadButton: !!player.downloadHelperEnabled && view.songMenu && !view.selectMode
-                onDownloadRequested: player.requestDownloadQuality(view.rowId(modelData))
+                onDownloadRequested: {
+                    player.requestDownloadQuality(view.rowId(modelData))
+                    view.downloadClicked()
+                }
+                onMenuDownloadRequested: view.downloadClicked()
                 // likedRevision is the observable half: isMediaLiked() is a plain
                 // Java method, so without reading a Property here the heart would
                 // never refill after a like (or after the liked list arrives).
                 liked: view.showLikeButton && player.likedRevision >= 0
                        && player.isMediaLiked(view.rowId(modelData))
-                onLikeToggled: player.toggleLikeMedia(view.rowId(modelData))
+                onLikeToggled: {
+                    player.toggleLikeMedia(view.rowId(modelData))
+                    view.likeClicked()
+                }
                 // The carried row is drawn once, by the floating copy below, so
                 // its slot in the list simply empties out.
                 visible: view._dragFrom !== index

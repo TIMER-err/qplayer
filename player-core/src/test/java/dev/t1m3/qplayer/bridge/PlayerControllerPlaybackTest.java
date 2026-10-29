@@ -534,6 +534,39 @@ public class PlayerControllerPlaybackTest {
     }
 
     @Test
+    public void addSearchHistoryDeduplicatesIgnoringCaseAndPromotesLatest() throws Exception {
+        String oldBase = AppDirs.base();
+        String oldCacheBase = AppDirs.cacheBase();
+        PlayerController controller = null;
+        try {
+            Path base = temporaryFolder.newFolder("search-history-dedup").toPath();
+            AppDirs.setBase(base.toString());
+            AppDirs.setCacheBase(base.resolve("cache").toString());
+            controller = new PlayerController(new FakeAudioBackend(), track -> { }, NeteaseClient.INSTANCE);
+
+            controller.addSearchHistory("  Foo  ");
+            controller.addSearchHistory("bar");
+            controller.addSearchHistory("foo");
+            controller.addSearchHistory("   ");
+            controller.addSearchHistory(null);
+
+            long deadline = System.currentTimeMillis() + 2000L;
+            while (controller.searchHistory.peek().size() < 2
+                    && System.currentTimeMillis() < deadline) {
+                controller.pump();
+                Thread.sleep(10L);
+            }
+            controller.pump();
+
+            assertEquals(Arrays.asList("foo", "bar"), controller.searchHistory.peek());
+        } finally {
+            if (controller != null) controller.shutdown();
+            AppDirs.setBase(oldBase);
+            AppDirs.setCacheBase(oldCacheBase);
+        }
+    }
+
+    @Test
     public void changingSearchTextImmediatelyDropsPreviousMixedSourceRows() throws Exception {
         String oldBase = AppDirs.base();
         String oldCacheBase = AppDirs.cacheBase();

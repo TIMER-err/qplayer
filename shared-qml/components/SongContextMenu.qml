@@ -16,6 +16,7 @@ Menu {
     // Cached-songs list mode: the cache entry flips to "remove cache" (right-click
     // on CachedSongsDialog rows), so you can drop a song's offline copy on disk.
     property bool inCacheList: false
+    signal downloadChosen()
 
     // Rebuild the model from the current song + the live playlist list, so it reflects
     // a playlist just created. Called by the row right before open().
@@ -32,7 +33,7 @@ Menu {
             items.push({ text: i18n.t("playlist.local.addTo"), icon: "playlist_add",
                          subItems: menu._localSubItems("local", s.filePath) })
             items.push({ text: i18n.t("menu.downloadSong"), icon: "download",
-                         action: function() { player.downloadLocalFile(s.filePath) } })
+                         action: function() { player.downloadLocalFile(s.filePath); menu.downloadChosen() } })
             menu.model = items
             return
         }
@@ -208,7 +209,10 @@ Menu {
         return function() { player.cacheMediaSong(mediaId) }
     }
     function _downloadMediaAction(mediaId) {
-        return function() { player.requestDownloadQuality(mediaId) }
+        return function() {
+            player.requestDownloadQuality(mediaId)
+            menu.downloadChosen()
+        }
     }
     function _removeMediaCacheAction(mediaId) {
         return function() { player.removeMediaCache(mediaId) }

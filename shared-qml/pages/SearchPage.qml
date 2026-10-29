@@ -29,10 +29,16 @@ Item {
         id: searchDebounce
         interval: 350
         repeat: false
-        onTriggered: page.runSearch(false)
+        onTriggered: page.runSearch()
     }
 
-    function runSearch(addHistory) {
+    function recordCurrentSearch() {
+        var text = query.text
+        if (text.length === 0) return
+        player.addSearchHistory(text)
+    }
+
+    function runSearch() {
         var text = query.text
         if (text.length === 0) return
         if (player.searchMode === "album") {
@@ -43,12 +49,11 @@ Item {
             player.search(text)
             player.searchLocal(text)
         }
-        if (addHistory) player.addSearchHistory(text)
     }
 
-    function runSearchNow(addHistory) {
+    function runSearchNow() {
         searchDebounce.stop()
-        runSearch(addHistory)
+        runSearch()
     }
 
     Component.onCompleted: player.loadHotSearches()
@@ -79,7 +84,7 @@ Item {
                     else { searchDebounce.stop(); page.historyExpandLevel = 0 }
                 }
                 onAccepted: {
-                    if (query.text.length > 0) page.runSearchNow(true)
+                    if (query.text.length > 0) page.runSearchNow()
                     Qt.inputMethod.hide()
                 }
             }
@@ -94,7 +99,7 @@ Item {
                 tabs: [i18n.t("search.mode.songs"), i18n.t("search.mode.albums"), i18n.t("search.mode.artists")]
                 onTabSelected: (index) => {
                     player.setSearchMode(["song", "album", "artist"][index])
-                    if (query.text.length > 0) page.runSearchNow(false)
+                    if (query.text.length > 0) page.runSearchNow()
                 }
             }
         }
@@ -267,7 +272,7 @@ Item {
                                     var kw = player.searchHistory && player.searchHistory[index] ? player.searchHistory[index] : ""
                                     if (kw.length > 0) {
                                         query.text = kw
-                                        page.runSearchNow(true)
+                                        page.runSearchNow()
                                     }
                                 }
                             }
@@ -441,7 +446,7 @@ Item {
                                     var kw = hotRow.keyword
                                     if (kw.length === 0) return
                                     query.text = kw
-                                    page.runSearchNow(true)
+                                    page.runSearchNow()
                                 }
                             }
                         }
@@ -485,7 +490,12 @@ Item {
                 showLikeButton: true
                 loadMoreEnabled: player.searchHasMore && !player.searchLoading
                 onLoadMoreRequested: player.loadMoreSearch()
-                onActivated: player.playSearchRow(unifiedResults.activatedIndex)
+                onActivated: {
+                    player.playSearchRow(unifiedResults.activatedIndex)
+                    page.recordCurrentSearch()
+                }
+                onLikeClicked: page.recordCurrentSearch()
+                onDownloadClicked: page.recordCurrentSearch()
             }
 
             Flickable {

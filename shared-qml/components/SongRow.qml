@@ -95,6 +95,7 @@ Rectangle {
     signal likeToggled()
     property bool showDownloadButton: false
     signal downloadRequested()
+    signal menuDownloadRequested()
     onSongChanged: {
         row._menuArmed = false
         if (menuLoader.item && menuLoader.item.opened) menuLoader.item.dismissImmediately()
@@ -409,6 +410,7 @@ Rectangle {
             inOwnedPlaylist: row.inOwnedPlaylist
             inCacheList: row.inCacheList
             onClosed: row._menuArmed = false
+            onDownloadChosen: row.menuDownloadRequested()
         }
     }
     function _openMenu() {
