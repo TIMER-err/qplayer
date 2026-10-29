@@ -29,4 +29,14 @@ public class DesktopWindowFailureTest {
                 GraphicsBackend.Kind.GL, false,
                 RenderThread.FailureStage.BACKEND_INITIALIZATION));
     }
+
+    @Test
+    public void applicationFrameCrashesAskForRenderThreadRespawn() {
+        assertTrue(DesktopWindow.shouldRespawnAfterApplicationError(
+                RenderThread.FailureStage.APPLICATION_FRAME));
+        assertFalse(DesktopWindow.shouldRespawnAfterApplicationError(
+                RenderThread.FailureStage.BACKEND_FRAME));
+        assertFalse(DesktopWindow.shouldRespawnAfterApplicationError(
+                RenderThread.FailureStage.BACKEND_INITIALIZATION));
+    }
 }

@@ -33,6 +33,7 @@ import dev.t1m3.qplayer.android.app.AndroidFontIndex;
 import dev.t1m3.qplayer.bridge.PlayerController;
 import dev.t1m3.qplayer.bridge.WindowChromeStub;
 import dev.t1m3.qplayer.qml.BundledQml;
+import dev.t1m3.qplayer.qml.QmlRuntimeLock;
 import dev.t1m3.qplayer.settings.SettingsCore;
 import dev.t1m3.qplayer.lyric.skia.LyricCompositor;
 import dev.t1m3.qplayer.lyric.skia.LyricConfig;
@@ -632,8 +633,9 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         public void onDrawFrame(GL10 gl) {
             if (failed || disposed || gpuPaused || view == null || surface == null) return;
             DirtyQueue dq = view.dirtyQueue();
-            dq.install();
-            try {
+            synchronized (QmlRuntimeLock.MONITOR) {
+                dq.install();
+                try {
                 long t0 = System.nanoTime();
                 long v0 = Property.changeVersion();
                 if (controller != null) controller.pump();
@@ -682,10 +684,11 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                         }
                     });
                 }
-            } catch (Throwable t) {
-                reportError(t);
-            } finally {
-                dq.uninstall();
+                } catch (Throwable t) {
+                    reportError(t);
+                } finally {
+                    dq.uninstall();
+                }
             }
         }
     }

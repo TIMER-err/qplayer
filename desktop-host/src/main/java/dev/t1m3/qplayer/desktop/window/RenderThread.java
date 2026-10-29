@@ -8,6 +8,7 @@ import io.github.timer_err.qml4j.render.Renderer;
 
 import dev.t1m3.qplayer.bridge.PlayerController;
 import dev.t1m3.qplayer.lyric.skia.LyricCompositor;
+import dev.t1m3.qplayer.qml.QmlRuntimeLock;
 import dev.t1m3.qplayer.util.Logger;
 
 import java.util.concurrent.locks.LockSupport;

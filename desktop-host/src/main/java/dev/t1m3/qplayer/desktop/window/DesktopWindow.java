@@ -7,6 +7,7 @@ import io.github.timer_err.qml4j.render.items.core.Item;
 
 import dev.t1m3.qplayer.bridge.PlayerController;
 import dev.t1m3.qplayer.qml.BundledQml;
+import dev.t1m3.qplayer.qml.QmlRuntimeLock;
 import dev.t1m3.qplayer.lyric.skia.Fonts;
 import dev.t1m3.qplayer.resources.CompressedResources;
 import dev.t1m3.qplayer.settings.SettingsCore;
@@ -704,7 +705,20 @@ public final class DesktopWindow {
         if (shouldFallbackToOpenGL(kind, graphicsFallbackAttempted, stage)) {
             graphicsFallbackAttempted = true;
             postMainTask(this::fallbackToOpenGL);
+        } else if (shouldRespawnAfterApplicationError(stage)) {
+            postMainTask(this::respawnRenderThreadAfterApplicationError);
         }
+    }
+
+    static boolean shouldRespawnAfterApplicationError(RenderThread.FailureStage stage) {
+        return stage == RenderThread.FailureStage.APPLICATION_FRAME;
+    }
+
+    private void respawnRenderThreadAfterApplicationError() {
+        if (quitRequested || closing || hiddenToTray) return;
+        Logger.warn("respawning render thread after application-frame crash");
+        stopRenderThread();
+        spawnRenderThread();
     }
 
     static boolean shouldFallbackToOpenGL(GraphicsBackend.Kind backendKind,

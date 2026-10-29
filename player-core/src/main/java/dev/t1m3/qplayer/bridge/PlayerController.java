@@ -72,6 +72,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import io.github.timer_err.qml4j.engine.binding.Property;
 import io.github.timer_err.qml4j.runtime.color.StyleManager;
+import dev.t1m3.qplayer.qml.QmlRuntimeLock;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -118,10 +119,12 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * <h3>Threading</h3>
  * The qml4j renderer is single-threaded, so every {@code Property.set} must run
- * on the render thread. QML-invoked methods run there and mutate directly. Work
- * that must run off it — audio completion, blocking netease HTTP — posts its
- * result via {@link #post(Runnable)}; the host drains the queue once per frame
- * in {@link #pump()}.
+ * on the render thread or under {@link QmlRuntimeLock}. QML-invoked methods run
+ * there and mutate directly. Work that must run off it — audio completion,
+ * blocking netease HTTP — posts its result via {@link #post(Runnable)}; the host
+ * drains the queue once per frame in {@link #pump()}. {@link #playAt} holds the
+ * same lock as {@code DirtyQueue.flush()} so a plugin source switch on the GLFW
+ * main thread cannot reenter {@code Property.evaluating} mid-flush.
  */
 public final class PlayerController {
 
@@ -2914,6 +2917,12 @@ public final class PlayerController {
 
     /** Drain queued UI mutations, refresh the play head + log. Call once per frame. */
     public void pump() {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            pumpLocked();
+        }
+    }
+
+    private void pumpLocked() {
         Runnable r;
         while ((r = uiQueue.poll()) != null) {
             try {
@@ -5278,6 +5287,12 @@ public final class PlayerController {
     }
 
     private void playAt(int i) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            playAtLocked(i);
+        }
+    }
+
+    private void playAtLocked(int i) {
         if (i < 0 || i >= queue.size()) return;
         if (blockedByPluginSession(queue.get(i))) return;
         String requestedMediaId = queue.get(i).canonicalId();

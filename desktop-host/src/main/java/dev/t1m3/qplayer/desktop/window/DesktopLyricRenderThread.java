@@ -2,6 +2,7 @@ package dev.t1m3.qplayer.desktop.window;
 
 import dev.t1m3.qplayer.lyric.skia.DesktopLyricRenderer;
 import dev.t1m3.qplayer.qml.BundledQml;
+import dev.t1m3.qplayer.qml.QmlRuntimeLock;
 import dev.t1m3.qplayer.util.Logger;
 import io.github.humbleui.skija.Canvas;
 import io.github.humbleui.skija.Paint;
