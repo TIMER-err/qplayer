@@ -154,7 +154,7 @@ Item {
                     Math.round(surface.targetIndex)))
                 surface.accumulatedDrag = 0
                 navigation.pendingIndex = surface.targetIndex
-                if (navigation.pendingIndex !== navigation.currentIndex) navigation.navigate()
+                navigation.navigate()
             }
             onCanceled: surface.cancel()
         }

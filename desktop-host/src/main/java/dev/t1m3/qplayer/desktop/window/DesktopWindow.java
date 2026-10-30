@@ -118,6 +118,9 @@ public final class DesktopWindow {
     // the window. The render thread must not query GLFW's window state.
     private com.sun.jna.Pointer nativeWindow;
     private boolean graphicsFallbackAttempted;
+    private volatile boolean firstFramePainted;
+    private boolean applicationRecoveryAttempted;
+    private Throwable fatalRenderError;
     // Whether a system tray actually installed. Without one, hiding the window would
     // make the app vanish with no way back, so the close button quits instead and
     // recovery is left to the window manager's minimise (the taskbar icon is set).
@@ -564,23 +567,33 @@ public final class DesktopWindow {
      *  the fontconfig package every desktop distro pulls in; if it's missing or slow
      *  the caller falls back to the bundled font. */
     private static byte[] readFontconfigFontByFamily(String family, boolean bold) {
+        java.nio.file.Path output = null;
+        Process process = null;
         try {
-            Process p = new ProcessBuilder("fc-match", "-f", "%{file}",
+            // A pipe read before waitFor defeats its timeout. Redirect the tiny
+            // font path response to a file so no child output can block either.
+            output = java.nio.file.Files.createTempFile("qplayer-fontconfig-", ".txt");
+            process = new ProcessBuilder("fc-match", "-f", "%{file}",
                     family + ":weight=" + (bold ? "bold" : "regular"))
-                    .redirectErrorStream(false).start();
-            String path;
-            try (java.io.InputStream in = p.getInputStream()) {
-                path = new String(in.readAllBytes(), StandardCharsets.UTF_8).trim();
-            }
-            if (!p.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)) {
-                p.destroyForcibly();
-                return null;
-            }
+                    .redirectOutput(output.toFile())
+                    .redirectError(ProcessBuilder.Redirect.DISCARD).start();
+            if (!process.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)) return null;
+            if (process.exitValue() != 0) return null;
+            String path = java.nio.file.Files.readString(output, StandardCharsets.UTF_8).trim();
             if (path.isEmpty()) return null;
             java.io.File f = new java.io.File(path);
             return f.isFile() ? java.nio.file.Files.readAllBytes(f.toPath()) : null;
-        } catch (Throwable ignored) {
-            return null; // no fc-match on PATH, unreadable file, ...
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return null;
+        } catch (Exception ignored) {
+            return null;
+        } finally {
+            if (process != null && process.isAlive()) process.destroyForcibly();
+            if (output != null) {
+                try { java.nio.file.Files.deleteIfExists(output); }
+                catch (java.io.IOException ignored) { }
+            }
         }
     }
 
@@ -673,6 +686,7 @@ public final class DesktopWindow {
     }
 
     void onFirstFramePainted() {
+        firstFramePainted = true;
         // The window is created hidden so the first visible frame is real content,
         // not a blank flash during the QML compile. Show it now (on the main thread,
         // where GLFW window ops must run).
@@ -702,23 +716,39 @@ public final class DesktopWindow {
         java.io.StringWriter sw = new java.io.StringWriter();
         t.printStackTrace(new java.io.PrintWriter(sw));
         Logger.error(sw.toString());
-        if (shouldFallbackToOpenGL(kind, graphicsFallbackAttempted, stage)) {
-            graphicsFallbackAttempted = true;
-            postMainTask(this::fallbackToOpenGL);
-        } else if (shouldRespawnAfterApplicationError(stage)) {
-            postMainTask(this::respawnRenderThreadAfterApplicationError);
-        }
+        postMainTask(() -> {
+            if (quitRequested || closing) return;
+            try {
+                if (shouldFallbackToOpenGL(kind, graphicsFallbackAttempted, stage)) {
+                    graphicsFallbackAttempted = true;
+                    fallbackToOpenGL();
+                } else if (!hiddenToTray && shouldRespawnAfterApplicationError(
+                        stage, firstFramePainted, applicationRecoveryAttempted)) {
+                    applicationRecoveryAttempted = true;
+                    Logger.warn("respawning render thread once after application-frame crash");
+                    stopRenderThread();
+                    spawnRenderThread();
+                } else {
+                    failRendering(t);
+                }
+            } catch (Throwable recoveryError) {
+                failRendering(recoveryError);
+            }
+        });
     }
 
-    static boolean shouldRespawnAfterApplicationError(RenderThread.FailureStage stage) {
-        return stage == RenderThread.FailureStage.APPLICATION_FRAME;
+    static boolean shouldRespawnAfterApplicationError(RenderThread.FailureStage stage,
+                                                       boolean firstFramePainted,
+                                                       boolean alreadyAttempted) {
+        return stage == RenderThread.FailureStage.APPLICATION_FRAME
+                && firstFramePainted && !alreadyAttempted;
     }
 
-    private void respawnRenderThreadAfterApplicationError() {
-        if (quitRequested || closing || hiddenToTray) return;
-        Logger.warn("respawning render thread after application-frame crash");
-        stopRenderThread();
-        spawnRenderThread();
+    private void failRendering(Throwable error) {
+        fatalRenderError = error;
+        // Terminate through normal host cleanup: a permanently broken renderer
+        // must not retain the single-instance lock behind a hidden/stale window.
+        requestQuit();
     }
 
     static boolean shouldFallbackToOpenGL(GraphicsBackend.Kind backendKind,
@@ -972,7 +1002,7 @@ public final class DesktopWindow {
             spawnRenderThread();
         } catch (Throwable fallbackError) {
             Logger.error("OpenGL fallback failed: {}", fallbackError);
-            requestQuit();
+            failRendering(fallbackError);
         }
     }
 
@@ -1112,7 +1142,11 @@ public final class DesktopWindow {
      * Told by the host once the tray install has finished (on its own thread).
      */
     public void setTrayAvailable(boolean available) {
-        this.trayAvailable = available;
+        postMainTask(() -> {
+            if (closing || quitRequested) return;
+            trayAvailable = available;
+            if (!available && hiddenToTray) restoreFromTray();
+        });
     }
 
     private void setWindowIcon() {
@@ -1309,10 +1343,20 @@ public final class DesktopWindow {
             compositor.dispose();
         } catch (Throwable ignored) {
         }
-        org.lwjgl.glfw.Callbacks.glfwFreeCallbacks(window);
-        GLFW.glfwDestroyWindow(window);
+        if (window != MemoryUtil.NULL) {
+            org.lwjgl.glfw.Callbacks.glfwFreeCallbacks(window);
+            GLFW.glfwDestroyWindow(window);
+            window = MemoryUtil.NULL;
+        }
         GLFW.glfwTerminate();
         @SuppressWarnings("resource") GLFWErrorCallback cb = GLFW.glfwSetErrorCallback(null);
         if (cb != null) cb.free();
+    }
+
+    /** Called after cleanup so fatal graphics failures end with a nonzero exit. */
+    public void throwIfRenderingFailed() {
+        if (fatalRenderError != null) {
+            throw new IllegalStateException("QPlayer rendering failed", fatalRenderError);
+        }
     }
 }

@@ -91,7 +91,7 @@ public class SongRowLayoutTest {
                 try { view.dispose(); } catch (Throwable ignored) { }
             }
             if (player != null) {
-                try { player.shutdown(); } catch (Throwable ignored) { }
+                try { player.shutdownAsync().join(); } catch (Throwable ignored) { }
             }
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCache);
@@ -163,7 +163,7 @@ public class SongRowLayoutTest {
                 try { view.dispose(); } catch (Throwable ignored) { }
             }
             if (player != null) {
-                try { player.shutdown(); } catch (Throwable ignored) { }
+                try { player.shutdownAsync().join(); } catch (Throwable ignored) { }
             }
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCache);
@@ -235,7 +235,7 @@ public class SongRowLayoutTest {
                 try { view.dispose(); } catch (Throwable ignored) { }
             }
             if (player != null) {
-                try { player.shutdown(); } catch (Throwable ignored) { }
+                try { player.shutdownAsync().join(); } catch (Throwable ignored) { }
             }
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCache);
@@ -280,8 +280,10 @@ public class SongRowLayoutTest {
                     + "Item { width: 900; height: 400\n"
                     + "  VirtualSongList { id: list; width: 900; height: 400; isLocal: true\n"
                     + "    reorderable: true; rowH: 64\n"
-                    + "    list: [{title: \"a\", artist: \"x\"}, {title: \"b\", artist: \"y\"},\n"
-                    + "           {title: \"c\", artist: \"z\"}, {title: \"d\", artist: \"w\"}]\n"
+                    + "    list: [{title: \"a\", artist: \"x\", filePath: \"/fixture/a.mp3\"},\n"
+                    + "           {title: \"b\", artist: \"y\", filePath: \"/fixture/b.mp3\"},\n"
+                    + "           {title: \"c\", artist: \"z\", filePath: \"/fixture/c.mp3\"},\n"
+                    + "           {title: \"d\", artist: \"w\", filePath: \"/fixture/d.mp3\"}]\n"
                     + "    onMoveRequested: { moves.x = moves.x + 1\n"
                     + "                       moves.width = list.moveFrom; drop.width = list.moveTo }\n"
                     + "    onReorderCommitted: commits.x = commits.x + 1 }\n"
@@ -362,7 +364,7 @@ public class SongRowLayoutTest {
                 try { view.dispose(); } catch (Throwable ignored) { }
             }
             if (player != null) {
-                try { player.shutdown(); } catch (Throwable ignored) { }
+                try { player.shutdownAsync().join(); } catch (Throwable ignored) { }
             }
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCache);
@@ -443,7 +445,7 @@ public class SongRowLayoutTest {
                 try { view.dispose(); } catch (Throwable ignored) { }
             }
             if (player != null) {
-                try { player.shutdown(); } catch (Throwable ignored) { }
+                try { player.shutdownAsync().join(); } catch (Throwable ignored) { }
             }
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCache);
@@ -557,7 +559,7 @@ public class SongRowLayoutTest {
                 try { view.dispose(); } catch (Throwable ignored) { }
             }
             if (player != null) {
-                try { player.shutdown(); } catch (Throwable ignored) { }
+                try { player.shutdownAsync().join(); } catch (Throwable ignored) { }
             }
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCache);

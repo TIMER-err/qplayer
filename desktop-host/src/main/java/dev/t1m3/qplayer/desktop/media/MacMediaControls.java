@@ -9,7 +9,8 @@ import com.sun.jna.NativeLibrary;
 import com.sun.jna.Pointer;
 
 import dev.t1m3.qplayer.bridge.PlayerController;
-import dev.t1m3.qplayer.model.Track;
+import dev.t1m3.qplayer.bridge.PlaybackSnapshot;
+import dev.t1m3.qplayer.bridge.PlaybackSnapshot.TrackMetadata;
 import dev.t1m3.qplayer.util.Logger;
 
 import java.io.File;
@@ -54,7 +55,9 @@ public final class MacMediaControls implements DesktopMediaControls {
     private Pointer commandCenter;
     private Pointer target;
     private volatile boolean running;
-    private volatile long pausedPositionMs;
+    /** One retained alloc/init result; dictionaries retain their own reference. */
+    private Pointer cachedArtwork;
+    private String cachedArtworkKey = "";
 
     public MacMediaControls(PlayerController controller, DesktopWindow window) {
         this.controller = controller;
@@ -83,7 +86,7 @@ public final class MacMediaControls implements DesktopMediaControls {
     }
 
     @Override
-    public void shutdown() {
+    public synchronized void shutdown() {
         running = false;
         try {
             if (center != null) {
@@ -92,11 +95,11 @@ public final class MacMediaControls implements DesktopMediaControls {
             }
         } catch (Throwable ignored) {
         }
+        releaseArtwork();
     }
 
     @Override
     public void onPlaybackChanged() {
-        if (!controller.isPlaying()) pausedPositionMs = Math.max(0L, controller.position());
         publish();
     }
 
@@ -125,7 +128,6 @@ public final class MacMediaControls implements DesktopMediaControls {
             long ms = Math.max(0L, Math.round(seconds * 1000.0));
             window.postMainTask(() -> {
                 controller.seek(ms);
-                pausedPositionMs = ms;
                 publish();
             });
         });
@@ -180,32 +182,35 @@ public final class MacMediaControls implements DesktopMediaControls {
         send(command, "addTarget:action:", target, sel(actionSelector));
     }
 
-    private void publish() {
+    private synchronized void publish() {
         if (!running || center == null) return;
+        Pointer pool = send(send(cls("NSAutoreleasePool"), "alloc"), "init");
         try {
-            Track track = controller.currentTrack();
+            PlaybackSnapshot snapshot = controller.playbackSnapshot();
+            TrackMetadata track = snapshot.track();
             if (track == null) {
                 sendVoid(center, "setNowPlayingInfo:", Pointer.NULL);
                 sendVoid(center, "setPlaybackState:", 0L);
+                releaseArtwork();
                 return;
             }
 
             Pointer dict = send(cls("NSMutableDictionary"), "dictionary");
-            put(dict, constant("MPMediaItemPropertyTitle"), string(track.title));
-            put(dict, constant("MPMediaItemPropertyArtist"), string(track.artist));
-            put(dict, constant("MPMediaItemPropertyAlbumTitle"), string(track.album));
+            put(dict, constant("MPMediaItemPropertyTitle"), string(track.title()));
+            put(dict, constant("MPMediaItemPropertyArtist"), string(track.artist()));
+            put(dict, constant("MPMediaItemPropertyAlbumTitle"), string(track.album()));
             put(dict, constant("MPMediaItemPropertyPlaybackDuration"),
-                    number(Math.max(0L, duration(track)) / 1000.0));
+                    number(Math.max(0L, snapshot.durationMs()) / 1000.0));
             put(dict, constant("MPNowPlayingInfoPropertyElapsedPlaybackTime"),
-                    number(positionMs() / 1000.0));
+                    number(Math.max(0L, snapshot.positionMs()) / 1000.0));
             put(dict, constant("MPNowPlayingInfoPropertyPlaybackRate"),
-                    number(controller.isPlaying() ? 1.0 : 0.0));
+                    number(snapshot.playing() ? 1.0 : 0.0));
 
             Pointer artwork = artwork(track);
             if (artwork != null) put(dict, constant("MPMediaItemPropertyArtwork"), artwork);
 
             sendVoid(center, "setNowPlayingInfo:", dict);
-            sendVoid(center, "setPlaybackState:", controller.isPlaying() ? 1L : 2L);
+            sendVoid(center, "setPlaybackState:", snapshot.playing() ? 1L : 2L);
             int mode = playMode();
             sendVoid(send(commandCenter, "changeShuffleModeCommand"),
                     "setCurrentShuffleType:", mode == 1 ? 1L : 0L);
@@ -213,34 +218,42 @@ public final class MacMediaControls implements DesktopMediaControls {
                     "setCurrentRepeatType:", mode == 2 ? 1L : 2L);
         } catch (Throwable t) {
             Logger.warn("macOS now-playing update failed: {}", t);
+        } finally {
+            sendVoid(pool, "drain");
         }
     }
 
-    private Pointer artwork(Track track) {
+    private Pointer artwork(TrackMetadata track) {
         String path = localCover(track);
-        if (path == null) return null;
+        File file = path == null ? null : new File(path);
+        String key = file == null ? "" : file.getAbsolutePath() + ":" + file.length() + ":" + file.lastModified();
+        if (key.equals(cachedArtworkKey)) return cachedArtwork;
+        releaseArtwork();
+        cachedArtworkKey = key;
+        if (file == null) return null;
         Pointer image = send(send(cls("NSImage"), "alloc"),
-                "initWithContentsOfFile:", string(path));
+                "initWithContentsOfFile:", string(file.getAbsolutePath()));
         if (image == null) return null;
-        return send(send(cls("MPMediaItemArtwork"), "alloc"), "initWithImage:", image);
-    }
-
-    private String localCover(Track track) {
-        String cached = controller.currentCoverPath();
-        if (cached != null && !cached.isEmpty() && new File(cached).isFile()) return cached;
-        for (String path : new String[]{track.coverLocalPath, track.coverThumbPath}) {
-            if (path != null && !path.startsWith("http") && new File(path).isFile()) return path;
+        try {
+            cachedArtwork = send(send(cls("MPMediaItemArtwork"), "alloc"), "initWithImage:", image);
+            return cachedArtwork;
+        } finally {
+            // initWithImage retains the image; balance our NSImage alloc ownership.
+            sendVoid(image, "release");
         }
-        return null;
     }
 
-    private long duration(Track track) {
-        return track.durationMs > 0 ? track.durationMs : controller.duration();
+    private void releaseArtwork() {
+        if (cachedArtwork != null) sendVoid(cachedArtwork, "release");
+        cachedArtwork = null;
+        cachedArtworkKey = "";
     }
 
-    private long positionMs() {
-        return controller.isPlaying() ? Math.max(0L, controller.position()) : pausedPositionMs;
+    private String localCover(TrackMetadata track) {
+        String cached = track.coverPath();
+        return cached != null && !cached.isEmpty() && new File(cached).isFile() ? cached : null;
     }
+
 
     private int playMode() {
         Integer value = controller.playMode.peek();

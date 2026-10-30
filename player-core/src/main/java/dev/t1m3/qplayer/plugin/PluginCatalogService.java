@@ -12,7 +12,7 @@ import dev.t1m3.qplayer.util.Logger;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.HttpURLConnection;
+import okhttp3.Response;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -29,6 +29,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Resolves the newest release of each known plugin repository and verifies the
@@ -43,12 +44,12 @@ import java.util.Set;
  * third-party mirrors (see {@link GitHubDownloadUrls}); the package signature is
  * what makes an untrusted transport acceptable.
  */
-public final class PluginCatalogService {
+public final class PluginCatalogService implements AutoCloseable {
     private static final String CATALOG_RESOURCE =
             "/dev/t1m3/qplayer/plugin/plugin-catalog.json";
 
     /** A plugin project QPlayer knows about. Not user-editable and not downloaded. */
-    static final class Source {
+    public static final class Source {
         public final String id;
         public final String name;
         public final String description;
@@ -57,7 +58,7 @@ public final class PluginCatalogService {
         /** Base64 X.509 P-256 key that must have signed the package. */
         public final String publisherKey;
 
-        Source(String id, String name, String description, String repo, String publisherKey) {
+        public Source(String id, String name, String description, String repo, String publisherKey) {
             this.id = id;
             this.name = name;
             this.description = description;
@@ -80,23 +81,24 @@ public final class PluginCatalogService {
     private final CatalogLoader catalogLoader;
     private final CatalogDownloader catalogDownloader;
     private volatile List<Source> sources;
+    private final PluginNetworkOperations network =
+            new PluginNetworkOperations(1, "qplayer-plugin-catalog");
 
     public PluginCatalogService(PluginPackageVerifier packageVerifier) {
-        this(packageVerifier, PluginCatalogService::loadBundledSources,
-                PluginCatalogService::downloadBytes);
+        this(packageVerifier, PluginCatalogService::loadBundledSources, null);
     }
 
-    PluginCatalogService(PluginPackageVerifier packageVerifier,
-                         List<Source> sources, CatalogDownloader catalogDownloader) {
+    public PluginCatalogService(PluginPackageVerifier packageVerifier,
+                                List<Source> sources, CatalogDownloader catalogDownloader) {
         this(packageVerifier, () -> sources, catalogDownloader);
     }
 
-    private PluginCatalogService(PluginPackageVerifier packageVerifier,
-                                 CatalogLoader catalogLoader,
-                                 CatalogDownloader catalogDownloader) {
+    public PluginCatalogService(PluginPackageVerifier packageVerifier,
+                                CatalogLoader catalogLoader,
+                                CatalogDownloader catalogDownloader) {
         this.packageVerifier = packageVerifier;
         this.catalogLoader = catalogLoader;
-        this.catalogDownloader = catalogDownloader;
+        this.catalogDownloader = catalogDownloader != null ? catalogDownloader : this::downloadBytes;
     }
 
     /**
@@ -105,12 +107,22 @@ public final class PluginCatalogService {
      * fails only when nothing at all could be resolved.
      */
     public List<PluginCatalogEntry> loadLatest(boolean proxyFirst) throws IOException {
+        try (PluginNetworkOperations.Scope ignored = network.begin()) {
+            List<PluginCatalogEntry> entries = loadLatestTracked(proxyFirst);
+            network.checkCancelled();
+            return entries;
+        }
+    }
+
+    private List<PluginCatalogEntry> loadLatestTracked(boolean proxyFirst) throws IOException {
         List<PluginCatalogEntry> entries = new ArrayList<>();
         IOException last = null;
         for (Source source : sources()) {
+            network.checkCancelled();
             try {
                 entries.add(loadLatest(source, proxyFirst));
             } catch (IOException | RuntimeException error) {
+                network.checkCancelled();
                 last = error instanceof IOException
                         ? (IOException) error
                         : new IOException("plugin release lookup failed", error);
@@ -201,10 +213,12 @@ public final class PluginCatalogService {
         String[] candidates = GitHubDownloadUrls.apiCandidates(source.releaseApi(), proxyFirst);
         IOException last = null;
         for (String candidate : candidates) {
+            network.checkCancelled();
             try {
                 return parseRelease(source,
                         catalogDownloader.download(candidate, MAX_RELEASE_BYTES));
             } catch (IOException | RuntimeException error) {
+                network.checkCancelled();
                 last = error instanceof IOException
                         ? (IOException) error
                         : new IOException("plugin release response is invalid", error);
@@ -264,6 +278,15 @@ public final class PluginCatalogService {
 
     public VerifiedPluginPackage downloadAndVerify(PluginCatalogEntry entry, String[] candidates)
             throws IOException, GeneralSecurityException {
+        try (PluginNetworkOperations.Scope ignored = network.begin()) {
+            VerifiedPluginPackage verified = downloadAndVerifyTracked(entry, candidates);
+            network.checkCancelled();
+            return verified;
+        }
+    }
+
+    private VerifiedPluginPackage downloadAndVerifyTracked(PluginCatalogEntry entry, String[] candidates)
+            throws IOException, GeneralSecurityException {
         validateEntry(entry);
         Path target = AppDirs.cacheDir().resolve("plugin-downloads")
                 .resolve(entry.id + "-" + entry.version + ".qplug").normalize();
@@ -271,6 +294,7 @@ public final class PluginCatalogService {
         Path pending = StorageFiles.pendingPath(target);
         try {
             downloadFirst(candidates, pending, MAX_PLUGIN_BYTES);
+            network.checkCancelled();
             StorageFiles.replace(pending, target);
             PublicKey publisher = decodeKey(entry.publisherKey);
             // The pinned publisher key, not the release tag, is the trust anchor:
@@ -291,17 +315,19 @@ public final class PluginCatalogService {
         }
     }
 
-    private static void downloadFirst(String[] candidates, Path target, long limit)
+    private void downloadFirst(String[] candidates, Path target, long limit)
             throws IOException {
         if (candidates == null || candidates.length == 0) {
             throw new IOException("plugin download has no URL candidates");
         }
         IOException last = null;
         for (String candidate : candidates) {
+            network.checkCancelled();
             try {
                 download(candidate, target, limit);
                 return;
             } catch (IOException error) {
+                network.checkCancelled();
                 last = error;
                 Files.deleteIfExists(target);
             }
@@ -334,82 +360,66 @@ public final class PluginCatalogService {
         }
     }
 
-    private static void download(String raw, Path target, long limit) throws IOException {
+    private void download(String raw, Path target, long limit) throws IOException {
         String current = raw;
         for (int redirects = 0; redirects <= 5; redirects++) {
             URL url = new URL(current);
             if (!"https".equalsIgnoreCase(url.getProtocol())) throw new IOException("plugin download must use HTTPS");
-            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-            connection.setInstanceFollowRedirects(false);
-            connection.setConnectTimeout(15_000);
-            connection.setReadTimeout(120_000);
-            connection.setRequestProperty("User-Agent", "QPlayer-Plugin/1");
-            int status = connection.getResponseCode();
-            if (status >= 300 && status < 400) {
-                String location = connection.getHeaderField("Location");
-                connection.disconnect();
-                if (location == null || redirects == 5) throw new IOException("plugin download redirect failed");
-                current = new URL(url, location).toString();
-                continue;
-            }
-            if (status < 200 || status >= 300) {
-                connection.disconnect();
-                throw new IOException("plugin download HTTP " + status);
-            }
-            long declared = connection.getContentLengthLong();
-            if (declared > limit) { connection.disconnect(); throw new IOException("plugin package is too large"); }
-            try (InputStream input = connection.getInputStream();
-                 java.io.OutputStream output = Files.newOutputStream(target)) {
-                byte[] buffer = new byte[32 * 1024];
-                long total = 0;
-                int count;
-                while ((count = input.read(buffer)) >= 0) {
-                    total += count;
-                    if (total > limit) throw new IOException("plugin package is too large");
-                    output.write(buffer, 0, count);
+            try (Response response = network.execute(url, "GET", Collections.emptyMap(), null,
+                    15_000, 120_000)) {
+                int status = response.code();
+                if (status >= 300 && status < 400) {
+                    String location = response.header("Location");
+                    if (location == null || redirects == 5) throw new IOException("plugin download redirect failed");
+                    current = new URL(url, location).toString();
+                    continue;
                 }
-            } finally { connection.disconnect(); }
-            return;
+                if (status < 200 || status >= 300) throw new IOException("plugin download HTTP " + status);
+                if (response.body().contentLength() > limit) throw new IOException("plugin package is too large");
+                try (InputStream input = response.body().byteStream();
+                     java.io.OutputStream output = Files.newOutputStream(target)) {
+                    byte[] buffer = new byte[32 * 1024];
+                    long total = 0;
+                    int count;
+                    while ((count = input.read(buffer)) >= 0) {
+                        total += count;
+                        if (total > limit) throw new IOException("plugin package is too large");
+                        network.checkCancelled();
+                        output.write(buffer, 0, count);
+                    }
+                }
+                return;
+            }
         }
         throw new IOException("plugin download failed");
     }
 
-    private static byte[] downloadBytes(String raw, int limit) throws IOException {
+    private byte[] downloadBytes(String raw, int limit) throws IOException {
         String current = raw;
         for (int redirects = 0; redirects <= 5; redirects++) {
             URL url = new URL(current);
             if (!"https".equalsIgnoreCase(url.getProtocol())) {
                 throw new IOException("plugin release lookup must use HTTPS");
             }
-            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-            connection.setInstanceFollowRedirects(false);
-            connection.setConnectTimeout(12_000);
-            connection.setReadTimeout(30_000);
-            connection.setRequestProperty("User-Agent", "QPlayer-Plugin/1");
-            connection.setRequestProperty("Accept", "application/vnd.github+json");
-            int status = connection.getResponseCode();
-            if (status >= 300 && status < 400) {
-                String location = connection.getHeaderField("Location");
-                connection.disconnect();
-                if (location == null || redirects == 5) {
-                    throw new IOException("plugin release lookup redirect failed");
+            try (Response response = network.execute(url, "GET",
+                    Collections.singletonMap("Accept", "application/vnd.github+json"), null,
+                    12_000, 30_000)) {
+                int status = response.code();
+                if (status >= 300 && status < 400) {
+                    String location = response.header("Location");
+                    if (location == null || redirects == 5) {
+                        throw new IOException("plugin release lookup redirect failed");
+                    }
+                    current = new URL(url, location).toString();
+                    continue;
                 }
-                current = new URL(url, location).toString();
-                continue;
-            }
-            if (status < 200 || status >= 300) {
-                connection.disconnect();
-                throw new IOException("plugin release lookup HTTP " + status);
-            }
-            long declared = connection.getContentLengthLong();
-            if (declared > limit) {
-                connection.disconnect();
-                throw new IOException("plugin release response is too large");
-            }
-            try (InputStream input = connection.getInputStream()) {
-                return readLimited(input, limit);
-            } finally {
-                connection.disconnect();
+                if (status < 200 || status >= 300) throw new IOException("plugin release lookup HTTP " + status);
+                if (response.body().contentLength() > limit) {
+                    throw new IOException("plugin release response is too large");
+                }
+                try (InputStream input = response.body().byteStream()) {
+                    return readLimited(input, limit);
+                }
             }
         }
         throw new IOException("plugin release lookup failed");
@@ -427,11 +437,20 @@ public final class PluginCatalogService {
         return output.toByteArray();
     }
 
-    interface CatalogDownloader {
+    public interface CatalogDownloader {
         byte[] download(String url, int limit) throws IOException;
     }
 
-    interface CatalogLoader {
+    public interface CatalogLoader {
         List<Source> load() throws IOException;
+    }
+
+    /** Stops admission; completion means the synchronous callers have exited too. */
+    public CompletableFuture<Void> cancelPendingOperations() {
+        return network.cancelPendingOperations();
+    }
+
+    @Override public void close() {
+        cancelPendingOperations();
     }
 }

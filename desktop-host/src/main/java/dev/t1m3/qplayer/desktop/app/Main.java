@@ -34,6 +34,10 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 /**
  * Desktop entry point (the LWJGL twin of {@code QPlayerActivity.onCreate}): wires
@@ -52,8 +56,14 @@ public final class Main {
     /** Native executables use the packaged Windows console policy; JVM dev runs do not. */
     private static final boolean PACKAGED =
             "runtime".equals(System.getProperty("org.graalvm.nativeimage.imagecode"));
+    private static final AtomicLong libraryScanGeneration = new AtomicLong();
+    private static final AtomicLong libraryWatchGeneration = new AtomicLong();
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
+        if (args.length == 1 && "--build-smoke".equals(args[0])) {
+            dev.t1m3.qplayer.desktop.window.BundledQmlSmoke.run();
+            return;
+        }
         long startupStartedNanos = System.nanoTime();
         String osName = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
         // No jemalloc module is shipped; avoid probing an absent runtime class.
@@ -220,8 +230,7 @@ public final class Main {
         // displayed a success toast while nothing reached the Linux clipboard.
         controller.setClipboard(window::setClipboardText);
 
-        // Platform pickers. Android keeps its existing ACTION_GET_CONTENT cover
-        // flow; desktop uses a FlatMac-themed Swing chooser on Windows/Linux/macOS.
+        // Platform pickers use native AppKit, COM or portal dialogs.
         // Marshal accepted paths back to the render thread before touching QML-
         // observable settings/controller state.
         settings.setDirectoryPicker((initialPath, onPicked) ->
@@ -232,8 +241,7 @@ public final class Main {
                         controller.setPlaylistCover(playlistKey, selected))));
         controller.setPluginPicker(() -> DesktopFilePicker.pickPlugin(
                 controller::inspectPluginPackage));
-        controller.setFileSavePicker((suggested, mime, writer) ->
-                DesktopFilePicker.saveAudio(suggested, path -> writer.accept(path, ignored -> { })));
+        controller.setFileSavePicker((suggested, mime, writer) -> saveAudio(suggested, writer));
         settings.setFontPicker(() -> DesktopFilePicker.pickFont(selected -> {
             byte[] bytes;
             try {
@@ -265,13 +273,12 @@ public final class Main {
 
         // Wire the music-folder change listener so Settings page edits trigger a rescan.
         // Must be wired after window.init() so postRenderTask() is available.
-        String initialFolder = settings.str("musicFolder");
         // Watches the folder tree so adding/removing files is picked up on its own —
         // without this, a rescan only ever ran when the user re-touched the Settings
         // folder field or restarted the app. Each rescan the watcher triggers reuses
         // LibraryScanner's per-file cache, so it stays cheap even on a large library.
-        LibraryWatcher watcher = new LibraryWatcher(
-                () -> startLibraryScan(controller, reader, window, settings.str("musicFolder")));
+        LibraryWatcher watcher = new LibraryWatcher(() -> window.postRenderTask(
+                () -> startLibraryScan(controller, reader, window, settings.str("musicFolder"))));
         settings.onChange("musicFolder", v -> {
             String folder = String.valueOf(v);
             startLibraryScan(controller, reader, window, folder);
@@ -317,19 +324,20 @@ public final class Main {
             cleanup.setDaemon(true);
             cleanup.start();
             controller.loadHome();
-            startLibraryScan(controller, reader, window, initialFolder);
-            startLibraryWatcher(watcher, initialFolder);
+            startLibraryScan(controller, reader, window, settings.str("musicFolder"));
+            startLibraryWatcher(watcher, settings.str("musicFolder"));
             if (PACKAGED) controller.checkForUpdate();
             if (!"false".equals(System.getProperty("qplayer.tray", "true"))) {
                 // NSStatusItem must be created on the GLFW/AppKit main thread.
                 // Windows/Linux tray backends own their own pump threads.
                 if (osName.contains("mac")) {
-                    boolean ok = false;
-                    try { ok = tray.install(); }
-                    catch (Throwable t) { Logger.warn("tray install threw: {}", t); }
-                    window.setTrayAvailable(ok);
+                    try { tray.install(); }
+                    catch (Throwable t) {
+                        Logger.warn("tray install threw: {}", t);
+                        window.setTrayAvailable(false);
+                    }
                 } else {
-                    getTrayThread(tray, window).start();
+                    getTrayThread(tray).start();
                 }
             }
             if (systemMedia != null && systemMediaEnabled) systemMedia.start();
@@ -343,7 +351,11 @@ public final class Main {
         window.runEventLoop(); // blocks on the main thread until quit
 
         themeMonitor.close();
-        watcher.stop();
+        libraryScanGeneration.incrementAndGet();
+        synchronized (watcher) {
+            libraryWatchGeneration.incrementAndGet();
+            watcher.stop();
+        }
         if (systemMedia != null) systemMedia.shutdown();
         tray.shutdown();
         DesktopWebLogin.shutdown();
@@ -352,11 +364,26 @@ public final class Main {
         // before GLFW destroys the application's native event infrastructure.
         org.lwjgl.glfw.GLFW.glfwPollEvents();
         try {
-            controller.shutdown();
+            controller.shutdownAsync().join();
         } catch (Throwable ignored) {
         }
         window.shutdown();
         Logger.info("QPlayer desktop exited");
+        window.throwIfRenderingFailed();
+    }
+
+    static CompletableFuture<Boolean> saveAudio(String suggested,
+            BiConsumer<String, Consumer<Boolean>> writer) {
+        return DesktopFilePicker.saveAudio(suggested).thenCompose(path -> {
+            if (path == null) return CompletableFuture.completedFuture(false);
+            CompletableFuture<Boolean> saved = new CompletableFuture<>();
+            try {
+                writer.accept(path, success -> saved.complete(Boolean.TRUE.equals(success)));
+            } catch (Throwable error) {
+                saved.completeExceptionally(error);
+            }
+            return saved;
+        });
     }
 
     /** Open a URL in the system default browser via the OS handler (no AWT). */
@@ -523,17 +550,13 @@ public final class Main {
     }
 
     @NotNull
-    private static Thread getTrayThread(TrayController tray, DesktopWindow window) {
+    private static Thread getTrayThread(TrayController tray) {
         Thread trayThread = new Thread(() -> {
-            boolean ok = false;
             try {
-                ok = tray.install();
+                tray.install();
             } catch (Throwable t) {
-                // Never let a tray failure (e.g. an AWT/JNI Error) kill the
-                // thread silently and leave trayAvailable unset.
                 Logger.warn("tray install threw: {}", t);
             }
-            window.setTrayAvailable(ok);
         }, "qplayer-tray-init");
         trayThread.setDaemon(true);
         return trayThread;
@@ -573,15 +596,22 @@ public final class Main {
 
     private static void startLibraryScan(PlayerController controller, MetadataReader reader,
                                          DesktopWindow window, String folder) {
-        if (folder == null || folder.isEmpty()) return;
-        File music = new File(folder);
-        if (!music.isDirectory()) return;
+        long generation = libraryScanGeneration.incrementAndGet();
+        File music = folder == null || folder.isBlank() ? null : new File(folder);
+        if (music == null || !music.isDirectory()) {
+            window.postRenderTask(() -> {
+                if (libraryScanGeneration.get() == generation) controller.scanTracks(List.of());
+            });
+            return;
+        }
         Thread t = new Thread(() -> {
             try {
                 List<Track> tracks = new LibraryScanner(reader).scan(music.getAbsolutePath());
                 // Property writes happen on the render thread (mirrors Android's
                 // runOnUiThread(controller.scanTracks)).
-                window.postRenderTask(() -> controller.scanTracks(tracks));
+                window.postRenderTask(() -> {
+                    if (libraryScanGeneration.get() == generation) controller.scanTracks(tracks);
+                });
             } catch (Throwable e) {
                 Logger.warn("library scan failed: {}", e);
             }
@@ -592,7 +622,12 @@ public final class Main {
 
     /** Recursive watch registration can be expensive for a deeply nested library. */
     private static void startLibraryWatcher(LibraryWatcher watcher, String folder) {
-        Thread thread = new Thread(() -> watcher.start(folder), "qplayer-library-watch-init");
+        long generation = libraryWatchGeneration.incrementAndGet();
+        Thread thread = new Thread(() -> {
+            synchronized (watcher) {
+                if (libraryWatchGeneration.get() == generation) watcher.start(folder);
+            }
+        }, "qplayer-library-watch-init");
         thread.setDaemon(true);
         thread.start();
     }

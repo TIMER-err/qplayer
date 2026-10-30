@@ -30,7 +30,7 @@ public final class TemperaMeasure {
     private static final int MEASURE_CACHE_LIMIT = 20000;
     private static final Map<String, Float> CACHE = new LinkedHashMap<>();
 
-    /** Font 对象由 {@link Fonts} 缓存，所以 identity 在一次运行内稳定，可当缓存 key 前缀。 */
+    /** Identity keys live only as long as the owning Tempera font pool entry. */
     private static final IdentityHashMap<Font, String> FONT_KEYS = new IdentityHashMap<>();
 
     static void releaseFont(Font font) {
@@ -63,7 +63,7 @@ public final class TemperaMeasure {
 
     /** 按字重取一个尺寸匹配的字体（CJK 由 {@link #fontFor} 再回退一层）。 */
     public static Font font(int weight, float size) {
-        return weight > 550 ? TemperaFonts.get(weight, size) : Fonts.get(weightOf(weight), size);
+        return TemperaFonts.get(weight, size);
     }
 
     /**
@@ -71,26 +71,26 @@ public final class TemperaMeasure {
      * 保证一个汉字不会被画成缺字方框。
      */
     public static Font fontFor(int weight, float size, String text) {
-        Font base = font(weight, size);
+        Font base = TemperaFonts.template(weight);
         if (base == null) return null;
         if (needsKorean(text)) {
             Font korean = Fonts.korean(base);
-            if (korean != null) return korean;
+            if (korean != null) return TemperaFonts.scaled(korean, size);
         }
         if (needsThai(text)) {
             Font thai = Fonts.thai(base);
-            if (thai != null) return thai;
+            if (thai != null) return TemperaFonts.scaled(thai, size);
         }
         if (needsJapanese(text)) {
             Font japanese = Fonts.japanese(base);
-            if (japanese != null) return japanese;
+            if (japanese != null) return TemperaFonts.scaled(japanese, size);
         }
         if (needsHan(text)) {
             if (base.getTypeface() == null || base.getTypeface().getUTF32Glyph('汉') == 0) {
-                return Fonts.get(Fonts.Weight.MEDIUM, size);
+                return TemperaFonts.scaled(Fonts.get(Fonts.Weight.MEDIUM, 64f), size);
             }
         }
-        return base;
+        return TemperaFonts.scaled(base, size);
     }
 
     private static void write(String key, float width) {

@@ -1,5 +1,7 @@
 package dev.t1m3.qplayer.plugin;
 
+import static dev.t1m3.qplayer.plugin.PluginHashes.hex;
+
 import com.google.gson.Gson;
 import dev.t1m3.qplayer.store.StorageFiles;
 import dev.t1m3.qplayer.util.Logger;
@@ -79,7 +81,7 @@ public final class PluginManager implements AutoCloseable {
             current = null;
         }
         if (current == null) start(entry);
-        registry.setEnabled(pluginId, true);
+        if (!entry.enabled) registry.setEnabled(pluginId, true);
         return true;
     }
 
@@ -97,12 +99,24 @@ public final class PluginManager implements AutoCloseable {
         if (installer == null || pkg == null || grants == null) {
             throw new IllegalArgumentException("installer, package and grants are required");
         }
-        PluginRegistry.Entry previous = registry.get(pkg.manifest().id);
-        installer.install(pkg, grants);
+        String pluginId = pkg.manifest().id;
+        PluginRegistry.Entry previous = registry.get(pluginId);
+        PluginRegistry.Snapshot snapshot = registry.snapshot();
+        Path target = pluginsRoot.resolve(pluginId).resolve(pkg.manifest().version).normalize();
+        boolean targetExisted = Files.exists(target);
+        boolean installed = false;
         try {
-            enable(pkg.manifest().id);
-            if (previous != null && !previous.enabled) disable(pkg.manifest().id);
+            installer.install(pkg, grants);
+            installed = true;
+            enable(pluginId);
+            if (previous != null && !previous.enabled) disable(pluginId);
         } catch (Throwable failure) {
+            // Atomic Registry commits leave both the old entry and running
+            // runtime untouched when installation itself fails.
+            if (!installed) {
+                if (failure instanceof IOException) throw (IOException) failure;
+                throw new IOException("plugin installation failed", failure);
+            }
             PluginRuntime failed = runtimes.remove(pkg.manifest().id);
             backgroundHandlers.remove(pkg.manifest().id);
             backgroundBusy.remove(pkg.manifest().id);
@@ -110,22 +124,21 @@ public final class PluginManager implements AutoCloseable {
             if (hostApi instanceof PolicyAwarePluginHostApi) {
                 ((PolicyAwarePluginHostApi) hostApi).unregister(pkg.manifest().id);
             }
+            boolean registryRestored = false;
             try {
-                if (previous != null) {
-                    registry.restore(previous);
-                    if (previous.enabled) start(previous);
-                } else {
-                    registry.remove(pkg.manifest().id);
-                }
-                if (previous == null || !previous.activeVersion.equals(pkg.manifest().version)) {
-                    Path failedVersion = pluginsRoot.resolve(pkg.manifest().id)
-                            .resolve(pkg.manifest().version).normalize();
-                    if (failedVersion.startsWith(pluginsRoot)) {
-                        PluginInstaller.deleteTree(failedVersion);
-                    }
-                }
+                registry.restore(snapshot);
+                registryRestored = true;
             } catch (Throwable rollback) {
                 failure.addSuppressed(rollback);
+            }
+            // Runtime recovery is independent of whether disk rollback succeeded.
+            if (previous != null && previous.enabled) {
+                try { start(previous); }
+                catch (Throwable rollback) { failure.addSuppressed(rollback); }
+            }
+            if (registryRestored && !targetExisted && target.startsWith(pluginsRoot)) {
+                try { PluginInstaller.deleteTree(target); }
+                catch (Throwable rollback) { failure.addSuppressed(rollback); }
             }
             if (failure instanceof IOException) throw (IOException) failure;
             throw new IOException("plugin activation failed", failure);
@@ -324,11 +337,7 @@ public final class PluginManager implements AutoCloseable {
         }
     }
 
-    private static String hex(byte[] value) {
-        StringBuilder out = new StringBuilder(value.length * 2);
-        for (byte item : value) out.append(String.format(Locale.ROOT, "%02x", item & 0xff));
-        return out.toString();
-    }
+    
 
     private static final class InstallReceipt {
         int schemaVersion;

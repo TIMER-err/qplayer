@@ -45,7 +45,6 @@ public final class QPlayerApplication extends Application {
         // Install credential protection at process start, before an Activity or a
         // restarted service can initialize the delayed credential-migration reader.
         AppDirs.setBase(getFilesDir().getAbsolutePath());
-        AppDirs.migrateLegacyLayout();
         CredentialKeyProtection.install(new AndroidKeystoreKeyProtector());
 
         final Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();

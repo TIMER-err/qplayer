@@ -31,13 +31,8 @@ public final class LibraryWatcher {
     private static final long DEBOUNCE_MS = 1000;
 
     private final Runnable onChange;
-    private final Map<WatchKey, Path> watchedDirs = new ConcurrentHashMap<>();
-    private final Timer debounceTimer = new Timer("qplayer-library-watch-debounce", true);
-
-    private WatchService service;
-    private Thread loopThread;
-    private volatile boolean stopped = true;
-    private TimerTask pendingRescan;
+    // Session identity is the generation token; workers only use their own resources.
+    private volatile Session currentSession;
 
     public LibraryWatcher(Runnable onChange) {
         this.onChange = onChange;
@@ -51,57 +46,64 @@ public final class LibraryWatcher {
         if (root == null || root.isEmpty()) return;
         Path rootPath = Paths.get(root);
         if (!Files.isDirectory(rootPath)) return;
+        WatchService service;
         try {
             service = FileSystems.getDefault().newWatchService();
         } catch (IOException e) {
             Logger.warn("LibraryWatcher: newWatchService failed: {}", e.getMessage());
             return;
         }
-        stopped = false;
+        Session session = new Session(service);
+        currentSession = session;
         try (java.util.stream.Stream<Path> walk = Files.walk(rootPath)) {
-            walk.filter(Files::isDirectory).forEach(this::registerDir);
+            walk.filter(Files::isDirectory).forEach(dir -> registerDir(session, dir));
         } catch (IOException e) {
             Logger.warn("LibraryWatcher: initial registration failed: {}", e.getMessage());
         }
-        loopThread = new Thread(this::loop, "qplayer-library-watch");
+        Thread loopThread = new Thread(() -> loop(session), "qplayer-library-watch");
         loopThread.setDaemon(true);
         loopThread.start();
     }
 
     public synchronized void stop() {
-        stopped = true;
-        if (service != null) {
-            try {
-                service.close();
-            } catch (IOException ignored) {
-            }
-            service = null;
+        Session session = currentSession;
+        currentSession = null;
+        if (session == null) return;
+        if (session.pendingRescan != null) {
+            session.pendingRescan.cancel();
+            session.pendingRescan = null;
         }
-        watchedDirs.clear();
-        loopThread = null; // the loop thread exits on its own once the service is closed
+        session.debounceTimer.cancel();
+        try {
+            session.service.close();
+        } catch (IOException ignored) {
+        }
+        session.watchedDirs.clear();
     }
 
-    private void registerDir(Path dir) {
+    private synchronized void registerDir(Session session, Path dir) {
+        if (currentSession != session) return;
         try {
-            WatchKey key = dir.register(service,
+            WatchKey key = dir.register(session.service,
                     StandardWatchEventKinds.ENTRY_CREATE,
                     StandardWatchEventKinds.ENTRY_DELETE,
                     StandardWatchEventKinds.ENTRY_MODIFY);
-            watchedDirs.put(key, dir);
+            session.watchedDirs.put(key, dir);
         } catch (IOException e) {
             Logger.warn("LibraryWatcher: register failed for {}: {}", dir, e.getMessage());
         }
     }
 
-    private void loop() {
-        while (!stopped) {
+    private void loop(Session session) {
+        while (currentSession == session) {
             WatchKey key;
             try {
-                key = service.take();
+                key = session.service.take();
             } catch (ClosedWatchServiceException | InterruptedException e) {
                 return;
             }
-            Path dir = watchedDirs.get(key);
+            if (currentSession != session) return;
+            Path dir = session.watchedDirs.get(key);
             for (WatchEvent<?> event : key.pollEvents()) {
                 WatchEvent.Kind<?> kind = event.kind();
                 if (kind == StandardWatchEventKinds.OVERFLOW || dir == null) continue;
@@ -110,23 +112,39 @@ public final class LibraryWatcher {
                     // A newly created subfolder needs its own watch registered, or
                     // files added inside it later would go unnoticed.
                     Path created = dir.resolve((Path) ctx);
-                    if (Files.isDirectory(created)) registerDir(created);
+                    if (Files.isDirectory(created)) registerDir(session, created);
                 }
             }
             boolean valid = key.reset();
-            if (!valid) watchedDirs.remove(key);
-            scheduleRescan();
+            if (!valid) session.watchedDirs.remove(key);
+            scheduleRescan(session);
         }
     }
 
-    private synchronized void scheduleRescan() {
-        if (pendingRescan != null) pendingRescan.cancel();
-        pendingRescan = new TimerTask() {
+    private synchronized void scheduleRescan(Session session) {
+        if (currentSession != session) return;
+        if (session.pendingRescan != null) session.pendingRescan.cancel();
+        session.pendingRescan = new TimerTask() {
             @Override
             public void run() {
-                if (!stopped) onChange.run();
+                synchronized (LibraryWatcher.this) {
+                    if (currentSession != session || session.pendingRescan != this) return;
+                    session.pendingRescan = null;
+                    onChange.run();
+                }
             }
         };
-        debounceTimer.schedule(pendingRescan, DEBOUNCE_MS);
+        session.debounceTimer.schedule(session.pendingRescan, DEBOUNCE_MS);
+    }
+
+    private static final class Session {
+        final WatchService service;
+        final Map<WatchKey, Path> watchedDirs = new ConcurrentHashMap<>();
+        final Timer debounceTimer = new Timer("qplayer-library-watch-debounce", true);
+        TimerTask pendingRescan;
+
+        Session(WatchService service) {
+            this.service = service;
+        }
     }
 }

@@ -99,7 +99,7 @@ public class CoveredTextFieldInputTest {
             }
         } finally {
             if (view != null) view.dispose();
-            if (player != null) player.shutdown();
+            if (player != null) player.shutdownAsync().join();
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCache);
         }

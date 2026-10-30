@@ -64,6 +64,22 @@ public class MarqueeResizeTest {
         }
     }
 
+    @Test
+    public void hiddenAncestorStopsAndRestartsTheMarqueeClock() throws Exception {
+        try (Scene scene = new Scene()) {
+            scene.frames(100);
+            assertTrue(scene.offset() < 0);
+            scene.view.root().visible.set(false);
+            scene.frames(100);
+            assertEquals("hiding a parent must stop the nested scroll", 0f, scene.offset(), 0.01f);
+            scene.view.root().visible.set(true);
+            scene.frames(30);
+            assertEquals("resume keeps the original initial pause", 0f, scene.offset(), 0.01f);
+            scene.frames(100);
+            assertTrue(scene.offset() < 0);
+        }
+    }
+
     private static final class Scene implements AutoCloseable {
         final QmlView view = QmlView.withStockTypes(new QmlEngine())
                 .resources(new ClasspathResourceLoader());

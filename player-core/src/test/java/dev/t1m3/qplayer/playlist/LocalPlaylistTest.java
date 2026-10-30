@@ -354,6 +354,15 @@ public class LocalPlaylistTest {
     @Test
     public void importingRejectsAFileThatIsNotOurs() {
         for (String candidate : Arrays.asList(
+                "{}",
+                "{\"name\":\"foreign data\"}",
+                "{\"format\":\"qplayer.playlist\"}",
+                "{\"formatVersion\":1}",
+                "{\"format\":\"qplayer.playlist\",\"formatVersion\":null}",
+                "{\"format\":\"qplayer.playlist\",\"formatVersion\":\"1\"}",
+                "{\"format\":\"qplayer.playlist\",\"formatVersion\":0}",
+                "{\"format\":\"qplayer.playlist\",\"formatVersion\":-1}",
+                "{\"format\":\"qplayer.playlist\",\"formatVersion\":1.5}",
                 "{\"format\":\"something.else\",\"tracks\":[]}",
                 "[1,2,3]",
                 "not json at all")) {

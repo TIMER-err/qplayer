@@ -71,6 +71,19 @@ public final class DesktopNativeMetadata {
     }
 
     private void generate(Path output) throws Exception {
+        discoverReflectionRoots();
+        writeMetadata(output);
+        System.out.println("Native host metadata: " + reflect.size() + " reflection types, " + jni.size() + " JNI types");
+    }
+
+    /**
+     * Root sources: QML host contexts, application bytecode (JNA declarations,
+     * callback lambdas and Gson TypeTokens), persisted JSON envelopes, and the
+     * dynamic protocols of the pinned audio/Skija/Rhino/Log4j dependencies.
+     * Recursive signature traversal below supplies their dependent types; these
+     * are entry-point roots, not a second manually maintained reachability list.
+     */
+    private void discoverReflectionRoots() throws Exception {
         for (String name : new String[]{"window.WindowChrome", "window.DesktopLyricState"}) {
             JsonObject entry = entry(reflect, HOST + name);
             entry.addProperty("allDeclaredFields", true);
@@ -132,11 +145,18 @@ public final class DesktopNativeMetadata {
             Class<?> type = type("org.mozilla.javascript." + name);
             methods(reflect, type, "init");
         }
+    }
+
+    private void writeMetadata(Path output) throws IOException {
         Path directory = output.resolve("META-INF/native-image/dev.t1m3.qplayer/desktop");
         write(directory.resolve("reflect-config.json"), array(reflect));
         write(directory.resolve("jni-config.json"), array(jni));
         JsonArray proxyConfig = new JsonArray();
-        for (String name : proxies) { JsonArray interfaces = new JsonArray(); interfaces.add(name); proxyConfig.add(interfaces); }
+        for (String name : proxies) {
+            JsonArray interfaces = new JsonArray();
+            interfaces.add(name);
+            proxyConfig.add(interfaces);
+        }
         write(directory.resolve("proxy-config.json"), proxyConfig);
         // Globs also register absent probes (Log4j/Rhino configuration, system
         // libraries and locale fallbacks) under exact reachability checking.
@@ -161,7 +181,8 @@ public final class DesktopNativeMetadata {
                 addResourceGlob(resourceGlobs, prefix + "/**/*." + extension);
             }
         }
-        JsonObject reachability = new JsonObject(); reachability.add("resources", resourceGlobs);
+        JsonObject reachability = new JsonObject();
+        reachability.add("resources", resourceGlobs);
         // Optional-dependency detection must still return ClassNotFoundException,
         // not terminate the executable under exact metadata checking.
         JsonArray classQueries = new JsonArray();
@@ -169,15 +190,24 @@ public final class DesktopNativeMetadata {
                 "org.osgi.framework.FrameworkUtil", "com.fasterxml.jackson.databind.ObjectMapper",
                 "android.os.Build$VERSION");
         for (String name : queriedTypes) {
-            JsonObject query = new JsonObject(); query.addProperty("type", name); classQueries.add(query);
+            JsonObject query = new JsonObject();
+            query.addProperty("type", name);
+            classQueries.add(query);
         }
         for (Map.Entry<String, Set<String>> owner : callbackLambdas.entrySet()) {
             for (String callback : owner.getValue()) {
-                JsonArray interfaces = new JsonArray(); interfaces.add(callback);
-                JsonObject lambda = new JsonObject(); lambda.addProperty("declaringClass", owner.getKey()); lambda.add("interfaces", interfaces);
-                JsonObject descriptor = new JsonObject(); descriptor.add("lambda", lambda);
-                JsonObject query = new JsonObject(); query.add("type", descriptor);
-                JsonObject condition = new JsonObject(); condition.addProperty("typeReached", owner.getKey()); query.add("condition", condition);
+                JsonArray interfaces = new JsonArray();
+                interfaces.add(callback);
+                JsonObject lambda = new JsonObject();
+                lambda.addProperty("declaringClass", owner.getKey());
+                lambda.add("interfaces", interfaces);
+                JsonObject descriptor = new JsonObject();
+                descriptor.add("lambda", lambda);
+                JsonObject query = new JsonObject();
+                query.add("type", descriptor);
+                JsonObject condition = new JsonObject();
+                condition.addProperty("typeReached", owner.getKey());
+                query.add("condition", condition);
                 // JNA probes OPTIONS even when absent, then inspects callback methods.
                 query.addProperty("allPublicFields", true);
                 query.addProperty("allDeclaredMethods", true);
@@ -188,19 +218,26 @@ public final class DesktopNativeMetadata {
         reachability.add("reflection", classQueries);
         write(directory.resolve("reachability-metadata.json"), reachability);
         JsonObject resources = new JsonObject();
-        JsonArray bundles = new JsonArray(); JsonObject messages = new JsonObject();
-        messages.addProperty("name", "org.mozilla.javascript.resources.Messages"); bundles.add(messages);
+        JsonArray bundles = new JsonArray();
+        JsonObject messages = new JsonObject();
+        messages.addProperty("name", "org.mozilla.javascript.resources.Messages");
+        bundles.add(messages);
         resources.add("bundles", bundles);
         write(directory.resolve("resource-config.json"), resources);
-        JsonObject serialization = new JsonObject(); JsonArray types = new JsonArray();
-        JsonObject floats = new JsonObject(); floats.addProperty("name", "[F"); types.add(floats);
-        serialization.add("types", types); serialization.add("lambdaCapturingTypes", new JsonArray());
+        JsonObject serialization = new JsonObject();
+        JsonArray types = new JsonArray();
+        JsonObject floats = new JsonObject();
+        floats.addProperty("name", "[F");
+        types.add(floats);
+        serialization.add("types", types);
+        serialization.add("lambdaCapturingTypes", new JsonArray());
         write(directory.resolve("serialization-config.json"), serialization);
-        System.out.println("Native host metadata: " + reflect.size() + " reflection types, " + jni.size() + " JNI types");
     }
 
     private static void addResourceGlob(JsonArray resources, String glob) {
-        JsonObject entry = new JsonObject(); entry.addProperty("glob", glob); resources.add(entry);
+        JsonObject entry = new JsonObject();
+        entry.addProperty("glob", glob);
+        resources.add(entry);
     }
 
     private void hostInterop() throws Exception {
@@ -292,13 +329,20 @@ public final class DesktopNativeMetadata {
     }
 
     private void interop(Class<?> type) {
-        if (type.isArray()) { interop(type.getComponentType()); return; }
+        if (type.isArray()) {
+            interop(type.getComponentType());
+            return;
+        }
         if (type.isPrimitive() || type.isInterface() || !interopTypes.add(type.getName())) return;
         if (structure.isAssignableFrom(type)) {
             JsonObject entry = entry(reflect, type.getName());
             entry.addProperty("allDeclaredFields", true);
             entry.addProperty("allDeclaredConstructors", true);
-            for (Field field : type.getFields()) if (!Modifier.isStatic(field.getModifiers())) interop(field.getType());
+            for (Field field : type.getFields()) {
+                if (!Modifier.isStatic(field.getModifiers())) {
+                    interop(field.getType());
+                }
+            }
         } else if (nativeMapped.isAssignableFrom(type)) {
             entry(reflect, type.getName()).addProperty("allDeclaredConstructors", true);
         }
@@ -316,7 +360,10 @@ public final class DesktopNativeMetadata {
         } else if (value instanceof Class<?>) {
             Class<?> type = (Class<?>) value;
             if (!type.isPrimitive()) queriedTypes.add(type.getTypeName());
-            if (type.isArray()) { model(type.getComponentType()); return; }
+            if (type.isArray()) {
+                model(type.getComponentType());
+                return;
+            }
             // Gson constructs concrete JSON containers reflectively, without
             // treating their implementation fields as application model fields.
             if (Map.class.isAssignableFrom(type) || Collection.class.isAssignableFrom(type)) {
@@ -328,11 +375,16 @@ public final class DesktopNativeMetadata {
             entry.addProperty("allDeclaredFields", true);
             entry.addProperty("allDeclaredConstructors", true);
             if (!type.isEnum() && !Modifier.isAbstract(type.getModifiers())) {
-                try { type.getDeclaredConstructor(); }
-                catch (NoSuchMethodException noDefaultConstructor) { entry.addProperty("unsafeAllocated", true); }
+                try {
+                    type.getDeclaredConstructor();
+                } catch (NoSuchMethodException noDefaultConstructor) {
+                    entry.addProperty("unsafeAllocated", true);
+                }
             }
             for (Field field : type.getDeclaredFields()) {
-                if (!Modifier.isStatic(field.getModifiers()) && !Modifier.isTransient(field.getModifiers())) model(field.getGenericType());
+                if (!Modifier.isStatic(field.getModifiers()) && !Modifier.isTransient(field.getModifiers())) {
+                    model(field.getGenericType());
+                }
             }
             model(type.getGenericSuperclass());
         }
@@ -384,40 +436,59 @@ public final class DesktopNativeMetadata {
         fields(SKIJA + "TransferFunction", "_g", "_a", "_b", "_c", "_d", "_e", "_f");
         fields(TYPES + "IRect", "_left", "_top", "_right", "_bottom");
         fields(TYPES + "Rect", "_left", "_top", "_right", "_bottom");
-        fields(TYPES + "Point", "_x", "_y"); fields(TYPES + "RRect", "_radii");
-        methods(jni, type(TYPES + "IRect"), "makeLTRB"); methods(jni, type(TYPES + "Rect"), "makeLTRB");
+        fields(TYPES + "Point", "_x", "_y");
+        fields(TYPES + "RRect", "_radii");
+        methods(jni, type(TYPES + "IRect"), "makeLTRB");
+        methods(jni, type(TYPES + "Rect"), "makeLTRB");
         methods(jni, type(TYPES + "RRect"), "makeLTRB", "makeNinePatchLTRB", "makeComplexLTRB");
         methods(jni, type(SKIJA + "Drawable"), "_onDraw", "onGetBounds");
         methods(jni, type(SKIJA + "PaintFilterCanvas"), "onFilter");
         methods(jni, type(SKIJA + "SurfaceProps"), "_getFlags", "_getPixelGeometryOrdinal");
-        fields(SKIJA + "shaper.BidiRun", "_end", "_level"); fields(SKIJA + "shaper.FontRun", "_end");
+        fields(SKIJA + "shaper.BidiRun", "_end", "_level");
+        fields(SKIJA + "shaper.FontRun", "_end");
         methods(jni, type(SKIJA + "shaper.FontRun"), "_getFontPtr");
-        fields(SKIJA + "shaper.LanguageRun", "_end", "_language"); fields(SKIJA + "shaper.ScriptRun", "_end", "_scriptTag");
+        fields(SKIJA + "shaper.LanguageRun", "_end", "_language");
+        fields(SKIJA + "shaper.ScriptRun", "_end", "_scriptTag");
         fields(SKIJA + "shaper.RunInfo", "_fontPtr");
         fields(SKIJA + "shaper.ShapingOptions", "_fontMgr", "_features", "_leftToRight", "_approximateSpaces", "_approximatePunctuation");
         methods(jni, type(SKIJA + "shaper.RunHandler"), "beginLine", "runInfo", "commitRunInfo", "runOffset", "commitRun", "commitLine");
-        methods(jni, type(SKIJA + "skottie.Logger"), "log"); fields(SKIJA + "skottie.LogLevel", "WARNING", "ERROR");
+        methods(jni, type(SKIJA + "skottie.Logger"), "log");
+        fields(SKIJA + "skottie.LogLevel", "WARNING", "ERROR");
         for (String name : new String[]{"FontMgr", "shaper.FontMgrRunIterator", "shaper.HbIcuScriptRunIterator",
-                "shaper.IcuBidiRunIterator", "shaper.TextBlobBuilderRunHandler", "shaper.TextLineRunHandler"}) entry(jni, SKIJA + name);
+                "shaper.IcuBidiRunIterator", "shaper.TextBlobBuilderRunHandler", "shaper.TextLineRunHandler"}) {
+            entry(jni, SKIJA + name);
+        }
         methods(jni, java.io.OutputStream.class, "write", "flush");
         method(jni, "java.lang.Float", "<init>", float.class);
-        methods(jni, Throwable.class, "printStackTrace"); methods(jni, java.util.Iterator.class, "next", "hasNext");
-        methods(jni, java.util.function.BooleanSupplier.class, "getAsBoolean"); methods(jni, Runnable.class, "run");
-        entry(jni, "java.lang.String"); method(jni, "java.lang.RuntimeException", "<init>", String.class);
+        methods(jni, Throwable.class, "printStackTrace");
+        methods(jni, java.util.Iterator.class, "next", "hasNext");
+        methods(jni, java.util.function.BooleanSupplier.class, "getAsBoolean");
+        methods(jni, Runnable.class, "run");
+        entry(jni, "java.lang.String");
+        method(jni, "java.lang.RuntimeException", "<init>", String.class);
         method(jni, "java.lang.IllegalArgumentException", "<init>", String.class);
     }
 
     private void fields(String name, String... names) {
         JsonObject entry = entry(jni, name);
         JsonArray fields = entry.has("fields") ? entry.getAsJsonArray("fields") : new JsonArray();
-        for (String field : names) { JsonObject value = new JsonObject(); value.addProperty("name", field); fields.add(value); }
+        for (String field : names) {
+            JsonObject value = new JsonObject();
+            value.addProperty("name", field);
+            fields.add(value);
+        }
         entry.add("fields", fields);
     }
 
     private static void methods(Map<String, JsonObject> target, Class<?> type, String... names) {
-        Set<String> wanted = new HashSet<>(); Collections.addAll(wanted, names);
+        Set<String> wanted = new HashSet<>();
+        Collections.addAll(wanted, names);
         List<Method> matches = new ArrayList<>();
-        for (Method method : type.getDeclaredMethods()) if (wanted.contains(method.getName())) matches.add(method);
+        for (Method method : type.getDeclaredMethods()) {
+            if (wanted.contains(method.getName())) {
+                matches.add(method);
+            }
+        }
         Collections.sort(matches, (a, b) -> a.toGenericString().compareTo(b.toGenericString()));
         for (Method match : matches) method(target, type.getName(), match.getName(), match.getParameterTypes());
     }
@@ -425,24 +496,40 @@ public final class DesktopNativeMetadata {
     private static void method(Map<String, JsonObject> target, String type, String name, Class<?>... parameters) {
         JsonObject entry = entry(target, type);
         JsonArray methods = entry.has("methods") ? entry.getAsJsonArray("methods") : new JsonArray();
-        JsonObject method = new JsonObject(); method.addProperty("name", name);
-        JsonArray arguments = new JsonArray(); for (Class<?> parameter : parameters) arguments.add(parameter.getTypeName());
-        method.add("parameterTypes", arguments); methods.add(method); entry.add("methods", methods);
+        JsonObject method = new JsonObject();
+        method.addProperty("name", name);
+        JsonArray arguments = new JsonArray();
+        for (Class<?> parameter : parameters) {
+            arguments.add(parameter.getTypeName());
+        }
+        method.add("parameterTypes", arguments);
+        methods.add(method);
+        entry.add("methods", methods);
     }
 
     private static JsonObject entry(Map<String, JsonObject> target, String name) {
         JsonObject entry = target.get(name);
-        if (entry == null) { entry = new JsonObject(); entry.addProperty("name", name); target.put(name, entry); }
+        if (entry == null) {
+            entry = new JsonObject();
+            entry.addProperty("name", name);
+            target.put(name, entry);
+        }
         return entry;
     }
 
     private static JsonArray array(Map<String, JsonObject> values) {
-        JsonArray array = new JsonArray(); for (JsonObject value : values.values()) array.add(value); return array;
+        JsonArray array = new JsonArray();
+        for (JsonObject value : values.values()) {
+            array.add(value);
+        }
+        return array;
     }
 
     private static void write(Path path, Object data) throws IOException {
         Files.createDirectories(path.getParent());
         byte[] bytes = (new GsonBuilder().setPrettyPrinting().create().toJson(data) + "\n").getBytes(StandardCharsets.UTF_8);
-        if (!Files.exists(path) || !java.util.Arrays.equals(Files.readAllBytes(path), bytes)) Files.write(path, bytes);
+        if (!Files.exists(path) || !java.util.Arrays.equals(Files.readAllBytes(path), bytes)) {
+            Files.write(path, bytes);
+        }
     }
 }

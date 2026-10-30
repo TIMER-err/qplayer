@@ -26,11 +26,9 @@ Item {
     // at display resolution; refresh only on a real resize.
     property int decodeW: 0
     property int decodeH: 0
-    // Hold the last non-empty source so leaving/re-entering a page (or a
-    // virtualized card recycling) does not flash the placeholder while the
-    // same cover path is still the one we want.
-    property string _shownSource: ""
-    onSourceChanged: if (cover.source !== "") cover._shownSource = cover.source
+    // A non-empty source waiting for layout stays in source until decodeW is
+    // ready. An explicitly empty source clears the Image instead of retaining
+    // the artwork of the previous entity.
 
     function latchDecodeSize() {
         var w = Math.round(width * player.pixelRatio)
@@ -75,7 +73,7 @@ Item {
         width: cover.width
         height: cover.height
         clip: true
-        source: cover.decodeW > 0 && cover._shownSource !== "" ? cover._shownSource : ""
+        source: cover.decodeW > 0 ? cover.source : ""
         radius: cover.radius
         // PreserveAspectCrop is broken on non-square source images in this engine
         // (see CLAUDE.md's qml4j gotchas): it miscomputes the crop offset, so the

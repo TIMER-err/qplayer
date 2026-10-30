@@ -155,7 +155,7 @@ public final class FluidBackground {
             invalidateStatic();
         }
         int clampedSaturation = Math.max(0, Math.min(200, saturationPct));
-        if (clampedSaturation != activeSaturationPct || saturationFilter == null) {
+        if (clampedSaturation != activeSaturationPct) {
             activeSaturationPct = clampedSaturation;
             if (saturationFilter != null) saturationFilter.close();
             saturationFilter = clampedSaturation == 100 ? null

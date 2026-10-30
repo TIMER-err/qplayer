@@ -23,6 +23,8 @@ Item {
     readonly property bool vinyl: settings.value("lyricCoverStyle") === 1
 
     property bool playing: true
+    // Item.visible is not ancestor-effective in qml4j.
+    property bool animationActive: true
     property real baseScale: 1.0
     property real pauseShrinkAspect: cover.vinyl ? 1.0 : 0.75
 
@@ -148,7 +150,7 @@ Item {
     Timer {
         interval: 32
         repeat: true
-        running: cover.vinyl && cover.playing && cover.visible
+        running: cover.animationActive && cover.vinyl && cover.playing && cover.visible
         onTriggered: disc.rotation = (disc.rotation + 0.6) % 360
     }
 

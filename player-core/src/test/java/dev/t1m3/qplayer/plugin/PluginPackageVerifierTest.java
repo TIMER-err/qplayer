@@ -167,6 +167,48 @@ public class PluginPackageVerifierTest {
         }
     }
 
+    @Test
+    public void registryWriteFailureKeepsOldMemoryRuntimeAndPackage() throws Exception {
+        KeyPair keys = keys();
+        PluginPackageVerifier verifier = new PluginPackageVerifier();
+        VerifiedPluginPackage v1 = verifier.verify(packageFile("registry-v1.qplug", keys,
+                "module.exports={handlers:{}};", "1.0.0"), keys.getPublic(), false);
+        VerifiedPluginPackage v2 = verifier.verify(packageFile("registry-v2.qplug", keys,
+                "module.exports={handlers:{}};", "2.0.0"), keys.getPublic(), false);
+        Path installRoot = temporary.newFolder("registry-plugins").toPath();
+        Path registryDirectory = temporary.newFolder("registry-state").toPath();
+        Path file = registryDirectory.resolve("plugins.json");
+        PluginRegistry registry = new PluginRegistry(file);
+        PluginInstaller installer = new PluginInstaller(installRoot, registry);
+        installer.install(v1, Collections.emptySet());
+        PluginHostApi host = (pluginId, method, arguments) ->
+                java.util.concurrent.CompletableFuture.completedFuture(null);
+        try (PluginManager manager = new PluginManager(installRoot, registry, host)) {
+            manager.startEnabled();
+            String original = new String(Files.readAllBytes(file), java.nio.charset.StandardCharsets.UTF_8);
+            Path preserved = registryDirectory.resolveSibling("preserved-registry-state");
+            Files.move(registryDirectory, preserved);
+            Files.write(registryDirectory, ("blocks directory recreation").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            try {
+                org.junit.Assert.assertThrows(java.io.IOException.class,
+                        () -> manager.installAndEnable(installer, v2, Collections.emptySet()));
+                assertEquals("1.0.0", registry.get("fixture").activeVersion);
+                assertEquals("1.0.0", manager.enabledProviders().get(0).version);
+                assertTrue(Files.isDirectory(installRoot.resolve("fixture/1.0.0")));
+                assertFalse(Files.exists(installRoot.resolve("fixture/2.0.0")));
+                assertEquals(original, new String(Files.readAllBytes(preserved.resolve("plugins.json")), java.nio.charset.StandardCharsets.UTF_8));
+                org.junit.Assert.assertThrows(java.io.IOException.class,
+                        () -> registry.setEnabled("fixture", false));
+                assertTrue(registry.get("fixture").enabled);
+                assertEquals("fixture", registry.primaryProvider());
+            } finally {
+                Files.delete(registryDirectory);
+                Files.move(preserved, registryDirectory);
+            }
+            assertEquals("1.0.0", new PluginRegistry(file).get("fixture").activeVersion);
+        }
+    }
+
     private Path packageFile(String name, KeyPair keys, String script) throws Exception {
         return packageFile(name, keys, script, false);
     }

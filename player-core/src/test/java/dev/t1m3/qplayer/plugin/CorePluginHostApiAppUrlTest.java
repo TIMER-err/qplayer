@@ -39,4 +39,30 @@ public class CorePluginHostApiAppUrlTest {
         assertFalse(api.allowsAppUrl("soda", "myapp://login"));
         assertFalse(api.allowsAppUrl("soda", "intent://x"));
     }
+
+    @Test
+    public void dnsFailureDoesNotBecomeAPermanentPermissionDecision() throws Exception {
+        PluginManifest manifest = new PluginManifest();
+        manifest.schemaVersion = 1;
+        manifest.id = "dns-fixture";
+        manifest.name = "DNS fixture";
+        manifest.version = "1.0.0";
+        manifest.apiVersion = "1.0";
+        manifest.permissions = java.util.Collections.singletonList(PluginPermission.NETWORK.wireName());
+        manifest.networkDomains = java.util.Arrays.asList("unresolvable.invalid", "127.0.0.1");
+        try (CorePluginHostApi api = new CorePluginHostApi()) {
+            api.register(manifest);
+            java.lang.reflect.Field field = CorePluginHostApi.class.getDeclaredField("urlGrants");
+            field.setAccessible(true);
+            java.util.Map<?, ?> grants = (java.util.Map<?, ?>) field.get(api);
+            for (int attempt = 0; attempt < 2; attempt++) {
+                assertFalse(api.allowsReturnedUrl(manifest.id, "https://unresolvable.invalid/art"));
+                assertFalse(grants.containsKey("dns-fixture|https|unresolvable.invalid"));
+            }
+            // Deterministic policy denials still retain the LAN/scheme boundary.
+            assertFalse(api.allowsReturnedUrl(manifest.id, "https://127.0.0.1/art"));
+            assertEquals(Boolean.FALSE, grants.get("dns-fixture|https|127.0.0.1"));
+            assertFalse(api.allowsReturnedUrl(manifest.id, "ftp://127.0.0.1/art"));
+        }
+    }
 }

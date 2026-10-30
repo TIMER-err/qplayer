@@ -23,6 +23,14 @@ Item {
     property bool centered: false
     property real fadeWidth: 20
     property bool scrollingEnabled: true
+    readonly property bool effectivelyVisible: {
+        var item = root
+        while (item) {
+            if (!item.visible) return false
+            item = item.parent
+        }
+        return true
+    }
     // Gap between the tail of one copy and the beginning of the next, written as
     // real spacer glyphs rather than a pixel offset: both copies are shaped into
     // ONE line, so no width arithmetic can ever place the next copy on top of the
@@ -70,7 +78,7 @@ Item {
     function restartScrolling() {
         scrollAnimation.stop()
         label.scrollX = 0
-        if (root.overflowing && root.visible && root.scrollingEnabled) scrollAnimation.start()
+        if (root.overflowing && root.effectivelyVisible && root.scrollingEnabled) scrollAnimation.start()
     }
 
     onWidthChanged: restartScrolling()
@@ -78,6 +86,7 @@ Item {
     onCycleWidthChanged: restartScrolling()
     onOverflowingChanged: restartScrolling()
     onVisibleChanged: restartScrolling()
+    onEffectivelyVisibleChanged: restartScrolling()
     onScrollingEnabledChanged: restartScrolling()
     Component.onCompleted: restartScrolling()
 

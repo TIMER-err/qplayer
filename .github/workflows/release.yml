@@ -41,7 +41,11 @@ permissions:
   contents: write
 
 jobs:
+  tests:
+    uses: ./.github/workflows/tests.yml
+
   android:
+    needs: tests
     if: github.event_name != 'workflow_dispatch' || !inputs.desktop_only
     runs-on: ubuntu-latest
     env:
@@ -67,22 +71,7 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      # qml4j-core is normally pulled from Maven Central, but a freshly-tagged
-      # engine may not be published yet (Central monthly publish quota). Build the
-      # matching tag from source into the local Maven repo; gradle's mavenLocal()
-      # resolves it ahead of Central, so the release never blocks on a publish.
-      - name: Build qml4j-core from source
-        run: |
-          QV=$(grep -oP 'qml4j-core:\K[0-9]+\.[0-9]+\.[0-9]+' android-shell/app/build.gradle.kts)
-          echo "qml4j-core version: $QV"
-          git clone --depth 1 --branch "v$QV" https://github.com/TIMER-err/qml4j.git "$RUNNER_TEMP/qml4j"
-          # qml4j sets its release version from the tag only at publish time and never
-          # commits it, so the tagged pom still carries the previous version. Pin it to
-          # $QV before install, else this builds the wrong version and player-core can't
-          # resolve $QV (this is what qml4j's own release workflow does).
-          mvn -q -B versions:set -DnewVersion="$QV" -DgenerateBackupPoms=false -f "$RUNNER_TEMP/qml4j/pom.xml"
-          mvn -q -B -N -Dpmd.skip=true -Dcheckstyle.skip=true install -f "$RUNNER_TEMP/qml4j/pom.xml"
-          mvn -q -B -DskipTests -Dpmd.skip=true -Dcpd.skip=true -Dcheckstyle.skip=true install -f "$RUNNER_TEMP/qml4j/qml4j-core/pom.xml"
+      - uses: ./.github/actions/build-engine
 
       # player-core now carries the host-drawn lyric classes (shared-lyric was
       # merged in), so installing it is enough for the gradle build to resolve.
@@ -106,7 +95,7 @@ jobs:
       - name: Build release APK
         run: |
           chmod +x android-shell/gradlew
-          cd android-shell && ./gradlew --no-daemon :app:assembleRelease
+          cd android-shell && ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleRelease
 
       - name: Stage APK
         run: |
@@ -133,6 +122,7 @@ jobs:
           prerelease: ${{ contains(github.event.release.tag_name || github.ref_name, '-') }}
 
   desktop:
+    needs: tests
     strategy:
       fail-fast: false
       matrix:
@@ -211,23 +201,7 @@ jobs:
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2-
 
-      # Build the matching qml4j-core from source (like the android job) instead of
-      # resolving it from Maven Central, so a freshly-tagged engine works the moment
-      # qplayer bumps qml4j.version — no waiting on Central publish/propagation. The
-      # version is read from the root pom property; shell:bash runs the same script on
-      # the windows/macos runners (git-bash on Windows). qml4j's own deps still come
-      # from Central, but those are long-published.
-      - name: Build qml4j-core from source
-        shell: bash
-        run: |
-          QV=$(mvn -q -N help:evaluate -Dexpression=qml4j.version -DforceStdout)
-          echo "qml4j-core version: $QV"
-          git clone --depth 1 --branch "v$QV" https://github.com/TIMER-err/qml4j.git "$RUNNER_TEMP/qml4j"
-          # Pin the cloned engine's pom version to the tag (the tagged pom keeps the
-          # previous version; qml4j only sets the release version at publish time).
-          mvn -q -B versions:set -DnewVersion="$QV" -DgenerateBackupPoms=false -f "$RUNNER_TEMP/qml4j/pom.xml"
-          mvn -q -B -N -Dpmd.skip=true -Dcheckstyle.skip=true install -f "$RUNNER_TEMP/qml4j/pom.xml"
-          mvn -q -B -DskipTests -Dpmd.skip=true -Dcpd.skip=true -Dcheckstyle.skip=true install -f "$RUNNER_TEMP/qml4j/qml4j-core/pom.xml"
+      - uses: ./.github/actions/build-engine
 
       - name: Install player-core to local Maven repo
         run: mvn -B -DskipTests -pl player-core -am install
@@ -243,6 +217,15 @@ jobs:
           VER="${QPLAYER_VERSION#v}"
           mvn -B -DskipTests -Dqplayer.app.version="${VER:-0.0.0}" \
             -pl desktop-host -am -Pdist package
+
+      - name: Smoke native AOT factories and reachability
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then
+            desktop-host/target/qplayer.exe --build-smoke
+          else
+            desktop-host/target/qplayer --build-smoke
+          fi
 
       - name: Package
         # Wrap the native executable and license notices as AppImage / zip / DMG.

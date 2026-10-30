@@ -1,25 +1,21 @@
 package dev.t1m3.qplayer.desktop.audio;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
-import java.util.Collections;
 import java.util.Map;
 
 /**
- * Random-access view over a compressed audio payload — a local file or a
- * remote {@code http(s)} stream that is progressively downloaded to a temp
- * file. Reads are sequential from the current position; {@link #seek} moves
- * it. A remote source blocks reads until the requested bytes have arrived,
- * which is what lets the decoders seek for real instead of re-decoding from
- * zero (the latency the old {@code AudioSystem} path suffered).
+ * Random-access view of a local or progressively downloaded audio payload.
+ * Reads are sequential from the current cursor; remote seeks use HTTP ranges
+ * where supported, otherwise they wait for the sequential download.
  */
 interface SeekableByteSource extends AutoCloseable {
 
     /**
-     * Read up to {@code len} bytes at the current position; advances it.
-     * Returns the count, or -1 at end of stream. May block (remote) until at
-     * least one byte is available or the download reaches this position.
+     * Read up to {@code len} bytes and advance the cursor. For a non-empty
+     * request this returns a positive count or -1 only at true EOF; temporary
+     * starvation blocks, never returns zero. Closing cancels pending IO with
+     * an IOException. An empty request returns zero.
      */
     int read(byte[] dst, int off, int len) throws IOException;
 
@@ -38,8 +34,8 @@ interface SeekableByteSource extends AutoCloseable {
         return s < 0 ? 0L : s;
     }
 
-    /** Move the read position. May point past the bytes downloaded so far for a
-     *  remote source; the next read then blocks until they arrive. */
+    /** Move the cursor. Uncached remote offsets request a new HTTP range when
+     *  available; a growing local cache waits for its writer to reach them. */
     void seek(long pos) throws IOException;
 
     long position();
@@ -60,9 +56,6 @@ interface SeekableByteSource extends AutoCloseable {
     @Override
     void close();
 
-    static SeekableByteSource open(String src) throws IOException {
-        return open(src, Collections.emptyMap());
-    }
 
     static SeekableByteSource open(String src, Map<String, String> headers) throws IOException {
         if (src.startsWith("http://") || src.startsWith("https://")) {
@@ -71,18 +64,4 @@ interface SeekableByteSource extends AutoCloseable {
         return new FileByteSource(src);
     }
 
-    /** Read the whole payload into a byte[] (blocks until EOF). For decoders
-     *  that need the entire compressed buffer in memory (stb_vorbis). */
-    default byte[] readAll() throws IOException {
-        long sz = size();
-        int hint = sz > 0 ? (int) Math.min(sz, 1 << 26) : 1 << 16;
-        ByteArrayOutputStream bos = new ByteArrayOutputStream(hint);
-        seek(0);
-        byte[] buf = new byte[64 * 1024];
-        int n;
-        while ((n = read(buf, 0, buf.length)) >= 0) {
-            if (n > 0) bos.write(buf, 0, n);
-        }
-        return bos.toByteArray();
-    }
 }

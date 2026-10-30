@@ -138,7 +138,7 @@ public class LyricTransportRowLayoutTest {
                 try { view.dispose(); } catch (Throwable ignored) { }
             }
             if (player != null) {
-                try { player.shutdown(); } catch (Throwable ignored) { }
+                try { player.shutdownAsync().join(); } catch (Throwable ignored) { }
             }
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCache);

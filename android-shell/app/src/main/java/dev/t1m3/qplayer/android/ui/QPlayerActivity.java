@@ -26,7 +26,6 @@ import android.os.Bundle;
 import dev.t1m3.qplayer.qml.BundledQml;
 import io.github.timer_err.qml4j.android.QmlGLSurfaceView;
 
-import dev.t1m3.qplayer.audio.AudioBackend;
 import dev.t1m3.qplayer.audio.MetadataReader;
 import dev.t1m3.qplayer.bridge.PlayerController;
 import dev.t1m3.qplayer.model.Track;
@@ -83,9 +82,12 @@ public final class QPlayerActivity extends Activity {
     /** Canonical playlist id awaiting a picked cover image, set right before
      *  launching the gallery picker and consumed in {@link #onActivityResult}. */
     private String pendingCoverPlaylistKey;
-    private java.util.function.BiConsumer<String, java.util.function.Consumer<Boolean>> pendingAudioWriter;
-    private android.net.Uri pendingAudioUri;
-    private java.nio.file.Path pendingAudioStage;
+    private AudioSaveRequest pendingAudioSave;
+    private final java.util.Set<AudioSaveRequest> audioSaves =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final java.util.Map<String, Consumer<Object>> settingsHooks = new java.util.HashMap<>();
+    private final Object uiToken = new Object();
+    private boolean destroyed;
 
     private PlayerController controller;
     private SettingsCore settings;
@@ -99,18 +101,25 @@ public final class QPlayerActivity extends Activity {
     private Consumer<Boolean> lyricsOpenListener;
     private Consumer<Boolean> systemBarsListener;
     private BroadcastReceiver debugReceiver;
+    private java.util.concurrent.CompletableFuture<PlayerController> initializing;
 
-    /** Singleton controller — survives Activity recreations (PiP, config changes)
-     *  so playback state and the foreground service stay connected across them. */
-    private static volatile PlayerController sharedController;
+    /** Caches the process controller across Activity recreations, and waits for
+     * full old-engine termination before creating a replacement. */
+    private static final EngineStartup<PlayerController> ENGINE = new EngineStartup<>(
+            error -> dev.t1m3.qplayer.util.Logger.error(
+                    "engine retirement persistence failed: {}", error.toString()));
     private static boolean lyricFontsInitialized;
-
-    static PlayerController sharedController() { return sharedController; }
+    private static final java.util.concurrent.ExecutorService ENGINE_IO =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r ->
+                    new Thread(r, "qplayer-engine-init"));
+    private static Object activeUiToken;
+    private static Object boundUiToken;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         logSceneLifecycle("create");
+        activeUiToken = uiToken;
 
         // Paint a loading UI before PlayerController, plugins, and scene construction.
         // Android 11 has no system splash; a SurfaceView otherwise leaves a black window.
@@ -126,42 +135,82 @@ public final class QPlayerActivity extends Activity {
     }
 
     private void startEngine() {
-        if (isFinishing() || isDestroyed() || glView != null) return;
+        if (destroyed || isFinishing() || isDestroyed() || glView != null) return;
+        Context app = getApplicationContext();
+        java.lang.ref.WeakReference<QPlayerActivity> owner = new java.lang.ref.WeakReference<>(this);
+        android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+        java.util.concurrent.CompletableFuture<PlayerController> initialization =
+                ENGINE.getOrStart(() -> {
+                    dev.t1m3.qplayer.store.AppDirs.migrateLegacyLayout();
+                    java.io.File updates = new java.io.File(app.getExternalFilesDir(null), "updates");
+                    dev.t1m3.qplayer.util.Logger.info("updates cache: {} bytes before sweep",
+                            dirSizeBytes(updates));
+                    deleteRecursive(updates);
+                    deleteRecursive(dev.t1m3.qplayer.store.AppDirs.cacheDir()
+                            .resolve("plugin-imports").toFile());
+                    try {
+                        dev.t1m3.qplayer.plugin.PluginCompatibility.setHostVersion(
+                                app.getPackageManager().getPackageInfo(app.getPackageName(), 0).versionName);
+                    } catch (PackageManager.NameNotFoundException ignored) {
+                    }
+                    initializeLyricFonts(app);
+                    return new PlayerController(new AndroidAudioBackend(app), new AndroidMetadataReader(app));
+                }, ENGINE_IO);
+        initializing = initialization;
+        initialization.thenApplyAsync(c -> {
+            synchronized (dev.t1m3.qplayer.qml.QmlRuntimeLock.MONITOR) {
+                SettingsCore preparedSettings = new SettingsCore();
+                preparedSettings.attach(c);
+                preparedSettings.setSystemDark(isSystemDark(app));
+                preparedSettings.load(new PrefsSettingsStore(app), SettingsCatalog.ANDROID);
+                return new EngineState(c, preparedSettings);
+            }
+        }, ENGINE_IO).whenComplete((state, error) -> main.post(() -> {
+            QPlayerActivity activity = owner.get();
+            if (activity == null || activity.destroyed || activity.isFinishing()
+                    || activity.isDestroyed() || activeUiToken != activity.uiToken) {
+                retireUnclaimedEngine(initialization);
+                return;
+            }
+            if (error != null) {
+                activity.showError(android.util.Log.getStackTraceString(error));
+                return;
+            }
+            activity.attachEngine(state);
+        }));
+    }
 
-        // A downloaded update APK (see downloadAndInstallUpdate below) has served its
-        // purpose once the app relaunches -- it's never deleted right after handing it
-        // to the system installer (that Intent may still be reading the file), and
-        // getExternalFilesDir(null)/updates isn't covered by 清除缓存 (that only clears
-        // DiskCache's own tree), so it just sits there taking up space forever. Sweep
-        // it at every startup instead, same pattern as the desktop host's own installer
-        // sweep; log the reclaimed size so it's visible in the in-app debug log panel.
-        java.io.File updatesDir = new java.io.File(getExternalFilesDir(null), "updates");
-        long updatesBytes = dirSizeBytes(updatesDir);
-        dev.t1m3.qplayer.util.Logger.info("updates cache: {} bytes before sweep", updatesBytes);
-        deleteRecursive(updatesDir);
-        deleteRecursive(dev.t1m3.qplayer.store.AppDirs.cacheDir()
-                .resolve("plugin-imports").toFile());
-
-        AudioBackend backend = new AndroidAudioBackend(this);
-        reader = new AndroidMetadataReader(this);
-
-        // Before the controller: it starts the enabled plugins while it is being
-        // built, and each one is version-checked against this.
-        try {
-            dev.t1m3.qplayer.plugin.PluginCompatibility.setHostVersion(
-                    getPackageManager().getPackageInfo(getPackageName(), 0).versionName);
-        } catch (PackageManager.NameNotFoundException ignored) {
+    private static void retireUnclaimedEngine(
+            java.util.concurrent.CompletableFuture<PlayerController> initialization) {
+        if (activeUiToken != null || boundUiToken != null || PlaybackService.isRunning()) return;
+        if (initialization != null && initialization.isDone()
+                && !initialization.isCompletedExceptionally()) {
+            PlayerController engine = initialization.getNow(null);
+            if (engine != null && engine.isPlaying()) return;
         }
+        ENGINE.retireIfCurrent(initialization, engine -> {
+            PlaybackService.detachController(engine);
+            return engine.shutdownAsync();
+        });
+    }
 
-        // Reuse the existing controller across Activity recreations (PiP, config
-        // changes). Without this, each recreation builds a fresh controller with
-        // empty state — disconnected from the PlaybackService's static reference
-        // to the old one, causing UI/notification desync.
-        controller = sharedController;
-        if (controller == null) {
-            controller = new PlayerController(backend, reader);
-            sharedController = controller;
+    private static final class EngineState {
+        final PlayerController controller;
+        final SettingsCore settings;
+        EngineState(PlayerController controller, SettingsCore settings) {
+            this.controller = controller;
+            this.settings = settings;
         }
+    }
+
+    private void attachEngine(EngineState state) {
+        boundUiToken = uiToken;
+        controller = state.controller;
+        settings = state.settings;
+        reader = new AndroidMetadataReader(getApplicationContext());
+        final PlayerController boundController = controller;
+        DiskDecompressedResourceCache resources =
+                ((dev.t1m3.qplayer.android.app.QPlayerApplication) getApplication()).sceneResources();
         // A reused controller still carries the one-shot event counters the
         // previous Activity's scene already consumed. The scene built below
         // mirrors each into a QML watch property, so a non-zero count reads as a
@@ -241,80 +290,25 @@ public final class QPlayerActivity extends Activity {
         // player-core (shared with the desktop host). This host contributes the
         // SharedPreferences store, the platform id, and the actions/live text its
         // own rows need.
-        settings = new SettingsCore();
+        // Settings were loaded on ENGINE_IO before any scene existed.
         settings.setFontPicker(this::pickFontFile);
-        settings.attach(controller);
         systemBarsListener = dark ->
                 runOnUiThread(() -> applySystemBars(Boolean.TRUE.equals(dark)));
         settings.resolvedDark.addListener(systemBarsListener);
-        settings.setSystemDark(isSystemDark(this));
-        settings.registerAction("clearCache", controller::clearDiskCache);
-        settings.registerAction("checkUpdate", controller::checkForUpdateManual);
+        settings.registerAction("clearCache", boundController::clearDiskCache);
+        settings.registerAction("checkUpdate", boundController::checkForUpdateManual);
         settings.registerAction("openRepo",
-                () -> controller.openExternalUrl("https://github.com/TIMER-err/qplayer"));
-        settings.registerInfo("version", () -> "v" + controller.appVersion.peek());
-        settings.registerInfo("cacheUsage", () -> controller.cacheSizeMB.peek() + " MB");
-        settings.load(new PrefsSettingsStore(this), SettingsCatalog.ANDROID);
-        OverlayLyricWindow.bindSettings(settings);
-        settings.onChange(SettingsCatalog.OVERLAY_LYRIC_KEY, value -> runOnUiThread(() -> {
-            boolean on = Boolean.TRUE.equals(value);
-            OverlayLyricWindow.setWanted(getApplicationContext(), on);
-            if (on) requestOverlayLyricPermission();
-            PlaybackService.refreshIfRunning();
+                () -> boundController.openExternalUrl("https://github.com/TIMER-err/qplayer"));
+        settings.registerInfo("version", () -> "v" + boundController.appVersion.peek());
+        settings.registerInfo("cacheUsage", () -> boundController.cacheSizeMB.peek() + " MB");
+        OverlayLyricWindow.bindSettings(getApplicationContext(), settings);
+        // Only permission UI belongs to this Activity. Background overlay style
+        // and lock subscriptions belong to OverlayLyricWindow itself.
+        registerSettingsHook(SettingsCatalog.OVERLAY_LYRIC_KEY, value -> runOnUiThread(() -> {
+            if (!destroyed && Boolean.TRUE.equals(value)) requestOverlayLyricPermission();
         }));
-        String[] overlayStyleKeys = {
-                SettingsCatalog.OVERLAY_LYRIC_LOCKED_KEY,
-                SettingsCatalog.OVERLAY_LYRIC_FONT_SIZE_KEY,
-                SettingsCatalog.OVERLAY_LYRIC_WIDTH_KEY,
-                SettingsCatalog.OVERLAY_LYRIC_BG_OPACITY_KEY,
-                SettingsCatalog.OVERLAY_LYRIC_LINE_SPACING_KEY,
-                SettingsCatalog.OVERLAY_LYRIC_HEIGHT_KEY,
-                SettingsCatalog.OVERLAY_LYRIC_SUNG_COLOR_KEY,
-                SettingsCatalog.OVERLAY_LYRIC_UNSUNG_COLOR_KEY,
-                SettingsCatalog.OVERLAY_LYRIC_OUTLINE_KEY,
-                SettingsCatalog.OVERLAY_LYRIC_OUTLINE_COLOR_KEY
-        };
-        for (String key : overlayStyleKeys) {
-            settings.onChange(key, ignored -> runOnUiThread(() -> {
-                OverlayLyricWindow.restyle();
-                if (SettingsCatalog.OVERLAY_LYRIC_LOCKED_KEY.equals(key)) {
-                    PlaybackService.refreshIfRunning();
-                }
-            }));
-        }
-        OverlayLyricWindow.setWanted(getApplicationContext(),
-                settings.bool(SettingsCatalog.OVERLAY_LYRIC_KEY));
 
 
-        // Lyric renderer fonts: the bundled PingFang SC weights from shared-qml
-        // (the lyric face must itself cover CJK + Latin — no automatic fallback).
-        DiskDecompressedResourceCache resources =
-                ((dev.t1m3.qplayer.android.app.QPlayerApplication) getApplication()).sceneResources();
-        try {
-            // These are process-wide native caches. Reinitializing them for every
-            // Activity also re-parses the 13 MiB lyric face on every recreation.
-            if (!lyricFontsInitialized) {
-                dev.t1m3.qplayer.lyric.skia.Fonts.init(weight -> CompressedResources.load(resources,
-                        "fonts/PingFangSC-" + bundledFontWeightName(weight) + ".otf"));
-                dev.t1m3.qplayer.lyric.skia.Fonts.initIcon(
-                        readAssetBytes("fonts/MaterialSymbolsRounded.ttf"));
-                // Android's font manager only indexes what /system/etc/fonts.xml
-                // declares, so a font an OEM skin or theme engine installed
-                // elsewhere is neither listed nor resolvable by name. Register the
-                // file index before the scene is built: it is also how the QML
-                // UI's own typeface is located (uiTypefaces takes bytes).
-                dev.t1m3.qplayer.lyric.skia.Fonts.addFileIndex(AndroidFontIndex.instance());
-                // A system-wide font from a theme store is replaced inside the
-                // framework and its file is not shared with apps, under a path
-                // that differs per vendor — importing the file is the only way
-                // that works on every ROM.
-                dev.t1m3.qplayer.lyric.skia.Fonts.addFileIndex(
-                        dev.t1m3.qplayer.lyric.skia.ImportedFonts.instance());
-                lyricFontsInitialized = true;
-            }
-            dev.t1m3.qplayer.lyric.skia.Fonts.warmupFromConfig();
-        } catch (IOException ignored) {
-        }
         // Learning a font file's family name means parsing it, so the ~200 files
         // on a device are indexed off the main thread and the picker's list is
         // republished when that finishes. Started here rather than in
@@ -363,11 +357,37 @@ public final class QPlayerActivity extends Activity {
         // Wait for the first painted scene before presenting a permission dialog.
     }
 
+    private void registerSettingsHook(String key, Consumer<Object> hook) {
+        settingsHooks.put(key, hook);
+        settings.onChange(key, hook);
+    }
+
+    private static void initializeLyricFonts(Context app) {
+        DiskDecompressedResourceCache resources =
+                ((dev.t1m3.qplayer.android.app.QPlayerApplication) app).sceneResources();
+        try {
+            if (!lyricFontsInitialized) {
+                dev.t1m3.qplayer.lyric.skia.Fonts.init(weight -> CompressedResources.load(resources,
+                        "fonts/PingFangSC-" + bundledFontWeightName(weight) + ".otf"));
+                dev.t1m3.qplayer.lyric.skia.Fonts.initIcon(
+                        readAssetBytes(app, "fonts/MaterialSymbolsRounded.ttf"));
+                dev.t1m3.qplayer.lyric.skia.Fonts.addFileIndex(AndroidFontIndex.instance());
+                dev.t1m3.qplayer.lyric.skia.Fonts.addFileIndex(
+                        dev.t1m3.qplayer.lyric.skia.ImportedFonts.instance());
+                lyricFontsInitialized = true;
+            }
+            dev.t1m3.qplayer.lyric.skia.Fonts.warmupFromConfig();
+        } catch (IOException error) {
+            throw new java.util.concurrent.CompletionException(error);
+        }
+    }
+
     /** {@code adb shell am broadcast -a dev.t1m3.qplayer.DEBUG --es cmd status} */
     public static final String DEBUG_ACTION = "dev.t1m3.qplayer.DEBUG";
 
     private void registerDebugReceiver() {
-        if (debugReceiver != null) return;
+        if (debugReceiver != null || (getApplicationInfo().flags
+                & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0) return;
         debugReceiver = new BroadcastReceiver() {
             @Override public void onReceive(Context context, Intent intent) {
                 if (controller == null || intent == null) return;
@@ -376,9 +396,7 @@ public final class QPlayerActivity extends Activity {
                 if (cmd == null) cmd = "";
                 if (arg == null) arg = "";
                 android.util.Log.i("qplayer.debug", "cmd=" + cmd + " arg=" + arg);
-                if ("recreate".equalsIgnoreCase(cmd)
-                        && (getApplicationInfo().flags
-                        & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+                if ("recreate".equalsIgnoreCase(cmd)) {
                     recreate();
                     return;
                 }
@@ -563,6 +581,7 @@ public final class QPlayerActivity extends Activity {
      *  splash and request the audio permission (and scan) — see onCreate. */
     private void onSceneReady() {
         logSceneLifecycle("ready");
+        if (destroyed || activeUiToken != uiToken || glView == null) return;
         hideSplash();
         requestAudioPermission();
         requestNotificationPermission();
@@ -716,14 +735,24 @@ public final class QPlayerActivity extends Activity {
         }
     }
 
-    private void saveAudioFile(String suggestedFileName, String mimeType,
-            java.util.function.BiConsumer<String, java.util.function.Consumer<Boolean>> writer) {
-        pendingAudioWriter = writer;
+    private java.util.concurrent.CompletableFuture<Boolean> saveAudioFile(
+            String suggestedFileName, String mimeType,
+            java.util.function.BiConsumer<String, Consumer<Boolean>> writer) {
+        AudioSaveRequest request = new AudioSaveRequest(
+                dev.t1m3.qplayer.store.AppDirs.cacheDir().resolve("plugin-exports"), writer);
+        audioSaves.add(request);
+        java.util.Set<AudioSaveRequest> requests = audioSaves;
+        request.result.whenComplete((ok, error) -> requests.remove(request));
         String mime = (mimeType == null || mimeType.isEmpty() || mimeType.equals("audio/*"))
                 ? "audio/mpeg" : mimeType;
         String name = suggestedFileName == null || suggestedFileName.isEmpty()
                 ? "audio.mp3" : suggestedFileName;
         runOnUiThread(() -> {
+            if (destroyed || pendingAudioSave != null) {
+                request.cancel();
+                return;
+            }
+            pendingAudioSave = request;
             try {
                 Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
@@ -731,12 +760,13 @@ public final class QPlayerActivity extends Activity {
                 intent.putExtra(Intent.EXTRA_TITLE, name);
                 startActivityForResult(intent, REQ_AUDIO_SAVE);
             } catch (Throwable error) {
-                pendingAudioWriter = null;
-                dev.t1m3.qplayer.util.Logger.error(
-                        "no document provider to save audio: {}", error.toString());
+                pendingAudioSave = null;
+                request.result.completeExceptionally(error);
             }
         });
+        return request.result;
     }
+
 
     private void pickPluginPackage() {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
@@ -808,50 +838,15 @@ public final class QPlayerActivity extends Activity {
             return;
         }
         if (requestCode == REQ_AUDIO_SAVE) {
-            java.util.function.BiConsumer<String, java.util.function.Consumer<Boolean>> writer =
-                    pendingAudioWriter;
-            pendingAudioWriter = null;
-            if (writer == null) return;
+            AudioSaveRequest request = pendingAudioSave;
+            pendingAudioSave = null;
+            if (request == null) return;
             if (resultCode != Activity.RESULT_OK || data == null || data.getData() == null) {
-                writer.accept("", ignored -> { });
-                return;
-            }
-            pendingAudioUri = data.getData();
-            try {
-                java.nio.file.Path exports = dev.t1m3.qplayer.store.AppDirs.cacheDir()
-                        .resolve("plugin-exports");
-                java.nio.file.Files.createDirectories(exports);
-                pendingAudioStage = exports.resolve(
-                        java.util.UUID.randomUUID().toString() + ".audio");
-                final java.nio.file.Path staged = pendingAudioStage;
-                final android.net.Uri uri = pendingAudioUri;
-                writer.accept(staged.toString(), ok -> {
-                    pendingAudioUri = null;
-                    pendingAudioStage = null;
-                    if (!Boolean.TRUE.equals(ok) || uri == null || staged == null) return;
-                    new Thread(() -> {
-                        try {
-                            if (!java.nio.file.Files.isRegularFile(staged)) return;
-                            try (java.io.OutputStream out = getContentResolver().openOutputStream(uri);
-                                 java.io.InputStream in = java.nio.file.Files.newInputStream(staged)) {
-                                if (out == null) return;
-                                byte[] chunk = new byte[64 * 1024];
-                                int n;
-                                while ((n = in.read(chunk)) > 0) out.write(chunk, 0, n);
-                            }
-                            java.nio.file.Files.deleteIfExists(staged);
-                        } catch (Throwable error) {
-                            dev.t1m3.qplayer.util.Logger.warn(
-                                    "write saved audio failed: {}", error.toString());
-                        }
-                    }, "qplayer-audio-save").start();
-                });
-            } catch (Throwable error) {
-                pendingAudioUri = null;
-                pendingAudioStage = null;
-                writer.accept("", ignored -> { });
-                dev.t1m3.qplayer.util.Logger.warn(
-                        "stage saved audio failed: {}", error.toString());
+                request.cancel();
+            } else {
+                android.net.Uri uri = data.getData();
+                android.content.ContentResolver resolver = getApplicationContext().getContentResolver();
+                request.write(() -> resolver.openOutputStream(uri, "wt"));
             }
             return;
         }
@@ -1126,11 +1121,17 @@ public final class QPlayerActivity extends Activity {
         // Android 11+ Scoped Storage: Files.walk() cannot traverse external storage.
         // Use MediaStore API instead — it works with READ_MEDIA_AUDIO permission.
         // Run off the main thread to avoid ANR on large libraries.
+        Context app = getApplicationContext();
+        PlayerController target = controller;
+        Object token = uiToken;
+        android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
         AndroidLibraryScanner scanner = new AndroidLibraryScanner(
-                getContentResolver(), reader);
+                app.getContentResolver(), reader);
         new Thread(() -> {
             List<Track> tracks = scanner.scan();
-            runOnUiThread(() -> controller.scanTracks(tracks));
+            main.post(() -> {
+                if (activeUiToken == token) target.scanTracks(tracks);
+            });
         }, "qplayer-scan").start();
     }
 
@@ -1191,6 +1192,12 @@ public final class QPlayerActivity extends Activity {
     @Override
     protected void onDestroy() {
         logSceneLifecycle("destroy");
+        destroyed = true;
+        boolean ownsUi = boundUiToken == uiToken;
+        if (ownsUi) boundUiToken = null;
+        if (activeUiToken == uiToken && !isChangingConfigurations()) activeUiToken = null;
+        for (AudioSaveRequest request : audioSaves) request.cancel();
+        pendingAudioSave = null;
         if (debugReceiver != null) {
             try { unregisterReceiver(debugReceiver); } catch (Throwable ignored) {}
             debugReceiver = null;
@@ -1203,15 +1210,15 @@ public final class QPlayerActivity extends Activity {
             webAuthScript.shutdown();
             webAuthScript = null;
         }
-        // Release the controller when idle (not playing). This covers both:
-        //   - owner Activities on normal exit
-        //   - non-owner Activities (PiP recreations) that outlive the owner
-        // Playing controllers must survive for background/foreground-service use;
-        // stopWithTask="true" handles the force-stop case via PlaybackService.onDestroy().
-        if (controller != null && !controller.isPlaying() && !PlaybackService.isRunning()) {
-            controller.shutdown();
-            sharedController = null;
+        // A configuration recreation reuses the process controller. A genuine
+        // idle exit releases it without synchronously serializing state on main.
+        if (ownsUi && activeUiToken == null && !isChangingConfigurations() && controller != null
+                && !controller.isPlaying() && !PlaybackService.isRunning()) {
+            OverlayLyricWindow.clearSettings(settings);
+            ENGINE.retire(controller.shutdownAsync());
+            PlaybackService.detachController(controller);
         }
+        if (!isChangingConfigurations()) retireUnclaimedEngine(initializing);
         if (glView != null) {
             glView.dispose();
             glView = null;
@@ -1220,15 +1227,23 @@ public final class QPlayerActivity extends Activity {
             settings.resolvedDark.removeListener(systemBarsListener);
             systemBarsListener = null;
         }
+        if (settings != null) {
+            settings.setFontPicker(null);
+            for (java.util.Map.Entry<String, Consumer<Object>> hook : settingsHooks.entrySet()) {
+                settings.removeOnChange(hook.getKey(), hook.getValue());
+            }
+            settingsHooks.clear();
+        }
         // Playback survives this Activity, but its UI launchers must not retain
         // the destroyed window and scene while the service is playing alone.
-        if (controller != null) {
+        if (ownsUi && controller != null) {
             controller.setClipboard(null);
             controller.setUrlOpener(null);
             controller.setAppLinkLauncher(null);
             controller.setInstaller(null);
             controller.setCoverPicker(null);
             controller.setPluginPicker(null);
+            controller.setFileSavePicker(null);
             controller.setWebLoginLauncher(null);
             controller.setWebAuthScriptLauncher(null);
             controller.setExitListener(null);
@@ -1246,8 +1261,8 @@ public final class QPlayerActivity extends Activity {
                 + " nativeMiB=" + android.os.Debug.getNativeHeapAllocatedSize() / (1024 * 1024));
     }
 
-    private byte[] readAssetBytes(String name) throws IOException {
-        try (InputStream in = getAssets().open(name)) {
+    private static byte[] readAssetBytes(Context app, String name) throws IOException {
+        try (InputStream in = app.getAssets().open(name)) {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             byte[] buf = new byte[4096];
             int n;

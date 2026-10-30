@@ -68,10 +68,15 @@ Item {
     readonly property color _selectedColor: _hsv ? _hsvColor(_hue, _saturation, _value, _alpha) : channelColor(_first, _second, _third, _alpha)
 
     function _emit() {
+        // Derived bindings flush later in qml4j. Publish the current channels,
+        // not the previous preview, and use the exact same value for the signal.
+        var selected = colorSpace.toUpperCase() === "HSV"
+            ? _hsvColor(_hue, _saturation, _value, _alpha)
+            : ColorMath.fromChannels(colorSpace.toUpperCase(), _first, _second, _third, _alpha)
         _syncing = true
-        color = _selectedColor
+        color = selected
         _syncing = false
-        colorSelected(_selectedColor)
+        colorSelected(selected)
     }
 
     function _adoptExternalColor() {

@@ -53,6 +53,11 @@ Item {
         motion.contentY = 0
     }
 
+    function restore() {
+        motion.stopAnimations()
+        entryAnim.restart()
+    }
+
     function transition() {
         entryAnim.stop()
         exitAnim.stop()

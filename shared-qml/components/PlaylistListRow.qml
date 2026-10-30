@@ -31,6 +31,7 @@ Rectangle {
     signal reorderPressed()
     signal reorderDragged()
     signal reorderReleased()
+    signal reorderCanceled()
 
     signal activated()
     signal deleteRequested()
@@ -146,7 +147,8 @@ Rectangle {
         }
         onContextMenuRequested: {
             row._menuArmed = true
-            row._openMenu()
+            if (row.reorderable) row.revealToggled()
+            else row._openMenu()
         }
     }
 
@@ -237,7 +239,7 @@ Rectangle {
                 row.reorderDragged()
             }
             onReleased: row.reorderReleased()
-            onCanceled: row.reorderReleased()
+            onCanceled: row.reorderCanceled()
         }
     }
 }

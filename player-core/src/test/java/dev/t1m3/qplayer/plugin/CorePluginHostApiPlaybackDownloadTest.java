@@ -75,6 +75,104 @@ public class CorePluginHostApiPlaybackDownloadTest {
         }
     }
 
+    @Test
+    public void stoppingDisconnectsDownloadsAndAcknowledgesPendingFileCleanup() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        java.util.concurrent.ExecutorService handlers = java.util.concurrent.Executors.newCachedThreadPool();
+        java.util.concurrent.CountDownLatch entered = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        server.setExecutor(handlers);
+        server.createContext("/slow", exchange -> {
+            try {
+                exchange.sendResponseHeaders(200, 0);
+                exchange.getResponseBody().write(new byte[]{1, 2, 3});
+                exchange.getResponseBody().flush();
+                entered.countDown();
+                release.await();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            } finally {
+                exchange.close();
+            }
+        });
+        server.start();
+        try (CorePluginHostApi api = new CorePluginHostApi(
+                temporary.getRoot().toPath().resolve("plugin-data"),
+                new PluginCredentialVault(temporary.getRoot().toPath().resolve("credentials"),
+                        new CredentialCipher(temporary.getRoot().toPath().resolve("master.key"))))) {
+            api.register(granted());
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/slow";
+            java.util.List<java.util.concurrent.CompletableFuture<Boolean>> results = new java.util.ArrayList<>();
+            java.util.List<Path> targets = new java.util.ArrayList<>();
+            for (int index = 0; index < 8; index++) {
+                Path target = temporary.getRoot().toPath().resolve("slow-" + index + ".mp3");
+                targets.add(target);
+                results.add(api.downloadReturnedFile("fixture", url, Collections.emptyMap(),
+                        target, 1024, 120_000));
+            }
+            assertTrue(entered.await(2, TimeUnit.SECONDS));
+            api.cancelPendingOperations().get(5, TimeUnit.SECONDS);
+            for (java.util.concurrent.CompletableFuture<Boolean> result : results) {
+                org.junit.Assert.assertThrows(java.util.concurrent.CancellationException.class,
+                        () -> result.get(2, TimeUnit.SECONDS));
+            }
+            for (Path target : targets) {
+                org.junit.Assert.assertFalse(Files.exists(target));
+                org.junit.Assert.assertFalse(Files.exists(
+                        dev.t1m3.qplayer.store.StorageFiles.pendingPath(target)));
+            }
+            assertTrue(api.downloadReturnedFile("fixture", url, Collections.emptyMap(),
+                    targets.get(0), 1024, 5_000).isCancelled());
+        } finally {
+            release.countDown();
+            server.stop(0);
+            handlers.shutdownNow();
+        }
+    }
+
+    @Test
+    public void legitimateIdleDownloadRetainsItsConfiguredReadTimeout() throws Exception {
+        byte[] body = "AUDIO".getBytes(StandardCharsets.UTF_8);
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        java.util.concurrent.CountDownLatch entered = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch tailAllowed = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.ScheduledExecutorService timer =
+                java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
+        server.createContext("/idle", exchange -> {
+            try {
+                exchange.sendResponseHeaders(200, body.length);
+                exchange.getResponseBody().write(body, 0, 2);
+                exchange.getResponseBody().flush();
+                entered.countDown();
+                tailAllowed.await();
+                exchange.getResponseBody().write(body, 2, body.length - 2);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            } finally {
+                exchange.close();
+            }
+        });
+        server.start();
+        Path target = temporary.getRoot().toPath().resolve("idle.mp3");
+        try (CorePluginHostApi api = new CorePluginHostApi(
+                temporary.getRoot().toPath().resolve("plugin-data"),
+                new PluginCredentialVault(temporary.getRoot().toPath().resolve("credentials"),
+                        new CredentialCipher(temporary.getRoot().toPath().resolve("master.key"))))) {
+            api.register(granted());
+            java.util.concurrent.CompletableFuture<Boolean> result = api.downloadReturnedFile(
+                    "fixture", "http://127.0.0.1:" + server.getAddress().getPort() + "/idle",
+                    Collections.emptyMap(), target, 1024, 5_000);
+            assertTrue(entered.await(2, TimeUnit.SECONDS));
+            timer.schedule(tailAllowed::countDown, 1_500, TimeUnit.MILLISECONDS);
+            assertTrue(result.get(10, TimeUnit.SECONDS));
+            assertArrayEquals(body, Files.readAllBytes(target));
+        } finally {
+            tailAllowed.countDown();
+            server.stop(0);
+            timer.shutdownNow();
+        }
+    }
+
     private static PluginManifest granted() {
         PluginManifest manifest = new PluginManifest();
         manifest.schemaVersion = 1;

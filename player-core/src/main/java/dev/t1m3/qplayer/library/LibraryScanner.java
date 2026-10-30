@@ -73,6 +73,13 @@ public final class LibraryScanner {
         }
         Track prev = cached.get(filePath);
         if (LibraryCache.isFresh(prev, size, mtime)) {
+            LibraryCache.Resources resources = cache.resources(filePath);
+            if (resources == null
+                    || (resources.embeddedCover && (!readable(prev.coverThumbPath) || !readable(prev.coverLocalPath)))
+                    || (resources.embeddedLyric != null && !readable(resources.embeddedLyric))) {
+                return buildTrack(audio, size, mtime);
+            }
+            refreshResources(prev, audio, resources);
             reused[0]++;
             return prev;
         }
@@ -101,36 +108,89 @@ public final class LibraryScanner {
             Logger.warn("LibraryScanner: tag read failed for {}: {}", audio, e.getMessage());
         }
 
-        // Embedded cover -> downscaled cache files (paths on the Track, not bytes held
-        // in memory).
-        if (t.coverBytes != null) {
-            cache.writeCovers(t, t.filePath, t.coverBytes);
-            t.coverBytes = null;
-        }
-
-        Path parent = audio.getParent();
-        if (t.coverThumbPath == null) {
-            byte[] sidecar = readSidecarCover(parent, base);
-            if (sidecar != null) cache.writeCovers(t, t.filePath, sidecar);
-        }
-
-        // Highest fidelity first: TTML/LYS/QRC/YRC are syllable-level,
-        // ESLrc is per-syllable LRC, plain LRC is line-only.
-        t.lyricFilePath = pickSidecar(parent, base,
-                ".ttml", ".lys", ".qrc", ".yrc", ".eslrc", ".lrc");
-        t.translationFilePath = pickSidecar(parent, base, ".tlrc", ".translation.lrc");
-        t.romajiFilePath = pickSidecar(parent, base, ".romaji.lrc", ".romaji.lys");
-
-        // No sidecar lyric -> try the file's embedded lyrics, extracted once to a cache
-        // .lrc. Prefer whatever the platform MetadataReader already read (desktop's
-        // jaudiotagger covers OGG/MP4 too); fall back to the hand-rolled MP3/FLAC-only
-        // extractor for platforms (Android) whose tag API has no lyrics field.
-        if (t.lyricFilePath == null) {
-            String embedded = t.embeddedLyricText != null ? t.embeddedLyricText : extractEmbeddedLyric(audio);
-            t.embeddedLyricText = null;
-            if (embedded != null) t.lyricFilePath = cache.writeLyric(t.filePath, embedded);
-        }
+        LibraryCache.Resources resources = new LibraryCache.Resources();
+        resources.embeddedCover = t.coverBytes != null;
+        if (resources.embeddedCover) cache.writeCovers(t, t.filePath, t.coverBytes);
+        t.coverBytes = null;
+        String embedded = t.embeddedLyricText != null ? t.embeddedLyricText : extractEmbeddedLyric(audio);
+        t.embeddedLyricText = null;
+        if (embedded != null) resources.embeddedLyric = cache.writeLyric(t.filePath, embedded);
+        cache.resources(t.filePath, resources);
+        refreshResources(t, audio, resources);
         return t;
+    }
+
+    private void refreshResources(Track track, Path audio, LibraryCache.Resources resources) {
+        String base = baseName(audio);
+        Path parent = audio.getParent();
+        if (!resources.embeddedCover) {
+            Path cover = sidecarCover(parent, base);
+            String version = coverVersion(cover);
+            if (!java.util.Objects.equals(resources.coverSource, version)
+                    || (cover != null && (!readable(track.coverThumbPath) || !readable(track.coverLocalPath)))) {
+                track.coverThumbPath = null;
+                track.coverLocalPath = null;
+                if (cover != null) {
+                    try {
+                        cache.writeCovers(track, track.filePath, Files.readAllBytes(cover));
+                    } catch (IOException e) {
+                        Logger.warn("LibraryScanner: cover read failed for {}: {}", cover, e.getMessage());
+                    }
+                }
+                resources.coverSource = version;
+            }
+            if (cover == null) {
+                track.coverThumbPath = null;
+                track.coverLocalPath = null;
+            }
+        }
+        track.lyricFilePath = pickSidecar(parent, base, ".ttml", ".lys", ".qrc", ".yrc", ".eslrc", ".lrc");
+        if (track.lyricFilePath == null) track.lyricFilePath = resources.embeddedLyric;
+        track.translationFilePath = pickSidecar(parent, base, ".tlrc", ".translation.lrc");
+        track.romajiFilePath = pickSidecar(parent, base, ".romaji.lrc", ".romaji.lys");
+    }
+
+    /** Restore queue-side local resource paths without reading tags or lyrics. */
+    public static void discoverSidecars(Track track) {
+        if (track == null || track.filePath == null || track.filePath.isEmpty()) return;
+        Path audio = Paths.get(track.filePath);
+        String base = baseName(audio);
+        Path parent = audio.getParent();
+        track.lyricFilePath = discoveredOrExisting(track.lyricFilePath, pickSidecar(parent, base,
+                ".ttml", ".lys", ".qrc", ".yrc", ".eslrc", ".lrc"));
+        track.translationFilePath = discoveredOrExisting(track.translationFilePath,
+                pickSidecar(parent, base, ".tlrc", ".translation.lrc"));
+        track.romajiFilePath = discoveredOrExisting(track.romajiFilePath,
+                pickSidecar(parent, base, ".romaji.lrc", ".romaji.lys"));
+    }
+
+    private static String discoveredOrExisting(String existing, String discovered) {
+        return discovered != null ? discovered : readable(existing) ? existing : null;
+    }
+
+    private static boolean readable(String value) {
+        if (value == null) return false;
+        try {
+            Path path = Paths.get(value);
+            return Files.isRegularFile(path) && Files.isReadable(path);
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    private static String baseName(Path path) {
+        String name = path.getFileName().toString();
+        int dot = name.lastIndexOf('.');
+        return dot >= 0 ? name.substring(0, dot) : name;
+    }
+
+    private static String coverVersion(Path path) {
+        if (path == null) return null;
+        try {
+            return path + ":" + Files.size(path) + ":" + Files.getLastModifiedTime(path);
+        } catch (IOException e) {
+            return path.toString();
+        }
     }
 
     private static String extractEmbeddedLyric(Path audio) {
@@ -149,7 +209,7 @@ public final class LibraryScanner {
         return false;
     }
 
-    private static byte[] readSidecarCover(Path dir, String baseName) {
+    private static Path sidecarCover(Path dir, String baseName) {
         if (dir == null) return null;
         String[] candidates = {
                 baseName + ".jpg", baseName + ".jpeg", baseName + ".png",
@@ -159,13 +219,7 @@ public final class LibraryScanner {
         };
         for (String name : candidates) {
             Path p = dir.resolve(name);
-            if (Files.exists(p)) {
-                try {
-                    return Files.readAllBytes(p);
-                } catch (IOException ignored) {
-                    // unreadable sidecar — fall through to the next candidate
-                }
-            }
+            if (Files.isRegularFile(p) && Files.isReadable(p)) return p;
         }
         return null;
     }
@@ -174,7 +228,7 @@ public final class LibraryScanner {
         if (dir == null) return null;
         for (String ext : exts) {
             Path candidate = dir.resolve(base + ext);
-            if (Files.exists(candidate)) return candidate.toString();
+            if (Files.isRegularFile(candidate) && Files.isReadable(candidate)) return candidate.toString();
         }
         return null;
     }

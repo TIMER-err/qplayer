@@ -27,10 +27,6 @@ Rectangle {
     property var currentRoute: navigationStack.length > 0
                                ? navigationStack[navigationStack.length - 1] : null
     property string currentOverlay: currentRoute ? currentRoute.type : ""
-    property bool detailOpen: currentOverlay === "detail"
-    property bool settingsOpen: currentOverlay === "settings"
-    property bool accountOpen: currentOverlay === "account"
-    property bool cacheListOpen: currentOverlay === "cachedSongs"
     // Source-independent destinations (local files, cached songs, queue,
     // settings and lyrics) remain usable without a plugin. Every online-source
     // destination shares one setup affordance instead of each page inventing a
@@ -145,10 +141,29 @@ Rectangle {
     // of a literal 2/3, so the two pages' positions can be swapped in one place.
     readonly property int libraryPageIndex: showLocalTab ? 3 : 2
     readonly property int localPageIndex: showLocalTab ? 2 : -1
+    // Keep stable identities across the optional tab's insertion/removal. Read
+    // the old layout explicitly: derived index bindings have not flushed here.
+    property bool localTabLayout: false
+    function rootIdentity(index, localTab) {
+        if (index === 0) return "home"
+        if (index === 1) return "search"
+        if (localTab && index === 2) return "local"
+        return "library"
+    }
+    function rootIndex(identity, localTab) {
+        if (identity === "search") return 1
+        if (identity === "library") return localTab ? 3 : 2
+        if (identity === "local" && localTab) return 2
+        return 0
+    }
     onShowLocalTabChanged: {
-        // This only runs on the true->false edge, so page 2 here still means
-        // what it meant the instant before showLocalTab flipped: 本地.
-        if (!showLocalTab && app.page === 2) app.switchTo(0)
+        var current = app.rootIdentity(app.page, app.localTabLayout)
+        var pending = app.rootIdentity(app.nextPage, app.localTabLayout)
+        app.localTabLayout = app.showLocalTab
+        app.page = app.rootIndex(current, app.showLocalTab)
+        app.nextPage = app.rootIndex(pending, app.showLocalTab)
+        if (current === "library" || pending === "library") app.libraryLoaded = true
+        if (app.showLocalTab && (current === "local" || pending === "local")) app.localLoaded = true
     }
 
     // Responsive breakpoints: compact < 600, medium 600–839, expanded ≥ 840.
@@ -168,7 +183,10 @@ Rectangle {
     // actually shown (512 compact, 1024 once wide). Decided once per playlist
     // load, not continuously re-fetched on every resize.
     onWideChanged: player.setWideLayout(wide)
-    Component.onCompleted: player.setWideLayout(wide)
+    Component.onCompleted: {
+        app.localTabLayout = app.showLocalTab
+        player.setWideLayout(wide)
+    }
 
     // Shared nav model for both the bottom bar and the rail.
     property var navItems: showLocalTab
@@ -206,21 +224,34 @@ Rectangle {
     property int backTick: player.backTick
     onBackTickChanged: app.handleBack()
 
+    function dismissActiveDialog() {
+        // Dialog.open reparents its overlay to this root. Inspect overlays rather
+        // than a hand-maintained list of page-local picker/confirmation flags.
+        for (var i = app.children.length - 1; i >= 0; i--) {
+            var child = app.children[i]
+            if (child.objectName === "miuixDialogOverlay" && child.visible) {
+                child.consumeBack()
+                return true
+            }
+        }
+        return false
+    }
     function handleBack() {
+        // Root-reparented dialogs must consume Back before any underlying route
+        // or lyric surface. Non-dismissible credential decisions still consume it.
+        if (credentialDialogs.handleBack() || pluginDialogs.handleBack()) return
+        if (app.dismissActiveDialog()) return
+        if (player.songArtistPickerOpen) { player.closeSongArtistPicker(); return }
         if (mini.handleBack()) return
+        if (lyricOverlay.handleBack()) return
         if (player.temperaOpen || player.temperaOpacity > 0.001) {
             player.setTemperaOpen(false)
             return
         }
-        // An unreadable credential envelope requires an explicit decision. Letting
-        // outside click / Android back dismiss it would leave the app in an unclear
-        // half-logged-in state with no path to retry or start over.
-        if (credentialDialogs.handleBack() || pluginDialogs.handleBack()) return;
-        if (player.songArtistPickerOpen) { player.closeSongArtistPicker(); return; }
         if (app.showLog)            { app.showLog = false; return; }
-        if (app.loginOpen)          { app.loginOpen = false; return; }
         if (app.navigationStack.length > 0) { app.popPage(); return; }
         if (app.page !== 0)         { app.switchTo(0); return; }
+        // Android hosts move the task to the background; they do not finish it.
         player.requestExit();
     }
 
@@ -424,11 +455,17 @@ Rectangle {
     // route-backed pages. Keeping only one page painted avoids two expensive QML
     // trees being laid out during the transition.
     function switchTo(idx) {
+        if (idx < 0 || idx >= app.navItems.length) return
         var returningFromRoute = app.navigationStack.length > 0
         app.clearPages()
         if (idx === app.page) {
+            // The last click wins even while this page is still exiting.
+            var cancellingPending = app.nextPage !== app.page
+            app.nextPage = idx
             if (app.pageTransitionPreset === 0 && returningFromRoute)
                 rootPageMotion.enter()
+            else if (cancellingPending)
+                rootPageMotion.restore()
             return
         }
         if (idx === 1) app.searchLoaded = true

@@ -426,6 +426,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 if (view != null) view.dispatchKey(mapped, text, isDown, shift);
             }
         });
+        wakeRenderer();
         return true;
     }
 
@@ -442,6 +443,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 else view.paste();
             }
         });
+        wakeRenderer();
         return true;
     }
 
@@ -454,6 +456,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 if (view != null) view.dispatchKey(0, s, true);
             }
         });
+        wakeRenderer();
     }
 
     QmlView qmlView() {
@@ -482,17 +485,9 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 if (settings != null) settings.setSystemDark(dark);
             }
         });
+        wakeRenderer();
     }
 
-    void sendSyntheticKey(final int code, final String text) {
-        queueEvent(new Runnable() {
-            @Override public void run() {
-                if (view == null) return;
-                view.dispatchKey(code, text, true, false);
-                view.dispatchKey(code, text, false, false);
-            }
-        });
-    }
 
     void deleteFromIme(final int beforeLength) {
         if (beforeLength <= 0) return;
@@ -504,6 +499,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 }
             }
         });
+        wakeRenderer();
     }
 
     void performImeEnter() {
@@ -512,6 +508,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 if (view != null) view.dispatchKey(QmlView.KEY_ENTER, null, true);
             }
         });
+        wakeRenderer();
     }
 
     private static int mapKeyCode(int kc) {

@@ -6,6 +6,7 @@ import dev.t1m3.qplayer.util.Logger;
 import java.io.File;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
@@ -52,10 +53,10 @@ final class DesktopFilePicker {
                 I18n.tr("picker.playlistFiles"), PLAYLIST_EXTENSIONS, null, null, onPicked);
     }
 
-    static void saveAudio(String suggestedFileName, Consumer<String> onPicked) {
-        show(I18n.tr("picker.saveAudio"), initialDirectory(homeSubdirectory("Documents")), false,
+    static CompletableFuture<String> saveAudio(String suggestedFileName) {
+        return show(I18n.tr("picker.saveAudio"), initialDirectory(homeSubdirectory("Documents")), false,
                 I18n.tr("picker.audioFiles"), AUDIO_EXTENSIONS,
-                suggestedFileName == null ? "" : suggestedFileName, ".mp3", onPicked);
+                suggestedFileName == null ? "" : suggestedFileName, ".mp3", ignored -> { });
     }
 
     static void savePlaylist(String suggestedFileName, Consumer<String> onPicked) {
@@ -64,11 +65,15 @@ final class DesktopFilePicker {
                 suggestedFileName == null ? "" : suggestedFileName, ".qpl.json", onPicked);
     }
 
-    private static void show(String title, File directory, boolean directoryOnly,
+    private static CompletableFuture<String> show(String title, File directory, boolean directoryOnly,
                              String description, String[] extensions, String suggestedName,
                              String suffix, Consumer<String> onPicked) {
         Objects.requireNonNull(onPicked);
-        if (!OPEN.compareAndSet(false, true)) return;
+        CompletableFuture<String> result = new CompletableFuture<>();
+        if (!OPEN.compareAndSet(false, true)) {
+            result.complete(null);
+            return result;
+        }
         Runnable dialog = () -> {
             try {
                 boolean save = suffix != null;
@@ -84,14 +89,16 @@ final class DesktopFilePicker {
                     path = LinuxPortalFileDialog.show(title, directory.getAbsolutePath(), directoryOnly,
                             description, extensions, suggestedName, save);
                 }
-                // Cancel never calls the consumer. Keep the guard set through the callback,
-                // just as with the old chooser, including callbacks that throw.
+                // Other pickers retain accepted-only callbacks. The result also
+                // reports cancellation so save callers cannot be left pending.
                 if (path != null) {
                     if (save && !hasAnyExtension(path, extensions)) path += suffix;
                     onPicked.accept(path);
                 }
+                result.complete(path);
             } catch (Throwable error) {
                 Logger.warn("desktop native file dialog failed: {}", error.toString());
+                result.completeExceptionally(error);
             } finally {
                 OPEN.set(false);
             }
@@ -111,7 +118,9 @@ final class DesktopFilePicker {
         } catch (Throwable error) {
             OPEN.set(false);
             Logger.warn("desktop native file dialog dispatch failed: {}", error.toString());
+            result.completeExceptionally(error);
         }
+        return result;
     }
 
     private static boolean hasAnyExtension(String path, String[] extensions) {

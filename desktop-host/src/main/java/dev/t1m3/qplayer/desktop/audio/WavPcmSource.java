@@ -18,7 +18,9 @@ final class WavPcmSource implements PcmSource {
     private final int inFrame;        // bytes per input frame
     private byte[] in = new byte[0];
 
-    @Override public boolean hasBuffered(int n) { return src.hasBuffered(n); }
+    @Override public boolean hasBuffered(int n) {
+        return src.position() - dataStart >= dataLen || src.hasBuffered(n);
+    }
 
     WavPcmSource(SeekableByteSource src) throws IOException {
         this.src = src;

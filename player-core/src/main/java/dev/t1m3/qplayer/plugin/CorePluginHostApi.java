@@ -1,5 +1,8 @@
 package dev.t1m3.qplayer.plugin;
 
+import static dev.t1m3.qplayer.plugin.PluginHashes.hex;
+import static dev.t1m3.qplayer.plugin.PluginHashes.sha256;
+
 import com.google.gson.Gson;
 import dev.t1m3.qplayer.store.AppDirs;
 import dev.t1m3.qplayer.store.StorageFiles;
@@ -10,7 +13,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.HttpURLConnection;
+import okhttp3.Response;
 import java.net.InetAddress;
 import java.net.URI;
 import java.net.URL;
@@ -18,7 +21,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
-import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
@@ -30,10 +32,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.zip.GZIPInputStream;
 
 /** Core-owned, namespaced implementations of the non-UI plugin host services. */
@@ -66,11 +65,8 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
     /** Memoized {@link #allowsReturnedUrl} answers, keyed plugin + scheme + host. */
     private static final int MAX_URL_GRANT_ENTRIES = 512;
     private final Map<String, Boolean> urlGrants = new ConcurrentHashMap<>();
-    private final ExecutorService network = Executors.newFixedThreadPool(4, runnable -> {
-        Thread thread = new Thread(runnable, "qplayer-plugin-net");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private final PluginNetworkOperations network =
+            new PluginNetworkOperations(4, "qplayer-plugin-net");
     private final Path storageRoot;
     private final PluginCredentialVault credentials;
     private final Gson gson = new Gson();
@@ -157,6 +153,8 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
             return false;
         }
         if (host == null) return false;
+        String scheme = URI.create(url).getScheme();
+        if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) return false;
         // Scheme is part of the key: http and https on the same host are different
         // answers, since clear text needs its own permission.
         String key = pluginId + "|" + (clearText ? "http" : "https")
@@ -167,7 +165,11 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
         try {
             validateNetworkUrl(manifest, url);
             allowed = true;
-        } catch (Throwable ignored) {
+        } catch (IOException transientFailure) {
+            // Resolution/transport failure is not a grant decision. Retry after
+            // connectivity recovers instead of poisoning this host's cache.
+            return false;
+        } catch (SecurityException | IllegalArgumentException denied) {
             allowed = false;
         }
         // A pathological response could otherwise name an unbounded set of hosts.
@@ -223,10 +225,7 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
         final int timeout = Math.max(1_000, Math.min(30_000, timeoutMs));
         final Map<String, String> safeHeaders = headers != null
                 ? new LinkedHashMap<>(headers) : Collections.<String, String>emptyMap();
-        return CompletableFuture.supplyAsync(() -> {
-            try { return requestBytes(manifest, url, safeHeaders, limit, timeout); }
-            catch (IOException error) { throw new CompletionException(error); }
-        }, network);
+        return network.submit(() -> requestBytes(manifest, url, safeHeaders, limit, timeout));
     }
 
     /** Stream a provider-returned asset into a host-selected cache path without
@@ -256,15 +255,11 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
         final int timeout = Math.max(1_000, Math.min(120_000, timeoutMs));
         final Map<String, String> safeHeaders = headers != null
                 ? new LinkedHashMap<>(headers) : Collections.<String, String>emptyMap();
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                downloadFile(manifest, url, safeHeaders, target, limit, timeout,
-                        followPlaybackRedirects);
-                return Boolean.TRUE;
-            } catch (IOException error) {
-                throw new CompletionException(error);
-            }
-        }, network);
+        return network.submit(() -> {
+            downloadFile(manifest, url, safeHeaders, target, limit, timeout,
+                    followPlaybackRedirects);
+            return Boolean.TRUE;
+        });
     }
 
     @Override public CompletableFuture<Object> call(String pluginId, String method,
@@ -273,6 +268,9 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
         if (manifest == null) return failed(new SecurityException("plugin is not active"));
         Map<String, Object> args = arguments != null ? arguments : Collections.emptyMap();
         try {
+            network.checkCancelled();
+            PluginPermission required = PluginHostMethods.requiredPermission(method);
+            if (required != null) require(manifest, required);
             switch (method) {
                 case "storage.get": return completed(storageGet(pluginId, string(args, "key")));
                 case "storage.put":
@@ -281,15 +279,12 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
                 case "storage.delete":
                     return completed(Files.deleteIfExists(storagePath(pluginId, string(args, "key"))));
                 case "credentials.get":
-                    require(manifest, PluginPermission.CREDENTIALS);
                     return completed(readCredential(pluginId, string(args, "key")));
                 case "credentials.put":
-                    require(manifest, PluginPermission.CREDENTIALS);
                     credentials.put(pluginId, string(args, "key"),
                             string(args, "value").getBytes(StandardCharsets.UTF_8));
                     return completed(Boolean.TRUE);
                 case "credentials.delete":
-                    require(manifest, PluginPermission.CREDENTIALS);
                     return completed(credentials.delete(pluginId, string(args, "key")));
                 case "crypto.sha256":
                 case "crypto.digest":
@@ -301,11 +296,9 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
                 case "compression.gunzip":
                     return completed(PluginCryptoServices.call(method, args));
                 case "http.request":
-                    require(manifest, PluginPermission.NETWORK);
-                    return CompletableFuture.supplyAsync(() -> {
+                    return network.submit(() -> {
                         long startedAtNanos = System.nanoTime();
                         try { return request(manifest, args); }
-                        catch (IOException error) { throw new CompletionException(error); }
                         finally {
                             // Splits a slow provider call into "the service was slow"
                             // versus "the plugin's own JS was". Only the slow ones, so
@@ -316,12 +309,10 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
                                         requestHost(args));
                             }
                         }
-                    }, network);
+                    });
                 default:
                     AppBridge bridge = appBridge;
-                    PluginPermission appPermission = appPermission(method);
-                    if (appPermission != null) require(manifest, appPermission);
-                    return bridge != null && appPermission != null
+                    return bridge != null && PluginHostMethods.isAppMethod(method)
                             ? bridge.call(pluginId, method, args)
                             : failed(new UnsupportedOperationException(
                                     "host method is not implemented: " + method));
@@ -331,16 +322,6 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
         }
     }
 
-    private static PluginPermission appPermission(String method) {
-        if ("playback.read".equals(method)) return PluginPermission.PLAYBACK_READ;
-        if (method.startsWith("playback.")) return PluginPermission.PLAYBACK_CONTROL;
-        if (method.startsWith("queue.")) return PluginPermission.QUEUE_WRITE;
-        if (method.startsWith("notifications.")) return PluginPermission.NOTIFICATIONS;
-        if (method.startsWith("clipboard.")) return PluginPermission.CLIPBOARD;
-        if (method.startsWith("webAuth.")) return PluginPermission.WEB_AUTH;
-        if (method.startsWith("files.")) return PluginPermission.FILES_SAVE;
-        return null;
-    }
 
     private Object storageGet(String pluginId, String key) throws IOException {
         Path file = storagePath(pluginId, key);
@@ -404,6 +385,7 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
         // that asks for a thousand tracks otherwise pays for every byte of it.
         // A plugin that sets its own Accept-Encoding keeps the raw bytes.
         boolean hostNegotiatedGzip = !hasHeader(requestHeaders, "Accept-Encoding");
+        if (hostNegotiatedGzip) requestHeaders.put("Accept-Encoding", "gzip");
         // Some OAuth-style exchanges (a login redirect chain carrying a one-time
         // code in its Location header, say) need the redirect itself, not wherever
         // it eventually leads. Default stays true: every existing caller wants the
@@ -413,89 +395,50 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
 
         for (int redirect = 0; redirect <= MAX_REDIRECTS; redirect++) {
             URL url = validateNetworkUrl(manifest, current);
-            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-            connection.setInstanceFollowRedirects(false);
-            connection.setRequestMethod(method);
-            connection.setConnectTimeout(timeout);
-            connection.setReadTimeout(timeout);
-            connection.setRequestProperty("User-Agent", "QPlayer-Plugin/1");
-            if (hostNegotiatedGzip) connection.setRequestProperty("Accept-Encoding", "gzip");
-            for (Map.Entry<String, String> header : requestHeaders.entrySet()) {
-                String name = header.getKey();
-                if ("Host".equalsIgnoreCase(name) || "Content-Length".equalsIgnoreCase(name)
-                        || "Connection".equalsIgnoreCase(name)) continue;
-                connection.setRequestProperty(name, header.getValue());
-            }
-            if (body != null && body.length > 0) {
-                connection.setDoOutput(true);
-                try (OutputStream output = connection.getOutputStream()) { output.write(body); }
-            }
-            int status = connection.getResponseCode();
-            collectSetCookies(connection, setCookies);
-            String location = connection.getHeaderField("Location");
-            if (status >= 300 && status < 400 && followRedirects) {
-                // QQ / ptlogin QR confirm answers 302 with the login URL in
-                // Location and an empty body. Following that hop drops the
-                // JSONP the plugin parses (ptuiCB('0',...,url)), so a successful
-                // scan looks like "still waiting". Hand the redirect back as a
-                // synthetic ptuiCB instead of chasing it.
-                if (isPtloginHandoff(url, location)) {
-                    return ptloginHandoffResult(status, current, location, setCookies,
-                            connection, Boolean.TRUE.equals(args.get("includeBase64")));
-                }
-                connection.disconnect();
-                if (location == null || redirect == MAX_REDIRECTS) {
-                    throw new IOException("HTTP redirect limit reached");
-                }
-                current = new URL(url, location).toString();
-                if (status == 303 || ((status == 301 || status == 302) && "POST".equals(method))) {
-                    method = "GET";
-                    body = null;
-                    if (!methods.contains(method)) {
-                        throw new SecurityException("redirected HTTP method is not declared: " + method);
+            try (Response response = network.execute(url, method, requestHeaders, body, timeout, timeout)) {
+                int status = response.code();
+                collectSetCookies(response, setCookies);
+                String location = response.header("Location");
+                if (status >= 300 && status < 400 && followRedirects) {
+                    if (isPtloginHandoff(url, location)) {
+                        return ptloginHandoffResult(status, current, location, setCookies,
+                                response, Boolean.TRUE.equals(args.get("includeBase64")));
                     }
+                    if (location == null || redirect == MAX_REDIRECTS) {
+                        throw new IOException("HTTP redirect limit reached");
+                    }
+                    current = new URL(url, location).toString();
+                    if (status == 303 || ((status == 301 || status == 302) && "POST".equals(method))) {
+                        method = "GET";
+                        body = null;
+                        if (!methods.contains(method)) {
+                            throw new SecurityException("redirected HTTP method is not declared: " + method);
+                        }
+                    }
+                    continue;
                 }
-                continue;
-            }
-            // A caller that opted out of following still gets the redirect itself
-            // here (status 3xx, Location among the headers below) rather than
-            // whatever the body-reading branch below expects.
-            InputStream raw = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
-            byte[] response;
-            try {
-                response = raw != null ? readLimited(raw, MAX_HTTP_BYTES) : new byte[0];
-            } catch (IOException error) {
-                // A body that hit the cap is left undrained, and a half-read
-                // connection must not go back into the keep-alive pool.
-                connection.disconnect();
-                throw error;
-            }
-            boolean decoded = hostNegotiatedGzip
-                    && "gzip".equalsIgnoreCase(trimmed(connection.getHeaderField("Content-Encoding")));
-            if (decoded) response = gunzipLimited(response, MAX_HTTP_BYTES);
-            Map<String, Object> result = new LinkedHashMap<>();
-            result.put("status", status);
-            result.put("finalUrl", current);
-            result.put("body", new String(response, StandardCharsets.UTF_8));
-            if (Boolean.TRUE.equals(args.get("includeBase64"))) {
-                result.put("bodyBase64", Base64.getEncoder().encodeToString(response));
-            }
-            Map<String, String> responseHeaders = new LinkedHashMap<>();
-            for (Map.Entry<String, List<String>> header : connection.getHeaderFields().entrySet()) {
-                if (header.getKey() != null && header.getValue() != null) {
-                    // Both of these describe bytes the plugin never sees once the
-                    // host has decoded the body for it.
+                byte[] bytes = readLimited(response.body().byteStream(), MAX_HTTP_BYTES);
+                boolean decoded = hostNegotiatedGzip
+                        && "gzip".equalsIgnoreCase(trimmed(response.header("Content-Encoding")));
+                if (decoded) bytes = gunzipLimited(bytes, MAX_HTTP_BYTES);
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("status", status);
+                result.put("finalUrl", current);
+                result.put("body", new String(bytes, StandardCharsets.UTF_8));
+                if (Boolean.TRUE.equals(args.get("includeBase64"))) {
+                    result.put("bodyBase64", Base64.getEncoder().encodeToString(bytes));
+                }
+                Map<String, String> responseHeaders = new LinkedHashMap<>();
+                for (Map.Entry<String, List<String>> header : response.headers().toMultimap().entrySet()) {
                     if (decoded && ("Content-Encoding".equalsIgnoreCase(header.getKey())
                             || "Content-Length".equalsIgnoreCase(header.getKey()))) continue;
                     responseHeaders.put(header.getKey(), String.join(", ", header.getValue()));
                 }
+                result.put("headers", responseHeaders);
+                result.put("setCookies", setCookies);
+                // Closing the consumed body returns the socket to OkHttp's pool.
+                return result;
             }
-            result.put("headers", responseHeaders);
-            result.put("setCookies", setCookies);
-            // Deliberately not disconnect(): the body is fully read, so leaving the
-            // connection in the JDK's keep-alive pool saves the next call to the
-            // same host a TCP and TLS handshake, and a fresh slow-start window.
-            return result;
         }
         throw new IOException("HTTP request failed");
     }
@@ -515,7 +458,7 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
     }
 
     private static Map<String, Object> ptloginHandoffResult(int status, String finalUrl,
-            String location, List<String> setCookies, HttpURLConnection connection,
+            String location, List<String> setCookies, Response response,
             boolean includeBase64) {
         String escaped = location.replace("\\", "\\\\").replace("'", "\\'");
         String body = "ptuiCB('0','0','" + escaped + "','0','','')";
@@ -528,7 +471,7 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
                     .encodeToString(body.getBytes(StandardCharsets.UTF_8)));
         }
         Map<String, String> responseHeaders = new LinkedHashMap<>();
-        Map<String, List<String>> headers = connection.getHeaderFields();
+        Map<String, List<String>> headers = response.headers().toMultimap();
         if (headers != null) {
             for (Map.Entry<String, List<String>> header : headers.entrySet()) {
                 if (header.getKey() != null && header.getValue() != null) {
@@ -544,15 +487,8 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
     /** Login redirects often plant session cookies on the 302 itself. Dropping
      *  those made QR confirm look successful in Douyin while QPlayer never saw
      *  a sessionid. */
-    private static void collectSetCookies(HttpURLConnection connection, List<String> out) {
-        Map<String, List<String>> headers = connection.getHeaderFields();
-        if (headers == null) return;
-        for (Map.Entry<String, List<String>> header : headers.entrySet()) {
-            if (header.getKey() != null && "Set-Cookie".equalsIgnoreCase(header.getKey())
-                    && header.getValue() != null) {
-                out.addAll(header.getValue());
-            }
-        }
+    private static void collectSetCookies(Response response, List<String> out) {
+        out.addAll(response.headers().values("Set-Cookie"));
     }
 
     private byte[] requestBytes(PluginManifest manifest, String initial,
@@ -561,39 +497,18 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
         String current = initial;
         for (int redirect = 0; redirect <= MAX_REDIRECTS; redirect++) {
             URL url = validateNetworkUrl(manifest, current);
-            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-            connection.setInstanceFollowRedirects(false);
-            connection.setRequestMethod("GET");
-            connection.setConnectTimeout(timeout);
-            connection.setReadTimeout(timeout);
-            connection.setRequestProperty("User-Agent", "QPlayer-Plugin/1");
-            for (Map.Entry<String, String> header : headers.entrySet()) {
-                String name = header.getKey();
-                if ("Host".equalsIgnoreCase(name) || "Content-Length".equalsIgnoreCase(name)
-                        || "Connection".equalsIgnoreCase(name)) continue;
-                connection.setRequestProperty(name, header.getValue());
-            }
-            int status = connection.getResponseCode();
-            if (status >= 300 && status < 400) {
-                String location = connection.getHeaderField("Location");
-                connection.disconnect();
-                if (location == null || redirect == MAX_REDIRECTS) {
-                    throw new IOException("HTTP redirect limit reached");
+            try (Response response = network.execute(url, "GET", headers, null, timeout, timeout)) {
+                int status = response.code();
+                if (status >= 300 && status < 400) {
+                    String location = response.header("Location");
+                    if (location == null || redirect == MAX_REDIRECTS) {
+                        throw new IOException("HTTP redirect limit reached");
+                    }
+                    current = new URL(url, location).toString();
+                    continue;
                 }
-                current = new URL(url, location).toString();
-                continue;
-            }
-            if (status >= 400) {
-                connection.disconnect();
-                throw new IOException("HTTP " + status);
-            }
-            try {
-                // Left connected on success for the same reason as above: a
-                // playlist's worth of cover art is a run of requests to one host.
-                return readLimited(connection.getInputStream(), limit);
-            } catch (IOException error) {
-                connection.disconnect();
-                throw error;
+                if (status >= 400) throw new IOException("HTTP " + status);
+                return readLimited(response.body().byteStream(), limit);
             }
         }
         throw new IOException("HTTP request failed");
@@ -613,52 +528,36 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
             for (int redirect = 0; redirect <= MAX_REDIRECTS; redirect++) {
                 boolean enforceDomain = !followPlaybackRedirects || redirect == 0;
                 URL url = validateNetworkUrl(manifest, current, enforceDomain);
-                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-                connection.setInstanceFollowRedirects(false);
-                connection.setRequestMethod("GET");
-                connection.setConnectTimeout(timeout);
-                connection.setReadTimeout(timeout);
-                connection.setRequestProperty("User-Agent", "QPlayer-Plugin/1");
-                for (Map.Entry<String, String> header : headers.entrySet()) {
-                    String name = header.getKey();
-                    if ("Host".equalsIgnoreCase(name) || "Content-Length".equalsIgnoreCase(name)
-                            || "Connection".equalsIgnoreCase(name)) continue;
-                    connection.setRequestProperty(name, header.getValue());
-                }
-                int status = connection.getResponseCode();
-                if (status >= 300 && status < 400) {
-                    String location = connection.getHeaderField("Location");
-                    connection.disconnect();
-                    if (location == null || redirect == MAX_REDIRECTS) {
-                        throw new IOException("HTTP redirect limit reached");
+                try (Response response = network.execute(url, "GET", headers, null, timeout, timeout)) {
+                    int status = response.code();
+                    if (status >= 300 && status < 400) {
+                        String location = response.header("Location");
+                        if (location == null || redirect == MAX_REDIRECTS) {
+                            throw new IOException("HTTP redirect limit reached");
+                        }
+                        current = new URL(url, location).toString();
+                        continue;
                     }
-                    current = new URL(url, location).toString();
-                    continue;
-                }
-                if (status >= 400) {
-                    connection.disconnect();
-                    throw new IOException("HTTP " + status);
-                }
-                long declared = connection.getContentLengthLong();
-                if (declared > limit) {
-                    connection.disconnect();
-                    throw new IOException("plugin download exceeds size limit");
-                }
-                try (InputStream input = connection.getInputStream();
-                     OutputStream output = Files.newOutputStream(pending)) {
-                    byte[] buffer = new byte[32 * 1024];
-                    long total = 0L;
-                    int count;
-                    while ((count = input.read(buffer)) >= 0) {
-                        total += count;
-                        if (total > limit) throw new IOException("plugin download exceeds size limit");
-                        output.write(buffer, 0, count);
+                    if (status >= 400) throw new IOException("HTTP " + status);
+                    if (response.body().contentLength() > limit) {
+                        throw new IOException("plugin download exceeds size limit");
                     }
-                } finally {
-                    connection.disconnect();
+                    try (InputStream input = response.body().byteStream();
+                         OutputStream output = Files.newOutputStream(pending)) {
+                        byte[] buffer = new byte[32 * 1024];
+                        long total = 0L;
+                        int count;
+                        while ((count = input.read(buffer)) >= 0) {
+                            total += count;
+                            if (total > limit) throw new IOException("plugin download exceeds size limit");
+                            network.checkCancelled();
+                            output.write(buffer, 0, count);
+                        }
+                    }
+                    network.checkCancelled();
+                    StorageFiles.replace(pending, normalized);
+                    return;
                 }
-                StorageFiles.replace(pending, normalized);
-                return;
             }
             throw new IOException("HTTP request failed");
         } finally {
@@ -715,7 +614,7 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
         // Screen the declared host's addresses so a plugin cannot aim a permitted
         // name at the loopback/LAN services around it.
         //
-        // Note this is resolve-then-connect: HttpURLConnection performs its own
+        // Note this is resolve-then-connect: the transport performs its own
         // lookup afterwards, so a hostile DNS server answering with a public address
         // here and 127.0.0.1 there (classic rebinding) is not excluded by this check
         // alone. What closes it in practice is TLS — the local service the second
@@ -723,8 +622,7 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
         // so the handshake fails before any body is read. That leaves plain HTTP as
         // the only exposed shape, and reaching it already requires the separately
         // declared, user-visible CLEAR_TEXT_NETWORK permission checked above.
-        // Removing the gap outright needs an HTTP client that can be pinned to an
-        // already-vetted address, which HttpURLConnection does not offer.
+        // A request-specific pinned DNS resolver is not configured here.
         if (!manifest.permissionSet().contains(PluginPermission.LOCAL_NETWORK)) {
             for (InetAddress address : InetAddress.getAllByName(host)) {
                 if (address.isAnyLocalAddress() || address.isLoopbackAddress()
@@ -957,7 +855,7 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
     }
 
     private static Map<String, String> stringMap(Object value) {
-        if (!(value instanceof Map)) return Collections.emptyMap();
+        if (!(value instanceof Map)) return new LinkedHashMap<>();
         if (((Map<?, ?>) value).size() > MAX_HEADER_COUNT) {
             throw new IllegalArgumentException("too many plugin HTTP headers");
         }
@@ -977,16 +875,9 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
         return result;
     }
 
-    private static byte[] sha256(byte[] value) {
-        try { return MessageDigest.getInstance("SHA-256").digest(value); }
-        catch (GeneralSecurityException e) { throw new AssertionError(e); }
-    }
+    
 
-    private static String hex(byte[] bytes) {
-        StringBuilder out = new StringBuilder(bytes.length * 2);
-        for (byte value : bytes) out.append(String.format(Locale.ROOT, "%02x", value & 0xff));
-        return out.toString();
-    }
+    
 
     private static <T> CompletableFuture<T> completed(T value) {
         return CompletableFuture.completedFuture(value);
@@ -998,8 +889,17 @@ public final class CorePluginHostApi implements PolicyAwarePluginHostApi, AutoCl
         return future;
     }
 
+    /**
+     * Permanently stops network admission and cancels queued/in-flight work.
+     * The barrier completes only after real producers close their streams and
+     * clean pending files; callers may then release cache-path leases.
+     */
+    public CompletableFuture<Void> cancelPendingOperations() {
+        return network.cancelPendingOperations();
+    }
+
     @Override public void close() {
-        network.shutdownNow();
+        cancelPendingOperations();
         policies.clear();
     }
 

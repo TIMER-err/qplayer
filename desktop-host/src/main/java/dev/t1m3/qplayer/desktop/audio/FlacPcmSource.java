@@ -32,7 +32,9 @@ final class FlacPcmSource implements PcmSource {
     private int pendingLen = 0;
     private boolean eof = false;
 
-    @Override public boolean hasBuffered(int n) { return src.hasBuffered(n); }
+    @Override public boolean hasBuffered(int n) {
+        return pendingPos < pendingLen || eof || src.hasBuffered(n);
+    }
 
     FlacPcmSource(SeekableByteSource src) throws IOException {
         // Route the decoder through src (not a plain file handle) so a remote

@@ -175,7 +175,7 @@ public class TemperaIntegrationTest {
         } finally {
             if (view != null) view.dispose();
             page.dispose();
-            if (player != null) player.shutdown();
+            if (player != null) player.shutdownAsync().join();
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCache);
         }

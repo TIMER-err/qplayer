@@ -7,14 +7,15 @@ import javazoom.jl.decoder.SampleBuffer;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Map;
+import java.util.TreeMap;
 
 /**
- * MP3 decoder over JLayer. Seeking walks frame <em>headers</em> from the start
- * — {@code readFrame}/{@code closeFrame} without the costly subband synthesis —
- * accumulating {@link Header#ms_per_frame()} until the target. That is roughly
- * two orders of magnitude cheaper than the old decode-everything-and-discard
- * seek, and stays accurate on VBR streams (it counts real frames, not an
- * estimated byte offset).
+ * MP3 decoder over JLayer. A sparse, per-source frame index is extended only
+ * into unscanned audio and reused by subsequent seeks. Entries count actual
+ * MPEG frame durations (including VBR), not estimated byte/bitrate ratios.
+ * Decode a short lead-in before the target to rebuild Layer III's reservoir
+ * and synthesis filters.
  */
 final class Mp3PcmSource implements PcmSource {
 
@@ -28,14 +29,24 @@ final class Mp3PcmSource implements PcmSource {
     private int pendingPos = 0;
     private int pendingLen = 0;
     private boolean eof = false;
+    private TreeMap<Double, Long> seekIndex = new TreeMap<>();
+    private final byte[] scanHeader = new byte[4];
+    private long scanOffset;
+    private long scannedFrames;
+    private double scannedMs;
+    private boolean scanEnded;
 
-    @Override public boolean hasBuffered(int n) { return src.hasBuffered(n); }
+    @Override public boolean hasBuffered(int n) {
+        return pendingPos < pendingLen || eof || src.hasBuffered(n);
+    }
 
     Mp3PcmSource(SeekableByteSource src) throws IOException {
         this.src = src;
         src.seek(0);
         this.bitstream = new Bitstream(new SrcStream());
         this.decoder = new Decoder();
+        scanOffset = bitstream.header_pos();
+        seekIndex.put(0.0, scanOffset);
         // Decode the first frame to nail down the output format.
         try {
             Header h = bitstream.readFrame();
@@ -112,13 +123,18 @@ final class Mp3PcmSource implements PcmSource {
     @Override
     public long seek(long ms) throws IOException {
         try {
-            src.seek(0);
+            long target = Math.max(0L, ms);
+            extendIndex(target);
+            Map.Entry<Double, Long> entry = seekIndex.floorEntry(Math.max(0.0, target - 500.0));
+            bitstream.close();
+            src.seek(entry.getValue());
             bitstream = new Bitstream(new SrcStream());
             decoder = new Decoder();
-            double accumMs = 0;
-            while (accumMs < ms) {
+            double accumMs = entry.getKey();
+            while (accumMs < target) {
                 Header h = bitstream.readFrame();
                 if (h == null) break;
+                decoder.decodeFrame(h, bitstream);
                 accumMs += h.ms_per_frame();
                 bitstream.closeFrame();
             }
@@ -130,6 +146,51 @@ final class Mp3PcmSource implements PcmSource {
         } catch (Exception e) {
             throw new IOException("MP3 seek failed", e);
         }
+    }
+
+    private void extendIndex(long target) throws IOException {
+        while (!scanEnded && scannedMs < target) {
+            src.seek(scanOffset);
+            int got = 0;
+            while (got < 4) {
+                int n = src.read(scanHeader, got, 4 - got);
+                if (n < 0) { scanEnded = true; return; }
+                got += n;
+            }
+            int header = ((scanHeader[0] & 255) << 24) | ((scanHeader[1] & 255) << 16)
+                    | ((scanHeader[2] & 255) << 8) | (scanHeader[3] & 255);
+            int versionBits = (header >>> 19) & 3;
+            int layerBits = (header >>> 17) & 3;
+            int rateIndex = (header >>> 10) & 3;
+            int bitrateIndex = (header >>> 12) & 15;
+            if ((header & 0xffe00000) != 0xffe00000 || versionBits == 1 || layerBits == 0
+                    || rateIndex == 3 || bitrateIndex == 0 || bitrateIndex == 15) {
+                scanOffset++;
+                continue;
+            }
+            int version = versionBits == 3 ? Header.MPEG1
+                    : versionBits == 2 ? Header.MPEG2_LSF : Header.MPEG25_LSF;
+            int layer = 4 - layerBits;
+            int rate = Header.frequencies[version][rateIndex];
+            int bitrate = Header.bitrates[version][layer - 1][bitrateIndex];
+            int padding = (header >>> 9) & 1;
+            int frameBytes = layer == 1 ? (12 * bitrate / rate + padding) * 4
+                    : (layer == 3 && version != Header.MPEG1 ? 72 : 144) * bitrate / rate + padding;
+            int samples = layer == 1 ? 384 : layer == 3 && version != Header.MPEG1 ? 576 : 1152;
+            if ((scannedFrames++ & 63) == 0) seekIndex.put(scannedMs, scanOffset);
+            scanOffset += frameBytes;
+            scannedMs += samples * 1000.0 / rate;
+        }
+    }
+
+    /** Audio-thread handoff only: the old decoder has already relinquished this stream. */
+    void reuseSeekIndex(Mp3PcmSource previous) {
+        if (sampleRate != previous.sampleRate || channels != previous.channels) return;
+        seekIndex = previous.seekIndex;
+        scanOffset = previous.scanOffset;
+        scannedFrames = previous.scannedFrames;
+        scannedMs = previous.scannedMs;
+        scanEnded = previous.scanEnded;
     }
 
     @Override
@@ -148,11 +209,11 @@ final class Mp3PcmSource implements PcmSource {
 
     /** Adapts the seekable byte source to the InputStream JLayer expects. */
     private final class SrcStream extends InputStream {
+        private final byte[] one = new byte[1];
         @Override
         public int read() throws IOException {
-            byte[] b = new byte[1];
-            int n = read(b, 0, 1);
-            return n < 0 ? -1 : (b[0] & 0xff);
+            int n = read(one, 0, 1);
+            return n < 0 ? -1 : (one[0] & 0xff);
         }
 
         @Override

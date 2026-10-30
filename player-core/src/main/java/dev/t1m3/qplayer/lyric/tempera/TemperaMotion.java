@@ -63,6 +63,8 @@ public final class TemperaMotion {
         public float echoX;
         public float echoY;
         public float echoAlpha;
+        private final TemperaEnterStyles.Input enterInput = new TemperaEnterStyles.Input(0, 0, 0, 1);
+        private final TemperaEnterStyles.Frame entrance = new TemperaEnterStyles.Frame();
     }
 
     /**
@@ -71,13 +73,20 @@ public final class TemperaMotion {
      * @param motion 调参/主题缩放后的量；0 会把字素钉在排版位置
      */
     public static Frame resolve(Input glyph, double time, float motion) {
+        return resolve(glyph, time, motion, new Frame());
+    }
+
+    public static Frame resolve(Input glyph, double time, float motion, Frame out) {
         float window = Math.max((float) (glyph.settleTime - glyph.startTime), 0.08f);
         float linear = TemperaMotionEasing.clamp01((time - glyph.startTime) / window);
         float travel = 1f - TemperaMotionEasing.easeEnter(linear);
-        TemperaEnterStyles.Input enterInput = new TemperaEnterStyles.Input(
-                glyph.enterX, glyph.enterY, glyph.enterRotation, glyph.enterScale);
+        TemperaEnterStyles.Input enterInput = out.enterInput;
+        enterInput.enterX = glyph.enterX;
+        enterInput.enterY = glyph.enterY;
+        enterInput.enterRotation = glyph.enterRotation;
+        enterInput.enterScale = glyph.enterScale;
         TemperaEnterStyles.Frame entrance = TemperaEnterStyles.resolve(
-                glyph.enterStyle, enterInput, travel, linear);
+                glyph.enterStyle, enterInput, travel, linear, out.entrance);
         // 不透明度与残影跑在各自有上限的窗口上；位置与缩放保持完整拉伸的那个窗口，
         // 这正是把一行长字变成一次连续运动的原因。
         float reveal = TemperaMotionEasing.clamp01(
@@ -115,7 +124,6 @@ public final class TemperaMotion {
         // 会把每种样式都钉在排版位置上。
         float amount = TemperaMotionEasing.clamp01(motion);
         float swell = emphasis * CURRENT_EMPHASIS * amount;
-        Frame out = new Frame();
         out.visible = time >= glyph.startTime;
         out.alpha = alpha;
         out.x = entrance.x * motion + driftX;

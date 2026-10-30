@@ -102,7 +102,7 @@ public final class LyricParser {
     private static void attachParsedSidecar(List<LyricLine> mainLines,
                                              List<LyricLine> sidecar,
                                              boolean isTranslation) {
-        if (sidecar == null || sidecar.isEmpty()) return;
+        if (mainLines.isEmpty() || sidecar == null || sidecar.isEmpty()) return;
         int j = 0;
         for (LyricLine line : sidecar) {
             long start = line.startMs();
@@ -118,20 +118,7 @@ public final class LyricParser {
 
     /** Same logic as {@link #attachSidecar} but from a raw content string. */
     private static void attachSidecarContent(List<LyricLine> mainLines, String content, boolean isTranslation) {
-        List<LyricLine> sidecar = LrcParser.parse(content);
-        if (sidecar.isEmpty()) return;
-        int j = 0;
-        for (LyricLine s : sidecar) {
-            long start = s.startMs();
-            while (j + 1 < mainLines.size()
-                    && Math.abs(mainLines.get(j + 1).startMs() - start)
-                    < Math.abs(mainLines.get(j).startMs() - start)) {
-                j++;
-            }
-            String text = s.text();
-            if (isTranslation) mainLines.get(j).translation = text;
-            else mainLines.get(j).romaji = text;
-        }
+        attachParsedSidecar(mainLines, LrcParser.parse(content), isTranslation);
     }
 
     public static List<LyricLine> parseFile(String path) {
@@ -149,26 +136,11 @@ public final class LyricParser {
     }
 
     /**
-     * Sidecar is always LRC-style (single line per timestamp). Match each
-     * sidecar entry to the nearest main line by start time and attach as
-     * translation or romaji.
+     * Parse by sidecar extension, then match each entry to the nearest main line
+     * by start time. Raw provider strings retain their LRC-only parsing boundary.
      */
     private static void attachSidecar(List<LyricLine> mainLines, String path, boolean isTranslation) {
-        List<LyricLine> sidecar = parseFile(path);
-        if (sidecar.isEmpty()) return;
-        int j = 0;
-        for (LyricLine s : sidecar) {
-            long start = s.startMs();
-            // Advance j while the next main line is closer to `start`.
-            while (j + 1 < mainLines.size()
-                    && Math.abs(mainLines.get(j + 1).startMs() - start)
-                    < Math.abs(mainLines.get(j).startMs() - start)) {
-                j++;
-            }
-            String text = s.text();
-            if (isTranslation) mainLines.get(j).translation = text;
-            else mainLines.get(j).romaji = text;
-        }
+        attachParsedSidecar(mainLines, parseFile(path), isTranslation);
     }
 
     private static String readWithEncodingFallback(String path) {

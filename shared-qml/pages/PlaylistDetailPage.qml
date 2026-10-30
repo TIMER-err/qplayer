@@ -43,21 +43,32 @@ Rectangle {
     MouseArea { anchors.fill: parent }
 
     readonly property bool compactHeader: page.width < 600
-    readonly property bool canHeart: player.loggedIn && !player.playlistLoading
+    // Method calls alone are not reactive. Read the account projection as well
+    // so a secondary provider signing in/out refreshes its own action gates.
+    readonly property bool targetMutable: {
+        var accounts = player.sourceAccounts
+        return player.openSourcePlaylistId !== ""
+            && player.canMutateMediaPlaylist(player.openSourcePlaylistId)
+    }
+    readonly property bool targetHeart: {
+        var accounts = player.sourceAccounts
+        return player.openSourcePlaylistId !== ""
+            && player.canHeartMediaPlaylist(player.openSourcePlaylistId)
+    }
+    readonly property bool targetSignedIn: {
+        var accounts = player.sourceAccounts
+        return player.openSourcePlaylistId !== ""
+            && player.providerLoggedIn(player.openSourcePlaylistId.split(":")[0])
+    }
+    readonly property bool canHeart: !player.playlistLoading && page.targetHeart
                                      && tracks.list && tracks.list.length > 0
-                                     && (player.openSourcePlaylistId === ""
-                                         || player.sourceHeartRecommendationAvailable)
     readonly property bool canFollow: !player.playlistLoading && player.openSourcePlaylistId !== ""
-    readonly property bool canSubscribe: player.loggedIn && !player.playlistLoading && !player.playlistOwned
-                                         && (player.openSourcePlaylistId === ""
-                                             || player.sourcePlaylistMutationAvailable)
-    // Owned is already source-specific; don't also require the *primary*
-    // account's loggedIn, or a QQ playlist hides its cover action while
-    // NetEase is the primary source.
+    readonly property bool canSubscribe: !player.playlistLoading && !player.playlistOwned
+                                         && page.targetMutable
     readonly property bool canChangeCover: !player.playlistLoading && player.playlistOwned
-                                           && (player.openSourcePlaylistId === ""
-                                               ? player.loggedIn : player.sourcePlaylistCoverAvailable)
-    readonly property bool canDelete: player.loggedIn && !player.playlistLoading && player.playlistDeletable
+                                           && player.sourcePlaylistCoverAvailable && page.targetSignedIn
+    readonly property bool canDelete: !player.playlistLoading && player.playlistDeletable
+                                      && page.targetMutable
     readonly property bool hasHeaderActions: page.canHeart || page.canFollow || page.canSubscribe
                                              || page.canChangeCover || page.canDelete || page.canSelect
     readonly property bool canSelect: !player.playlistLoading && page.filteredTracks

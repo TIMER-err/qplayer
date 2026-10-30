@@ -3,6 +3,7 @@ package dev.t1m3.qplayer.desktop.audio;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
 
 /** {@link SeekableByteSource} over a local file — random access is free. */
 final class FileByteSource implements SeekableByteSource {
@@ -20,6 +21,11 @@ final class FileByteSource implements SeekableByteSource {
     @Override
     public int read(byte[] dst, int off, int len) throws IOException {
         return raf.read(dst, off, len);
+    }
+
+    /** Fill a native decoder buffer directly, using this source's cancellable channel. */
+    int read(ByteBuffer dst) throws IOException {
+        return raf.getChannel().read(dst);
     }
 
     @Override

@@ -11,6 +11,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -18,6 +19,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.assertEquals;
@@ -104,8 +106,162 @@ public class AacPcmSourceTest {
     }
 
     @Test(timeout = 15_000)
+    public void forwardMetadataSeekKeepsTheAcceptedChunkedResponseProgressing() throws Exception {
+        byte[] payload = fixtureBytes("stereo-faststart.mp4");
+        CountDownLatch releaseHead = new CountDownLatch(1);
+        CountDownLatch releaseTail = new CountDownLatch(1);
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        // The default server executor serializes requests. A speculative Range
+        // cannot receive headers until this accepted response finishes.
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/audio", exchange -> {
+            exchange.sendResponseHeaders(200, 0);
+            try (var body = exchange.getResponseBody()) {
+                body.write(payload, 0, 27);
+                body.flush();
+                if (!releaseHead.await(5, TimeUnit.SECONDS)) throw new IOException("head was not requested");
+                int split = payload.length * 2 / 3;
+                body.write(payload, 27, split - 27);
+                body.flush();
+                if (!releaseTail.await(10, TimeUnit.SECONDS)) throw new IOException("decoder did not start");
+                body.write(payload, split, payload.length - split);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (IOException expectedOnCancellation) {
+                // The decoder closes after the first audible PCM window.
+            } finally {
+                exchange.close();
+            }
+        });
+        server.start();
+        try (SeekableByteSource bytes = new HttpByteSource(ProgressiveAudioTest.url(server), Map.of())) {
+            byte[] prefix = new byte[27];
+            int got = 0;
+            while (got < prefix.length) {
+                int count = bytes.read(prefix, got, prefix.length - got);
+                assertTrue(count > 0);
+                got += count;
+            }
+            // A 28-byte ftyp box can advance one byte beyond the first chunk.
+            // Force that ordering instead of depending on downloader scheduling.
+            bytes.seek(28);
+            releaseHead.countDown();
+            Future<byte[]> decoded = worker.submit(() -> {
+                try (PcmSource source = PcmSource.decode(bytes)) {
+                    assertEquals(48_000, source.sampleRate());
+                    assertEquals(2, source.channels());
+                    return readPcm(source, 48_000 / 5);
+                }
+            });
+            assertTone(decoded.get(5, TimeUnit.SECONDS), 2, 48_000, 440);
+            assertEquals("the HTTP tail is still withheld", 1L, releaseTail.getCount());
+        } finally {
+            releaseHead.countDown();
+            releaseTail.countDown();
+            worker.shutdownNow();
+            server.stop(0);
+        }
+    }
+
+    @Test(timeout = 15_000)
     public void decodesDashFromExtensionlessHttpUrlWithRequestHeaders() throws Exception {
         assertChunkedHttp("stereo-dash.m4s", 44_100, true);
+    }
+
+    @Test(timeout = 10_000)
+    public void moovTailUsesRangeWhileOriginalSequentialResponseIsStillBlocked() throws Exception {
+        byte[] payload = fixtureBytes("mono-tail.m4a");
+        CountDownLatch tail = new CountDownLatch(1);
+        CountDownLatch range = new CountDownLatch(1);
+        ExecutorService requests = Executors.newCachedThreadPool();
+        ExecutorService decoder = Executors.newSingleThreadExecutor();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.setExecutor(requests);
+        server.createContext("/audio", exchange -> {
+            String requested = exchange.getRequestHeaders().getFirst("Range");
+            int start = requested == null ? 0 : Integer.parseInt(requested.substring(6, requested.length() - 1));
+            if (requested != null) {
+                range.countDown();
+                exchange.getResponseHeaders().set("Content-Range",
+                        "bytes " + start + "-" + (payload.length - 1) + "/" + payload.length);
+            }
+            exchange.sendResponseHeaders(requested == null ? 200 : 206, payload.length - start);
+            try (var body = exchange.getResponseBody()) {
+                if (requested == null) {
+                    body.write(payload, 0, 300);
+                    body.flush();
+                    tail.await(8, TimeUnit.SECONDS);
+                    body.write(payload, 300, payload.length - 300);
+                } else {
+                    body.write(payload, start, payload.length - start);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (IOException expectedOnCancellation) {
+                // Replaced sequential request is deliberately disconnected.
+            } finally { exchange.close(); }
+        });
+        server.start();
+        try {
+            Future<Integer> firstPcm = decoder.submit(() -> {
+                try (PcmSource source = PcmSource.open(ProgressiveAudioTest.url(server), Map.of())) {
+                    assertEquals(44_100, source.sampleRate());
+                    assertEquals(1, source.channels());
+                    return source.read(new byte[4_096], 0, 4_096);
+                }
+            });
+            assertTrue("tail metadata and initial samples must not await sequential mdat download",
+                    firstPcm.get(3, TimeUnit.SECONDS) > 0);
+            assertEquals("the decoder requested a real HTTP Range", 0L, range.getCount());
+            assertEquals("the original sequential tail is still withheld", 1L, tail.getCount());
+        } finally {
+            tail.countDown();
+            decoder.shutdownNow();
+            server.stop(0);
+            requests.shutdownNow();
+        }
+    }
+
+    @Test(timeout = 10_000)
+    public void pendingGrowingAacWaitsForMetadataAndFramesInsteadOfReportingNoProgress() throws Exception {
+        byte[] payload = fixtureBytes("stereo-faststart.mp4");
+        Path file = Files.createTempFile("qplayer-growing-aac-", ".part");
+        Files.write(file, Arrays.copyOf(payload, 300));
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        CountDownLatch firstPcm = new CountDownLatch(1);
+        GrowingFileByteSource bytes = new GrowingFileByteSource(file.toString(), false);
+        try {
+            Future<byte[]> decoded = worker.submit(() -> {
+                try (PcmSource source = PcmSource.decode(bytes)) {
+                    ByteArrayOutputStream pcm = new ByteArrayOutputStream();
+                    byte[] initial = readPcm(source, 48_000 / 5);
+                    assertTone(initial, 2, 48_000, 440);
+                    pcm.write(initial);
+                    firstPcm.countDown();
+                    pcm.write(readPcm(source, Integer.MAX_VALUE));
+                    return pcm.toByteArray();
+                }
+            });
+            try {
+                decoded.get(150, TimeUnit.MILLISECONDS);
+                fail("pending AAC must wait for the producer, not end or fail");
+            } catch (TimeoutException expected) {
+                // The metadata read is waiting on the actual growing source.
+            }
+            int split = payload.length * 2 / 3;
+            Files.write(file, Arrays.copyOfRange(payload, 300, split), StandardOpenOption.APPEND);
+            boolean started = firstPcm.await(2, TimeUnit.SECONDS);
+            if (!started && decoded.isDone()) decoded.get();
+            assertTrue("pending partial cache must decode PCM before append or commit", started);
+            assertTrue("the uncommitted tail must still be waiting, not EOF", !decoded.isDone());
+            Files.write(file, Arrays.copyOfRange(payload, split, payload.length), StandardOpenOption.APPEND);
+            bytes.markComplete();
+            assertCompletePcm(decoded.get(5, TimeUnit.SECONDS), 2, 48_000);
+        } finally {
+            bytes.close();
+            worker.shutdownNow();
+            Files.deleteIfExists(file);
+        }
     }
 
     @Test(timeout = 10_000)

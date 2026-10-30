@@ -28,6 +28,7 @@ public class PlayerControllerPlaybackTest {
 
     @Rule
     public final TemporaryFolder temporaryFolder = new TemporaryFolder();
+    @Rule public final ControllerTestLifecycle lifecycle = new ControllerTestLifecycle();
 
     @Test
     public void retiringSceneCannotDetachReplacementWakeCallback() throws Exception {
@@ -51,7 +52,7 @@ public class PlayerControllerPlaybackTest {
             controller.pressBack();
             assertEquals(1, wakes.get());
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -93,7 +94,7 @@ public class PlayerControllerPlaybackTest {
 
             assertEquals(1L, controller.credentialNoticeRevision.peek().longValue());
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -126,14 +127,14 @@ public class PlayerControllerPlaybackTest {
             assertEquals(1, backend.playCalls);
             assertEquals(1, backend.resumeCalls);
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
     }
 
     @Test
-    public void restoredCurrentTrackIsLikeableBeforePlaybackStarts() throws Exception {
+    public void restoredLocalMetadataDoesNotInventAnOnlineLikeCapability() throws Exception {
         String oldBase = AppDirs.base();
         String oldCacheBase = AppDirs.cacheBase();
         PlayerController controller = null;
@@ -150,11 +151,11 @@ public class PlayerControllerPlaybackTest {
             controller = new PlayerController(backend, track -> { }, NeteaseClient.INSTANCE);
             controller.pump();
 
-            assertTrue(controller.currentLikeable.peek());
+            assertFalse("legacy metadata is not an installed source capability", controller.currentLikeable.peek());
             assertFalse(controller.currentLiked.peek());
             assertEquals(0, backend.playCalls);
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -209,7 +210,7 @@ public class PlayerControllerPlaybackTest {
             waitForVolume(backend, 0.8f, ASYNC_FADE_TIMEOUT_MS);
             assertEquals(resumesBeforeMediaCommand + 1, backend.resumeCalls);
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -258,7 +259,7 @@ public class PlayerControllerPlaybackTest {
             assertTrue(backend.playing);
             assertEquals(pausesBeforeMediaCommand, backend.pauseCalls);
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -311,7 +312,7 @@ public class PlayerControllerPlaybackTest {
             assertTrue(controller.isLyricClockRunning());
             assertEquals(3500L, controller.lyricClockPosition());
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -352,7 +353,7 @@ public class PlayerControllerPlaybackTest {
             assertFalse(backend.playing);
             assertEquals(pausesBeforeToggle + 2, backend.pauseCalls);
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -383,7 +384,7 @@ public class PlayerControllerPlaybackTest {
             assertEquals(0.6f, backend.volume, 0.02f);
             assertTrue(backend.volumeWrites > 2);
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -420,7 +421,7 @@ public class PlayerControllerPlaybackTest {
             backend.fireStarted();
             assertEquals(0.8f, backend.volume, 0.001f);
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -457,7 +458,7 @@ public class PlayerControllerPlaybackTest {
             Thread.sleep(550L); // the cancelled old end fade would have reached zero
             assertEquals(0.8f, backend.volume, 0.001f);
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -496,7 +497,7 @@ public class PlayerControllerPlaybackTest {
             assertTrue(rows.get(1).menuEnabled);
             assertEquals("/music/local.flac", rows.get(1).filePath);
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -527,7 +528,7 @@ public class PlayerControllerPlaybackTest {
             assertTrue(Files.isRegularFile(json));
             assertFalse(Files.exists(legacy));
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -560,7 +561,7 @@ public class PlayerControllerPlaybackTest {
 
             assertEquals(Arrays.asList("foo", "bar"), controller.searchHistory.peek());
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -594,7 +595,7 @@ public class PlayerControllerPlaybackTest {
             assertTrue(controller.searchRows.peek().isEmpty());
             assertEquals(Integer.valueOf(0), controller.resultCount.peek());
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -626,7 +627,7 @@ public class PlayerControllerPlaybackTest {
             assertEquals("prev in shuffle must return the song next() just left",
                     0, playIndex(controller));
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -660,7 +661,7 @@ public class PlayerControllerPlaybackTest {
             assertEquals("a second prev must not bounce back to the song we just left",
                     0, playIndex(controller));
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -699,7 +700,7 @@ public class PlayerControllerPlaybackTest {
             assertEquals("third", controller.currentTrack().title);
             assertEquals("playlist-b-next.mp3", backend.lastSource);
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -730,7 +731,7 @@ public class PlayerControllerPlaybackTest {
                     (Boolean) isCurrent.invoke(controller, first));
             assertTrue((Boolean) isCurrent.invoke(controller, second));
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -745,23 +746,26 @@ public class PlayerControllerPlaybackTest {
         return track;
     }
 
-    @SuppressWarnings("unchecked")
     private static void setQueue(PlayerController controller, int index, Track... tracks)
             throws Exception {
-        java.lang.reflect.Field queueField = PlayerController.class.getDeclaredField("queue");
-        queueField.setAccessible(true);
-        java.util.List<Track> queue = (java.util.List<Track>) queueField.get(controller);
-        queue.clear();
-        queue.addAll(java.util.Arrays.asList(tracks));
-        java.lang.reflect.Field playIndex = PlayerController.class.getDeclaredField("playIndex");
-        playIndex.setAccessible(true);
-        playIndex.setInt(controller, index);
+        java.lang.reflect.Field field = PlayerController.class.getDeclaredField("playbackSession");
+        field.setAccessible(true);
+        PlaybackSession session = (PlaybackSession) field.get(controller);
+        synchronized (dev.t1m3.qplayer.qml.QmlRuntimeLock.MONITOR) {
+            session.invalidate();
+            session.queue.clear();
+            session.queue.addAll(java.util.Arrays.asList(tracks));
+            session.index = index;
+            session.playing = index >= 0;
+        }
     }
 
     private static int playIndex(PlayerController controller) throws Exception {
-        java.lang.reflect.Field field = PlayerController.class.getDeclaredField("playIndex");
+        java.lang.reflect.Field field = PlayerController.class.getDeclaredField("playbackSession");
         field.setAccessible(true);
-        return field.getInt(controller);
+        synchronized (dev.t1m3.qplayer.qml.QmlRuntimeLock.MONITOR) {
+            return ((PlaybackSession) field.get(controller)).index;
+        }
     }
 
     private static final class FakeAudioBackend implements AudioBackend {
@@ -856,7 +860,7 @@ public class PlayerControllerPlaybackTest {
             assertEquals("7,8", restored.artistIdsCsv);
             assertEquals("first\u0001second", restored.artistNamesCsv);
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -909,7 +913,7 @@ public class PlayerControllerPlaybackTest {
             assertEquals(1, controller.sourceMyPlaylists.peek().size());
             assertEquals("second", controller.sourceMyPlaylists.peek().get(0).name);
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -959,7 +963,7 @@ public class PlayerControllerPlaybackTest {
             publish.invoke(controller);
             assertEquals(1, controller.sourceMyPlaylists.peek().size());
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -1021,7 +1025,7 @@ public class PlayerControllerPlaybackTest {
             assertTrue(controller.isMediaLiked("qq:song:004X"));
             assertTrue(controller.isMediaLiked("qq:song:NEW"));
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -1067,7 +1071,7 @@ public class PlayerControllerPlaybackTest {
             assertTrue("another source's songs are not addressable either",
                     (Boolean) blocked.invoke(controller, other));
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -1107,7 +1111,7 @@ public class PlayerControllerPlaybackTest {
                     controller.lyrics.peek() == null || controller.lyrics.peek().isEmpty());
             assertNotSame(lines, controller.lyrics.peek());
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -1150,7 +1154,7 @@ public class PlayerControllerPlaybackTest {
             assertEquals(Integer.valueOf(-1), controller.lyricIndex.peek());
             assertFalse(Boolean.TRUE.equals(controller.coverModeManual.peek()));
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -1181,7 +1185,7 @@ public class PlayerControllerPlaybackTest {
                     Boolean.TRUE.equals(controller.coverModeManual.peek()));
             assertEquals("two", controller.title.peek());
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -1230,7 +1234,7 @@ public class PlayerControllerPlaybackTest {
             assertEquals("two", after.get(2).title);
             assertEquals(0, playIndex(controller));
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }

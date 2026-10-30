@@ -256,13 +256,12 @@ Item {
     // New-playlist entry point. A local playlist needs no account; a source one
     // needs both a session and a source that can create them.
     FAB {
+        objectName: "createPlaylistFab"
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.rightMargin: 16
         anchors.bottomMargin: 16 + page.bottomContentInset
-        visible: page.showLocal
-                 || (player.loggedIn && (!player.sourceContentActive
-                                         || player.sourcePlaylistMutationAvailable))
+        visible: page.showLocal || page.creatableSources.length > 0
         type: "standard"
         icon: "add"
         onClicked: { nameField.text = ""; page.selectedSourceIndex = 0; createDialog.open() }
@@ -282,12 +281,9 @@ Item {
         onAccepted: {
             if (page.showLocal) { player.createLocalPlaylist(nameField.text); return }
             var sources = page.creatableSources
-            var targetProvider = ""
-            if (sources.length > 0) {
-                var idx = Math.max(0, Math.min(page.selectedSourceIndex, sources.length - 1))
-                targetProvider = sources[idx].providerId
-            }
-            player.createPlaylist(nameField.text, targetProvider)
+            if (sources.length === 0) return
+            var idx = Math.max(0, Math.min(page.selectedSourceIndex, sources.length - 1))
+            player.createPlaylist(nameField.text, sources[idx].providerId)
         }
 
         Column {

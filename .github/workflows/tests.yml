@@ -1,0 +1,49 @@
+name: Project behavior tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  behavior:
+    runs-on: ubuntu-22.04
+    env:
+      ALSOFT_DRIVERS: "null"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Install desktop build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake pkg-config build-essential zlib1g-dev libgtk-3-dev libwebkit2gtk-4.1-dev libx11-dev ffmpeg
+      - uses: ./.github/actions/build-engine
+      - name: Test and install shared core and build tool
+        run: mvn -B -pl player-core,qml-aot-tool -am install
+      - name: Generate real codec seek and streaming fixtures
+        run: |
+          mkdir -p "$RUNNER_TEMP/qplayer-codecs"
+          ffmpeg -hide_banner -loglevel error -f lavfi -i sine=frequency=523:duration=8 -c:a libvorbis -q:a 4 "$RUNNER_TEMP/qplayer-codecs/streaming.ogg"
+          ffmpeg -hide_banner -loglevel error -f lavfi -i "aevalsrc=0.3*sin(2*PI*(220*t+120*t*t)):s=44100:d=8" -c:a libmp3lame -q:a 3 "$RUNNER_TEMP/qplayer-codecs/seeking.mp3"
+      - name: Test desktop behavior and packaged AOT factories
+        run: |
+          mvn -B -pl desktop-host -Dorg.lwjgl.system.allocator=system \
+            -Dqplayer.test.ogg="$RUNNER_TEMP/qplayer-codecs/streaming.ogg" \
+            -Dqplayer.test.mp3="$RUNNER_TEMP/qplayer-codecs/seeking.mp3" verify
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: project-test-reports
+          path: |
+            player-core/target/surefire-reports
+            qml-aot-tool/target/surefire-reports
+            desktop-host/target/surefire-reports

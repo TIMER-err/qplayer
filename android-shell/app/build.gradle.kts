@@ -2,6 +2,12 @@ plugins {
     id("com.android.application")
 }
 
+// One version source for Maven, Android, and the source-build CI recipe.
+val qplayerPom = javax.xml.parsers.DocumentBuilderFactory.newInstance()
+    .newDocumentBuilder().parse(file("${rootDir}/../pom.xml"))
+val qml4jVersion = qplayerPom.getElementsByTagName("qml4j.version").item(0).textContent.trim()
+val okhttpVersion = qplayerPom.getElementsByTagName("okhttp.version").item(0).textContent.trim()
+
 android {
     namespace = "io.github.timer_err.qml4j.android"
     compileSdk = 34
@@ -161,14 +167,19 @@ dependencies {
         .builtBy(generateBundledQml))
 
     // The RECODE refactor merged parser/engine/compiler/render into one module.
-    implementation("io.github.timer-err:qml4j-core:0.2.33")
+    implementation("io.github.timer-err:qml4j-core:$qml4jVersion")
 
     // Our platform-neutral player core (netease + lyrics + audio abstraction +
     // QML bridge). Pulls gson + zxing-core transitively; all Android-dexable.
     // Player core: netease + lyrics + audio abstraction + QML bridge + the
     // host-drawn lyric page (fluid SkSL backdrop + per-syllable renderer + the
     // QML/Skija frame compositor), shared with the desktop host.
-    implementation("dev.t1m3.qplayer:player-core:0.1.0-SNAPSHOT")
+    implementation("dev.t1m3.qplayer:player-core:0.1.0-SNAPSHOT") {
+        // The host-side qmlCompilerClasspath still uses the Maven JVM artifact.
+        // Runtime must select OkHttp's Android variant and Startup initializer.
+        exclude(group = "com.squareup.okhttp3", module = "okhttp-jvm")
+    }
+    implementation("com.squareup.okhttp3:okhttp:$okhttpVersion")
 
     implementation("io.github.humbleui:skija-shared:0.143.17")
     implementation("io.github.humbleui:skija-android-arm64:0.143.17")

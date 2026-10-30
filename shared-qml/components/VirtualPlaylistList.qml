@@ -17,8 +17,11 @@ Flickable {
     property var pendingPlaylist
     property bool reorderable: false
     property int revealedIndex: -1
-    onReorderableChanged: revealedIndex = -1
-    onCountChanged: revealedIndex = -1
+    onReorderableChanged: view._cancelDrag()
+    onCountChanged: view._cancelDrag()
+    onListChanged: view._cancelDrag()
+    onVisibleChanged: if (!visible) view._cancelDrag()
+    onEnabledChanged: if (!enabled) view._cancelDrag()
     property int rowH: 64
 
     signal openPlaylist()
@@ -30,6 +33,7 @@ Flickable {
     signal reorderCommitted()
 
     property int _dragFrom: -1
+    property string _dragIdentity: ""
     property int _dropIndex: -1
     property real _dragFloatY: 0
     property real _dragGrabOffset: 0
@@ -50,7 +54,7 @@ Flickable {
         repeat: true
         running: view._dragFrom >= 0
         onTriggered: {
-            if (Date.now() - view._dragLastActivityMs > 15000) view._endDrag()
+            if (Date.now() - view._dragLastActivityMs > 15000) view._cancelDrag()
         }
     }
 
@@ -64,15 +68,24 @@ Flickable {
         view._dropIndex = target
     }
 
+    function _cancelDrag() {
+        view._dragFrom = -1
+        view._dropIndex = -1
+        view._dragIdentity = ""
+        view._autoScrollStep = 0
+        view.revealedIndex = -1
+    }
+
     function _endDrag() {
         var from = view._dragFrom
         var to = view._dropIndex
-        view._dragFrom = -1
-        view._dropIndex = -1
-        view._autoScrollStep = 0
-        view.revealedIndex = -1
-        if (from < 0) return
-        if (to >= 0 && to !== from) {
+        var valid = view.visible && view.enabled && view.reorderable
+            && view.list && from >= 0 && from < view.list.length
+            && to >= 0 && to < view.list.length && view._dragIdentity !== ""
+            && ("" + view.list[from].id) === view._dragIdentity
+        view._cancelDrag()
+        if (!valid) return
+        if (to !== from) {
             view.moveFrom = from
             view.moveTo = to
             view.moveRequested()
@@ -177,6 +190,7 @@ Flickable {
                 }
                 onReorderPressed: {
                     view._dragFrom = index
+                    view._dragIdentity = "" + modelData.id
                     view._dropIndex = index
                     view._dragGrabOffset = reorderGrabOffset
                     view._dragFloatY = index * view.rowH
@@ -191,6 +205,7 @@ Flickable {
                     view._applyDragTarget(reorderContentY)
                 }
                 onReorderReleased: view._endDrag()
+                onReorderCanceled: view._cancelDrag()
             }
         }
 

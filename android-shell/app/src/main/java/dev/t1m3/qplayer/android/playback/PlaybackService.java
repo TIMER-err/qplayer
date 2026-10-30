@@ -23,8 +23,8 @@ import androidx.core.app.NotificationCompat;
 import androidx.media.session.MediaButtonReceiver;
 
 import dev.t1m3.qplayer.bridge.PlayerController;
+import dev.t1m3.qplayer.bridge.PlaybackSnapshot;
 import dev.t1m3.qplayer.i18n.I18n;
-import dev.t1m3.qplayer.model.Track;
 import dev.t1m3.qplayer.util.Logger;
 import io.github.timer_err.qml4j.android.R;
 
@@ -40,9 +40,9 @@ import java.util.concurrent.TimeUnit;
  * <p>The controller is owned by {@link QPlayerActivity}; since both live in the
  * same process the activity hands it over via {@link #controller} and pokes this
  * service ({@link #ACTION_REFRESH}) through its
- * {@link PlayerController.PlaybackListener} whenever playback changes. Metadata is
- * read from {@link PlayerController#currentTrack()} (plain state, valid off the
- * render thread) rather than the UI Properties, which lag while backgrounded.
+ * {@link PlayerController.PlaybackListener} whenever playback changes. Metadata and
+ * transport state come from one {@link PlayerController#playbackSnapshot()}, so
+ * notifications never combine different track or playback revisions.
  */
 public final class PlaybackService extends Service {
 
@@ -67,6 +67,14 @@ public final class PlaybackService extends Service {
     private final PlayerController.PlaybackListener selfListener = this::onControllerChanged;
     private ScheduledExecutorService checkpointWorker;
     private LyriconBridge lyricon;
+    private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+    private boolean stopping;
+    private boolean taskRemoved;
+    private PlaybackSnapshot.Artwork artworkVersion;
+    private ArtworkData artworkData;
+    private int artworkSize;
+    private Bitmap artwork;
+    private long artworkGeneration;
 
     @Override
     public void onCreate() {
@@ -121,7 +129,7 @@ public final class PlaybackService extends Service {
         });
         checkpointWorker.scheduleWithFixedDelay(() -> {
             PlayerController current = controller;
-            if (current != null && current.isPlaying()) current.saveSessionState();
+            if (current != null && current.isPlaying()) current.saveSessionStateAsync();
         }, 15L, 15L, TimeUnit.SECONDS);
         lyricon = new LyriconBridge();
         lyricon.start(this);
@@ -141,6 +149,11 @@ public final class PlaybackService extends Service {
     }
 
     private void onControllerChanged() {
+        if (stopping) return;
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            main.post(this::onControllerChanged);
+            return;
+        }
         try {
             refresh();
         } catch (Throwable e) {
@@ -178,6 +191,11 @@ public final class PlaybackService extends Service {
         // Stop playback and release audio backend — called when the task is
         // swiped away (stopWithTask="true") or explicitly stopped.
         if (instance == this) instance = null;
+        stopping = true;
+        artworkGeneration++;
+        artworkVersion = null;
+        artworkData = null;
+        artwork = null;
         if (checkpointWorker != null) {
             checkpointWorker.shutdownNow();
             checkpointWorker = null;
@@ -190,9 +208,10 @@ public final class PlaybackService extends Service {
             // playback down — QPlayerActivity.onDestroy() skips PlayerController.
             // shutdown() while playing precisely so this Service can keep going in
             // the background, so this is the only save-on-real-exit this path gets.
-            c.saveSessionState();
-            if (c.isPlaying()) c.toggle();
-            c.setPlaybackListener(bootstrapListener);
+            c.saveSessionStateAsync();
+            c.setPlaybackListener(null);
+            c.mediaPause();
+            if (!taskRemoved) c.setPlaybackListener(bootstrapListener);
         }
         session.setActive(false);
         session.release();
@@ -216,6 +235,15 @@ public final class PlaybackService extends Service {
         if (live != null && live.lyricon != null) live.lyricon.bind(c);
     }
 
+    /** Do not keep an idle, shut-down controller rooted by the Service class. */
+    public static void detachController(PlayerController expected) {
+        if (instance == null && controller == expected) {
+            controller = null;
+            bootstrapListener = null;
+            expected.setPlaybackListener(null);
+        }
+    }
+
     public static boolean isRunning() {
         return instance != null;
     }
@@ -225,11 +253,7 @@ public final class PlaybackService extends Service {
     public static void refreshIfRunning() {
         PlaybackService live = instance;
         if (live == null) return;
-        try {
-            live.refresh();
-        } catch (Throwable e) {
-            Logger.error("PlaybackService: refresh failed: {}", e.toString());
-        }
+        live.onControllerChanged();
     }
 
     /** Swiping the task away from Recents calls this instead of a normal destroy
@@ -238,21 +262,17 @@ public final class PlaybackService extends Service {
      *  and foreground state never survive the task disappearing. */
     @Override
     public void onTaskRemoved(Intent rootIntent) {
+        stopping = true;
+        taskRemoved = true;
         PlayerController c = controller;
         if (c != null) {
             // See onDestroy(): capture position/queue/playMode before pausing.
-            c.saveSessionState();
-            // Unregister before toggle(): toggle() runs on the controller's main
-            // executor (a Handler.post on Android, i.e. deferred, not inline), so its
-            // notifyPlayback() callback lands *after* clearNotification() below has
-            // already run. Left wired to selfListener, that deferred callback calls
-            // refresh() -> startForeground(), which resurrects the notification right
-            // after it was cleared (the disappear-then-reappear bug). Left wired to
-            // bootstrapListener it's worse — that calls startForegroundService(),
-            // which can spin up a whole new service instance. Null makes the deferred
-            // callback a no-op; the next QPlayerActivity launch rewires the listener.
+            c.saveSessionStateAsync();
+            // Pause with no listener: neither an already-stopping Service nor its
+            // bootstrap may refresh/recreate a notification after task removal.
+            // A later Activity attach explicitly installs the new bootstrap.
             c.setPlaybackListener(null);
-            if (c.isPlaying()) c.toggle();
+            c.mediaPause();
         }
         destroyLyricon();
         OverlayLyricWindow.detach();
@@ -279,43 +299,22 @@ public final class PlaybackService extends Service {
 
     /** Rebuild metadata + playback state + notification from the controller. */
     private void refresh() {
+        if (stopping) return;
         PlayerController c = controller;
         if (c == null) return;
-        Track t = c.currentTrack();
-        boolean playing = c.isPlaying();
-        // c.position()/c.duration() read the live backend clock directly, which
-        // is 0 until playAt() actually runs -- e.g. right after a session
-        // restore (task-removed kill + relaunch), positionMs/durationMs are set
-        // correctly but the backend itself hasn't been told to play anything yet
-        // until the user's first tap. Same fallback already applied to
-        // LyricCompositor's progress bar / lyric-column position and
-        // PlayerController.applyLyrics's lyricIndex sync -- this is the fourth
-        // (notification / lock-screen / Bluetooth media control progress) spot
-        // reading that same clock, missed when the other three were fixed.
-        Long durProp = c.durationMs.peek();
-        // This also reads the backend clock after a real background pause. Using
-        // positionMs while paused regressed the notification to the last render-
-        // thread tick (the GL pump is suspended in background), even though the
-        // backend and periodic checkpoint had the correct newer position.
-        long pos = c.mediaSessionPosition();
-        long dur = playing ? c.duration() : (durProp != null && durProp > 0 ? durProp : 0L);
+        PlaybackSnapshot snapshot = c.playbackSnapshot();
+        PlaybackSnapshot.TrackMetadata t = snapshot.track();
+        boolean playing = snapshot.playing();
+        long pos = snapshot.positionMs();
+        long dur = snapshot.durationMs();
 
         MediaMetadataCompat.Builder mb = new MediaMetadataCompat.Builder();
-        Bitmap art = null;
+        Bitmap art = notificationArtwork(t != null ? t.artwork() : null);
         if (t != null) {
-            mb.putString(MediaMetadataCompat.METADATA_KEY_TITLE, nz(t.title));
-            mb.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, nz(t.artist));
-            mb.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, nz(t.album));
+            mb.putString(MediaMetadataCompat.METADATA_KEY_TITLE, nz(t.title()));
+            mb.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, nz(t.artist()));
+            mb.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, nz(t.album()));
             if (dur > 0) mb.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, dur);
-            // Read the cover from the current Track's plain bytes, set synchronously by
-            // the loader before it fires the refresh (netease downloads, local
-            // file-backed and embedded covers all populate t.coverBytes). The coverBytes
-            // Property is only committed on the render queue, which is paused while
-            // backgrounded — reading it primary left a background track-switch showing the
-            // previous song's art. It stays as a fallback for any path that only sets it.
-            byte[] coverData = t.coverBytes;
-            if (coverData == null) coverData = c.coverBytes.peek();
-            art = decode(coverData);
             if (art != null) mb.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, art);
         }
         session.setMetadata(mb.build());
@@ -360,7 +359,8 @@ public final class PlaybackService extends Service {
         if (bridge != null) bridge.destroy();
     }
 
-    private Notification buildNotification(Track t, boolean playing, Bitmap art, int accentColor) {
+    private Notification buildNotification(PlaybackSnapshot.TrackMetadata t, boolean playing,
+                                           Bitmap art, int accentColor) {
         Intent open = new Intent(this, QPlayerActivity.class)
                 .setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
         int pf = Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0;
@@ -368,8 +368,8 @@ public final class PlaybackService extends Service {
 
         NotificationCompat.Builder b = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_media_play)
-                .setContentTitle(t != null ? nz(t.title) : "QPlayer")
-                .setContentText(t != null ? nz(t.artist) : "")
+                .setContentTitle(t != null ? nz(t.title()) : "QPlayer")
+                .setContentText(t != null ? nz(t.artist()) : "")
                 .setContentIntent(contentPi)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 // CATEGORY_TRANSPORT + an ongoing notification while playing is how OEM
@@ -431,11 +431,69 @@ public final class PlaybackService extends Service {
         if (nm != null) nm.createNotificationChannel(ch);
     }
 
-    private static Bitmap decode(byte[] bytes) {
-        if (bytes == null || bytes.length == 0) return null;
+    /** One encoded copy per immutable Artwork identity, independent of transport
+     * changes and target-size changes. Only checkpointWorker accesses bytes. */
+    private static final class ArtworkData {
+        final PlaybackSnapshot.Artwork source;
+        byte[] bytes;
+
+        ArtworkData(PlaybackSnapshot.Artwork source) {
+            this.source = source;
+        }
+
+        byte[] bytes() {
+            if (bytes == null) bytes = source.copyBytes();
+            return bytes;
+        }
+    }
+
+    private Bitmap notificationArtwork(PlaybackSnapshot.Artwork version) {
+        int size = Math.min(512, Math.max(128,
+                Math.round(192f * getResources().getDisplayMetrics().density)));
+        if (artworkVersion == version && artworkSize == size) return artwork;
+        if (artworkVersion != version) {
+            artworkVersion = version;
+            artworkData = version != null ? new ArtworkData(version) : null;
+        }
+        artworkSize = size;
+        artwork = null;
+        long generation = ++artworkGeneration;
+        ArtworkData data = artworkData;
+        if (data == null || checkpointWorker == null) return null;
+        checkpointWorker.execute(() -> {
+            Bitmap decoded = decode(data.bytes(), size);
+            main.post(() -> {
+                if (stopping || instance != this || artworkGeneration != generation) return;
+                artwork = decoded;
+                onControllerChanged();
+            });
+        });
+        return null;
+    }
+
+    private static Bitmap decode(byte[] bytes, int size) {
         try {
-            return BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-        } catch (Throwable e) {
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inJustDecodeBounds = true;
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+            options.inSampleSize = 1;
+            while (options.outWidth / options.inSampleSize > size * 2
+                    || options.outHeight / options.inSampleSize > size * 2) {
+                options.inSampleSize *= 2;
+            }
+            options.inJustDecodeBounds = false;
+            Bitmap decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+            if (decoded == null || (decoded.getWidth() <= size && decoded.getHeight() <= size)) {
+                return decoded;
+            }
+            float scale = size / (float) Math.max(decoded.getWidth(), decoded.getHeight());
+            Bitmap scaled = Bitmap.createScaledBitmap(decoded,
+                    Math.max(1, Math.round(decoded.getWidth() * scale)),
+                    Math.max(1, Math.round(decoded.getHeight() * scale)), true);
+            if (scaled != decoded) decoded.recycle();
+            return scaled;
+        } catch (RuntimeException error) {
+            Logger.warn("notification artwork decode failed: {}", error.toString());
             return null;
         }
     }

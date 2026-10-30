@@ -1,0 +1,18 @@
+name: Build pinned qml4j engine
+description: Install the root POM's exact engine tag under matching Maven coordinates
+runs:
+  using: composite
+  steps:
+    - name: Build qml4j-core from source
+      shell: bash
+      run: |
+        set -euo pipefail
+        QV=$(mvn -q -B -N help:evaluate -Dexpression=qml4j.version -DforceStdout)
+        echo "qml4j-core version: $QV"
+        ENGINE="$RUNNER_TEMP/qml4j"
+        git clone --depth 1 --branch "v$QV" https://github.com/TIMER-err/qml4j.git "$ENGINE"
+        # Engine tags retain the previous POM version until publication. Pin the
+        # whole reactor before installing either parent or core, including debug.
+        mvn -B versions:set -DnewVersion="$QV" -DgenerateBackupPoms=false -f "$ENGINE/pom.xml"
+        mvn -B -N -Dpmd.skip=true -Dcheckstyle.skip=true install -f "$ENGINE/pom.xml"
+        mvn -B -DskipTests -Dpmd.skip=true -Dcpd.skip=true -Dcheckstyle.skip=true install -f "$ENGINE/qml4j-core/pom.xml"

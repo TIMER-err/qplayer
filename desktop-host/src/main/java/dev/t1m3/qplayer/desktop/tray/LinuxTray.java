@@ -10,6 +10,8 @@ import dev.t1m3.qplayer.util.Logger;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Linux system tray via libayatana-appindicator (falling back to the older
@@ -41,15 +43,20 @@ final class LinuxTray extends LinuxTrayBackend {
         void gtk_menu_item_set_label(Pointer menuItem, String label);
         void gtk_widget_show(Pointer widget);
         void gtk_widget_show_all(Pointer widget);
+        void gtk_widget_destroy(Pointer widget);
     }
 
     interface GObject extends Library {
         long g_signal_connect_data(Pointer instance, String detailedSignal, Callback handler,
                                    Pointer data, Pointer destroyData, int connectFlags);
+        void g_object_get(Pointer instance, String property, int[] value, Pointer terminator);
+        void g_object_unref(Pointer instance);
+        Pointer g_object_ref_sink(Pointer instance);
     }
 
     interface GLib extends Library {
-        int g_idle_add(GSourceFunc function, Pointer data);
+        int g_idle_add_full(int priority, GSourceFunc function, Pointer data, DestroyNotify destroy);
+        boolean g_source_remove(int sourceId);
     }
 
     interface AppIndicator extends Library {
@@ -68,6 +75,14 @@ final class LinuxTray extends LinuxTrayBackend {
     interface GSourceFunc extends Callback {
         boolean invoke(Pointer data);
     }
+    interface DestroyNotify extends Callback {
+        void invoke(Pointer data);
+    }
+
+    interface ConnectionChanged extends Callback {
+        void invoke(Pointer indicator, boolean connected, Pointer data);
+    }
+
 
     // ---- menu model ----
     private static final class Item {
@@ -81,7 +96,27 @@ final class LinuxTray extends LinuxTrayBackend {
     }
 
     private final List<Item> items = new ArrayList<>();
-    private final List<Callback> keepAlive = new ArrayList<>(); // JNA callbacks must not be GC'd
+    private final List<Callback> keepAlive = new ArrayList<>(); // native signal handlers only
+    private final Object lifecycleLock = new Object();
+    private final Set<IdleTask> pending = new HashSet<>();
+
+    /** GLib's destroy notify releases both callbacks only after native use ends. */
+    private final class IdleTask {
+        int sourceId;
+        final GSourceFunc callback;
+        final DestroyNotify destroy;
+
+        IdleTask(Runnable action) {
+            callback = data -> {
+                try { action.run(); }
+                catch (Throwable error) { Logger.warn("Linux tray task failed: {}", error); }
+                return false;
+            };
+            destroy = data -> {
+                synchronized (lifecycleLock) { pending.remove(this); }
+            };
+        }
+    }
 
     private Gtk gtk;
     private GObject gobject;
@@ -89,7 +124,10 @@ final class LinuxTray extends LinuxTrayBackend {
     private AppIndicator appIndicator;
 
     private Pointer indicator;
-    private volatile boolean running;
+    private Pointer menu;
+    private boolean stopped;
+    private boolean loopExpected;
+    private boolean failed;
     private byte[] iconPng;
     private String tooltip = "QPlayer";
     private File iconDir;
@@ -105,13 +143,10 @@ final class LinuxTray extends LinuxTrayBackend {
     }
 
     void setLabel(Object handle, String label) {
-        if (!(handle instanceof Item it) || it.widget == null || glib == null) return;
-        GSourceFunc fn = data -> {
-            try { gtk.gtk_menu_item_set_label(it.widget, label); } catch (Throwable ignored) {}
-            return false; // one-shot
-        };
-        keepAlive.add(fn);
-        glib.g_idle_add(fn, Pointer.NULL);
+        if (!(handle instanceof Item it)) return;
+        enqueue(() -> {
+            if (!stopped && it.widget != null) gtk.gtk_menu_item_set_label(it.widget, label);
+        }, false);
     }
 
     void setIconPng(byte[] png) {
@@ -119,14 +154,11 @@ final class LinuxTray extends LinuxTrayBackend {
     }
 
     void setTooltip(String tip) {
-        this.tooltip = tip;
-        if (appIndicator != null && indicator != null && glib != null) {
-            GSourceFunc fn = data -> {
-                try { appIndicator.app_indicator_set_title(indicator, tip); } catch (Throwable ignored) {}
-                return false;
-            };
-            keepAlive.add(fn);
-            glib.g_idle_add(fn, Pointer.NULL);
+        synchronized (lifecycleLock) {
+            this.tooltip = tip;
+            enqueue(() -> {
+                if (!stopped && indicator != null) appIndicator.app_indicator_set_title(indicator, tip);
+            }, false);
         }
     }
 
@@ -145,26 +177,59 @@ final class LinuxTray extends LinuxTrayBackend {
             return false;
         }
 
-        final Object ready = new Object();
-        final boolean[] ok = {false};
-        final boolean[] done = {false};
         Thread t = new Thread(() -> {
-            boolean built = build();
-            synchronized (ready) { ok[0] = built; done[0] = true; ready.notifyAll(); }
-            if (built) {
-                running = true;
-                try { gtk.gtk_main(); } catch (Throwable e) { Logger.warn("gtk_main exited: {}", e); }
+            try {
+                boolean built = build();
+                synchronized (lifecycleLock) {
+                    failed = !built;
+                    loopExpected = built && !stopped;
+                    lifecycleLock.notifyAll();
+                }
+                if (loopExpected) gtk.gtk_main();
+            } catch (Throwable error) {
+                Logger.warn("Linux tray thread failed: {}", error);
+            } finally {
+                synchronized (lifecycleLock) {
+                    stopped = true;
+                    failed = true;
+                    loopExpected = false;
+                    setAvailable(false);
+                    // Remove native sources before releasing their JNA callbacks.
+                    for (IdleTask task : new ArrayList<>(pending)) glib.g_source_remove(task.sourceId);
+                    if (indicator != null) {
+                        appIndicator.app_indicator_set_status(indicator, STATUS_PASSIVE);
+                        gobject.g_object_unref(indicator);
+                        indicator = null;
+                    }
+                    if (menu != null) {
+                        gtk.gtk_widget_destroy(menu);
+                        gobject.g_object_unref(menu);
+                        menu = null;
+                    }
+                    for (Item item : items) item.widget = null;
+                    keepAlive.clear();
+                    lifecycleLock.notifyAll();
+                }
             }
         }, "qplayer-gtktray");
         t.setDaemon(true);
         t.start();
-        synchronized (ready) {
-            while (!done[0]) {
-                try { ready.wait(5000); } catch (InterruptedException e) { break; }
-                break;
+        boolean available;
+        synchronized (lifecycleLock) {
+            long deadline = System.nanoTime() + 4_000_000_000L;
+            while (!isAvailable() && !failed && !stopped) {
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0) break;
+                try { lifecycleLock.wait(Math.max(1L, remaining / 1_000_000L)); }
+                catch (InterruptedException error) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
             }
+            available = isAvailable() && !stopped;
         }
-        return ok[0];
+        if (!available) shutdown();
+        return available;
     }
 
     private boolean build() {
@@ -178,13 +243,23 @@ final class LinuxTray extends LinuxTrayBackend {
                 Logger.warn("app_indicator_new returned null");
                 return false;
             }
+            ConnectionChanged connected = (self, value, data) -> {
+                synchronized (lifecycleLock) {
+                    setAvailable(value && !stopped);
+                    lifecycleLock.notifyAll();
+                }
+            };
+            keepAlive.add(connected);
+            gobject.g_signal_connect_data(indicator, "connection-changed", connected,
+                    Pointer.NULL, Pointer.NULL, 0);
             if (iconDir != null) {
                 appIndicator.app_indicator_set_icon_theme_path(indicator, iconDir.getAbsolutePath());
                 if (iconName != null) appIndicator.app_indicator_set_icon_full(indicator, iconName, "QPlayer");
             }
             appIndicator.app_indicator_set_title(indicator, tooltip);
 
-            Pointer menu = gtk.gtk_menu_new();
+            menu = gtk.gtk_menu_new();
+            gobject.g_object_ref_sink(menu);
             for (Item it : items) {
                 Pointer w;
                 if (it.separator) {
@@ -203,6 +278,12 @@ final class LinuxTray extends LinuxTrayBackend {
 
             appIndicator.app_indicator_set_menu(indicator, menu);
             appIndicator.app_indicator_set_status(indicator, STATUS_ACTIVE);
+            synchronized (lifecycleLock) {
+                int[] connectedValue = new int[1];
+                gobject.g_object_get(indicator, "connected", connectedValue, Pointer.NULL);
+                setAvailable(connectedValue[0] != 0 && !stopped);
+                lifecycleLock.notifyAll();
+            }
             Logger.info("system tray initialized: Linux AppIndicator");
             return true;
         } catch (Throwable t) {
@@ -214,18 +295,31 @@ final class LinuxTray extends LinuxTrayBackend {
     }
 
     void shutdown() {
-        if (!running) return;
-        running = false;
-        if (glib == null) return;
-        GSourceFunc fn = data -> {
+        synchronized (lifecycleLock) {
+            if (stopped) return;
+            stopped = true;
+            setAvailable(false);
+            lifecycleLock.notifyAll();
+            // Build may still be running. It checks stopped before entering GTK.
+            if (loopExpected) enqueue(gtk::gtk_main_quit, true);
+        }
+    }
+
+    private void enqueue(Runnable action, boolean shutdownTask) {
+        synchronized (lifecycleLock) {
+            if (glib == null || !loopExpected || (stopped && !shutdownTask)) return;
+            IdleTask task = new IdleTask(() -> {
+                synchronized (lifecycleLock) { action.run(); }
+            });
+            pending.add(task);
             try {
-                if (indicator != null) appIndicator.app_indicator_set_status(indicator, STATUS_PASSIVE);
-                gtk.gtk_main_quit();
-            } catch (Throwable ignored) {}
-            return false;
-        };
-        keepAlive.add(fn);
-        glib.g_idle_add(fn, Pointer.NULL);
+                task.sourceId = glib.g_idle_add_full(200, task.callback, Pointer.NULL, task.destroy);
+                if (task.sourceId == 0) pending.remove(task);
+            } catch (Throwable error) {
+                pending.remove(task);
+                throw error;
+            }
+        }
     }
 
     private AppIndicator loadAppIndicator() {

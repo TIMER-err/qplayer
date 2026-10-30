@@ -35,23 +35,43 @@ public final class MyPlaylistOrderStore {
     private static final int SCHEMA = 1;
 
     private final Gson gson = new GsonBuilder().create();
-    private final Path file = AppDirs.stateFile("my-playlist-order.json");
+    private final Path file;
     private final List<String> order = new ArrayList<>();
     private String mode = MODE_SOURCE;
     private boolean dirty;
     private boolean loaded;
+    private Exception readFailure;
+
+    public MyPlaylistOrderStore() {
+        this(AppDirs.stateFile("my-playlist-order.json"));
+    }
+
+    MyPlaylistOrderStore(Path file) {
+        this.file = java.util.Objects.requireNonNull(file);
+    }
 
     public synchronized void load() {
         if (loaded) return;
-        loaded = true;
-        if (!Files.isRegularFile(file)) return;
         try {
-            State state = gson.fromJson(StorageFiles.readUtf8(file), State.class);
-            if (state == null) return;
-            if (MODE_CUSTOM.equals(state.mode)) mode = MODE_CUSTOM;
-            if (state.ids != null) order.addAll(state.ids);
-        } catch (Throwable error) {
-            Logger.warn("my-playlist order load failed: {}", error.getMessage());
+            if (!Files.notExists(file)) {
+                com.google.gson.JsonObject root = com.google.gson.JsonParser
+                        .parseString(StorageFiles.readUtf8(file)).getAsJsonObject();
+                if (!root.has("schemaVersion") || !root.has("ids") || !root.has("mode")) {
+                    throw new java.io.IOException("missing playlist order state fields");
+                }
+                State state = gson.fromJson(root, State.class);
+                if (state == null || state.schemaVersion != SCHEMA || state.ids == null) {
+                    throw new java.io.IOException("invalid playlist order state");
+                }
+                mode = MODE_CUSTOM.equals(state.mode) ? MODE_CUSTOM : MODE_SOURCE;
+                order.clear();
+                order.addAll(state.ids);
+            }
+            readFailure = null;
+            loaded = true;
+        } catch (Exception error) {
+            readFailure = error;
+            Logger.warn("my-playlist order load failed; original file retained: {}", error.getMessage());
         }
     }
 
@@ -64,6 +84,7 @@ public final class MyPlaylistOrderStore {
     }
 
     public synchronized void setMode(String newMode) {
+        requireWritable();
         String next = MODE_CUSTOM.equals(newMode) ? MODE_CUSTOM : MODE_SOURCE;
         if (next.equals(mode)) return;
         mode = next;
@@ -75,22 +96,33 @@ public final class MyPlaylistOrderStore {
      *  the user just arranged. Also switches to custom mode: dragging only makes
      *  sense as "keep it exactly like this from now on". */
     public synchronized void setOrder(List<String> ids) {
+        requireWritable();
         order.clear();
         if (ids != null) order.addAll(ids);
         mode = MODE_CUSTOM;
         dirty = true;
     }
 
-    public synchronized void save() {
-        if (!dirty) return;
+    public synchronized boolean save() {
+        if (readFailure != null) return false;
+        if (!dirty) return true;
         try {
             State state = new State();
             state.mode = mode;
             state.ids = order;
             StorageFiles.writeUtf8Atomic(file, gson.toJson(state));
             dirty = false;
-        } catch (Throwable error) {
+            return true;
+        } catch (Exception error) {
             Logger.warn("my-playlist order save failed: {}", error.getMessage());
+            return false;
+        }
+    }
+
+    private void requireWritable() {
+        if (readFailure != null) {
+            throw new IllegalStateException("playlist order could not be loaded; original file retained",
+                    readFailure);
         }
     }
 

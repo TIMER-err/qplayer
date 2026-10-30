@@ -48,6 +48,18 @@ public final class LibraryCache {
     private final Path coversDir;
     private final Path lyricsDir;
     private final Gson gson = new Gson();
+    private final Map<String, Resources> resources = new HashMap<>();
+
+    /** Resource provenance is separate from audio-tag freshness. Older indexes
+     *  without this state are upgraded by one full metadata/extraction pass. */
+    static final class Resources {
+        boolean embeddedCover;
+        String coverSource;
+        String embeddedLyric;
+    }
+
+    Resources resources(String filePath) { return resources.get(filePath); }
+    void resources(String filePath, Resources value) { resources.put(filePath, value); }
 
     public LibraryCache() {
         this.legacyBaseDir = Paths.get(AppDirs.cacheBase(), "local-cache");
@@ -78,11 +90,13 @@ public final class LibraryCache {
         String romajiFilePath;
         long fileSize;
         long fileMtime;
+        Resources resources;
     }
 
     /** Load the cache keyed by file path. Empty map if absent/corrupt. */
     public Map<String, Track> load() {
         Map<String, Track> out = new HashMap<>();
+        resources.clear();
         if (!Files.exists(indexFile)) return out;
         try {
             String json = new String(Files.readAllBytes(indexFile), StandardCharsets.UTF_8);
@@ -95,6 +109,10 @@ public final class LibraryCache {
             for (Entry e : index.entries) {
                 if (e == null || e.filePath == null) continue;
                 out.put(e.filePath, toTrack(e));
+                if (e.resources != null) {
+                    e.resources.embeddedLyric = remapLegacyPath(e.resources.embeddedLyric);
+                    resources.put(e.filePath, e.resources);
+                }
             }
             Logger.info("LibraryCache: loaded {} cached tracks", out.size());
         } catch (Throwable t) {
@@ -112,7 +130,9 @@ public final class LibraryCache {
             index.entries = new ArrayList<>(tracks.size());
             for (Track t : tracks) {
                 if (t.source != Track.Source.LOCAL || t.filePath == null) continue;
-                index.entries.add(toEntry(t));
+                Entry entry = toEntry(t);
+                entry.resources = resources.get(t.filePath);
+                index.entries.add(entry);
             }
             StorageFiles.writeUtf8Atomic(indexFile, gson.toJson(index));
             pruneOrphans(tracks);
@@ -228,6 +248,8 @@ public final class LibraryCache {
                 live.add(t.coverLocalPath);
             if (t.lyricFilePath != null && t.lyricFilePath.startsWith(lyricsDir.toString()))
                 live.add(t.lyricFilePath);
+            Resources state = resources.get(t.filePath);
+            if (state != null && state.embeddedLyric != null) live.add(state.embeddedLyric);
         }
         pruneDir(coversDir, live);
         pruneDir(lyricsDir, live);

@@ -13,6 +13,7 @@ import dev.t1m3.qplayer.store.AppDirs;
 import dev.t1m3.qplayer.store.StorageFiles;
 import io.github.timer_err.qml4j.engine.QmlEngine;
 import io.github.timer_err.qml4j.engine.binding.DirtyQueue;
+import io.github.timer_err.qml4j.engine.binding.Property;
 import io.github.timer_err.qml4j.render.QmlView;
 import io.github.timer_err.qml4j.render.items.core.Item;
 import org.junit.Rule;
@@ -34,9 +35,8 @@ import static org.junit.Assert.assertTrue;
 /**
  * The local-playlist UI, exercised through the same bridge QML uses.
  *
- * <p>qml4j resolves QML at runtime, so a page that does not parse only fails when
- * it is first built — these tests load the new pages for real rather than trusting
- * that they compile (nothing compiles them).
+ * <p>These tests load production QML source to exercise state and input behavior;
+ * the packaged AOT/Native entry is covered separately by BundledQmlSmoke.
  */
 public class LocalPlaylistUiTest {
 
@@ -84,7 +84,7 @@ public class LocalPlaylistUiTest {
             if (view != null) {
                 try { view.dispose(); } catch (Throwable ignored) { }
             }
-            try { player.shutdown(); } catch (Throwable ignored) { }
+            try { player.shutdownAsync().join(); } catch (Throwable ignored) { }
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCache);
         }
@@ -371,14 +371,7 @@ public class LocalPlaylistUiTest {
         }
     }
 
-    /** Grid drag math: moving card 0 to where card 4 sits (a different row AND
-     *  column) has to land on exactly that slot, and releasing has to report
-     *  the move/commit exactly once — the same contract VirtualPlaylistList's
-     *  1D drag has, now driven through the 2D index<->(row,col) conversion.
-     *  Drives _applyDragTarget/_endDrag directly rather than simulating a real
-     *  long-press: the pick-up gesture is a plain 480ms hold with no
-     *  synchronous trigger (unlike the list's right-click), so there is
-     *  nothing here to fire it without a real-time wait. */
+    /** A real long-press drag must cross both row and column and commit once. */
     @Test
     public void aGridDragLandsAcrossRowsAndReportsOneMoveOnRelease() throws Exception {
         try (Harness harness = new Harness(temporary.newFolder().toPath())) {
@@ -395,24 +388,43 @@ public class LocalPlaylistUiTest {
                     + "  Item { id: moves; objectName: \"moves\"; x: 0; width: -1 }\n"
                     + "  Item { id: commits; objectName: \"commits\"; x: 0 }\n"
                     + "  Item { id: drop; objectName: \"drop\"; width: -1 }\n"
-                    + "  Item { id: liveDrop; objectName: \"liveDrop\"; width: -1 }\n"
-                    + "  Component.onCompleted: {\n"
-                    + "    grid._dragFrom = 0\n"
-                    + "    grid._dropIndex = 0\n"
-                    + "    grid._dragGrabOffsetX = grid.tile / 2\n"
-                    + "    grid._dragGrabOffsetY = grid.cardH / 2\n"
-                    + "    grid._applyDragTarget(grid._indexToX(4) + grid.tile / 2,\n"
-                    + "                          grid._indexToY(4) + grid.cardH / 2)\n"
-                    + "    liveDrop.width = grid._dropIndex\n"
-                    + "    grid._endDrag()\n"
-                    + "  }\n"
                     + "}");
+            Item first = playlistCard(view.root(), "a");
+            Item target = playlistCard(view.root(), "e");
+            assertNotNull(first);
+            assertNotNull(target);
+            var start = view.root().mapFromItem(
+                    first, first.width.peekFloat() / 2, first.height.peekFloat() / 2);
+            var end = view.root().mapFromItem(
+                    target, target.width.peekFloat() / 2, target.height.peekFloat() / 2);
+            float startX = ((Number) start.get("x")).floatValue();
+            float startY = ((Number) start.get("y")).floatValue();
+            float endX = ((Number) end.get("x")).floatValue();
+            float endY = ((Number) end.get("y")).floatValue();
+            assertTrue("the destination is in a different column", endX > startX);
+            assertTrue("the destination is in a different row", endY > startY);
+            assertTrue(view.dispatchPointerDown(startX, startY));
+            DirtyQueue queue = view.dirtyQueue();
+            queue.install();
+            try {
+                long now = System.nanoTime();
+                view.tickAnimations(now);
+                queue.flush();
+                view.tickAnimations(now + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(700));
+                queue.flush();
+            } finally {
+                queue.uninstall();
+            }
             settle(view);
-
-            assertEquals("cols must actually be 3 for this test's geometry to hold",
-                    3f, colsOf(view), 0.001f);
-            assertEquals("the drag target lands on card 4's slot (a different row AND column)",
-                    4f, probeWidth(view, "liveDrop"), 0.001f);
+            Item floating = view.findByObjectName("playlistCardReorderFloating");
+            assertNotNull(floating);
+            assertTrue("holding a real card picks it up", floating.visible.peek());
+            view.dispatchPointerMove(endX, endY);
+            settle(view);
+            assertEquals("no move is committed while the pointer is down",
+                    0f, probeX(view, "moves"), 0.001f);
+            view.dispatchPointerUp(endX, endY);
+            settle(view);
             assertEquals("releasing reports exactly one move", 1f, probeX(view, "moves"), 0.001f);
             assertEquals("from card 0", 0f, probeWidth(view, "moves"), 0.001f);
             assertEquals("to card 4", 4f, probeWidth(view, "drop"), 0.001f);
@@ -420,16 +432,16 @@ public class LocalPlaylistUiTest {
         }
     }
 
-    private static float colsOf(QmlView view) {
-        Item grid = view.findByObjectName("grid");
-        assertNotNull(grid);
-        // cols is a plain QML int property with no Java reader; derive it the
-        // same way the grid itself does, off the same base Item fields.
-        float width = grid.width.peekFloat();
-        float pad = width >= 840f ? 28f : 16f;
-        float gap = 16f;
-        float minTile = 200f;
-        return (float) Math.max(2, Math.floor((width - 2 * pad + gap) / (minTile + gap)));
+    private static Item playlistCard(Item item, String id) throws ReflectiveOperationException {
+        if ("virtualPlaylistCard".equals(item.objectName.peek())) {
+            Property<?> identity = (Property<?>) item.getClass().getField("playlistId").get(item);
+            if (id.equals(identity.peek())) return item;
+        }
+        for (Item child : item.children) {
+            Item found = playlistCard(child, id);
+            if (found != null) return found;
+        }
+        return null;
     }
 
     // ---- library card order -------------------------------------------------
@@ -785,8 +797,8 @@ public class LocalPlaylistUiTest {
             player.moveLocalPlaylistTrack(id, 0, 2);
             assertEquals(java.util.Arrays.asList("alpha", "bravo", "charlie"), rowTitles(player));
             // Persisting is deliberately deferred to the end of the gesture, and
-            // the write itself runs on a worker — closing the harness (which calls
-            // shutdown) is what guarantees it reached disk.
+            // the write itself runs on a worker. The harness waits for
+            // shutdownAsync() so the next controller reads the completed write.
             player.commitLocalPlaylistOrder(id);
         }
         try (Harness harness = new Harness(base)) {
@@ -816,9 +828,8 @@ public class LocalPlaylistUiTest {
     }
 
     /**
-     * Every playlist edit persists through a worker, and shutdown stops that
-     * worker with shutdownNow(), which drops whatever is still queued. Quitting
-     * right after an edit must not lose it.
+     * Playlist edits persist through a worker. Waiting for shutdownAsync() must
+     * preserve an edit queued immediately before quitting.
      */
     @Test
     public void anEditMadeJustBeforeQuittingIsNotLost() throws Exception {
@@ -933,6 +944,7 @@ public class LocalPlaylistUiTest {
 
             player.setPlaylistCoverBytes(id, pngBytes(), "second.jpg");
             waitFor(player, () -> player.localPlaylistCover.peek().endsWith(".jpg"));
+            waitFor(player, () -> !Files.exists(first));
             assertFalse("the superseded .png must be deleted", Files.exists(first));
             assertTrue(Files.isRegularFile(Path.of(player.localPlaylistCover.peek())));
         }

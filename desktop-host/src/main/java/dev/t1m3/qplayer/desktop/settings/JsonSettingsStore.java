@@ -23,7 +23,7 @@ public final class JsonSettingsStore implements SettingsStore {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     private final File file;
-    private JsonObject store;
+    private final JsonObject store;
 
     public JsonSettingsStore() {
         this.file = AppDirs.configFile("settings.json").toFile();
@@ -31,7 +31,7 @@ public final class JsonSettingsStore implements SettingsStore {
     }
 
     @Override
-    public boolean getBool(String key, boolean def) {
+    public synchronized boolean getBool(String key, boolean def) {
         try {
             return store.has(key) ? store.get(key).getAsBoolean() : def;
         } catch (Exception e) {
@@ -40,7 +40,7 @@ public final class JsonSettingsStore implements SettingsStore {
     }
 
     @Override
-    public int getInt(String key, int def) {
+    public synchronized int getInt(String key, int def) {
         try {
             return store.has(key) ? store.get(key).getAsInt() : def;
         } catch (Exception e) {
@@ -49,7 +49,7 @@ public final class JsonSettingsStore implements SettingsStore {
     }
 
     @Override
-    public String getString(String key, String def) {
+    public synchronized String getString(String key, String def) {
         try {
             return store.has(key) ? store.get(key).getAsString() : def;
         } catch (Exception e) {
@@ -58,24 +58,30 @@ public final class JsonSettingsStore implements SettingsStore {
     }
 
     @Override
-    public boolean has(String key) {
+    public synchronized boolean has(String key) {
         return store.has(key);
     }
 
     @Override
-    public void putBool(String key, boolean value) {
+    public synchronized void putBool(String key, boolean value) {
         store.addProperty(key, value);
         persist();
     }
 
     @Override
-    public void putInt(String key, int value) {
+    public synchronized void putInt(String key, int value) {
         store.addProperty(key, value);
         persist();
     }
 
+    public synchronized void putInts(String key1, int value1, String key2, int value2) {
+        store.addProperty(key1, value1);
+        store.addProperty(key2, value2);
+        persist();
+    }
+
     @Override
-    public void putString(String key, String value) {
+    public synchronized void putString(String key, String value) {
         store.addProperty(key, value);
         persist();
     }
@@ -93,6 +99,7 @@ public final class JsonSettingsStore implements SettingsStore {
         return new JsonObject();
     }
 
+    // Called with this instance's monitor held through serialization and atomic replacement.
     private void persist() {
         try {
             StorageFiles.writeUtf8Atomic(file.toPath(), GSON.toJson(store));

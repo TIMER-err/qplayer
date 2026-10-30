@@ -111,7 +111,7 @@ public class ResponsiveNavigationTest {
             }
         } finally {
             if (view != null) view.dispose();
-            if (player != null) player.shutdown();
+            if (player != null) player.shutdownAsync().join();
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCache);
         }
@@ -181,7 +181,7 @@ public class ResponsiveNavigationTest {
             }
         } finally {
             if (view != null) view.dispose();
-            if (player != null) player.shutdown();
+            if (player != null) player.shutdownAsync().join();
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCache);
         }

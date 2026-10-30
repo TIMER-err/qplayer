@@ -44,7 +44,8 @@ public final class TrayController implements PlayerController.PlaybackListener {
     private Object winLyricToggle;
 
     // Linux backend (non-null when active).
-    private LinuxTrayBackend linuxTray;
+    private volatile LinuxTrayBackend linuxTray;
+    private volatile boolean stopped;
     private Object linuxPlayPause;
     private Object linuxLyricToggle;
 
@@ -81,12 +82,24 @@ public final class TrayController implements PlayerController.PlaybackListener {
 
     /** Build the tray. Returns false (and logs) if no tray is available, in which
      *  case the app still runs windowed. */
-    public boolean install() {
-        if (isWindows()) return installWin();
-        if (isLinux()) return installLinux();
-        if (isMac()) return installMac();
-        Logger.warn("system tray unavailable on this platform; tray menu disabled");
-        return false;
+    public synchronized boolean install() {
+        if (stopped) return false;
+        try {
+            boolean installed;
+            if (isWindows()) installed = installWin();
+            else if (isLinux()) installed = installLinux();
+            else if (isMac()) installed = installMac();
+            else {
+                Logger.warn("system tray unavailable on this platform; tray menu disabled");
+                installed = false;
+            }
+            win.setTrayAvailable(installed && (linuxTray == null || linuxTray.isAvailable()));
+            return installed;
+        } catch (Throwable error) {
+            Logger.warn("System tray init failed: {}", error);
+            shutdown();
+            return false;
+        }
     }
 
     private static boolean isWindows() {
@@ -134,25 +147,32 @@ public final class TrayController implements PlayerController.PlaybackListener {
 
     // ---------- Linux backend (AppIndicator + GTK via JNA) ----------
     private boolean installLinux() {
-        try {
-            linuxTray = new LinuxStatusNotifierTray();
-            configureLinuxTray(linuxTray);
-            if (linuxTray.install()) return true;
-            linuxTray.shutdown();
+        if (installLinuxBackend(new LinuxStatusNotifierTray())) return true;
+        Logger.warn("Linux StatusNotifierItem unavailable; falling back to AppIndicator");
+        return installLinuxBackend(new LinuxTray());
+    }
 
-            Logger.warn("Linux StatusNotifierItem unavailable; falling back to AppIndicator");
-            linuxTray = new LinuxTray();
-            configureLinuxTray(linuxTray);
-            if (linuxTray.install()) return true;
-            linuxTray = null;
-            return false;
-        } catch (Throwable t) {
-            java.io.StringWriter sw = new java.io.StringWriter();
-            t.printStackTrace(new java.io.PrintWriter(sw));
-            Logger.warn("Linux tray init failed:\n{}", sw);
-            linuxTray = null;
-            return false;
+    private boolean installLinuxBackend(LinuxTrayBackend tray) {
+        linuxTray = tray;
+        tray.setAvailabilityListener(available -> win.postMainTask(() -> {
+            // Read current state, not a stale value captured before watcher loss,
+            // backend replacement or shutdown.
+            if (!stopped && linuxTray == tray) win.setTrayAvailable(tray.isAvailable());
+        }));
+        try {
+            configureLinuxTray(tray);
+            if (tray.install()) return true;
+        } catch (Throwable error) {
+            Logger.warn("Linux tray init failed: {}", error);
         }
+        // Discard the identity before shutdown emits its final notification.
+        linuxTray = null;
+        try {
+            tray.shutdown();
+        } catch (Throwable error) {
+            Logger.warn("Linux tray shutdown failed: {}", error);
+        }
+        return false;
     }
 
     private void configureLinuxTray(LinuxTrayBackend tray) {
@@ -247,9 +267,11 @@ public final class TrayController implements PlayerController.PlaybackListener {
 
     private void refresh() {
         try {
-            String pp = I18n.tr(controller.isPlaying() ? "tray.pause" : "tray.play");
-            Object title = controller.title.peek();
-            Object artist = controller.artist.peek();
+            var playback = controller.playbackSnapshot();
+            String pp = I18n.tr(playback.playing() ? "tray.pause" : "tray.play");
+            var track = playback.track();
+            String title = track == null ? null : track.title();
+            String artist = track == null ? null : track.artist();
             String tip = title == null ? "QPlayer"
                     : (artist != null ? artist + " — " + title : String.valueOf(title));
             // Win32 szTip holds 128 UTF-16 characters; keep all backends well under.
@@ -270,7 +292,10 @@ public final class TrayController implements PlayerController.PlaybackListener {
         }
     }
 
-    public void shutdown() {
+    public synchronized void shutdown() {
+        if (stopped) return;
+        stopped = true;
+        win.setTrayAvailable(false);
         if (winTray != null) {
             try { winTray.shutdown(); } catch (Throwable ignored) {}
             winTray = null;

@@ -53,6 +53,14 @@ public final class TemperaTextView {
         public float shadowDY;
         /** 逐帧求解的输入。 */
         public final TemperaMotion.Input motion = new TemperaMotion.Input();
+        private final TemperaMotion.Frame frame = new TemperaMotion.Frame();
+        private TextLine line;
+        private float width;
+        private float baseline;
+        private int displayArgb;
+        private int echoArgb;
+        private int shadowArgb;
+        private long generation = -1;
     }
 
     /**
@@ -74,6 +82,9 @@ public final class TemperaTextView {
             view.displayColor = placement.color != null ? placement.color : palette.ink;
             view.echoColor = placement.color != null ? placement.color : palette.tone4;
             view.shadowColor = palette.ink;
+            view.displayArgb = TemperaColor.withAlpha(view.displayColor, 1f);
+            view.echoArgb = TemperaColor.withAlpha(view.echoColor, 1f);
+            view.shadowArgb = TemperaColor.withAlpha(view.shadowColor, 1f);
             view.keyword = placement.color != null;
             view.baseX = placement.x;
             view.baseY = placement.y;
@@ -97,8 +108,7 @@ public final class TemperaTextView {
     }
 
     /**
-     * 文本行缓存：{@code TextLine} 是原生资源，每个字形每帧新建会在长歌里堆出可观的分配。
-     * 字体本身由 {@code Fonts} 缓存，所以 (Font identity, char) 就是稳定的键。
+     * 文本行缓存：TextLine 属于凝彩；font 淘汰前关闭相关行，并使视图的借用失效。
      */
     private static final int LINE_CACHE_LIMIT = 8192;
     private static final class LineKey {
@@ -114,6 +124,7 @@ public final class TemperaTextView {
     }
     private static final LinkedHashMap<LineKey, TextLine> LINES =
             new LinkedHashMap<>(64, 0.75f, true);
+    private static long generation;
     /**
      * 共享的画笔。{@link #dispose()} 会把它关掉，所以这里<b>不能</b>是 final 常量——渲染线程
      * 重启（或渲染器被释放后又被复用）时，下一次绘制必须能重新造一支，否则就会拿着已释放的
@@ -140,12 +151,14 @@ public final class TemperaTextView {
             TextLine evicted = oldest.next();
             oldest.remove();
             evicted.close();
+            generation++;
         }
         LINES.put(key, line);
         return line;
     }
 
     static void releaseFont(Font font) {
+        generation++;
         Iterator<java.util.Map.Entry<LineKey, TextLine>> entries = LINES.entrySet().iterator();
         while (entries.hasNext()) {
             java.util.Map.Entry<LineKey, TextLine> entry = entries.next();
@@ -158,6 +171,7 @@ public final class TemperaTextView {
 
     /** 释放全部缓存的原生文本行（渲染线程销毁时调用）。之后仍可继续使用本类，缓存会重建。 */
     public static void dispose() {
+        generation++;
         LINES.values().forEach(TextLine::close);
         LINES.clear();
         if (inversionBackdrop != null) {
@@ -203,23 +217,25 @@ public final class TemperaTextView {
     /** 画一个字素（含影子的调用方自行传偏移）。反色由 {@link #saveInversion} 包在外面。 */
     private static void drawGlyph(Canvas canvas, View view, float x, float y,
                                   float rotation, float scaleX, float scaleY,
-                                  float alpha, String color) {
+                                  float alpha, int color) {
         if (alpha <= 0.002f) return;
-        Font font = TemperaMeasure.fontFor(view.fontWeight, view.fontSize, view.charText);
-        if (font == null) return;
-        TextLine line = lineFor(font, view.charText);
-        float width = line.getWidth();
-        FontMetrics metrics = font.getMetrics();
-        // Pixi 的 anchor(0.5) 以文本包围盒中心为原点；这里把基线挪到同一中心。
-        float baseline = -(metrics.getAscent() + metrics.getDescent()) / 2f;
+        if (view.generation != generation) {
+            Font font = TemperaMeasure.fontFor(view.fontWeight, view.fontSize, view.charText);
+            if (font == null) return;
+            view.line = lineFor(font, view.charText);
+            view.width = view.line.getWidth();
+            FontMetrics metrics = font.getMetrics();
+            view.baseline = -(metrics.getAscent() + metrics.getDescent()) / 2f;
+            view.generation = generation;
+        }
         int save = canvas.save();
         canvas.translate(x, y);
         if (rotation != 0f) canvas.rotate((float) Math.toDegrees(rotation));
         if (scaleX != 1f || scaleY != 1f) canvas.scale(scaleX, scaleY);
-        paint().setColor(TemperaColor.withAlpha(color, 1f));
+        paint().setColor(color);
         paint().setAlphaf(alpha);
         paint().setBlendMode(BlendMode.SRC_OVER);
-        canvas.drawTextLine(line, -width / 2f, baseline, paint());
+        canvas.drawTextLine(view.line, -view.width / 2f, view.baseline, paint());
         canvas.restoreToCount(save);
     }
 
@@ -230,28 +246,28 @@ public final class TemperaTextView {
      */
     public static void paint(Canvas canvas, List<View> views, double time, float motionAmount,
                              int echoCount, boolean shadowEnabled, boolean inversion) {
-        TemperaMotion.Frame[] frames = new TemperaMotion.Frame[views.size()];
         for (int i = 0; i < views.size(); i++) {
-            frames[i] = TemperaMotion.resolve(views.get(i).motion, time, motionAmount);
+            View view = views.get(i);
+            TemperaMotion.resolve(view.motion, time, motionAmount, view.frame);
         }
         int layer = inversion ? saveInversion(canvas) : -1;
         try {
             if (shadowEnabled) {
                 for (int i = 0; i < views.size(); i++) {
                     View view = views.get(i);
-                    TemperaMotion.Frame frame = frames[i];
+                    TemperaMotion.Frame frame = view.frame;
                     if (view.keyword || !frame.visible) continue;
                     drawGlyph(canvas, view, view.baseX + frame.x + view.shadowDX,
                             view.baseY + frame.y + view.shadowDY,
                             frame.rotation, frame.scaleX, frame.scaleY,
                             frame.alpha * SHADOW_ALPHA,
-                            inversion ? "#FFFFFF" : view.shadowColor);
+                            inversion ? 0xFFFFFFFF : view.shadowArgb);
                 }
             }
             if (echoCount > 0) {
                 for (int i = 0; i < views.size(); i++) {
                     View view = views.get(i);
-                    TemperaMotion.Frame frame = frames[i];
+                    TemperaMotion.Frame frame = view.frame;
                     if (view.keyword || !frame.visible || frame.echoAlpha <= 0.004f) continue;
                     for (int index = 0; index < echoCount; index++) {
                         float depth = 1f + index * 0.85f;
@@ -259,29 +275,29 @@ public final class TemperaTextView {
                                 view.baseX + frame.echoX * depth,
                                 view.baseY + frame.echoY * depth,
                                 frame.rotation, frame.scaleX, frame.scaleY,
-                                frame.echoAlpha / (index + 1.4f), view.echoColor);
+                                frame.echoAlpha / (index + 1.4f), view.echoArgb);
                     }
                 }
             }
             // All decorations are already present; opaque bodies cover their overlaps.
             for (int i = 0; i < views.size(); i++) {
                 View view = views.get(i);
-                TemperaMotion.Frame frame = frames[i];
+                TemperaMotion.Frame frame = view.frame;
                 if (view.keyword || !frame.visible) continue;
                 drawGlyph(canvas, view, view.baseX + frame.x, view.baseY + frame.y,
                         frame.rotation, frame.scaleX, frame.scaleY,
-                        frame.alpha, inversion ? "#FFFFFF" : view.displayColor);
+                        frame.alpha, inversion ? 0xFFFFFFFF : view.displayArgb);
             }
         } finally {
             if (layer >= 0) canvas.restoreToCount(layer);
         }
         for (int i = 0; i < views.size(); i++) {
             View view = views.get(i);
-            TemperaMotion.Frame frame = frames[i];
+            TemperaMotion.Frame frame = view.frame;
             if (!view.keyword || !frame.visible) continue;
             drawGlyph(canvas, view, view.baseX + frame.x, view.baseY + frame.y,
                     frame.rotation, frame.scaleX, frame.scaleY,
-                    frame.alpha, view.displayColor);
+                    frame.alpha, view.displayArgb);
         }
     }
 

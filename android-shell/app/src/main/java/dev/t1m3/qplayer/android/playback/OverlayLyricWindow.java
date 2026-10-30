@@ -54,6 +54,7 @@ public final class OverlayLyricWindow {
     private static volatile boolean wanted;
     private static volatile SettingsCore settings;
     private static OverlayLyricWindow instance;
+    private static final Map<String, Consumer<Object>> settingsHooks = new java.util.HashMap<>();
 
     private final Context app;
     private final WindowManager wm;
@@ -81,10 +82,59 @@ public final class OverlayLyricWindow {
     private final Consumer<List<LyricLine>> lyricsListener = ignored ->
             main.post(this::invalidateView);
 
-    public static void bindSettings(SettingsCore core) {
+    /** Background style/lock effects outlive the Activity that exposes their UI.
+     * These callbacks capture only application context and a main Handler. */
+    public static void bindSettings(Context context, SettingsCore core) {
+        clearSettings(settings);
         settings = core;
-        OverlayLyricWindow live = instance;
-        if (live != null) live.main.post(live::applyStyle);
+        if (core == null) return;
+        Context app = context.getApplicationContext();
+        Handler main = new Handler(Looper.getMainLooper());
+        bindSetting(core, SettingsCatalog.OVERLAY_LYRIC_KEY, value -> main.post(() -> {
+            if (settings != core) return;
+            setWanted(app, Boolean.TRUE.equals(value));
+            PlaybackService.refreshIfRunning();
+        }));
+        String[] styleKeys = {
+                SettingsCatalog.OVERLAY_LYRIC_LOCKED_KEY,
+                SettingsCatalog.OVERLAY_LYRIC_FONT_SIZE_KEY,
+                SettingsCatalog.OVERLAY_LYRIC_WIDTH_KEY,
+                SettingsCatalog.OVERLAY_LYRIC_BG_OPACITY_KEY,
+                SettingsCatalog.OVERLAY_LYRIC_LINE_SPACING_KEY,
+                SettingsCatalog.OVERLAY_LYRIC_HEIGHT_KEY,
+                SettingsCatalog.OVERLAY_LYRIC_SUNG_COLOR_KEY,
+                SettingsCatalog.OVERLAY_LYRIC_UNSUNG_COLOR_KEY,
+                SettingsCatalog.OVERLAY_LYRIC_OUTLINE_KEY,
+                SettingsCatalog.OVERLAY_LYRIC_OUTLINE_COLOR_KEY
+        };
+        for (String key : styleKeys) {
+            bindSetting(core, key, ignored -> main.post(() -> {
+                if (settings != core) return;
+                restyle();
+                if (SettingsCatalog.OVERLAY_LYRIC_LOCKED_KEY.equals(key)) {
+                    PlaybackService.refreshIfRunning();
+                }
+            }));
+        }
+        setWanted(app, core.bool(SettingsCatalog.OVERLAY_LYRIC_KEY));
+        restyle();
+    }
+
+    private static void bindSetting(SettingsCore core, String key, Consumer<Object> hook) {
+        settingsHooks.put(key, hook);
+        core.onChange(key, hook);
+    }
+
+    /** Clear only the generation being retired, never a replacement UI's settings. */
+    public static void clearSettings(SettingsCore expected) {
+        if (settings != expected) return;
+        if (expected != null) {
+            for (Map.Entry<String, Consumer<Object>> hook : settingsHooks.entrySet()) {
+                expected.removeOnChange(hook.getKey(), hook.getValue());
+            }
+        }
+        settingsHooks.clear();
+        settings = null;
     }
 
     public static void restyle() {
@@ -898,7 +948,7 @@ public final class OverlayLyricWindow {
             float x = textX(left, viewport, rowWidth, v.progress);
 
             drawShadowAndHalo(canvas, v.current, x, baseline, v.mainSize, cSung, alpha);
-            float sweep = complete ? rowWidth : v.sweepWidth(textPaint, rowWidth);
+            float sweep = complete ? rowWidth : v.sweepWidth(rowWidth);
             if (sweep >= rowWidth - 0.01f) {
                 drawText(canvas, v.current, x, baseline, cSung, alpha);
                 return;
@@ -985,6 +1035,7 @@ public final class OverlayLyricWindow {
         final boolean animatablePerToken;
         final List<Syllable> syllables;
         final float mainSize;
+        final float[] prefixWidths;
         float progress;
         long positionMs;
 
@@ -1001,6 +1052,17 @@ public final class OverlayLyricWindow {
             animatablePerToken = t != null && t.animatablePerToken;
             List<Syllable> s = t != null ? t.currentSyllables : null;
             syllables = s == null ? Collections.<Syllable>emptyList() : s;
+            // Measure complete prefixes once rather than adding token widths:
+            // cross-token kerning/shaping must stay identical to measureText.
+            prefixWidths = new float[syllables.size() + 1];
+            if (animatablePerToken) {
+                paint.setTextSize(mainSize);
+                StringBuilder prefix = new StringBuilder();
+                for (int i = 0; i < syllables.size(); i++) {
+                    prefix.append(syllables.get(i).text);
+                    prefixWidths[i + 1] = paint.measureText(prefix.toString());
+                }
+            }
         }
 
         boolean matches(Frame f) {
@@ -1022,17 +1084,15 @@ public final class OverlayLyricWindow {
         }
 
         /** Width of the already-sung part of the current row. */
-        float sweepWidth(Paint paint, float rowWidth) {
+        float sweepWidth(float rowWidth) {
             if (!animatablePerToken || syllables.isEmpty()) return rowWidth * progress;
-            StringBuilder prefix = new StringBuilder();
             float startX = 0f;
             for (int index = 0; index < syllables.size(); index++) {
                 Syllable syllable = syllables.get(index);
                 long start = syllable.startMs;
                 long end = LyricTimeline.syllableEndMs(syllables, index);
                 if (positionMs < start) return Math.min(rowWidth, startX);
-                prefix.append(syllable.text);
-                float endX = paint.measureText(prefix.toString());
+                float endX = prefixWidths[index + 1];
                 if (positionMs < end) {
                     float p = (positionMs - start) / (float) (end - start);
                     return Math.max(0f, Math.min(rowWidth, startX + (endX - startX) * p));

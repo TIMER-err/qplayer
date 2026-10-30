@@ -67,6 +67,7 @@ Rectangle {
     signal reorderPressed()
     signal reorderDragged()
     signal reorderReleased()
+    signal reorderCanceled()
     // Long-press context menu. `song` is the raw model item (needs `.id`); the
     // menu only arms when `menuEnabled` (provider-backed lists opt in — local rows
     // have no playlist-track id). `inOwnedPlaylist` + `ownerPlaylistId` unlock the
@@ -355,7 +356,7 @@ Rectangle {
         height: row.height - 8
         clipRadius: rowBackground.radius
         rippleColor: Theme.color.onSurfaceColor
-        longPressEnabled: row.menuEnabled && row.song !== null
+        longPressEnabled: row.reorderable || (row.menuEnabled && row.song !== null)
         onClicked: {
             if (row._menuArmed) { row._menuArmed = false; return }
             if (row.selectMode) row.selectionToggled()
@@ -372,7 +373,8 @@ Rectangle {
         onContextMenuRequested: {
             if (row.selectMode) { row.selectionToggled(); return }
             row._menuArmed = true
-            row._openMenu()
+            if (row.reorderable) row.revealToggled()
+            else row._openMenu()
         }
     }
 
@@ -477,7 +479,7 @@ Rectangle {
                 row.reorderDragged()
             }
             onReleased: row.reorderReleased()
-            onCanceled: row.reorderReleased()
+            onCanceled: row.reorderCanceled()
         }
     }
 

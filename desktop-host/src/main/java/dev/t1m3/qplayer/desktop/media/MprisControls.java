@@ -9,10 +9,13 @@ import com.sun.jna.Pointer;
 import com.sun.jna.Structure;
 
 import dev.t1m3.qplayer.bridge.PlayerController;
-import dev.t1m3.qplayer.model.Track;
+import dev.t1m3.qplayer.bridge.PlaybackSnapshot;
+import dev.t1m3.qplayer.bridge.PlaybackSnapshot.TrackMetadata;
 import dev.t1m3.qplayer.util.Logger;
 
 import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.util.HexFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -210,7 +213,7 @@ public final class MprisControls implements DesktopMediaControls {
     private volatile String lastMetadata = "";
     private volatile String lastLoopStatus = "";
     private volatile Boolean lastShuffle;
-    private volatile long pausedPositionMs;
+    private long lastSeekRevision = Long.MIN_VALUE;
 
     public MprisControls(PlayerController controller, DesktopWindow window) {
         this.controller = controller;
@@ -343,20 +346,24 @@ public final class MprisControls implements DesktopMediaControls {
                     // property path GDBus hands us, so pull the int64 out by index.
                     case "Seek": {
                         long deltaUs = tupleInt64(params, 0);
-                        long target = positionMs() + deltaUs / 1000L;
                         window.postMainTask(() -> {
-                            controller.seek(Math.max(0, target));
-                            pausedPositionMs = Math.max(0, target);
-                            emitSeeked(Math.max(0, target) * 1000L);
+                            long target = positionMs() + deltaUs / 1000L;
+                            controller.seek(Math.max(0L, target));
+                            publish();
                         });
                         break;
                     }
                     case "SetPosition": {
+                        String requestedTrack = tupleString(params, 0);
                         long us = tupleInt64(params, 1);
                         window.postMainTask(() -> {
-                            controller.seek(Math.max(0, us / 1000L));
-                            pausedPositionMs = Math.max(0, us / 1000L);
-                            emitSeeked(Math.max(0, us));
+                            PlaybackSnapshot snapshot = controller.playbackSnapshot();
+                            TrackMetadata current = snapshot.track();
+                            if (current == null || current.canonicalId() == null || current.canonicalId().isEmpty()
+                                    || !trackId(current.canonicalId()).equals(requestedTrack) || us < 0
+                                    || (snapshot.durationMs() > 0 && us > snapshot.durationMs() * 1000L)) return;
+                            controller.seekIfCurrent(current.canonicalId(), us / 1000L);
+                            publish();
                         });
                         break;
                     }
@@ -390,6 +397,19 @@ public final class MprisControls implements DesktopMediaControls {
         return v;
     }
 
+    private String tupleString(Pointer tuple, int index) {
+        if (tuple == null) return "";
+        if (variantChild == null) variantChild = Native.load("glib-2.0", VariantChild.class);
+        Pointer child = variantChild.g_variant_get_child_value(tuple, index);
+        if (child == null) return "";
+        try {
+            Pointer value = glib.g_variant_get_string(child, Pointer.NULL);
+            return value == null ? "" : value.getString(0);
+        } finally {
+            variantChild.g_variant_unref(child);
+        }
+    }
+
     // ---- D-Bus properties ----------------------------------------------------
 
     private Pointer onGetProperty(String iface, String prop) {
@@ -406,21 +426,22 @@ public final class MprisControls implements DesktopMediaControls {
                     default: return null;
                 }
             }
+            PlaybackSnapshot snapshot = controller.playbackSnapshot();
             switch (prop) {
-                case "PlaybackStatus": return glib.g_variant_new_string(status());
+                case "PlaybackStatus": return glib.g_variant_new_string(status(snapshot));
                 case "LoopStatus": return glib.g_variant_new_string(loopStatus());
                 case "Rate": return glib.g_variant_new_double(1.0);
                 case "MinimumRate": return glib.g_variant_new_double(1.0);
                 case "MaximumRate": return glib.g_variant_new_double(1.0);
                 case "Shuffle": return glib.g_variant_new_boolean(shuffle());
-                case "Metadata": return parse(metadata());
+                case "Metadata": return parse(metadata(snapshot));
                 case "Volume": return glib.g_variant_new_double(volume());
-                case "Position": return glib.g_variant_new_int64(positionMs() * 1000L);
+                case "Position": return glib.g_variant_new_int64(Math.max(0L, snapshot.positionMs()) * 1000L);
                 case "CanGoNext": return glib.g_variant_new_boolean(true);
                 case "CanGoPrevious": return glib.g_variant_new_boolean(true);
                 case "CanPlay": return glib.g_variant_new_boolean(true);
                 case "CanPause": return glib.g_variant_new_boolean(true);
-                case "CanSeek": return glib.g_variant_new_boolean(duration() > 0);
+                case "CanSeek": return glib.g_variant_new_boolean(snapshot.durationMs() > 0);
                 case "CanControl": return glib.g_variant_new_boolean(true);
                 default: return null;
             }
@@ -465,18 +486,23 @@ public final class MprisControls implements DesktopMediaControls {
 
     @Override
     public void onPlaybackChanged() {
-        if (!playing()) pausedPositionMs = Math.max(0L, controller.position());
         publish();
     }
 
     /** Emit PropertiesChanged for whatever a widget actually shows, when it
      *  changed. Position is deliberately not included: MPRIS has clients poll it
      *  (that's why it's exempt from the changed signal in the spec). */
-    private void publish() {
+    private synchronized void publish() {
         if (!registered || connection == null) return;
         try {
-            String status = status();
-            String metadata = metadata();
+            PlaybackSnapshot snapshot = controller.playbackSnapshot();
+            long revision = snapshot.seekRevision();
+            if (lastSeekRevision != Long.MIN_VALUE && revision != lastSeekRevision) {
+                emitSeeked(Math.max(0L, snapshot.positionMs()) * 1000L);
+            }
+            lastSeekRevision = revision;
+            String status = status(snapshot);
+            String metadata = metadata(snapshot);
             String loop = loopStatus();
             boolean shuffle = shuffle();
             boolean statusChanged = !status.equals(lastStatus);
@@ -525,22 +551,16 @@ public final class MprisControls implements DesktopMediaControls {
     // ---- value plumbing ------------------------------------------------------
 
     private boolean playing() {
-        return controller.isPlaying();
+        return controller.playbackSnapshot().playing();
     }
 
-    private String status() {
-        if (playing()) return "Playing";
-        return duration() > 0 ? "Paused" : "Stopped";
-    }
-
-    private long duration() {
-        Track track = controller.currentTrack();
-        if (track != null && track.durationMs > 0) return track.durationMs;
-        return controller.duration();
+    private String status(PlaybackSnapshot snapshot) {
+        if (snapshot.playing()) return "Playing";
+        return snapshot.durationMs() > 0 ? "Paused" : "Stopped";
     }
 
     private long positionMs() {
-        return playing() ? Math.max(0L, controller.position()) : pausedPositionMs;
+        return Math.max(0L, controller.playbackSnapshot().positionMs());
     }
 
     private int playMode() {
@@ -562,45 +582,41 @@ public final class MprisControls implements DesktopMediaControls {
     }
 
     /** The Metadata dictionary in GVariant text form (see {@link GLib#g_variant_parse}). */
-    private String metadata() {
-        Track track = controller.currentTrack();
+    private String metadata(PlaybackSnapshot snapshot) {
+        TrackMetadata track = snapshot.track();
         if (track == null) return "@a{sv} {}";
-        String title = str(track.title);
-        if (title.isEmpty()) return "@a{sv} {}";
-        String artist = str(track.artist);
-        String album = str(track.album);
+        String title = str(track.title());
+        String artist = str(track.artist());
+        String album = str(track.album());
         String art = artUrl(track);
 
         StringBuilder sb = new StringBuilder("{");
-        // A track id is mandatory and must be a valid object path; widgets use it
-        // to tell one track from the next, so derive it from the title's identity
-        // rather than a constant (a constant makes every track look like the same one).
-        sb.append("'mpris:trackid': <objectpath '/dev/t1m3/qplayer/track/")
-          .append(Integer.toUnsignedString((title + album).hashCode())).append("'>");
+        sb.append("'mpris:trackid': <objectpath '").append(trackId(track.canonicalId())).append("'>");
         sb.append(", 'xesam:title': <'").append(esc(title)).append("'>");
         if (!artist.isEmpty()) sb.append(", 'xesam:artist': <['").append(esc(artist)).append("']>");
         if (!album.isEmpty()) sb.append(", 'xesam:album': <'").append(esc(album)).append("'>");
         if (!art.isEmpty()) sb.append(", 'mpris:artUrl': <'").append(esc(art)).append("'>");
-        sb.append(", 'mpris:length': <int64 ").append(duration() * 1000L).append('>');
+        sb.append(", 'mpris:length': <int64 ").append(snapshot.durationMs() * 1000L).append('>');
         sb.append("}");
         return sb.toString();
     }
 
+    /** Encode the real media identity injectively into a valid D-Bus path segment. */
+    static String trackId(String canonicalId) {
+        if (canonicalId == null || canonicalId.isEmpty()) return "/org/mpris/MediaPlayer2/TrackList/NoTrack";
+        return "/dev/t1m3/qplayer/track/t"
+                + HexFormat.of().formatHex(canonicalId.getBytes(StandardCharsets.UTF_8));
+    }
+
     /** Prefer the cached cover file — a widget can load a local path instantly and
      *  without network — falling back to the remote URL. */
-    private String artUrl(Track track) {
-        String cached = controller.currentCoverPath();
+    private String artUrl(TrackMetadata track) {
+        String cached = track.coverPath();
         if (cached != null && !cached.isEmpty()) {
             File f = new File(cached);
             if (f.isFile()) return f.toURI().toString();
         }
-        for (String path : new String[]{track.coverLocalPath, track.coverThumbPath}) {
-            if (path != null && !path.startsWith("http")) {
-                File f = new File(path);
-                if (f.isFile()) return f.toURI().toString();
-            }
-        }
-        String url = str(track.coverUrl);
+        String url = str(track.coverUrl());
         return url.startsWith("http") ? url : "";
     }
 

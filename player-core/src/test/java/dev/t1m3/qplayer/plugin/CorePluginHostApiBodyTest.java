@@ -92,6 +92,53 @@ public class CorePluginHostApiBodyTest {
     }
 
     @Test
+    public void multipartWithoutHeadersSendsARealRequest() throws Exception {
+        com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(
+                new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        java.util.concurrent.atomic.AtomicReference<String> contentType =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicReference<String> received =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        server.createContext("/upload", exchange -> {
+            contentType.set(exchange.getRequestHeaders().getFirst("Content-Type"));
+            java.io.ByteArrayOutputStream body = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[4096];
+            int bytes;
+            while ((bytes = exchange.getRequestBody().read(buffer)) >= 0) {
+                body.write(buffer, 0, bytes);
+            }
+            received.set(new String(body.toByteArray(), StandardCharsets.UTF_8));
+            exchange.sendResponseHeaders(200, 0);
+            exchange.close();
+        });
+        server.start();
+        try (CorePluginHostApi api = new CorePluginHostApi()) {
+            PluginManifest manifest = new PluginManifest();
+            manifest.schemaVersion = 1;
+            manifest.id = "upload-fixture";
+            manifest.name = "Upload fixture";
+            manifest.version = "1.0.0";
+            manifest.apiVersion = "1.0";
+            manifest.permissions = java.util.Arrays.asList(PluginPermission.NETWORK.wireName(),
+                    PluginPermission.CLEAR_TEXT_NETWORK.wireName(), PluginPermission.LOCAL_NETWORK.wireName());
+            manifest.networkDomains = java.util.Collections.singletonList("127.0.0.1");
+            api.register(manifest);
+            Map<String, Object> request = args("url",
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/upload");
+            request.put("method", "POST");
+            request.put("multipart", args("fields", args("name", "fixture")));
+            Map<?, ?> response = (Map<?, ?>) api.call(manifest.id, "http.request", request)
+                    .get(5, java.util.concurrent.TimeUnit.SECONDS);
+            org.junit.Assert.assertEquals(200, ((Number) response.get("status")).intValue());
+            assertTrue(contentType.get().startsWith("multipart/form-data; boundary="));
+            assertTrue(received.get().contains("name=\"name\""));
+            assertTrue(received.get().contains("fixture"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     public void multipartAndBodyTogetherAreRejected() {
         Map<String, Object> both = args("body", "text");
         both.put("multipart", new LinkedHashMap<String, Object>());

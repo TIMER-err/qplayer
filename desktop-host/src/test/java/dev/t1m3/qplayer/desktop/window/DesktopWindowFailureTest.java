@@ -31,12 +31,16 @@ public class DesktopWindowFailureTest {
     }
 
     @Test
-    public void applicationFrameCrashesAskForRenderThreadRespawn() {
+    public void applicationFrameRecoveryRequiresVisibleFrameAndIsBounded() {
         assertTrue(DesktopWindow.shouldRespawnAfterApplicationError(
-                RenderThread.FailureStage.APPLICATION_FRAME));
+                RenderThread.FailureStage.APPLICATION_FRAME, true, false));
         assertFalse(DesktopWindow.shouldRespawnAfterApplicationError(
-                RenderThread.FailureStage.BACKEND_FRAME));
+                RenderThread.FailureStage.APPLICATION_FRAME, false, false));
         assertFalse(DesktopWindow.shouldRespawnAfterApplicationError(
-                RenderThread.FailureStage.BACKEND_INITIALIZATION));
+                RenderThread.FailureStage.APPLICATION_FRAME, true, true));
+        assertFalse(DesktopWindow.shouldRespawnAfterApplicationError(
+                RenderThread.FailureStage.BACKEND_FRAME, true, false));
+        assertFalse(DesktopWindow.shouldRespawnAfterApplicationError(
+                RenderThread.FailureStage.BACKEND_INITIALIZATION, true, false));
     }
 }

@@ -64,6 +64,45 @@ public class PluginCatalogServiceTest {
         }
     }
 
+    @Test
+    public void cancellationWaitsForInjectedDownloaderExitAndDoesNotRetry() throws Exception {
+        java.util.concurrent.CountDownLatch entered = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch interrupted = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        PluginCatalogService service = new PluginCatalogService(new PluginPackageVerifier(),
+                () -> Collections.singletonList(source()), (url, limit) -> {
+                    calls.incrementAndGet();
+                    entered.countDown();
+                    while (release.getCount() != 0) {
+                        try { release.await(); }
+                        catch (InterruptedException ignored) { interrupted.countDown(); }
+                    }
+                    throw new IOException("fixture downloader has exited");
+                });
+        java.util.concurrent.ExecutorService worker = java.util.concurrent.Executors.newSingleThreadExecutor();
+        java.util.concurrent.Future<?> loading = worker.submit(() -> {
+            try { return service.loadLatest(false); }
+            catch (IOException error) { throw new java.io.UncheckedIOException(error); }
+        });
+        try {
+            org.junit.Assert.assertTrue(entered.await(2, java.util.concurrent.TimeUnit.SECONDS));
+            java.util.concurrent.CompletableFuture<Void> stopped = service.cancelPendingOperations();
+            org.junit.Assert.assertTrue(interrupted.await(2, java.util.concurrent.TimeUnit.SECONDS));
+            assertFalse(stopped.isDone());
+            release.countDown();
+            stopped.get(2, java.util.concurrent.TimeUnit.SECONDS);
+            org.junit.Assert.assertThrows(java.util.concurrent.ExecutionException.class,
+                    () -> loading.get(2, java.util.concurrent.TimeUnit.SECONDS));
+            assertEquals(1, calls.get());
+            org.junit.Assert.assertThrows(IOException.class, () -> service.loadLatest(false));
+        } finally {
+            release.countDown();
+            service.close();
+            worker.shutdownNow();
+        }
+    }
+
     private static PluginCatalogService.Source source() {
         return new PluginCatalogService.Source("netease", "网易云音乐", "description",
                 "owner/repo", PUBLISHER_KEY);

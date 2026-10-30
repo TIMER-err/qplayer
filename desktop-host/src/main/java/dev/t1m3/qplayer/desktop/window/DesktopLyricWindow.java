@@ -117,6 +117,7 @@ public final class DesktopLyricWindow {
     private LyricTimeline.Prepared prepared;
     private Object lastPaletteScheme;
     private DesktopLyricPalette palette;
+    private Appearance lastPaletteAppearance;
     private volatile Appearance appearance;
     /** Only live while colorScheme == MODE_CONTRAST; see updateContrastSampler. */
     private volatile ScreenContrastSampler contrastSampler;
@@ -334,18 +335,21 @@ public final class DesktopLyricWindow {
             default -> dark;
         };
         Object paletteScheme = DesktopLyricPalette.scheme(effectiveDark);
-        if (palette == null || paletteScheme != lastPaletteScheme) {
+        if (palette == null || paletteScheme != lastPaletteScheme || look != lastPaletteAppearance) {
             lastPaletteScheme = paletteScheme;
+            lastPaletteAppearance = look;
             palette = DesktopLyricPalette.capture(paletteScheme, effectiveDark,
                     look.sungColor(), look.unsungColor());
         }
+        var playback = controller.playbackSnapshot();
+        var track = playback.track();
         snapshot.set(new DesktopLyricSnapshot(prepared,
-                controller.title.peek(), controller.artist.peek(),
+                track == null ? "" : track.title(), track == null ? "" : track.artist(),
                 controller.lyricClockPosition(), controller.isLyricClockRunning(),
                 System.nanoTime(), config.offsetMs.getValue(),
                 look.fontFamily(), look.fontSize(), look.fontWeight(),
                 look.shadow(), look.outline(),
-                Boolean.TRUE.equals(controller.playing.peek()),
+                playback.playing(),
                 palette, look.idleBackgroundOpacity()));
         boolean firstSnapshot = !snapshotPublished;
         snapshotPublished = true;
@@ -356,10 +360,8 @@ public final class DesktopLyricWindow {
     }
 
     /**
-     * Main thread: re-read the appearance settings after one of
-     * {@link #APPEARANCE_KEYS} changed. Dropping the cached palette is what makes
-     * a colour change visible — it is otherwise only rebuilt when the Monet
-     * scheme itself changes.
+     * Main thread: publish immutable appearance settings. The publisher alone owns
+     * the palette cache and rebuilds it when it observes a new appearance.
      */
     void reloadAppearance() {
         appearance = new Appearance(
@@ -373,7 +375,6 @@ public final class DesktopLyricWindow {
                 store.getInt(IDLE_OPACITY_KEY, 45) / 100f,
                 store.getInt(COLOR_SCHEME_KEY,
                         dev.t1m3.qplayer.settings.SettingsCatalog.MODE_SYSTEM));
-        palette = null;
         updateContrastSampler();
         DesktopLyricRenderThread thread = renderThread;
         if (thread != null) java.util.concurrent.locks.LockSupport.unpark(thread);
@@ -834,8 +835,12 @@ public final class DesktopLyricWindow {
             IntBuffer x = stack.mallocInt(1);
             IntBuffer y = stack.mallocInt(1);
             GLFW.glfwGetWindowPos(window, x, y);
-            store.putInt(X_KEY, x.get(0));
-            store.putInt(Y_KEY, y.get(0));
+            if (store instanceof dev.t1m3.qplayer.desktop.settings.JsonSettingsStore json) {
+                json.putInts(X_KEY, x.get(0), Y_KEY, y.get(0));
+            } else {
+                store.putInt(X_KEY, x.get(0));
+                store.putInt(Y_KEY, y.get(0));
+            }
         }
     }
 

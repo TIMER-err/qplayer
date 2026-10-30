@@ -27,6 +27,11 @@ Set `JAVA_HOME` to that installation and put its `bin` directory on `PATH`.
   Desktop login requires the Evergreen WebView2 Runtime on the user's machine.
 - **macOS:** Install Xcode Command Line Tools. The build targets macOS 13 or newer.
 
+The engine version has one source: `qml4j.version` in the root POM. Android reads
+that property too. All CI builds use `.github/actions/build-engine` to clone the
+matching tag and pin its POM versions before installation. This pin is required:
+an engine tag can still contain the previous release's Maven version.
+
 ```sh
 # Install player-core for consumers outside this Maven reactor, including Android.
 mvn -DskipTests -pl player-core -am install
@@ -35,6 +40,35 @@ mvn -DskipTests -pl player-core -am install
 mvn -DskipTests -pl desktop-host -am -Pdist package
 # -> desktop-host/target/qplayer (qplayer.exe on Windows)
 ```
+
+Before packaging, run the project behavior gate:
+
+```sh
+mvn -B -pl player-core,qml-aot-tool -am install
+mvn -B -pl desktop-host verify
+```
+
+The first command runs core tests and installs the build tool for Maven plugin
+resolution. The second runs desktop tests and the `smoke-packaged-qml` integration
+step. Existing source-interpreted QML tests remain useful component tests. The
+integration step loads both real scene manifests through `BundledQml`, without
+QML source access. It checks visible theme changes, theme ownership after scene
+reopening, a reactive lyric lock control, and native image decoding. Scene layout
+also uses the production font-loading path.
+
+After building the native executable, run the same smoke under strict native
+metadata checking:
+
+```sh
+desktop-host/target/qplayer --build-smoke
+# Windows: desktop-host/target/qplayer.exe --build-smoke
+```
+
+The smoke uses a temporary empty profile and does not create a window or start
+audio playback. It is not a substitute for platform WebView, tray, file-dialog,
+or audio integration tests. Release CI runs it on each native target before
+packaging. Debug and release jobs also depend on the shared project behavior
+workflow; Android jobs run `:app:testDebugUnitTest` before assembly.
 
 For a nonstandard SDK layout, pass its native library directories explicitly:
 
@@ -95,10 +129,32 @@ Metadata is generated at build time:
   and container constructors, JNA libraries and callbacks, Skija JNI entry points,
   reflective audio-tag factories, Rhino reflection, and required resources.
 - The WebView CMake install step registers its JNI bridge and native library.
+- OkHttp's JVM artifact supplies its own native-image arguments, Kotlin reflection
+  registrations, and public-suffix resource configuration under
+  `META-INF/native-image/okhttp/okhttp`. Do not duplicate those registrations.
+
+`okhttp.version` in the root POM pins the plugin HTTP transport for both hosts.
+Maven uses `okhttp-jvm`; Android excludes that transitive artifact and lets Gradle
+select the `okhttp-android` AAR and its AndroidX Startup initializer from `okhttp`.
+The Android build-time QML compiler retains the JVM artifact. The desktop build
+uses the JDK TLS provider; adding Conscrypt, Bouncy Castle, or OpenJSSE requires
+testing that provider's native integration, not just adding its detection class.
 
 Change the generators when adding a dynamic entry point. Do not edit generated
 JSON or disable strict metadata checks. Exercise the affected interaction in the
 native executable; a successful image build does not prove dynamic reachability.
+
+The qml4j 0.2.33 public API does not yet replace the build-only private ABI
+adapter. `TypeRegistry` has no type/singleton enumeration. `Loader` and
+`CompilationRecorder` are package-private. Public `QmlCompiler.compile` returns
+an individual unit, not a complete import/singleton/JS scene, and exposes no
+namespace allocation. Removing `QPlayerSceneCapture` requires an upstream public
+scene-capture API that accepts resources, context names, all lazy component
+sources, and an isolated generated-class namespace without instantiating UI
+objects. It must return a complete `CompiledScene`. It also requires public
+registry enumeration for reflection-root discovery. Do not replace this adapter
+with source compilation at runtime or a partial fallback.
+
 For plugin metadata changes, exercise download, publisher-signature verification,
 consent, and first installation with an empty profile. An existing plugin does not
 exercise package hash-map deserialization.

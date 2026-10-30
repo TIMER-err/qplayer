@@ -29,9 +29,9 @@ import org.lwjgl.glfw.GLFWNativeWin32;
  * unavoidable side effect of the technique, not a bug, and reverted the
  * moment the sampler stops.
  *
- * <p>Runs entirely on its own daemon thread: every GDI call here is a
- * synchronous native round trip, and this must never share the render or main
- * thread with QML/GL work.
+ * <p>GDI sampling runs on its own daemon thread. GLFW handle lookup and capture
+ * exclusion run on the window-owning main thread; stop joins the sampler before
+ * restoring capture visibility or allowing the GLFW window to be destroyed.
  */
 final class ScreenContrastSampler {
 
@@ -43,10 +43,11 @@ final class ScreenContrastSampler {
     private static final int SAMPLE_STRIDE = 6;
 
     private final long glfwWindow;
+    private WinDef.HWND nativeWindow;
     private final int intervalMs;
     private final Thread thread;
     private volatile boolean running;
-    private volatile boolean excluded;
+    private boolean excluded;
     // 0 (black) .. 1 (white). Neutral default until the first sample lands, so
     // an early publish() before the thread has run once still picks something
     // reasonable rather than reading an uninitialized 0.
@@ -61,17 +62,29 @@ final class ScreenContrastSampler {
 
     void start() {
         if (running || GLFW.glfwGetPlatform() != GLFW.GLFW_PLATFORM_WIN32) return;
+        long handle = GLFWNativeWin32.glfwGetWin32Window(glfwWindow);
+        if (handle == 0L) return;
+        nativeWindow = new WinDef.HWND(Pointer.createConstant(handle));
+        excluded = User32Ext.I.SetWindowDisplayAffinity(nativeWindow, WDA_EXCLUDEFROMCAPTURE);
         running = true;
         thread.start();
     }
 
-    /** Restores normal capture visibility before the thread exits — this must
-     *  not linger after the user switches away from contrast mode. */
+    /** Main thread: wait for all native sampling calls before restoring capture. */
     void stop() {
-        if (!running) return;
         running = false;
         thread.interrupt();
+        boolean interrupted = false;
+        while (thread.isAlive()) {
+            try {
+                thread.join();
+            } catch (InterruptedException ignored) {
+                interrupted = true;
+            }
+        }
         clearExclusion();
+        nativeWindow = null;
+        if (interrupted) Thread.currentThread().interrupt();
     }
 
     /** Main/render thread read of the sampler thread's latest average. */
@@ -95,17 +108,11 @@ final class ScreenContrastSampler {
         }
     }
 
-    private WinDef.HWND hwnd() {
-        long nativeHandle = GLFWNativeWin32.glfwGetWin32Window(glfwWindow);
-        if (nativeHandle == 0L) return null;
-        return new WinDef.HWND(Pointer.createConstant(nativeHandle));
-    }
 
     private void clearExclusion() {
         if (!excluded) return;
         try {
-            WinDef.HWND hwnd = hwnd();
-            if (hwnd != null) User32Ext.I.SetWindowDisplayAffinity(hwnd, WDA_NONE);
+            if (nativeWindow != null) User32Ext.I.SetWindowDisplayAffinity(nativeWindow, WDA_NONE);
         } catch (Throwable error) {
             Logger.warn("desktop lyric contrast un-exclude failed: {}", error.toString());
         } finally {
@@ -114,12 +121,8 @@ final class ScreenContrastSampler {
     }
 
     private void sampleOnce() {
-        WinDef.HWND hwnd = hwnd();
+        WinDef.HWND hwnd = nativeWindow;
         if (hwnd == null) return;
-        if (!excluded) {
-            User32Ext.I.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
-            excluded = true;
-        }
         WinDef.RECT rect = new WinDef.RECT();
         if (!User32.INSTANCE.GetWindowRect(hwnd, rect)) return;
         int screenX = rect.left;

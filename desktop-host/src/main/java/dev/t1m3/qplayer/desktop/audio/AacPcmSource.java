@@ -19,7 +19,9 @@ final class AacPcmSource implements PcmSource {
     private long pendingTimeMs;
     private boolean eof;
 
-    @Override public boolean hasBuffered(int n) { return src.hasBuffered(n); }
+    @Override public boolean hasBuffered(int n) {
+        return pendingPos < pending.length || eof || src.hasBuffered(n);
+    }
 
     AacPcmSource(SeekableByteSource src) throws IOException {
         this.src = src;

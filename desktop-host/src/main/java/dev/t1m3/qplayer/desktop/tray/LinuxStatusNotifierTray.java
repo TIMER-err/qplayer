@@ -99,9 +99,16 @@ final class LinuxStatusNotifierTray extends LinuxTrayBackend {
     interface GLib extends Library {
         Pointer g_main_context_new();
         void g_main_context_push_thread_default(Pointer context);
+        void g_main_context_pop_thread_default(Pointer context);
+        void g_main_context_unref(Pointer context);
         Pointer g_main_loop_new(Pointer context, boolean running);
         void g_main_loop_run(Pointer loop);
         void g_main_loop_quit(Pointer loop);
+        void g_main_loop_unref(Pointer loop);
+        Pointer g_idle_source_new();
+        void g_source_set_callback(Pointer source, SourceFunc callback, Pointer data, Pointer destroy);
+        int g_source_attach(Pointer source, Pointer context);
+        void g_source_unref(Pointer source);
         Pointer g_variant_parse(Pointer type, String text, Pointer limit,
                                 Pointer endptr, Pointer[] error);
         Pointer g_variant_new_string(String value);
@@ -126,10 +133,12 @@ final class LinuxStatusNotifierTray extends LinuxTrayBackend {
         void g_bus_unwatch_name(int watcherId);
         Pointer g_dbus_node_info_new_for_xml(String xml, Pointer[] error);
         Pointer g_dbus_node_info_lookup_interface(Pointer node, String name);
+        void g_dbus_node_info_unref(Pointer node);
         int g_dbus_connection_register_object(Pointer connection, String path,
                                               Pointer info, VTable table,
                                               Pointer data, Pointer destroy,
                                               Pointer[] error);
+        boolean g_dbus_connection_unregister_object(Pointer connection, int registrationId);
         Pointer g_dbus_connection_call_sync(Pointer connection, String busName,
                                             String objectPath, String interfaceName,
                                             String methodName, Pointer parameters,
@@ -140,6 +149,10 @@ final class LinuxStatusNotifierTray extends LinuxTrayBackend {
                                               String path, String iface, String signal,
                                               Pointer parameters, Pointer[] error);
         void g_dbus_method_invocation_return_value(Pointer invocation, Pointer value);
+    }
+
+    interface SourceFunc extends Callback {
+        boolean invoke(Pointer data);
     }
 
     interface BusAcquired extends Callback {
@@ -209,14 +222,29 @@ final class LinuxStatusNotifierTray extends LinuxTrayBackend {
     private final Object readyLock = new Object();
     private GLib glib;
     private Gio gio;
+    private Pointer context;
     private Pointer loop;
     private volatile Pointer connection;
     private volatile boolean exported;
-    private volatile boolean running;
+    private boolean stopped;
+    private boolean initialAttemptDone;
+    private boolean nameOwned;
+    private String watcherOwner;
     private int ownerId;
     private int watcherId;
+    private int itemId;
+    private int menuId;
+    private Pointer node;
     private VTable itemTable;
     private VTable menuTable;
+    // JNA probes OPTIONS on the concrete callback class, including on shutdown.
+    // A regular class participates in the existing bytecode metadata discovery.
+    private final SourceFunc stopLoop = new SourceFunc() {
+        @Override public boolean invoke(Pointer data) {
+            glib.g_main_loop_quit(loop);
+            return false;
+        }
+    };
     private byte[] iconPng;
     private String iconPixmap = "@a(iiay) []";
     private volatile String tooltip = "QPlayer";
@@ -275,32 +303,53 @@ final class LinuxStatusNotifierTray extends LinuxTrayBackend {
         Thread thread = new Thread(this::run, "qplayer-sni-tray");
         thread.setDaemon(true);
         thread.start();
+        boolean available;
         synchronized (readyLock) {
-            long deadline = System.currentTimeMillis() + 3000L;
-            while (!exported && System.currentTimeMillis() < deadline) {
+            long deadline = System.nanoTime() + 4_000_000_000L;
+            while (!isAvailable() && !initialAttemptDone && !stopped) {
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0) break;
                 try {
-                    readyLock.wait(Math.max(1L, deadline - System.currentTimeMillis()));
+                    readyLock.wait(Math.max(1L, remaining / 1_000_000L));
                 } catch (InterruptedException error) {
                     Thread.currentThread().interrupt();
                     break;
                 }
             }
+            available = isAvailable() && !stopped;
         }
-        if (!exported) shutdown();
-        return exported;
+        if (!available) shutdown();
+        return available;
     }
 
     private void run() {
+        Pointer threadContext = null;
         try {
-            Pointer context = glib.g_main_context_new();
-            glib.g_main_context_push_thread_default(context);
+            synchronized (readyLock) {
+                if (stopped) return;
+                context = threadContext = glib.g_main_context_new();
+                glib.g_main_context_push_thread_default(context);
+                loop = glib.g_main_loop_new(context, false);
+            }
 
             BusAcquired busAcquired = (conn, name, data) -> export(conn);
-            NameAcquired nameAcquired = (conn, name, data) -> registerWithWatcher(conn);
-            NameLost nameLost = (conn, name, data) ->
-                    Logger.warn("Linux StatusNotifierItem lost bus name {}", name);
-            NameAppeared appeared = (conn, name, owner, data) -> registerWithWatcher(conn);
-            NameVanished vanished = (conn, name, data) -> { };
+            NameAcquired nameAcquired = (conn, name, data) -> {
+                nameOwned = true;
+                registerWithWatcher(conn);
+            };
+            NameLost nameLost = (conn, name, data) -> {
+                nameOwned = false;
+                registrationUnavailable();
+                Logger.warn("Linux StatusNotifierItem lost bus name {}", name);
+            };
+            NameAppeared appeared = (conn, name, owner, data) -> {
+                watcherOwner = owner;
+                registerWithWatcher(conn);
+            };
+            NameVanished vanished = (conn, name, data) -> {
+                watcherOwner = null;
+                registrationUnavailable();
+            };
             keepAlive.add(busAcquired);
             keepAlive.add(nameAcquired);
             keepAlive.add(nameLost);
@@ -311,20 +360,45 @@ final class LinuxStatusNotifierTray extends LinuxTrayBackend {
                     busAcquired, nameAcquired, nameLost, Pointer.NULL, Pointer.NULL);
             watcherId = gio.g_bus_watch_name(SESSION_BUS, WATCHER, 0,
                     appeared, vanished, Pointer.NULL, Pointer.NULL);
-            loop = glib.g_main_loop_new(context, false);
-            running = true;
             glib.g_main_loop_run(loop);
         } catch (Throwable error) {
             Logger.warn("Linux StatusNotifierItem thread failed: {}", error.toString());
-            markExportFailed();
+        } finally {
+            synchronized (readyLock) {
+                stopped = true;
+                exported = false;
+                setAvailable(false);
+                initialAttemptDone = true;
+                readyLock.notifyAll();
+                if (watcherId != 0) gio.g_bus_unwatch_name(watcherId);
+                if (connection != null) {
+                    if (itemId != 0) gio.g_dbus_connection_unregister_object(connection, itemId);
+                    if (menuId != 0) gio.g_dbus_connection_unregister_object(connection, menuId);
+                    connection = null;
+                }
+                if (ownerId != 0) gio.g_bus_unown_name(ownerId);
+                if (node != null) gio.g_dbus_node_info_unref(node);
+                if (loop != null) glib.g_main_loop_unref(loop);
+                loop = null;
+                context = null;
+            }
+            if (threadContext != null) {
+                glib.g_main_context_pop_thread_default(threadContext);
+                glib.g_main_context_unref(threadContext);
+            }
+            // Native registrations and their private context no longer retain callbacks.
+            keepAlive.clear();
         }
     }
 
     private void export(Pointer conn) {
         try {
-            connection = conn;
+            synchronized (readyLock) {
+                if (stopped) return;
+                connection = conn;
+            }
             Pointer[] error = new Pointer[1];
-            Pointer node = gio.g_dbus_node_info_new_for_xml(XML, error);
+            node = gio.g_dbus_node_info_new_for_xml(XML, error);
             if (node == null) {
                 logError("introspection XML", error);
                 markExportFailed();
@@ -332,16 +406,17 @@ final class LinuxStatusNotifierTray extends LinuxTrayBackend {
             }
             itemTable = table(this::onItemMethod, this::onItemProperty);
             menuTable = table(this::onMenuMethod, this::onMenuProperty);
-            int itemId = gio.g_dbus_connection_register_object(conn, ITEM_PATH,
+            itemId = gio.g_dbus_connection_register_object(conn, ITEM_PATH,
                     gio.g_dbus_node_info_lookup_interface(node, ITEM_IFACE), itemTable,
                     Pointer.NULL, Pointer.NULL, error);
-            int menuId = gio.g_dbus_connection_register_object(conn, MENU_PATH,
+            menuId = gio.g_dbus_connection_register_object(conn, MENU_PATH,
                     gio.g_dbus_node_info_lookup_interface(node, MENU_IFACE), menuTable,
                     Pointer.NULL, Pointer.NULL, error);
             exported = itemId != 0 && menuId != 0;
-            if (!exported) logError("object export", error);
-            synchronized (readyLock) { readyLock.notifyAll(); }
-            if (exported) Logger.info("system tray initialized: Linux StatusNotifierItem");
+            if (!exported) {
+                logError("object export", error);
+                markExportFailed();
+            }
         } catch (Throwable error) {
             Logger.warn("Linux StatusNotifierItem export failed: {}", error.toString());
             markExportFailed();
@@ -363,16 +438,30 @@ final class LinuxStatusNotifierTray extends LinuxTrayBackend {
     }
 
     private void registerWithWatcher(Pointer conn) {
-        if (!exported || conn == null) return;
+        synchronized (readyLock) {
+            if (stopped || !exported || !nameOwned || watcherOwner == null || conn == null) return;
+        }
         Pointer[] error = new Pointer[1];
-        Pointer reply = gio.g_dbus_connection_call_sync(conn, WATCHER,
+        Pointer reply = gio.g_dbus_connection_call_sync(conn, watcherOwner,
                 "/StatusNotifierWatcher", WATCHER, "RegisterStatusNotifierItem",
                 parse("('" + BUS_NAME + "',)"), Pointer.NULL, CALL_FLAGS_NONE,
                 3000, Pointer.NULL, error);
-        if (reply != null) {
-            glib.g_variant_unref(reply);
-        } else {
-            logError("watcher registration", error);
+        boolean registered = reply != null;
+        if (registered) glib.g_variant_unref(reply);
+        else logError("watcher registration", error);
+        synchronized (readyLock) {
+            setAvailable(registered && !stopped);
+            initialAttemptDone = true;
+            readyLock.notifyAll();
+        }
+        if (registered) Logger.info("system tray registered: Linux StatusNotifierItem");
+    }
+
+    private void registrationUnavailable() {
+        synchronized (readyLock) {
+            setAvailable(false);
+            initialAttemptDone = true;
+            readyLock.notifyAll();
         }
     }
 
@@ -498,11 +587,13 @@ final class LinuxStatusNotifierTray extends LinuxTrayBackend {
     }
 
     private void emit(String path, String iface, String signal, String parameters) {
-        Pointer conn = connection;
-        if (!exported || conn == null || gio == null) return;
-        Pointer value = parameters == null ? Pointer.NULL : parse(parameters);
-        gio.g_dbus_connection_emit_signal(conn, null, path, iface, signal,
-                value, new Pointer[1]);
+        synchronized (readyLock) {
+            Pointer conn = connection;
+            if (stopped || !exported || conn == null || gio == null) return;
+            Pointer value = parameters == null ? Pointer.NULL : parse(parameters);
+            gio.g_dbus_connection_emit_signal(conn, null, path, iface, signal,
+                    value, new Pointer[1]);
+        }
     }
 
     private Pointer parse(String text) {
@@ -522,17 +613,24 @@ final class LinuxStatusNotifierTray extends LinuxTrayBackend {
     }
 
     private void markExportFailed() {
-        synchronized (readyLock) { readyLock.notifyAll(); }
+        registrationUnavailable();
     }
 
     @Override
     void shutdown() {
-        running = false;
-        try {
-            if (watcherId != 0 && gio != null) gio.g_bus_unwatch_name(watcherId);
-            if (ownerId != 0 && gio != null) gio.g_bus_unown_name(ownerId);
-            if (loop != null && glib != null) glib.g_main_loop_quit(loop);
-        } catch (Throwable ignored) { }
+        synchronized (readyLock) {
+            if (stopped) return;
+            stopped = true;
+            setAvailable(false);
+            readyLock.notifyAll();
+            if (context == null) return;
+            // An attached source quits only after run() starts, unlike a premature
+            // g_main_loop_quit(), which would be lost before g_main_loop_run().
+            Pointer source = glib.g_idle_source_new();
+            glib.g_source_set_callback(source, stopLoop, Pointer.NULL, Pointer.NULL);
+            glib.g_source_attach(source, context);
+            glib.g_source_unref(source);
+        }
     }
 
     private static String encodeIconPixmaps(byte[] png) {

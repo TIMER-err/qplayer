@@ -31,43 +31,76 @@ public final class LocalPlaylistStore {
     private static final String LEGACY_FILE = "custom-playlist.json";
 
     private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
-    private final Path file = AppDirs.stateFile("local-playlists.json");
+    private final Path file;
+    private final Path legacyFile;
     private final List<LocalPlaylist> playlists = new ArrayList<>();
     private boolean dirty;
     private boolean loaded;
+    private Exception readFailure;
+
+    public LocalPlaylistStore() {
+        this(AppDirs.stateFile("local-playlists.json"), AppDirs.stateFile(LEGACY_FILE));
+    }
+
+    LocalPlaylistStore(Path file) {
+        this(file, file.resolveSibling(LEGACY_FILE));
+    }
+
+    private LocalPlaylistStore(Path file, Path legacyFile) {
+        this.file = java.util.Objects.requireNonNull(file);
+        this.legacyFile = java.util.Objects.requireNonNull(legacyFile);
+    }
 
     /** Reads the file, migrating the pre-multi-playlist list on first run. */
     public synchronized void load() {
         if (loaded) return;
-        loaded = true;
-        boolean present = Files.isRegularFile(file);
-        if (present) {
-            try {
-                State state = gson.fromJson(StorageFiles.readUtf8(file), State.class);
-                if (state != null && state.items != null) {
-                    for (LocalPlaylist playlist : state.items) {
-                        if (playlist == null) continue;
-                        playlist.sanitize();
-                        playlists.add(playlist);
-                    }
+        try {
+            if (!Files.notExists(file)) {
+                com.google.gson.JsonObject root = com.google.gson.JsonParser
+                        .parseString(StorageFiles.readUtf8(file)).getAsJsonObject();
+                if (!root.has("schemaVersion") || !root.has("items")) {
+                    throw new java.io.IOException("missing local playlists state fields");
                 }
-            } catch (Throwable error) {
-                Logger.warn("local playlists load failed: {}", error.getMessage());
+                State state = gson.fromJson(root, State.class);
+                if (state == null || state.schemaVersion != SCHEMA || state.items == null) {
+                    throw new java.io.IOException("invalid local playlists state");
+                }
+                List<LocalPlaylist> restored = new ArrayList<>();
+                for (LocalPlaylist playlist : state.items) {
+                    if (playlist == null) continue;
+                    playlist.sanitize();
+                    restored.add(playlist);
+                }
+                playlists.clear();
+                playlists.addAll(restored);
+                loaded = true;
+                readFailure = null;
+                return;
             }
+        } catch (Exception error) {
+            readFailure = error;
+            Logger.warn("local playlists load failed; original file retained: {}", error.getMessage());
             return;
         }
         // No file yet: this is either a fresh install or an upgrade from the
         // single custom playlist. Write the result either way, so the migration
         // is attempted exactly once even if it finds nothing.
-        List<PlaylistTrack> legacy = readLegacyTracks();
-        if (!legacy.isEmpty()) {
-            LocalPlaylist migrated = LocalPlaylist.create(
-                    I18n.tr("playlist.local.migratedName"), System.currentTimeMillis());
-            for (PlaylistTrack track : legacy) migrated.add(track);
-            playlists.add(migrated);
-            Logger.info("migrated {} songs from the previous custom playlist", legacy.size());
+        try {
+            List<PlaylistTrack> legacy = readLegacyTracks();
+            if (!legacy.isEmpty()) {
+                LocalPlaylist migrated = LocalPlaylist.create(
+                        I18n.tr("playlist.local.migratedName"), System.currentTimeMillis());
+                for (PlaylistTrack track : legacy) migrated.add(track);
+                playlists.add(migrated);
+                Logger.info("migrated {} songs from the previous custom playlist", legacy.size());
+            }
+            loaded = true;
+            readFailure = null;
+            dirty = true;
+        } catch (Exception error) {
+            readFailure = error;
+            Logger.warn("custom playlist migration failed; original file retained: {}", error.getMessage());
         }
-        dirty = true;
     }
 
     public synchronized List<LocalPlaylist> all() {
@@ -86,7 +119,37 @@ public final class LocalPlaylistStore {
         return found != null ? copy(found) : null;
     }
 
+    /** Membership query without exporting mutable playlist state or copying tracks. */
+    public synchronized boolean contains(String playlistId, String canonicalId) {
+        LocalPlaylist playlist = find(playlistId);
+        return playlist != null && playlist.contains(canonicalId);
+    }
+
+    /** Detached card metadata; no track/subscription copies are created. */
+    public synchronized List<Summary> summaries() {
+        List<Summary> result = new ArrayList<>(playlists.size());
+        for (LocalPlaylist playlist : playlists) result.add(new Summary(playlist));
+        return java.util.Collections.unmodifiableList(result);
+    }
+
+    public static final class Summary {
+        public final String id;
+        public final String name;
+        public final String description;
+        public final String artworkUrl;
+        public final int trackCount;
+
+        private Summary(LocalPlaylist playlist) {
+            id = playlist.id;
+            name = playlist.name;
+            description = playlist.description;
+            artworkUrl = playlist.artworkUrl();
+            trackCount = playlist.size();
+        }
+    }
+
     public synchronized LocalPlaylist create(String name) {
+        requireWritable();
         // Two playlists called the same thing are indistinguishable on the grid,
         // and the default name is reached often (the "new playlist" menu entry).
         LocalPlaylist playlist = LocalPlaylist.create(
@@ -99,6 +162,7 @@ public final class LocalPlaylistStore {
     /** Reorder the playlists themselves (the library grid's own drag-to-reorder,
      *  not a playlist's songs — see {@link LocalPlaylist#move} for that). */
     public synchronized boolean move(int from, int to) {
+        requireWritable();
         if (from < 0 || from >= playlists.size() || to < 0 || to >= playlists.size() || from == to) {
             return false;
         }
@@ -108,12 +172,14 @@ public final class LocalPlaylistStore {
     }
 
     public synchronized boolean delete(String id) {
+        requireWritable();
         boolean removed = playlists.removeIf(p -> p.id.equals(id));
         if (removed) dirty = true;
         return removed;
     }
 
     public synchronized boolean rename(String id, String name) {
+        requireWritable();
         LocalPlaylist playlist = find(id);
         if (playlist == null || name == null || name.trim().isEmpty()) return false;
         playlist.name = name.trim();
@@ -131,6 +197,7 @@ public final class LocalPlaylistStore {
      * @return whether the mutation reported a change (and thus marked it dirty)
      */
     public synchronized boolean mutate(String id, Mutation mutation) {
+        requireWritable();
         LocalPlaylist playlist = find(id);
         if (playlist == null || mutation == null) return false;
         boolean changed = mutation.apply(playlist);
@@ -146,6 +213,7 @@ public final class LocalPlaylistStore {
     /** Insert an imported playlist under a fresh id, so importing the same file
      *  twice produces two playlists rather than silently overwriting one. */
     public synchronized LocalPlaylist insertImported(LocalPlaylist imported) {
+        requireWritable();
         if (imported == null) return null;
         imported.id = LocalPlaylist.newId();
         long now = System.currentTimeMillis();
@@ -158,15 +226,26 @@ public final class LocalPlaylistStore {
         return copy(imported);
     }
 
-    public synchronized void save() {
-        if (!dirty) return;
+    /** Returns true only when the current state is durable. Failures remain retryable. */
+    public synchronized boolean save() {
+        if (readFailure != null) return false;
+        if (!dirty) return true;
         try {
             State state = new State();
             state.items = new ArrayList<>(playlists);
             StorageFiles.writeUtf8Atomic(file, gson.toJson(state));
             dirty = false;
-        } catch (Throwable error) {
+            return true;
+        } catch (Exception error) {
             Logger.warn("local playlists save failed: {}", error.getMessage());
+            return false;
+        }
+    }
+
+    private void requireWritable() {
+        if (readFailure != null) {
+            throw new IllegalStateException("local playlists could not be loaded; original file retained",
+                    readFailure);
         }
     }
 
@@ -208,14 +287,13 @@ public final class LocalPlaylistStore {
 
     /** Read the pre-multi-playlist file. Its records are the same shape modulo
      *  field names, and it is left on disk untouched as a rollback path. */
-    private List<PlaylistTrack> readLegacyTracks() {
+    private List<PlaylistTrack> readLegacyTracks() throws java.io.IOException {
         List<PlaylistTrack> out = new ArrayList<>();
         try {
-            Path legacy = AppDirs.stateFile(LEGACY_FILE);
-            if (!Files.isRegularFile(legacy)) return out;
+            if (Files.notExists(legacyFile)) return out;
             com.google.gson.JsonObject root = com.google.gson.JsonParser
-                    .parseString(StorageFiles.readUtf8(legacy)).getAsJsonObject();
-            if (!root.has("tracks")) return out;
+                    .parseString(StorageFiles.readUtf8(legacyFile)).getAsJsonObject();
+            if (!root.has("tracks")) throw new java.io.IOException("missing legacy playlist tracks");
             long now = System.currentTimeMillis();
             for (com.google.gson.JsonElement element : root.getAsJsonArray("tracks")) {
                 if (!element.isJsonObject()) continue;
@@ -260,8 +338,8 @@ public final class LocalPlaylistStore {
                 PlaylistTrack converted = PlaylistTrack.from(track, PlaylistTrack.MANUAL, now);
                 if (converted.valid()) out.add(converted);
             }
-        } catch (Throwable error) {
-            Logger.warn("custom playlist migration failed: {}", error.getMessage());
+        } catch (Exception error) {
+            throw new java.io.IOException("custom playlist could not be migrated", error);
         }
         return out;
     }

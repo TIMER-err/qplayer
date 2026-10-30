@@ -31,6 +31,7 @@ import static org.junit.Assert.fail;
 public class PluginUpdateHomeRefreshTest {
 
     @Rule public final TemporaryFolder temporaryFolder = new TemporaryFolder();
+    @Rule public final ControllerTestLifecycle lifecycle = new ControllerTestLifecycle();
 
     @Test
     public void updatingThePrimarySourceRepublishesHome() throws Exception {
@@ -51,7 +52,65 @@ public class PluginUpdateHomeRefreshTest {
             assertEquals("update republishes home without restart",
                     "V2", awaitPlaylistName(controller, "V2"));
         } finally {
-            if (controller != null) controller.shutdown();
+            if (controller != null) lifecycle.close(controller);
+            AppDirs.setBase(oldBase);
+            AppDirs.setCacheBase(oldCacheBase);
+        }
+    }
+
+    @Test
+    public void retirementCancelsQueuedEnableAndWaitsForRunningWorkerCleanup() throws Exception {
+        String oldBase = AppDirs.base();
+        String oldCacheBase = AppDirs.cacheBase();
+        PlayerController controller = null;
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.ExecutorService observer = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            Path base = temporaryFolder.newFolder("plugin-retirement").toPath();
+            AppDirs.setBase(base.toString());
+            AppDirs.setCacheBase(base.resolve("cache").toString());
+            controller = new PlayerController(new SilentAudioBackend(), track -> { }, NeteaseClient.INSTANCE);
+            install(controller, packageFile("retirement.qplug", "1.0.0", "retiring"), "1.0.0");
+            java.lang.reflect.Field managerField = PlayerController.class.getDeclaredField("pluginManager");
+            managerField.setAccessible(true);
+            dev.t1m3.qplayer.plugin.PluginManager manager =
+                    (dev.t1m3.qplayer.plugin.PluginManager) managerField.get(controller);
+            controller.setSourcePluginEnabled("fixture", false);
+            awaitUi(controller, () -> !manager.isEnabled("fixture"));
+            java.lang.reflect.Field workerField = PlayerController.class.getDeclaredField("worker");
+            workerField.setAccessible(true);
+            java.util.concurrent.ExecutorService worker =
+                    (java.util.concurrent.ExecutorService) workerField.get(controller);
+            java.util.concurrent.CountDownLatch blocked = new java.util.concurrent.CountDownLatch(1);
+            java.util.concurrent.CountDownLatch interrupted = new java.util.concurrent.CountDownLatch(1);
+            worker.submit(() -> {
+                blocked.countDown();
+                try { release.await(); }
+                catch (InterruptedException error) {
+                    interrupted.countDown();
+                    try { release.await(); }
+                    catch (InterruptedException second) { Thread.currentThread().interrupt(); }
+                }
+            });
+            org.junit.Assert.assertTrue(blocked.await(3, java.util.concurrent.TimeUnit.SECONDS));
+            controller.setSourcePluginEnabled("fixture", true);
+            java.util.concurrent.CompletableFuture<Void> retired = controller.shutdownAsync();
+            org.junit.Assert.assertTrue(interrupted.await(3, java.util.concurrent.TimeUnit.SECONDS));
+            org.junit.Assert.assertFalse(retired.isDone());
+            org.junit.Assert.assertTrue(observer.submit(() -> {
+                synchronized (dev.t1m3.qplayer.qml.QmlRuntimeLock.MONITOR) { return true; }
+            }).get(3, java.util.concurrent.TimeUnit.SECONDS));
+            release.countDown();
+            retired.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            org.junit.Assert.assertTrue(worker.isTerminated());
+            org.junit.Assert.assertFalse("the queued enable cannot revive a retired runtime", manager.isEnabled("fixture"));
+            java.lang.reflect.Field ioField = PlayerController.class.getDeclaredField("ioWorker");
+            ioField.setAccessible(true);
+            org.junit.Assert.assertTrue(((java.util.concurrent.ExecutorService) ioField.get(controller)).isTerminated());
+        } finally {
+            release.countDown();
+            if (controller != null) lifecycle.close(controller);
+            observer.shutdownNow();
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }

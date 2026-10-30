@@ -67,8 +67,15 @@ public final class DesktopAudioBackend implements AudioBackend {
     private volatile Runnable onComplete;
     private volatile Runnable onStarted;
     private volatile Runnable onError;
+    /** Frozen at play(), guarded by this, not replaced by setters for a later request. */
+    private Runnable requestOnComplete;
+    private Runnable requestOnStarted;
+    private Runnable requestOnError;
     private volatile long positionMs = 0L;
     private volatile long durationMs = 0L;
+    /** Published before decoder construction; controls cancel IO, never native decoders. */
+    private volatile SeekableByteSource activeBytes;
+    private volatile SeekableByteSource liveBytesInUse;
 
     // OpenAL handles + current-track format. Audio-thread only.
     private long device = NULL;
@@ -93,7 +100,6 @@ public final class DesktopAudioBackend implements AudioBackend {
     private long framesSinceBase = 0L;
     private volatile String cachePendingPath;
     private volatile String cacheCompletePath;
-    private volatile boolean cacheCompleteFlag;
 
     @Override
     public void play(String src, long startMs) {
@@ -101,7 +107,7 @@ public final class DesktopAudioBackend implements AudioBackend {
     }
 
     @Override
-    public void play(String src, Map<String, String> headers, long startMs) {
+    public synchronized void play(String src, Map<String, String> headers, long startMs) {
         if (src == null || src.isEmpty()) return;
         long target = Math.max(0L, startMs);
         this.source = src;
@@ -115,8 +121,11 @@ public final class DesktopAudioBackend implements AudioBackend {
         // binding right after play() for remote tracks.
         this.cachePendingPath = null;
         this.cacheCompletePath = null;
-        this.cacheCompleteFlag = false;
+        requestOnComplete = onComplete;
+        requestOnStarted = onStarted;
+        requestOnError = onError;
         sourceRevision.incrementAndGet();
+        cancelReads();
         // Publish the new track's baseline synchronously. Until the audio thread
         // opens/decodes/primes the source it would otherwise keep exposing the old
         // track's final position, which makes MPRIS clients start the new progress
@@ -128,12 +137,15 @@ public final class DesktopAudioBackend implements AudioBackend {
     }
 
     @Override
-    public void pause() {
+    public synchronized void pause() {
         playing.set(false);
+        sourceRevision.incrementAndGet();
+        seekTargetMs.set(positionMs);
+        cancelReads();
     }
 
     @Override
-    public void resume() {
+    public synchronized void resume() {
         if (source != null) playing.set(true);
     }
 
@@ -183,20 +195,32 @@ public final class DesktopAudioBackend implements AudioBackend {
     public void bindGrowingCache(String pendingPath, String completePath, long durationMs) {
         this.cachePendingPath = pendingPath;
         this.cacheCompletePath = completePath;
-        this.cacheCompleteFlag = completePath != null && new java.io.File(completePath).isFile();
     }
 
-    @Override
-    public void notifyCacheComplete() {
-        this.cacheCompleteFlag = true;
-    }
 
     @Override
-    public void release() {
+    public synchronized void release() {
         shuttingDown.set(true);
         playing.set(false);
+        sourceRevision.incrementAndGet();
+        cancelReads();
         Thread t = audioThread;
         if (t != null) t.interrupt();
+    }
+
+    private void cancelReads() {
+        SeekableByteSource active = activeBytes;
+        SeekableByteSource live = liveBytesInUse;
+        if (active != null) active.close();
+        if (live != null && live != active) live.close();
+    }
+
+    private synchronized void activateBytes(SeekableByteSource bytes, long revision) throws IOException {
+        if (shuttingDown.get() || revision != sourceRevision.get() || !playing.get()) {
+            bytes.close();
+            throw new java.io.InterruptedIOException("audio request cancelled");
+        }
+        activeBytes = bytes;
     }
 
     private void ensureAudioThread() {
@@ -222,7 +246,7 @@ public final class DesktopAudioBackend implements AudioBackend {
             // After a decoder/OpenAL failure, do not silently reopen the same source
             // at 0 while paused. Wait for the controller's error handler to request
             // a retry (play() publishes a seek target) or for normal playback state.
-            if (!followDefaultOutputDevice() || (!playing.get() && seekTargetMs.get() < 0L)) {
+            if (!followDefaultOutputDevice() || !playing.get()) {
                 try {
                     Thread.sleep(60L);
                 } catch (InterruptedException e) {
@@ -231,23 +255,37 @@ public final class DesktopAudioBackend implements AudioBackend {
                 continue;
             }
             boolean reachedEnd = false;
+            long attemptRevision;
+            Runnable attemptComplete;
+            Runnable attemptStarted;
+            Runnable attemptError;
+            synchronized (this) {
+                attemptRevision = sourceRevision.get();
+                attemptComplete = requestOnComplete;
+                attemptStarted = requestOnStarted;
+                attemptError = requestOnError;
+            }
             try {
-                reachedEnd = playCurrentSource();
+                reachedEnd = playCurrentSource(attemptRevision, attemptStarted);
             } catch (InterruptedException e) {
                 // Shutdown interrupts this thread mid-sleep; that's the intended
                 // way out, not a fault worth an ERROR + stack trace on every exit.
                 Thread.currentThread().interrupt();
                 break;
             } catch (Throwable e) {
+                synchronized (this) {
+                    if (shuttingDown.get() || attemptRevision != sourceRevision.get()) continue;
+                    playing.set(false);
+                }
                 Logger.exception(e);
-                playing.set(false);
-                Runnable cb = onError;
-                if (cb != null) cb.run();
+                if (attemptError != null) attemptError.run();
             }
             if (reachedEnd) {
-                playing.set(false);
-                Runnable cb = onComplete;
-                if (cb != null) cb.run();
+                synchronized (this) {
+                    if (attemptRevision != sourceRevision.get() || !playing.get()) continue;
+                    playing.set(false);
+                }
+                if (attemptComplete != null) attemptComplete.run();
             }
         }
         releaseOpenAl();
@@ -255,15 +293,18 @@ public final class DesktopAudioBackend implements AudioBackend {
 
     /** Play {@link #source} until it ends, the source changes, or shutdown.
      *  @return true only on a natural end-of-track (so the loop fires onComplete). */
-    private boolean playCurrentSource() throws Exception {
-        long openRevision = sourceRevision.get();
-        String openSrc = source;
-        Map<String, String> openHeaders = sourceHeaders;
-        if (openSrc == null || openRevision != sourceRevision.get()) {
-            playing.set(false);
-            return false;
+    private boolean playCurrentSource(long expectedRevision, Runnable startedCallback) throws Exception {
+        long openRevision;
+        String openSrc;
+        Map<String, String> openHeaders;
+        long startMs;
+        synchronized (this) {
+            openRevision = sourceRevision.get();
+            openSrc = source;
+            openHeaders = sourceHeaders;
+            if (openRevision != expectedRevision || openSrc == null || !playing.get()) return false;
+            startMs = Math.max(0L, seekTargetMs.getAndSet(-1L));
         }
-        long startMs = Math.max(0L, seekTargetMs.getAndSet(-1L));
         boolean remote = openSrc.startsWith("http://") || openSrc.startsWith("https://");
         // Kept permanently alongside PlayerController's own resolve-stage timing --
         // together they cover the whole click-to-audible path for the still-open
@@ -273,6 +314,8 @@ public final class DesktopAudioBackend implements AudioBackend {
         SeekableByteSource liveBytes = SeekableByteSource.open(openSrc, openHeaders);
         PcmSource pcm;
         try {
+            activateBytes(liveBytes, openRevision);
+            liveBytesInUse = liveBytes;
             pcm = PcmSource.decode(remote ? new UnclosedByteSource(liveBytes) : liveBytes);
         } catch (IOException | RuntimeException e) {
             liveBytes.close();
@@ -284,6 +327,7 @@ public final class DesktopAudioBackend implements AudioBackend {
         feedMode = remote ? 0 : 1;
         feedLastCheckMs = 0L;
         feedLastSwitchMs = 0L;
+        feedRevision = openRevision;
         try {
             sampleRate = pcm.sampleRate();
             channels = Math.max(1, Math.min(2, pcm.channels()));
@@ -330,14 +374,14 @@ public final class DesktopAudioBackend implements AudioBackend {
                     Thread.sleep(20L);
                     continue;
                 }
-                if (startPending || alGetSourcei(sourceId, AL_SOURCE_STATE) == AL_PAUSED) {
+                if ((startPending || alGetSourcei(sourceId, AL_SOURCE_STATE) == AL_PAUSED)
+                        && alGetSourcei(sourceId, AL_BUFFERS_QUEUED) > 0) {
                     alSourcePlay(sourceId);
                     startPending = false;
                     if (!isOutputConnected()) continue;
                     if (!started) {
                         started = true;
-                        Runnable callback = onStarted;
-                        if (callback != null) callback.run();
+                        if (startedCallback != null) startedCallback.run();
                     }
                 }
 
@@ -384,6 +428,8 @@ public final class DesktopAudioBackend implements AudioBackend {
             }
             try { liveBytes.close(); } catch (Throwable ignored) { }
             feedLive = null;
+            activeBytes = null;
+            liveBytesInUse = null;
         }
     }
 
@@ -395,6 +441,7 @@ public final class DesktopAudioBackend implements AudioBackend {
     private int feedMode; // 0 live, 1 cache
     private long feedLastCheckMs;
     private long feedLastSwitchMs;
+    private long feedRevision;
 
     private PcmSource maybeSwitchFeed(PcmSource pcm, int queued) throws Exception {
         // Feed switching only makes sense for a remote stream being shadowed by
@@ -421,21 +468,16 @@ public final class DesktopAudioBackend implements AudioBackend {
         long liveDl = feedLive.downloadedBytes();
         boolean starving = queued <= 3;
 
-        if (completeReady && feedMode != 1) {
+        if (completeReady && feedMode != 1 && starving && !pcm.hasBuffered(CHUNK_BYTES / 4)) {
             return switchToCache(pcm, completePath, true, now, "complete cache");
         }
         if (feedMode == 1 && completeReady && feedCache != null) {
             feedCache.markComplete();
-            if (completePath != null && complete != null && complete.isFile()
-                    && !complete.equals(feedCache.backingFile())) {
-                return switchToCache(pcm, completePath, true, now, "promoted cache");
-            }
             return pcm;
         }
         if (feedMode == 0 && starving && cacheLen > liveDl + CACHE_AHEAD_BYTES) {
             String path = completeReady ? completePath : pendingPath;
-            if (path != null && new java.io.File(path).isFile()
-                    && (completeReady || !oggMagic(path))) {
+            if (path != null && new java.io.File(path).isFile()) {
                 return switchToCache(pcm, path, completeReady, now,
                         "live stalled, cache ahead " + cacheLen + " vs " + liveDl);
             }
@@ -447,8 +489,9 @@ public final class DesktopAudioBackend implements AudioBackend {
                 feedCache.close();
                 feedCache = null;
             }
+            activateBytes(feedLive, feedRevision);
             PcmSource next = PcmSource.decode(new UnclosedByteSource(feedLive));
-            retune(next, positionMs);
+            retune(pcm, next, positionMs);
             feedMode = 0;
             feedLastSwitchMs = now;
             return next;
@@ -464,24 +507,20 @@ public final class DesktopAudioBackend implements AudioBackend {
             feedCache.close();
             feedCache = null;
         }
-        feedCache = new GrowingFileByteSource(path, complete);
+        feedCache = new GrowingFileByteSource(path, complete, cacheCompletePath);
+        activateBytes(feedCache, feedRevision);
         PcmSource next = PcmSource.decode(feedCache);
-        retune(next, positionMs);
+        retune(pcm, next, positionMs);
         feedMode = 1;
         feedLastSwitchMs = now;
         return next;
     }
 
-    private static boolean oggMagic(String path) {
-        try (java.io.FileInputStream in = new java.io.FileInputStream(path)) {
-            byte[] h = new byte[4];
-            return in.read(h) == 4 && h[0] == 'O' && h[1] == 'g' && h[2] == 'g' && h[3] == 'S';
-        } catch (Exception e) {
-            return false;
-        }
-    }
 
-    private void retune(PcmSource pcm, long posMs) throws Exception {
+    private void retune(PcmSource previous, PcmSource pcm, long posMs) throws Exception {
+        if (previous instanceof Mp3PcmSource oldMp3 && pcm instanceof Mp3PcmSource newMp3) {
+            newMp3.reuseSeekIndex(oldMp3);
+        }
         sampleRate = pcm.sampleRate();
         channels = Math.max(1, Math.min(2, pcm.channels()));
         alFormat = channels == 1 ? AL_FORMAT_MONO16 : AL_FORMAT_STEREO16;
@@ -492,8 +531,8 @@ public final class DesktopAudioBackend implements AudioBackend {
         if (playing.get() && primed) alSourcePlay(sourceId);
     }
 
-    /** Stop, drop the queue and fill the ring from the decoder's current spot.
-     *  @return false if the decoder was already at EOF (nothing queued). */
+    /** Stop and prime the decoder. @return false only after a real EOF;
+     *  an empty, temporarily starved ring remains eligible for refill. */
     private boolean primeFromCurrent(PcmSource pcm) throws Exception {
         alSourceStop(sourceId);
         alSourcei(sourceId, AL_BUFFER, 0);
@@ -505,14 +544,14 @@ public final class DesktopAudioBackend implements AudioBackend {
         while (primed < PRIME_BUFFERS && !idleBuffers.isEmpty()) {
             int b = idleBuffers.peekFirst();
             int f = decodeInto(pcm, b);
-            if (f < 0) break;
-            if (f == 0) return primed > 0;
+            if (f < 0) return true;
+            if (f == 0) return false;
             idleBuffers.pollFirst();
             alSourceQueueBuffers(sourceId, b);
             queuedFrames.addLast(f);
             primed++;
         }
-        return primed > 0;
+        return true;
     }
 
     /** @return false when the decoder hit a real EOF. */

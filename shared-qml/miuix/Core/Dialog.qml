@@ -95,6 +95,10 @@ Item {
 
     Item {
         id: overlayLayer
+        objectName: "miuixDialogOverlay"
+        function consumeBack() {
+            if (dialogRoot.closeOnEscape) dialogRoot.close()
+        }
         Keys.onEscapePressed: { if (dialogRoot.closeOnEscape) dialogRoot.close(); event.accepted = true }
         visible: false
         z: 99999

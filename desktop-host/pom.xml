@@ -203,6 +203,23 @@
                             </arguments>
                         </configuration>
                     </execution>
+                    <execution>
+                        <id>smoke-packaged-qml</id>
+                        <phase>integration-test</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration>
+                            <!-- JNI and process-wide font workers belong to the app JVM,
+                                 not Maven's temporary exec:java classloader. -->
+                            <executable>${java.home}/bin/java</executable>
+                            <classpathScope>runtime</classpathScope>
+                            <arguments combine.self="override">
+                                <argument>--enable-native-access=ALL-UNNAMED</argument>
+                                <argument>-classpath</argument><classpath/>
+                                <argument>dev.t1m3.qplayer.desktop.app.Main</argument>
+                                <argument>--build-smoke</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
         </plugins>

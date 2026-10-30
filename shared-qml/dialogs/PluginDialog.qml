@@ -18,6 +18,7 @@ Item {
     readonly property var slots: [slot0, slot1, slot2, slot3, slot4, slot5, slot6, slot7, slot8, slot9]
     property string jsonWatch: player.pluginDialogJson
     property bool openWatch: player.pluginDialogOpen
+    property real sessionWatch: player.pluginDialogSessionRevision
 
     function open() {
         dialog.open();
@@ -68,6 +69,14 @@ Item {
     }
 
     onJsonWatchChanged: refreshBody()
+    onSessionWatchChanged: {
+        // Reopening can leave pluginDialogOpen true (or coalesce its false/true
+        // edge). Only the controller's new-session revision resets edited fields.
+        if (player.pluginDialogSessionRevision <= 0) return
+        for (var i = 0; i < control.slots.length; i++)
+            control.slots[i].resetSession()
+        refreshBody()
+    }
     onOpenWatchChanged: {
         if (player.pluginDialogOpen) {
             refreshBody();

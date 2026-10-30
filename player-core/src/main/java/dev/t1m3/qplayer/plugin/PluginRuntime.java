@@ -242,7 +242,7 @@ public final class PluginRuntime implements AutoCloseable {
         return new BaseFunction() {
             @Override public Object call(Context cx, Scriptable callScope, Scriptable thisObj, Object[] args) {
                 String method = args.length > 0 ? Context.toString(args[0]) : "";
-                PluginPermission required = requiredPermission(method);
+                PluginPermission required = PluginHostMethods.requiredPermission(method);
                 if ((required == null && !isUnprivilegedMethod(method))
                         || (required != null && !permissions.contains(required))) {
                     throw new PluginExecutionException("permission denied for host method " + method);
@@ -326,19 +326,6 @@ public final class PluginRuntime implements AutoCloseable {
         return text.isEmpty() ? "plugin promise rejected" : text;
     }
 
-    private PluginPermission requiredPermission(String method) {
-        if (method.startsWith("http.")) return PluginPermission.NETWORK;
-        if (method.startsWith("credentials.")) return PluginPermission.CREDENTIALS;
-        if (method.startsWith("webAuth.")) return PluginPermission.WEB_AUTH;
-        if (method.startsWith("clipboard.")) return PluginPermission.CLIPBOARD;
-        if (method.startsWith("openUrl.")) return PluginPermission.OPEN_URL;
-        if (method.startsWith("playback.read")) return PluginPermission.PLAYBACK_READ;
-        if (method.startsWith("playback.")) return PluginPermission.PLAYBACK_CONTROL;
-        if (method.startsWith("queue.")) return PluginPermission.QUEUE_WRITE;
-        if (method.startsWith("notifications.")) return PluginPermission.NOTIFICATIONS;
-        if (method.startsWith("timers.")) return PluginPermission.BACKGROUND_TIMERS;
-        return null;
-    }
 
     private static boolean isUnprivilegedMethod(String method) {
         return method.startsWith("storage.") || method.startsWith("crypto.")

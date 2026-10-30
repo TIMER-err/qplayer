@@ -50,6 +50,7 @@ public class PluginRuntimeTest {
         }
     }
 
+
     @Test
     public void hostListsAreRealJavascriptArrays() throws Exception {
         Files.write(temporary.getRoot().toPath().resolve("main.js"), (

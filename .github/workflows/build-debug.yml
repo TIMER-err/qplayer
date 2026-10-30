@@ -6,10 +6,15 @@ name: Build debug APK
 on:
   workflow_dispatch:
 
-permissions: {}
+permissions:
+  contents: read
 
 jobs:
+  tests:
+    uses: ./.github/workflows/tests.yml
+
   apk:
+    needs: tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,15 +33,7 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      # Build the matching qml4j-core tag from source into the local Maven repo so
-      # the build doesn't depend on it being published to Central yet.
-      - name: Build qml4j-core from source
-        run: |
-          QV=$(grep -oP 'qml4j-core:\K[0-9]+\.[0-9]+\.[0-9]+' android-shell/app/build.gradle.kts)
-          echo "qml4j-core version: $QV"
-          git clone --depth 1 --branch "v$QV" https://github.com/TIMER-err/qml4j.git "$RUNNER_TEMP/qml4j"
-          mvn -B -N -Dpmd.skip=true -Dcheckstyle.skip=true install -f "$RUNNER_TEMP/qml4j/pom.xml"
-          mvn -B -DskipTests -Dpmd.skip=true -Dcpd.skip=true -Dcheckstyle.skip=true install -f "$RUNNER_TEMP/qml4j/qml4j-core/pom.xml"
+      - uses: ./.github/actions/build-engine
 
       - name: Install player-core
         run: |
@@ -46,7 +43,7 @@ jobs:
       - name: Build debug APK
         run: |
           chmod +x android-shell/gradlew
-          cd android-shell && ./gradlew --no-daemon --stacktrace --info :app:assembleDebug 2>&1
+          cd android-shell && ./gradlew --no-daemon --stacktrace --info :app:testDebugUnitTest :app:assembleDebug 2>&1
 
       - name: Upload artifact
         if: always()

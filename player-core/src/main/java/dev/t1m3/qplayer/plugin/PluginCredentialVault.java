@@ -1,10 +1,14 @@
 package dev.t1m3.qplayer.plugin;
 
+import static dev.t1m3.qplayer.plugin.PluginHashes.hex;
+import static dev.t1m3.qplayer.plugin.PluginHashes.sha256;
+
 import dev.t1m3.qplayer.media.MediaId;
 import dev.t1m3.qplayer.store.AppDirs;
 import dev.t1m3.qplayer.store.CredentialCipher;
 import dev.t1m3.qplayer.store.CredentialKeyProtection;
 import dev.t1m3.qplayer.store.StorageFiles;
+import dev.t1m3.qplayer.util.Logger;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -13,12 +17,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
-import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 import java.util.regex.Pattern;
 
 /** Namespaced encrypted secrets; callers can never address another plugin's path. */
@@ -156,6 +158,7 @@ public final class PluginCredentialVault {
             synchronized (eventLock) { credentialUnlockPending = true; }
             return true;
         } catch (Exception error) {
+            logRecoveryFailure("retryCredentialUnlock", error);
             emit(CredentialEvent.KEYSTORE_READ_FAILED);
             return false;
         }
@@ -170,6 +173,7 @@ public final class PluginCredentialVault {
             emit(CredentialEvent.KEYSTORE_FALLBACK);
             return true;
         } catch (IOException error) {
+            logRecoveryFailure("fallbackUnreadableCredentials", error);
             emit(CredentialEvent.KEYSTORE_READ_FAILED);
             return false;
         }
@@ -184,6 +188,7 @@ public final class PluginCredentialVault {
             fallbackNoticeSent = false;
             return true;
         } catch (Exception error) {
+            logRecoveryFailure("resetUnreadableCredentialsForPlatformLogin", error);
             return false;
         }
     }
@@ -195,6 +200,7 @@ public final class PluginCredentialVault {
             emit(CredentialEvent.ENCRYPTED);
             return true;
         } catch (Exception error) {
+            logRecoveryFailure("enableSystemCredentialProtection", error);
             fallbackNoticeSent = true;
             emit(CredentialEvent.KEYSTORE_FALLBACK);
             return false;
@@ -203,6 +209,34 @@ public final class PluginCredentialVault {
 
     public boolean usesOwnerOnlyCredentialProtection() {
         return cipher.usesOwnerOnlyProtection();
+    }
+
+    /** Never forward platform exception messages: they may contain secret material. */
+    private static void logRecoveryFailure(String operation, Throwable error) {
+        StringBuilder chain = new StringBuilder();
+        java.util.Set<Throwable> seen = java.util.Collections.newSetFromMap(
+                new java.util.IdentityHashMap<>());
+        for (Throwable cause = error; cause != null && seen.add(cause); cause = cause.getCause()) {
+            if (chain.length() > 0) chain.append(" <- ");
+            chain.append(cause.getClass().getName());
+            String message = cause.getMessage();
+            if ("credential key is missing".equals(message)) chain.append("[key-missing]");
+            else if ("no platform credential store is available".equals(message)) chain.append("[store-unavailable]");
+            else if (message != null && message.startsWith("credential key belongs to platform store ")) {
+                chain.append("[store-mismatch]");
+            } else if (message != null && message.startsWith("credential key requires platform store ")) {
+                chain.append("[store-required]");
+            } else if ("credential key is not protected by the platform store".equals(message)) {
+                chain.append("[not-platform-protected]");
+            } else if ("credential key is invalid".equals(message)
+                    || "credential key has invalid length".equals(message)
+                    || "protected credential key is truncated".equals(message)
+                    || "invalid protected credential key envelope".equals(message)
+                    || "invalid protected credential key payload".equals(message)) {
+                chain.append("[invalid-key-format]");
+            }
+        }
+        Logger.warn("credential recovery {} failed: {}", operation, chain);
     }
 
     private void observeKeyAccess(boolean reading, boolean newCredential) {
@@ -294,14 +328,7 @@ public final class PluginCredentialVault {
         return Arrays.copyOfRange(plaintext, offset, plaintext.length);
     }
 
-    private static byte[] sha256(byte[] value) {
-        try { return MessageDigest.getInstance("SHA-256").digest(value); }
-        catch (GeneralSecurityException e) { throw new AssertionError(e); }
-    }
+    
 
-    private static String hex(byte[] bytes) {
-        StringBuilder out = new StringBuilder(bytes.length * 2);
-        for (byte value : bytes) out.append(String.format(Locale.ROOT, "%02x", value & 0xff));
-        return out.toString();
-    }
+    
 }

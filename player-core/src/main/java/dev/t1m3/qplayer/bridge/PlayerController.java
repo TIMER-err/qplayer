@@ -1,32 +1,41 @@
 package dev.t1m3.qplayer.bridge;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+
 import dev.t1m3.qplayer.audio.AudioBackend;
 import dev.t1m3.qplayer.audio.MetadataReader;
 import dev.t1m3.qplayer.cache.DiskCache;
-import dev.t1m3.qplayer.cache.PlaylistCacheIndex;
 import dev.t1m3.qplayer.cache.MediaMetaIndex;
 import dev.t1m3.qplayer.cache.MediaPlaylistCacheIndex;
+import dev.t1m3.qplayer.i18n.I18n;
 import dev.t1m3.qplayer.library.LibraryScanner;
 import dev.t1m3.qplayer.lyric.LyricLine;
 import dev.t1m3.qplayer.lyric.LyricParser;
 import dev.t1m3.qplayer.lyric.TtmlParser;
-import dev.t1m3.qplayer.lyric.WordTimeLrcParser;
 import dev.t1m3.qplayer.lyric.skia.LyricConfig;
-import dev.t1m3.qplayer.media.LyricsPayload;
 import dev.t1m3.qplayer.media.AccountProfile;
 import dev.t1m3.qplayer.media.Album;
 import dev.t1m3.qplayer.media.Artist;
+import dev.t1m3.qplayer.media.HomeSection;
 import dev.t1m3.qplayer.media.LoginChallenge;
 import dev.t1m3.qplayer.media.LoginMethod;
 import dev.t1m3.qplayer.media.MediaId;
 import dev.t1m3.qplayer.media.Page;
 import dev.t1m3.qplayer.media.Playlist;
-import dev.t1m3.qplayer.i18n.I18n;
-import dev.t1m3.qplayer.media.HomeSection;
 import dev.t1m3.qplayer.media.ProviderHome;
 import dev.t1m3.qplayer.media.Song;
 import dev.t1m3.qplayer.media.StreamDescriptor;
 import dev.t1m3.qplayer.model.Track;
+import dev.t1m3.qplayer.netease.NeteaseClient;
+import dev.t1m3.qplayer.netease.dto.NeteaseAlbum;
+import dev.t1m3.qplayer.netease.dto.NeteaseArtist;
+import dev.t1m3.qplayer.netease.dto.NeteaseLyric;
+import dev.t1m3.qplayer.netease.dto.NeteasePlaylist;
+import dev.t1m3.qplayer.netease.dto.NeteaseSong;
 import dev.t1m3.qplayer.playlist.LocalPlaylist;
 import dev.t1m3.qplayer.playlist.LocalPlaylistStore;
 import dev.t1m3.qplayer.playlist.MyPlaylistOrderStore;
@@ -34,45 +43,34 @@ import dev.t1m3.qplayer.playlist.PlaylistSubscription;
 import dev.t1m3.qplayer.playlist.PlaylistTrack;
 import dev.t1m3.qplayer.playlist.PlaylistTransfer;
 import dev.t1m3.qplayer.plugin.CorePluginHostApi;
-import dev.t1m3.qplayer.plugin.PluginManager;
 import dev.t1m3.qplayer.plugin.PluginAccountService;
-import dev.t1m3.qplayer.plugin.PluginInstaller;
-import dev.t1m3.qplayer.plugin.PluginCredentialVault;
 import dev.t1m3.qplayer.plugin.PluginCatalogEntry;
 import dev.t1m3.qplayer.plugin.PluginCatalogService;
 import dev.t1m3.qplayer.plugin.PluginCompatibility;
-import dev.t1m3.qplayer.plugin.PluginUiContributionRow;
-import dev.t1m3.qplayer.plugin.PluginUiDescription;
+import dev.t1m3.qplayer.plugin.PluginCredentialVault;
+import dev.t1m3.qplayer.plugin.PluginInstaller;
+import dev.t1m3.qplayer.plugin.PluginManager;
+import dev.t1m3.qplayer.plugin.PluginManifest;
 import dev.t1m3.qplayer.plugin.PluginPackageVerifier;
 import dev.t1m3.qplayer.plugin.PluginPermission;
 import dev.t1m3.qplayer.plugin.PluginProviderService;
 import dev.t1m3.qplayer.plugin.PluginRegistry;
 import dev.t1m3.qplayer.plugin.PluginRow;
-import dev.t1m3.qplayer.plugin.PluginManifest;
 import dev.t1m3.qplayer.plugin.PluginSetupState;
+import dev.t1m3.qplayer.plugin.PluginUiContributionRow;
+import dev.t1m3.qplayer.plugin.PluginUiDescription;
 import dev.t1m3.qplayer.plugin.ProviderCapability;
 import dev.t1m3.qplayer.plugin.SourceAccountRow;
 import dev.t1m3.qplayer.plugin.VerifiedPluginPackage;
-import dev.t1m3.qplayer.netease.NeteaseClient;
-import dev.t1m3.qplayer.netease.dto.NeteaseAlbum;
-import dev.t1m3.qplayer.netease.dto.NeteaseArtist;
-import dev.t1m3.qplayer.netease.dto.NeteaseLyric;
-import dev.t1m3.qplayer.netease.dto.NeteasePlaylist;
-import dev.t1m3.qplayer.netease.dto.NeteaseSong;
-import dev.t1m3.qplayer.netease.dto.NeteaseUser;
+import dev.t1m3.qplayer.qml.QmlRuntimeLock;
 import dev.t1m3.qplayer.store.AppDirs;
 import dev.t1m3.qplayer.store.StorageFiles;
 import dev.t1m3.qplayer.util.GitHubDownloadUrls;
 import dev.t1m3.qplayer.util.Logger;
 import dev.t1m3.qplayer.util.QrMatrix;
-import com.google.gson.Gson;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
+
 import io.github.timer_err.qml4j.engine.binding.Property;
 import io.github.timer_err.qml4j.runtime.color.StyleManager;
-import dev.t1m3.qplayer.qml.QmlRuntimeLock;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -87,6 +85,8 @@ import java.util.Objects;
 import java.util.Queue;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
@@ -94,37 +94,33 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * The single QML-facing object. Registered as a context global
- * ({@code view.context("player", controller)}); QML binds to its public
- * {@link Property} fields (reactive — reading registers a dependency, the
- * controller's {@code set} re-evaluates the binding) and invokes its public
- * methods from event handlers.
+ * The single QML-facing object. Registered as a context global ({@code view.context("player",
+ * controller)}); QML binds to its public {@link Property} fields (reactive — reading registers a
+ * dependency, the controller's {@code set} re-evaluates the binding) and invokes its public methods
+ * from event handlers.
  *
  * <h3>Playback queue</h3>
- * Local files and netease lists both feed one {@link #queue} of {@link Track}s.
- * Netease tracks carry their id + metadata but resolve their CDN url lazily on
- * first play (so a whole playlist can be queued without fetching every url).
- * {@code next}/{@code prev} walk the queue; in shuffle, {@code prev} pops a
- * play-history stack so it returns the song that was actually playing rather
- * than another random slot. Auto-advance wires {@code backend.onComplete -> next}.
+ *
+ * Local files and source plugins feed one {@link PlaybackSession}. Source URLs are resolved lazily
+ * for the selected request; old Source/ID records are routed only after their matching provider is
+ * available. {@code next}/{@code prev} walk the queue; in shuffle, {@code prev} pops a play-history
+ * stack so it returns the song that was actually playing rather than another random slot.
+ * Auto-advance wires {@code backend.onComplete -> next}.
  *
  * <h3>Threading</h3>
- * The qml4j renderer is single-threaded, so every {@code Property.set} must run
- * on the render thread or under {@link QmlRuntimeLock}. QML-invoked methods run
- * there and mutate directly. Work that must run off it — audio completion,
- * blocking netease HTTP — posts its result via {@link #post(Runnable)}; the host
- * drains the queue once per frame in {@link #pump()}. {@link #playAt} holds the
- * same lock as {@code DirtyQueue.flush()} so a plugin source switch on the GLFW
- * main thread cannot reenter {@code Property.evaluating} mid-flush.
+ *
+ * Queue, selection, playback intent and reactive publication share {@link QmlRuntimeLock#MONITOR}.
+ * Host control tasks join this owner via {@link #onMain(Runnable)}; IO results either join it or
+ * post to {@link #pump()}. Host callbacks use a separate unlocked dispatcher because they may
+ * stop/join the render thread. Queue IO, artwork lookup and release checks have dedicated
+ * responsibility classes rather than independently mutating playback state.
  */
 public final class PlayerController {
 
@@ -144,54 +140,22 @@ public final class PlayerController {
         t.setDaemon(true);
         return t;
     });
-    // Interactive searches must not queue behind cover/home/playlist requests on
-    // worker, and rapid typing must not leave an unbounded list of obsolete searches
-    // in memory. Keep at most the request currently running plus the newest pending
-    // request; DiscardOldestPolicy coalesces everything in between.
-    private final ExecutorService searchWorker = new ThreadPoolExecutor(
-            1, 1, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1), r -> {
-                Thread t = new Thread(r, "qplayer-search");
-                t.setDaemon(true);
-                return t;
-            }, new ThreadPoolExecutor.DiscardOldestPolicy());
-    // Bulk, non-urgent disk-cache downloads (full audio files, thumbnails) get their
-    // own queue so a full-track download never blocks interactive work
-    // was split off: a full-track FLAC download is tens of MB and can take many
-    // seconds, and every track played queues one right after it starts. Anything
-    // that shares `worker` with these — a quick loadRecent()/search() the user is
-    // actively waiting on — would otherwise sit stuck behind however many downloads
-    // happened to be queued first, looking like the feature itself is slow/broken
-    // when it's actually just waiting in line.
-    private final ExecutorService cacheWorker = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "qplayer-cache");
-        t.setDaemon(true);
-        return t;
-    });
-    // resolveAndPlayNetease submits the now-playing track's cover download to
-    // `worker` before its lyric fetch -- same head-of-line-blocking shape as
-    // the cache worker above, just within one track's own resolve instead
-    // of across tracks: a single-thread worker forces the lyric request to sit
-    // queued behind the cover's own network round trip before it can even start,
-    // on top of the lyric API call's own latency, while playback itself starts
-    // instantly on its own dedicated audio thread. Users noticed lyrics visibly
-    // lagging behind the song already audibly playing. Splitting lyric fetches
-    // onto their own queue lets them start at the same time as the cover fetch
-    // instead of after it.
-    private final ExecutorService lyricWorker = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "qplayer-lyric");
-        t.setDaemon(true);
-        return t;
-    });
-    // offlinePlaylistFallback's background retry (Thread.sleep-and-retry-online)
-    // needs its own queue for the same reason as the three above: it deliberately
-    // blocks its own thread for the whole retry interval, and doing that on
-    // `worker` would head-of-line-block every other netease read (a track resolve,
-    // a search) behind it for the entire wait.
-    private final ExecutorService retryWorker = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "qplayer-retry");
-        t.setDaemon(true);
-        return t;
-    });
+    private final ExecutorService ioWorker =
+            Executors.newSingleThreadExecutor(
+                    r -> {
+                        Thread thread = new Thread(r, "qplayer-io");
+                        thread.setDaemon(true);
+                        return thread;
+                    });
+    private final QueuePersistence queuePersistence =
+            new QueuePersistence(AppDirs.stateFile("queue.json"), ioWorker);
+    private final AudioCacheCoordinator audioCacheCoordinator;
+    private CompletableFuture<Void> sessionSave = CompletableFuture.completedFuture(null);
+    private CompletableFuture<Void> shutdownFuture;
+    private CompletableFuture<Object> downloadChoiceResult;
+    private String downloadChoiceMediaId = "";
+    private ScheduledFuture<?> cacheResizeTask;
+    private final AtomicLong cacheResizeRevision = new AtomicLong();
     // Monet must never wait behind the general network queue: on Android in
     // particular, the QML Image can already be showing its 512px cover while a
     // seed extraction submitted to `worker` is still behind unrelated requests.
@@ -211,13 +175,13 @@ public final class PlayerController {
             }, new ThreadPoolExecutor.DiscardOldestPolicy());
     /** Unified disk cache (audio / lyrics / images) with LRU eviction. */
     public final DiskCache diskCache = new DiskCache(200); // default 200 MB
+
+    private final ArtworkResolver artworkResolver = new ArtworkResolver(diskCache);
+
     /** id -> title/artist/cover lookup for songs seen before, so search() has
      *  something to show when the live network call fails (offline, or the API
      *  is just down) — DiskCache itself only knows bare ids, no display text. */
     private final MediaMetaIndex mediaMetaIndex = new MediaMetaIndex();
-    /** playlistId -> summary + song-list snapshot, so 我的歌单 and a
-     *  previously-opened playlist still render with no network. */
-    private final PlaylistCacheIndex playlistCacheIndex = new PlaylistCacheIndex();
     private final MediaPlaylistCacheIndex mediaPlaylistCacheIndex = new MediaPlaylistCacheIndex();
     /** Source runtimes outlive the QML renderer and remain active in the tray/background. */
     private final PluginRegistry pluginRegistry = new PluginRegistry();
@@ -238,11 +202,9 @@ public final class PlayerController {
     private volatile boolean pendingPluginPackageTemporary;
 
     private final List<Track> library = new CopyOnWriteArrayList<>();
-    private final List<Track> queue = new CopyOnWriteArrayList<>();
-    /** User-curated "play later" list — unlike {@link #queue}, never auto-changes when
-     *  you tap a song elsewhere; only explicit add/remove (song long-press menu) and
-     *  the queue-page toggle touch it. Local-only, no netease sync. */
-    private final List<Track> customPlaylist = new CopyOnWriteArrayList<>();
+    private final PlaybackSession playbackSession = new PlaybackSession();
+    private byte[] snapshotArtworkSource;
+    private PlaybackSnapshot.Artwork snapshotArtwork;
     // In-memory LRU of parsed lyrics by netease songId. A preloaded (next/prev) or
     // recently played track then shows lyrics the instant it becomes current — no
     // network / disk read / parse on the switch. Bounded, access-order eviction.
@@ -258,7 +220,6 @@ public final class PlayerController {
     private final Map<String, Integer> lyricOffsets =
             java.util.Collections.synchronizedMap(new HashMap<String, Integer>());
     private final Queue<Runnable> uiQueue = new ConcurrentLinkedQueue<>();
-    private final Set<Long> likedSet = new HashSet<>();
     /** Union of every signed-in source's liked songs, keyed by canonical id. The ids
      *  carry their provider, so a lookup is inherently scoped to the song's own
      *  source even while another source is primary. */
@@ -279,22 +240,10 @@ public final class PlayerController {
      *  (which would make the next prev() bounce between two tracks). */
     private boolean consumingShuffleHistory;
 
-    // Playback control runs on the host's main thread (always alive — unlike the GL
-    // render thread, which pauses in the background and would stall auto-advance);
-    // UI Property writes still marshal to the render thread via post()/pump().
-    // mainExec is null on hosts with no main loop (desktop), where control runs inline.
+    // Control remains available while the render pump is suspended. mainExec is
+    // supplied by hosts with a main loop; inline control still joins the same owner.
     private volatile java.util.concurrent.Executor mainExec;
-    // Source-of-truth play position. The `index` Property mirrors it for the UI but
-    // lags in the background (pump paused), so all playback logic uses this instead.
-    private volatile int playIndex = -1;
-    /** Playlist that produced the current queue, or 0 for search/local/custom queues.
-     *  Heart mode needs the original playlist id in addition to its seed song. */
-    private volatile long currentQueuePlaylistId;
     private volatile String currentQueueMediaPlaylistId = "";
-    // Intended play/pause state. The backend (MediaPlayer) prepares asynchronously, so
-    // backend.isPlaying() is briefly false right after play() — reporting that to the
-    // media session shows a stale "paused". The session uses this intent instead.
-    private volatile boolean playingIntent = false;
     /** One-shot desired state for a plugin-selected track whose source is still
      * preparing asynchronously. This is transport-neutral host plumbing. */
     private volatile Boolean pendingPluginDesiredPlaying;
@@ -318,69 +267,87 @@ public final class PlayerController {
     }
 
     public void setMainExecutor(java.util.concurrent.Executor e) {
-        this.mainExec = e;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            this.mainExec = e;
+        }
     }
 
     public void setPlaybackListener(PlaybackListener l) {
-        this.playbackListener = l;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            this.playbackListener = l;
+        }
     }
 
-    /** Run playback control on the main thread (inline if the host has no executor). */
+    /** All host controls join the QML/state owner, including desktop inline calls. */
     private void onMain(Runnable r) {
+        Runnable owned =
+                () -> {
+                    synchronized (QmlRuntimeLock.MONITOR) {
+                        r.run();
+                    }
+                };
         java.util.concurrent.Executor e = mainExec;
-        if (e != null) e.execute(r);
-        else r.run();
+        if (e != null) e.execute(owned);
+        else owned.run();
+    }
+
+    /** Host callbacks may open modal UI or join the render thread: never hold its lock. */
+    private void onHost(Runnable callback) {
+        Runnable unlocked =
+                () -> {
+                    if (Thread.holdsLock(QmlRuntimeLock.MONITOR)) {
+                        CompletableFuture.runAsync(callback);
+                    } else {
+                        callback.run();
+                    }
+                };
+        java.util.concurrent.Executor executor = mainExec;
+        if (executor != null) executor.execute(unlocked);
+        else unlocked.run();
+    }
+
+    private CompletableFuture<Boolean> invokeFileSave(
+            FileSavePicker picker,
+            String name,
+            String mime,
+            java.util.function.BiConsumer<String, java.util.function.Consumer<Boolean>> writer) {
+        CompletableFuture<Boolean> result = new CompletableFuture<>();
+        onHost(
+                () -> {
+                    try {
+                        picker.save(name, mime, writer)
+                                .whenComplete(
+                                        (ok, error) -> {
+                                            if (error != null) result.completeExceptionally(error);
+                                            else result.complete(Boolean.TRUE.equals(ok));
+                                        });
+                    } catch (RuntimeException error) {
+                        result.completeExceptionally(error);
+                    }
+                });
+        return result;
     }
 
     private void notifyPlayback() {
-        PlaybackListener l = playbackListener;
-        if (l != null) onMain(l::onPlaybackChanged);
+        wakeRenderer();
+        PlaybackListener listener = playbackListener;
+        if (listener != null)
+            onHost(
+                    () -> {
+                        if (playbackListener == listener) listener.onPlaybackChanged();
+                    });
     }
 
     // --- Search history ---------------------------------------------------
     private static final int HISTORY_MAX = 100;
     private final List<String> historyList = new ArrayList<>();
 
-    // --- Search cache ------------------------------------------------------
-    /** TTL for cached search results: 5 minutes. */
-    private static final long SEARCH_CACHE_TTL_MS = 5 * 60 * 1000L;
     private static final int SEARCH_PAGE_SIZE = 50;
-    /** Max number of search results to keep in memory (LRU eviction). */
-    private static final int SEARCH_CACHE_MAX_SIZE = 20;
-    /** Bounded LRU cache: evicts oldest entry when capacity is reached. */
-    @SuppressWarnings("serial")
-    private final Map<String, CacheEntry> searchCache =
-            Collections.synchronizedMap(new LinkedHashMap<String, CacheEntry>(
-                    SEARCH_CACHE_MAX_SIZE + 1, 0.75f, true) {
-                @Override
-                protected boolean removeEldestEntry(Map.Entry<String, CacheEntry> eldest) {
-                    return size() > SEARCH_CACHE_MAX_SIZE;
-                }
-            });
-
-    /** Holds a cached search result with its creation timestamp. */
-    private static final class CacheEntry {
-        final List<NeteaseSong> songs;
-        final int nextOffset;
-        final boolean hasMore;
-        final long timestamp;
-        CacheEntry(List<NeteaseSong> songs, int nextOffset, boolean hasMore) {
-            this.songs = Collections.unmodifiableList(new ArrayList<>(songs));
-            this.nextOffset = nextOffset;
-            this.hasMore = hasMore;
-            this.timestamp = System.currentTimeMillis();
-        }
-        boolean isExpired() {
-            return System.currentTimeMillis() - timestamp > SEARCH_CACHE_TTL_MS;
-        }
-    }
 
     // Guards against stale async search results: set to the trimmed key before
     // each search(); async workers check equality before publishing results.
     private volatile String currentSearchKey = "";
     private volatile String currentSearchQuery = "";
-    private volatile int searchNextOffset;
-    private volatile boolean searchPageInFlight;
     /** Render-thread-owned provider buckets. Keeping one bucket per manifest order
      * prevents late async results from visually reordering other providers. */
     private final Map<String, List<Song>> pluginSearchByProvider = new LinkedHashMap<>();
@@ -449,11 +416,6 @@ public final class PlayerController {
     // URL resolves, but the incoming one starts at full gain — another fade-in would
     // only add a second delay after however long the new track already took to load.
     private volatile boolean suppressNextFadeIn = false;
-    private volatile long uid;
-    // neteaseId of the track we last re-resolved after a playback error; cleared
-    // when a track actually starts. Stops a persistently-failing track from looping
-    // error→re-resolve→error forever instead of advancing.
-    private volatile long errorRetryId = -1;
     private volatile String errorRetryMediaId = "";
     /** Number of consecutive tracks that failed before audio actually started.
      *  Bounds automatic skipping when an entire queue is unavailable. */
@@ -715,9 +677,6 @@ public final class PlayerController {
     public final Property<Boolean> playlistDeletable = new Property<>(false);
     /** True while the server is building a heart-mode continuation. */
     public final Property<Boolean> intelligenceLoading = new Property<>(false);
-    /** Id of the "我喜欢的音乐" playlist (the user's first/owned default), captured on
-     *  loadMyPlaylists; 0 until known. Compared in Java so QML needn't equate Longs. */
-    private volatile long favoritePid;
     /** Id of the open playlist, mirrored to QML (the volatile above isn't exposed).
      *  Lets the detail page pass the id back for delete / remove-track actions. */
     public final Property<Long> openPlaylistId = new Property<>(0L);
@@ -786,8 +745,6 @@ public final class PlayerController {
     /** Snapshot of the live play queue for the queue page; current track is {@link #index}. */
     public final Property<List<Track>> queueTracks = new Property<>(Collections.<Track>emptyList());
     public final Property<Boolean> queueOpen = new Property<>(false);
-    /** Snapshot of {@link #customPlaylist} for the queue page's second tab. */
-    public final Property<List<Track>> customPlaylistTracks = new Property<>(Collections.<Track>emptyList());
     /** Snapshot of the offline-cached netease songs (cache/audio/*.cache), shown in
      *  the rail's download menu; rebuilt on open via {@link #refreshCachedSongs}. */
     public final Property<List<Track>> cachedSongs = new Property<>(Collections.<Track>emptyList());
@@ -932,189 +889,200 @@ public final class PlayerController {
         this(backend, metadataReader, NeteaseClient.INSTANCE);
     }
 
-    public PlayerController(AudioBackend backend, MetadataReader metadataReader, NeteaseClient netease) {
+    public PlayerController(
+            AudioBackend backend, MetadataReader metadataReader, NeteaseClient netease) {
         this.backend = backend;
         this.metadataReader = metadataReader;
         this.netease = netease;
-        // Surface any netease failure reason (private playlist, risk control, ...) as a
-        // toast, same Snackbar the auto-source notice uses. Fires on a worker thread, so
-        // hop to the render thread to touch the Property.
-        netease.setErrorListener(msg -> post(() -> toast.set(msg)));
-        netease.setCredentialListener(this::showCredentialNotice);
-        pluginHostApi.setCredentialListener(this::showPluginCredentialNotice);
-        pluginHostApi.setAppBridge(new CorePluginHostApi.AppBridge() {
-            @Override public CompletableFuture<Object> call(String pluginId, String method,
-                                                              Map<String, Object> arguments) {
-                return pluginAppCall(pluginId, method, arguments);
-            }
-            @Override public void unavailable(String pluginId) {
-                pluginAppUnavailable(pluginId);
-            }
-        });
-        credentialOwnerOnlyFallback.set(pluginHostApi.usesOwnerOnlyCredentialProtection());
-        backend.setVolume(volume.peek());
-        backend.setOnComplete(() -> onMain(this::autoAdvance));
-        // Re-baseline the media session's position once audio actually starts (the
-        // backend prepares asynchronously, so the position at play() time is stale).
-        backend.setOnStarted(() -> {
-            errorRetryId = -1;
-            errorRetryMediaId = "";
-            consecutivePlaybackFailures = 0;
-            stoppedLyricPositionMs = Math.max(0L, backend.position());
-            playbackStarted = true;
-            post(() -> loading.set(false));
-            Boolean pluginDesired = pendingPluginDesiredPlaying;
-            Track startedTrack = currentTrack();
-            if (pluginDesired != null && startedTrack != null
-                    && !pendingPluginTargetMediaId.isEmpty()
-                    && pendingPluginTargetMediaId.equals(startedTrack.canonicalId())) {
-                pendingPluginDesiredPlaying = null;
-                pendingPluginTargetMediaId = "";
-                if (!pluginDesired) {
-                    cancelFadeAtGain(1f);
-                    backend.pause();
-                    playingIntent = false;
-                    post(() -> playing.set(false));
-                    notifyPlayback();
-                    return;
-                }
-            }
-            // User pause can land while prepareAsync is still in flight. Fade-out
-            // defers backend.pause(), so wantPlay stays true and this callback still
-            // fires. Honour playingIntent here: otherwise startFadeIn() bumps
-            // fadeGeneration and silently drops the deferred pause.
-            if (!playingIntent) {
-                cancelFadeAtGain(1f);
-                backend.pause();
-                post(() -> playing.set(false));
-                notifyPlayback();
-                return;
-            }
-            notifyPlayback();
-            startFadeIn();
-        });
-        // Audio-focus driven pause/resume (phone call, another player): keep the
-        // intended-play state, the UI, and the media session in sync.
-        backend.setOnPaused(() -> {
-            // Audio focus is an external discontinuity, not part of a user-requested
-            // ramp. Settle at full logical gain while silent so focus regain cannot
-            // inherit an interrupted fade's small intermediate value.
-            // Keep playingIntent: OEM ROMs often send AUDIOFOCUS_LOSS when the
-            // screen turns off and never GAIN on unlock. Clearing intent here
-            // made the UI look paused and blocked Activity.onResume from
-            // restarting the decoder. User pause still goes through mediaPause().
-            cancelFadeAtGain(1f);
-            notifyPlayback();
-        });
-        backend.setOnResumed(() -> {
-            cancelFadeAtGain(1f);
-            playingIntent = true;
-            post(() -> playing.set(true));
-            notifyPlayback();
-        });
-        // On playback error: retry netease tracks whose cached streamUrl went stale
-        // (expired VIP link, region lock, etc.). Non-netease or already-retried
-        // tracks fall through to autoAdvance.
-        backend.setOnError(() -> onMain(this::onPlaybackError));
-        worker.submit(this::loadSearchHistory);
-        loadLyricOffsets();
-        mediaMetaIndex.load();
-        mediaPlaylistCacheIndex.load();
-        playlistCacheIndex.load();
-        diskCache.loadActivelyCached();
-        pluginManager.startEnabled();
-        loadQueue();
-        loadCustomPlaylist();
-        // Loading also migrates the previous single custom playlist on first run,
-        // so it has to happen after loadCustomPlaylist has settled that file.
-        localPlaylistStore.load();
-        publishLocalPlaylists();
-        saveLocalPlaylists();
-        myPlaylistOrderStore.load();
-        librarySortMode.set(myPlaylistOrderStore.mode());
-        legacySourceMigrationAvailable.set(detectLegacySourceMigration());
-        publishPlugins();
-        refreshPluginCatalog();
-        if (!onlineSourcesArePluginOnly() && primaryProvider() == null && netease.isLoggedIn()) {
-            loggedIn.set(true);
-            refreshLogin();
+        this.audioCacheCoordinator =
+                new AudioCacheCoordinator(
+                        diskCache,
+                        ioWorker,
+                        this::downloadPluginCache,
+                        track -> {
+                            mediaMetaIndex.upsert(track);
+                            mediaMetaIndex.save();
+                        });
+        synchronized (QmlRuntimeLock.MONITOR) {
+            // Surface any netease failure reason (private playlist, risk control, ...) as a
+            // toast, same Snackbar the auto-source notice uses. Fires on a worker thread, so
+            // hop to the render thread to touch the Property.
+            netease.setErrorListener(msg -> post(() -> toast.set(msg)));
+            netease.setCredentialListener(this::showCredentialNotice);
+            pluginHostApi.setCredentialListener(this::showPluginCredentialNotice);
+            pluginHostApi.setAppBridge(
+                    new CorePluginHostApi.AppBridge() {
+                        @Override
+                        public CompletableFuture<Object> call(
+                                String pluginId, String method, Map<String, Object> arguments) {
+                            return pluginAppCall(pluginId, method, arguments);
+                        }
+
+                        @Override
+                        public void unavailable(String pluginId) {
+                            pluginAppUnavailable(pluginId);
+                        }
+                    });
+            credentialOwnerOnlyFallback.set(pluginHostApi.usesOwnerOnlyCredentialProtection());
+            backend.setVolume(volume.peek());
+
+            // Re-baseline the media session's position once audio actually starts (the
+            // backend prepares asynchronously, so the position at play() time is stale).
+
+            // Audio-focus driven pause/resume (phone call, another player): keep the
+            // intended-play state, the UI, and the media session in sync.
+            backend.setOnPaused(
+                    () ->
+                            onMain(
+                                    () -> {
+                                        // Audio focus is an external discontinuity, not part of a
+                                        // user-requested
+                                        // ramp. Settle at full logical gain while silent so focus
+                                        // regain cannot
+                                        // inherit an interrupted fade's small intermediate value.
+                                        // Keep playingIntent: OEM ROMs often send AUDIOFOCUS_LOSS
+                                        // when the
+                                        // screen turns off and never GAIN on unlock. Clearing
+                                        // intent here
+                                        // made the UI look paused and blocked Activity.onResume
+                                        // from
+                                        // restarting the decoder. User pause still goes through
+                                        // mediaPause().
+                                        cancelFadeAtGain(1f);
+                                        notifyPlayback();
+                                    }));
+            backend.setOnResumed(
+                    () ->
+                            onMain(
+                                    () -> {
+                                        cancelFadeAtGain(1f);
+                                        if (!playbackSession.playing || playbackSession.resolving) {
+                                            backend.pause();
+                                            return;
+                                        }
+                                        playing.set(true);
+                                        notifyPlayback();
+                                    }));
+            // On playback error: retry netease tracks whose cached streamUrl went stale
+            // (expired VIP link, region lock, etc.). Non-netease or already-retried
+            // tracks fall through to autoAdvance.
+
+            worker.submit(this::loadSearchHistory);
+            loadLyricOffsets();
+            mediaMetaIndex.load();
+            mediaPlaylistCacheIndex.load();
+
+            diskCache.loadActivelyCached();
+            pluginManager.startEnabled();
+            loadQueue();
+
+            // LocalPlaylistStore owns the old custom-playlist file migration.
+            localPlaylistStore.load();
+            publishLocalPlaylists();
+            saveLocalPlaylists();
+            myPlaylistOrderStore.load();
+            librarySortMode.set(myPlaylistOrderStore.mode());
+            legacySourceMigrationAvailable.set(detectLegacySourceMigration());
+            publishPlugins();
         }
     }
 
     /** Enable/disable an installed provider without coupling it to a QML scene. */
     public void setSourcePluginEnabled(String pluginId, boolean enabled) {
-        worker.submit(() -> {
-            try {
-                if (enabled) pluginManager.enable(pluginId);
-                else pluginManager.disable(pluginId);
-                post(this::publishPlugins);
-            } catch (Throwable error) {
-                showToast(I18n.tr("toast.plugin.stateFailed", error.getMessage()));
-            }
-        });
+        synchronized (QmlRuntimeLock.MONITOR) {
+            worker.submit(
+                    () -> {
+                        try {
+                            if (enabled) pluginManager.enable(pluginId);
+                            else pluginManager.disable(pluginId);
+                            post(this::publishPlugins);
+                        } catch (Throwable error) {
+                            showToast(I18n.tr("toast.plugin.stateFailed", error.getMessage()));
+                        }
+                    });
+        }
     }
 
     public void setPrimarySourcePlugin(String pluginId) {
-        worker.submit(() -> {
-            try {
-                pluginRegistry.setPrimaryProvider(pluginId);
-                post(this::publishPlugins);
-            } catch (Throwable error) {
-                showToast(I18n.tr("toast.plugin.primaryFailed", error.getMessage()));
-            }
-        });
+        synchronized (QmlRuntimeLock.MONITOR) {
+            worker.submit(
+                    () -> {
+                        try {
+                            pluginRegistry.setPrimaryProvider(pluginId);
+                            post(this::publishPlugins);
+                        } catch (Throwable error) {
+                            showToast(I18n.tr("toast.plugin.primaryFailed", error.getMessage()));
+                        }
+                    });
+        }
     }
 
-    /** One-step setup action for an already installed but disabled/non-primary
-     * provider. Keeping both registry writes on the worker avoids the enable/primary
-     * race that two independent QML button calls would create. */
+    /**
+     * One-step setup action for an already installed but disabled/non-primary provider. Keeping
+     * both registry writes on the worker avoids the enable/primary race that two independent QML
+     * button calls would create.
+     */
     public void activateSourcePlugin(String pluginId) {
-        if (pluginId == null || pluginId.isEmpty()) return;
-        worker.submit(() -> {
-            try {
-                PluginRegistry.Entry entry = pluginRegistry.get(pluginId);
-                if (entry == null) throw new IllegalArgumentException(I18n.tr("toast.plugin.notInstalled"));
-                if (!entry.enabled) pluginManager.enable(pluginId);
-                pluginRegistry.setPrimaryProvider(pluginId);
-                post(this::publishPlugins);
-            } catch (Throwable error) {
-                showToast(I18n.tr("toast.plugin.enableFailed", safeMessage(error)));
-            }
-        });
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (pluginId == null || pluginId.isEmpty()) return;
+            worker.submit(
+                    () -> {
+                        try {
+                            PluginRegistry.Entry entry = pluginRegistry.get(pluginId);
+                            if (entry == null)
+                                throw new IllegalArgumentException(
+                                        I18n.tr("toast.plugin.notInstalled"));
+                            if (!entry.enabled) pluginManager.enable(pluginId);
+                            pluginRegistry.setPrimaryProvider(pluginId);
+                            post(this::publishPlugins);
+                        } catch (Throwable error) {
+                            showToast(I18n.tr("toast.plugin.enableFailed", safeMessage(error)));
+                        }
+                    });
+        }
     }
 
     public void requestSourcePluginRemoval(String pluginId) {
-        PluginRegistry.Entry entry = pluginRegistry.get(pluginId);
-        if (entry == null || Boolean.TRUE.equals(pluginInstallBusy.peek())) return;
-        pendingPluginRemovalId.set(entry.id);
-        pendingPluginRemovalName.set(entry.name);
-        pluginRemovalPromptRevision.set(pluginRemovalPromptRevision.peek() + 1L);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            PluginRegistry.Entry entry = pluginRegistry.get(pluginId);
+            if (entry == null || Boolean.TRUE.equals(pluginInstallBusy.peek())) return;
+            pendingPluginRemovalId.set(entry.id);
+            pendingPluginRemovalName.set(entry.name);
+            pluginRemovalPromptRevision.set(pluginRemovalPromptRevision.peek() + 1L);
+        }
     }
 
     public void cancelSourcePluginRemoval() {
-        pendingPluginRemovalId.set("");
-        pendingPluginRemovalName.set("");
+        synchronized (QmlRuntimeLock.MONITOR) {
+            pendingPluginRemovalId.set("");
+            pendingPluginRemovalName.set("");
+        }
     }
 
     public void confirmSourcePluginRemoval() {
-        final String pluginId = pendingPluginRemovalId.peek();
-        if (pluginId == null || pluginId.isEmpty()
-                || Boolean.TRUE.equals(pluginInstallBusy.peek())) return;
-        pluginInstallBusy.set(true);
-        worker.submit(() -> {
-            try {
-                pluginManager.remove(pluginId);
-                post(() -> {
-                    cancelSourcePluginRemoval();
-                    pluginInstallBusy.set(false);
-                    publishPlugins();
-                });
-                showToast(I18n.tr("toast.plugin.removed"));
-            } catch (Throwable error) {
-                post(() -> pluginInstallBusy.set(false));
-                showToast(I18n.tr("toast.plugin.removeFailed", safeMessage(error)));
-            }
-        });
+        synchronized (QmlRuntimeLock.MONITOR) {
+            final String pluginId = pendingPluginRemovalId.peek();
+            if (pluginId == null
+                    || pluginId.isEmpty()
+                    || Boolean.TRUE.equals(pluginInstallBusy.peek())) return;
+            pluginInstallBusy.set(true);
+            worker.submit(
+                    () -> {
+                        try {
+                            pluginManager.remove(pluginId);
+                            post(
+                                    () -> {
+                                        cancelSourcePluginRemoval();
+                                        pluginInstallBusy.set(false);
+                                        publishPlugins();
+                                    });
+                            showToast(I18n.tr("toast.plugin.removed"));
+                        } catch (Throwable error) {
+                            post(() -> pluginInstallBusy.set(false));
+                            showToast(I18n.tr("toast.plugin.removeFailed", safeMessage(error)));
+                        }
+                    });
+        }
     }
 
     private void publishPlugins() {
@@ -1231,44 +1199,59 @@ public final class PlayerController {
     }
 
     /**
-     * Aim the login surface at one listed source, so the account page can sign in
-     * to a source that is not the primary one. Returns false when that source
-     * cannot be signed into, and the caller should not open the login dialog.
+     * Aim the login surface at one listed source, so the account page can sign in to a source that
+     * is not the primary one. Returns false when that source cannot be signed into, and the caller
+     * should not open the login dialog.
      */
     public boolean beginSourceLogin(String providerId) {
-        if (providerId == null || providerId.isEmpty()) return false;
-        for (PluginManifest manifest : pluginManager.enabledProviders()) {
-            if (!manifest.id.equals(providerId)) continue;
-            if (!manifest.capabilitySet().contains(ProviderCapability.LOGIN)) return false;
-            publishLoginMetadata(manifest);
-            return true;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (providerId == null || providerId.isEmpty()) return false;
+            for (PluginManifest manifest : pluginManager.enabledProviders()) {
+                if (!manifest.id.equals(providerId)) continue;
+                if (!manifest.capabilitySet().contains(ProviderCapability.LOGIN)) return false;
+                publishLoginMetadata(manifest);
+                return true;
+            }
+            return false;
         }
-        return false;
     }
 
     /** Sign out of one listed source, leaving every other source signed in. */
     public void logoutSource(String providerId) {
-        if (providerId == null || providerId.isEmpty()) return;
-        final String provider = providerId;
-        if (provider.equals(pendingPluginLoginProvider)) {
-            legacyCredentialMigrationGeneration.incrementAndGet();
-            legacyCredentialMigrationAttempted = true;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (providerId == null || providerId.isEmpty()) return;
+            final String provider = providerId;
+            if (provider.equals(pendingPluginLoginProvider)) {
+                legacyCredentialMigrationGeneration.incrementAndGet();
+                legacyCredentialMigrationAttempted = true;
+            }
+            pluginAccounts
+                    .logout(provider)
+                    .whenComplete(
+                            (ignored, error) ->
+                                    post(
+                                            () -> {
+                                                if (error != null) {
+                                                    showToast(
+                                                            I18n.tr(
+                                                                    "toast.logout.failed",
+                                                                    safeMessage(error)));
+                                                    return;
+                                                }
+                                                // Only the primary source owns the account header;
+                                                // signing out of any
+                                                // other source must not blank it.
+                                                if (provider.equals(
+                                                        pluginRegistry.primaryProvider())) {
+                                                    if ("netease".equals(provider))
+                                                        netease.logout();
+                                                    clearPublishedAccount();
+                                                }
+                                                dropSourceUserData(provider);
+                                                refreshSourceAccounts();
+                                                showToast(I18n.tr("toast.logout.done"));
+                                            }));
         }
-        pluginAccounts.logout(provider).whenComplete((ignored, error) -> post(() -> {
-            if (error != null) {
-                showToast(I18n.tr("toast.logout.failed", safeMessage(error)));
-                return;
-            }
-            // Only the primary source owns the account header; signing out of any
-            // other source must not blank it.
-            if (provider.equals(pluginRegistry.primaryProvider())) {
-                if ("netease".equals(provider)) netease.logout();
-                clearPublishedAccount();
-            }
-            dropSourceUserData(provider);
-            refreshSourceAccounts();
-            showToast(I18n.tr("toast.logout.done"));
-        }));
     }
 
     private void publishSourceAccounts() {
@@ -1304,74 +1287,111 @@ public final class PlayerController {
 
     /** Open the app-wide source setup flow from Home or any future empty state. */
     public void requestSourceSetup() {
-        if (pluginCatalogEntries.peek() == null || pluginCatalogEntries.peek().isEmpty()) {
-            refreshPluginCatalog();
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (pluginCatalogEntries.peek() == null || pluginCatalogEntries.peek().isEmpty()) {
+                refreshPluginCatalog();
+            }
+            sourceSetupRevision.set(sourceSetupRevision.peek() + 1L);
         }
-        sourceSetupRevision.set(sourceSetupRevision.peek() + 1L);
     }
 
-    /** Navigate to one host-owned plugin settings page. The page may represent
-     * either an installed plugin or an entry that is only available in catalog. */
+    /**
+     * Navigate to one host-owned plugin settings page. The page may represent either an installed
+     * plugin or an entry that is only available in catalog.
+     */
     public void requestPluginSettings(String pluginId) {
-        if (pluginId == null || pluginId.trim().isEmpty()) return;
-        pluginSettingsId.set(pluginId.trim());
-        pluginSettingsRevision.set(pluginSettingsRevision.peek() + 1L);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (pluginId == null || pluginId.trim().isEmpty()) return;
+            pluginSettingsId.set(pluginId.trim());
+            pluginSettingsRevision.set(pluginSettingsRevision.peek() + 1L);
+        }
     }
 
-    /** Provider-neutral services for plugin-owned app features. Protocol state,
-     * room semantics and synchronization policy deliberately stay in JavaScript. */
-    private CompletableFuture<Object> pluginAppCall(String pluginId, String method,
-                                                     Map<String, Object> arguments) {
+    /**
+     * Provider-neutral services for plugin-owned app features. Protocol state, room semantics and
+     * synchronization policy deliberately stay in JavaScript.
+     */
+    private CompletableFuture<Object> pluginAppCall(
+            String pluginId, String method, Map<String, Object> arguments) {
+        if (appShuttingDown) return failedPluginCall("controller is shutting down");
         Map<String, Object> args = arguments != null ? arguments : Collections.emptyMap();
         switch (method) {
             case "playback.read":
                 return onMainResult(() -> pluginPlaybackSnapshot(pluginId));
             case "playback.play":
-                return onMainResult(() -> { mediaResume(); return Boolean.TRUE; });
+                return onMainResult(
+                        () -> {
+                            mediaResume();
+                            return Boolean.TRUE;
+                        });
             case "playback.pause":
-                return onMainResult(() -> { mediaPause(); return Boolean.TRUE; });
-            case "playback.seek": {
-                long target = boundedPluginLong(args.get("positionMs"), 0L, 31L * 24L * 60L * 60L * 1000L);
-                return onMainResult(() -> { mediaSeek(target); return Boolean.TRUE; });
-            }
-            case "playback.select": {
-                String songId = pluginSongId(pluginId, args.get("songId"));
-                long target = boundedPluginLong(args.get("positionMs"), 0L,
-                        31L * 24L * 60L * 60L * 1000L);
-                boolean shouldPlay = !Boolean.FALSE.equals(args.get("playing"));
-                return onMainResult(() -> selectPluginTrack(songId, target, shouldPlay));
-            }
+                return onMainResult(
+                        () -> {
+                            mediaPause();
+                            return Boolean.TRUE;
+                        });
+            case "playback.seek":
+                {
+                    long target =
+                            boundedPluginLong(
+                                    args.get("positionMs"), 0L, 31L * 24L * 60L * 60L * 1000L);
+                    return onMainResult(
+                            () -> {
+                                mediaSeek(target);
+                                return Boolean.TRUE;
+                            });
+                }
+            case "playback.select":
+                {
+                    String songId = pluginSongId(pluginId, args.get("songId"));
+                    long target =
+                            boundedPluginLong(
+                                    args.get("positionMs"), 0L, 31L * 24L * 60L * 60L * 1000L);
+                    boolean shouldPlay = !Boolean.FALSE.equals(args.get("playing"));
+                    return onMainResult(() -> selectPluginTrack(songId, target, shouldPlay));
+                }
             case "playback.next":
-                return onMainResult(() -> { performAutoAdvance(); return Boolean.TRUE; });
-            case "playback.blockAutoAdvance": {
-                boolean block = Boolean.TRUE.equals(args.get("blocked"));
-                return onMainResult(() -> {
-                    if (block) pluginAutoAdvanceBlocker = pluginId;
-                    else if (pluginId.equals(pluginAutoAdvanceBlocker)) {
-                        pluginAutoAdvanceBlocker = "";
-                        if (pendingNaturalEnd && !queue.isEmpty()) performAutoAdvance();
-                    }
-                    return Boolean.TRUE;
-                });
-            }
-            case "queue.replace": {
-                List<Song> songs = pluginProviders.validateSongs(pluginId, args.get("songs"));
-                String songId = pluginSongId(pluginId, args.get("currentSongId"));
-                long target = boundedPluginLong(args.get("positionMs"), 0L,
-                        31L * 24L * 60L * 60L * 1000L);
-                boolean shouldPlay = !Boolean.FALSE.equals(args.get("playing"));
-                return onMainResult(() -> replacePluginQueue(songs, songId, target, shouldPlay));
-            }
+                return onMainResult(
+                        () -> {
+                            performAutoAdvance();
+                            return Boolean.TRUE;
+                        });
+            case "playback.blockAutoAdvance":
+                {
+                    boolean block = Boolean.TRUE.equals(args.get("blocked"));
+                    return onMainResult(
+                            () -> {
+                                if (block) pluginAutoAdvanceBlocker = pluginId;
+                                else if (pluginId.equals(pluginAutoAdvanceBlocker)) {
+                                    pluginAutoAdvanceBlocker = "";
+                                    if (pendingNaturalEnd && !playbackSession.queue.isEmpty())
+                                        performAutoAdvance();
+                                }
+                                return Boolean.TRUE;
+                            });
+                }
+            case "queue.replace":
+                {
+                    List<Song> songs = pluginProviders.validateSongs(pluginId, args.get("songs"));
+                    String songId = pluginSongId(pluginId, args.get("currentSongId"));
+                    long target =
+                            boundedPluginLong(
+                                    args.get("positionMs"), 0L, 31L * 24L * 60L * 60L * 1000L);
+                    boolean shouldPlay = !Boolean.FALSE.equals(args.get("playing"));
+                    return onMainResult(
+                            () -> replacePluginQueue(songs, songId, target, shouldPlay));
+                }
             case "notifications.toast":
                 showToast(pluginText(args.get("message"), 500));
                 return CompletableFuture.completedFuture(Boolean.TRUE);
-            case "clipboard.write": {
-                String text = pluginText(args.get("text"), 16 * 1024);
-                java.util.function.Consumer<String> sink = clipboard;
-                if (sink == null) return failedPluginCall("clipboard is unavailable");
-                sink.accept(text);
-                return CompletableFuture.completedFuture(Boolean.TRUE);
-            }
+            case "clipboard.write":
+                {
+                    String text = pluginText(args.get("text"), 16 * 1024);
+                    java.util.function.Consumer<String> sink = clipboard;
+                    if (sink == null) return failedPluginCall("clipboard is unavailable");
+                    sink.accept(text);
+                    return CompletableFuture.completedFuture(Boolean.TRUE);
+                }
             case "files.save":
                 return pluginSaveFile(pluginId, args);
             case "files.downloadCurrent":
@@ -1386,20 +1406,31 @@ public final class PlayerController {
     private Map<String, Object> pluginPlaybackSnapshot(String pluginId) {
         Map<String, Object> result = new LinkedHashMap<>();
         Track current = currentTrack();
-        String currentId = current != null && pluginId.equals(providerOf(current))
-                ? nativeSongId(current) : "";
+        String currentId =
+                current != null && pluginId.equals(providerOf(current))
+                        ? nativeSongId(current)
+                        : "";
         List<String> ids = new ArrayList<>();
         boolean queueOwned = true;
-        for (Track track : queue) {
-            if (!pluginId.equals(providerOf(track))) { queueOwned = false; break; }
+        for (Track track : playbackSession.queue) {
+            if (!pluginId.equals(providerOf(track))) {
+                queueOwned = false;
+                break;
+            }
             ids.add(nativeSongId(track));
         }
         result.put("currentSongId", currentId);
         result.put("queueSongIds", queueOwned ? ids : Collections.emptyList());
         result.put("positionMs", Math.max(0L, backend.position()));
         result.put("durationMs", Math.max(0L, backend.duration()));
-        result.put("playing", playingIntent);
-        result.put("transitioning", pendingPluginDesiredPlaying != null);
+        result.put("playing", playbackSession.playing);
+        result.put(
+                "transitioning",
+                playbackSession.resolving
+                        || (!playbackStarted
+                                && playbackSession.playing
+                                && !needsReplay
+                                && current != null));
         result.put("seekRevision", seekRevision.get());
         result.put("endRevision", playbackEndRevision.get());
         return result;
@@ -1407,8 +1438,11 @@ public final class PlayerController {
 
     private Boolean selectPluginTrack(String canonicalId, long target, boolean shouldPlay) {
         int targetIndex = -1;
-        for (int i = 0; i < queue.size(); i++) {
-            if (canonicalId.equals(queue.get(i).canonicalId())) { targetIndex = i; break; }
+        for (int i = 0; i < playbackSession.queue.size(); i++) {
+            if (canonicalId.equals(playbackSession.queue.get(i).canonicalId())) {
+                targetIndex = i;
+                break;
+            }
         }
         if (targetIndex < 0) throw new IllegalArgumentException("target song is not in the queue");
         Track current = currentTrack();
@@ -1420,27 +1454,33 @@ public final class PlayerController {
             playAt(targetIndex);
         } else {
             mediaSeek(target);
-            if (shouldPlay) mediaResume(); else mediaPause();
+            if (shouldPlay) mediaResume();
+            else mediaPause();
         }
         return Boolean.TRUE;
     }
 
-    private Boolean replacePluginQueue(List<Song> songs, String canonicalId, long target,
-                                       boolean shouldPlay) {
+    private Boolean replacePluginQueue(
+            List<Song> songs, String canonicalId, long target, boolean shouldPlay) {
         List<Track> tracks = new ArrayList<>(songs.size());
         for (Song song : songs) tracks.add(toTrackPlugin(song));
         int targetIndex = -1;
         for (int i = 0; i < tracks.size(); i++) {
-            if (canonicalId.equals(tracks.get(i).canonicalId())) { targetIndex = i; break; }
+            if (canonicalId.equals(tracks.get(i).canonicalId())) {
+                targetIndex = i;
+                break;
+            }
         }
-        if (targetIndex < 0) throw new IllegalArgumentException("target song is not in replacement queue");
-        queue.clear();
+        if (targetIndex < 0)
+            throw new IllegalArgumentException("target song is not in replacement queue");
+        playbackSession.invalidate();
+        playbackSession.queue.clear();
         shuffleHistory.clear();
-        playIndex = -1;
-        queue.addAll(tracks);
-        currentQueuePlaylistId = 0L;
+        playbackSession.index = -1;
+        playbackSession.queue.addAll(tracks);
+
         currentQueueMediaPlaylistId = "";
-        post(() -> queueTracks.set(new ArrayList<>(queue)));
+        post(() -> queueTracks.set(new ArrayList<>(playbackSession.queue)));
         return selectPluginTrack(canonicalId, target, shouldPlay);
     }
 
@@ -1454,7 +1494,8 @@ public final class PlayerController {
         if (value.isEmpty()) return "";
         if (value.indexOf(':') >= 0) {
             MediaId id = MediaId.parse(value).requireKind(dev.t1m3.qplayer.media.MediaKind.SONG);
-            if (!pluginId.equals(id.provider())) throw new IllegalArgumentException("song provider mismatch");
+            if (!pluginId.equals(id.provider()))
+                throw new IllegalArgumentException("song provider mismatch");
             return id.toString();
         }
         return MediaId.of(pluginId, dev.t1m3.qplayer.media.MediaKind.SONG, value).toString();
@@ -1466,34 +1507,55 @@ public final class PlayerController {
         return value;
     }
 
-
     private CompletableFuture<Object> pluginSaveFile(String pluginId, Map<String, Object> args) {
         String url = pluginText(args.get("url"), 16 * 1024);
         if (url.isEmpty() || !pluginHostApi.allowsReturnedUrl(pluginId, url)) {
             return failedPluginCall("download URL is outside the plugin network grant");
         }
         String filename = sanitizeDownloadName(pluginText(args.get("filename"), 180));
-        String mimeType = pluginText(args.get("mimeType"), 128);
+        String mime = pluginText(args.get("mimeType"), 128);
         Map<String, String> headers = pluginDownloadHeaders(args.get("headers"));
         FileSavePicker picker = fileSavePicker;
         if (picker == null) return failedPluginCall("save dialog is unavailable");
-        CompletableFuture<Object> future = new CompletableFuture<>();
-        onMain(() -> picker.save(filename, mimeType, (path, done) -> {
-            if (path == null || path.trim().isEmpty()) {
-                if (done != null) done.accept(Boolean.FALSE);
-                future.complete(Boolean.FALSE);
-                return;
-            }
-            pluginHostApi.downloadReturnedFile(pluginId, url, headers,
-                            java.nio.file.Paths.get(path), 1024L * 1024L * 1024L, 120_000)
-                    .whenComplete((ok, error) -> {
-                        boolean success = error == null && Boolean.TRUE.equals(ok);
-                        if (done != null) done.accept(success);
-                        if (error != null) future.completeExceptionally(error);
-                        else future.complete(success);
-                    });
-        }));
-        return future;
+        CompletableFuture<Object> result = new CompletableFuture<>();
+        onMain(
+                () -> {
+                    try {
+                        invokeFileSave(
+                                        picker,
+                                        filename,
+                                        mime,
+                                        (path, done) -> {
+                                            if (path == null || path.trim().isEmpty()) {
+                                                done.accept(false);
+                                                return;
+                                            }
+                                            pluginHostApi
+                                                    .downloadReturnedFile(
+                                                            pluginId,
+                                                            url,
+                                                            headers,
+                                                            java.nio.file.Paths.get(path),
+                                                            1024L * 1024L * 1024L,
+                                                            120_000)
+                                                    .whenComplete(
+                                                            (ok, error) ->
+                                                                    done.accept(
+                                                                            error == null
+                                                                                    && Boolean.TRUE
+                                                                                            .equals(
+                                                                                                    ok)));
+                                        })
+                                .whenComplete(
+                                        (ok, error) -> {
+                                            if (error != null) result.completeExceptionally(error);
+                                            else result.complete(Boolean.TRUE.equals(ok));
+                                        });
+                    } catch (RuntimeException error) {
+                        result.completeExceptionally(error);
+                    }
+                });
+        return result;
     }
 
     private static Map<String, String> pluginDownloadHeaders(Object raw) {
@@ -1568,193 +1630,276 @@ public final class PlayerController {
     }
 
     private CompletableFuture<Object> pluginDownloadCurrent() {
-        return onMainResult(() -> {
-            Track current = currentTrack();
-            if (current == null || current.canonicalId() == null || current.canonicalId().isEmpty()) {
-                throw new IllegalStateException("no song is playing");
-            }
-            requestDownloadQuality(current.canonicalId());
-            return Boolean.TRUE;
-        });
+        CompletableFuture<Object> result = new CompletableFuture<>();
+        onMain(
+                () -> {
+                    Track track = playbackSession.current();
+                    if (track == null) {
+                        result.completeExceptionally(
+                                new IllegalStateException("no song is playing"));
+                        return;
+                    }
+                    if (downloadChoiceResult != null) downloadChoiceResult.complete(Boolean.FALSE);
+                    downloadChoiceResult = result;
+                    downloadChoiceMediaId = track.canonicalId();
+                    requestDownloadQuality(track.canonicalId());
+                });
+        return result;
+    }
+
+    private void completeDownloadChoice(CompletableFuture<Boolean> saved) {
+        CompletableFuture<Object> waiting = downloadChoiceResult;
+        downloadChoiceResult = null;
+        downloadChoiceMediaId = "";
+        if (waiting == null) return;
+        saved.whenComplete(
+                (ok, error) -> {
+                    if (error != null) waiting.completeExceptionally(error);
+                    else waiting.complete(Boolean.TRUE.equals(ok));
+                });
     }
 
     public final Property<Boolean> downloadQualityOpen = new Property<>(false);
     public final Property<String> downloadQualityMediaId = new Property<>("");
     public final Property<String> downloadQualityTitle = new Property<>("");
 
-    /** Open the host quality sheet. qml4j drops JS closures on Menu subItems, so
-     *  the picker cannot live in the context-menu model. */
+    /**
+     * Open the host quality sheet. qml4j drops JS closures on Menu subItems, so the picker cannot
+     * live in the context-menu model.
+     */
     public void requestDownloadQuality(String mediaId) {
-        if (mediaId == null || mediaId.isEmpty()) return;
-        // A playerAction contribution always opens its plugin dialog first.
-        // Close it so the host quality sheet is not buried underneath.
-        closePluginDialog();
-        FileSavePicker picker = fileSavePicker;
-        if (picker == null) {
-            showToast(I18n.tr("toast.download.unsupported"));
-            return;
-        }
-        Track track = findTrackForMedia(mediaId);
-        if (track != null && track.source == Track.Source.LOCAL) {
-            String local = track.filePath != null && !track.filePath.isEmpty()
-                    ? track.filePath : track.contentUri;
-            if (local == null || local.isEmpty()) {
-                showToast(I18n.tr("toast.download.staleSong"));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (mediaId == null || mediaId.isEmpty()) return;
+            if (downloadChoiceResult != null && !downloadChoiceMediaId.equals(mediaId)) {
+                completeDownloadChoice(CompletableFuture.completedFuture(Boolean.FALSE));
+            }
+            // A playerAction contribution always opens its plugin dialog first.
+            // Close it so the host quality sheet is not buried underneath.
+            closePluginDialog();
+            FileSavePicker picker = fileSavePicker;
+            if (picker == null) {
+                completeDownloadChoice(CompletableFuture.completedFuture(Boolean.FALSE));
+                showToast(I18n.tr("toast.download.unsupported"));
                 return;
             }
-            saveLocalAudioCopy(picker, track, local);
-            return;
+            Track track = findTrackForMedia(mediaId);
+            if (track != null && track.source == Track.Source.LOCAL) {
+                String local =
+                        track.filePath != null && !track.filePath.isEmpty()
+                                ? track.filePath
+                                : track.contentUri;
+                if (local == null || local.isEmpty()) {
+                    completeDownloadChoice(CompletableFuture.completedFuture(Boolean.FALSE));
+                    showToast(I18n.tr("toast.download.staleSong"));
+                    return;
+                }
+                completeDownloadChoice(saveLocalAudioCopy(picker, track, local));
+                return;
+            }
+            String title =
+                    track != null && track.title != null && !track.title.isEmpty()
+                            ? track.title
+                            : mediaId;
+            downloadQualityMediaId.set(mediaId);
+            downloadQualityTitle.set(title);
+            downloadQualityOpen.set(true);
         }
-        String title = track != null && track.title != null && !track.title.isEmpty()
-                ? track.title : mediaId;
-        downloadQualityMediaId.set(mediaId);
-        downloadQualityTitle.set(title);
-        downloadQualityOpen.set(true);
     }
 
     public void confirmDownloadQuality(String quality) {
-        String mediaId = downloadQualityMediaId.peek();
-        cancelDownloadQuality();
-        downloadMediaSongAtQuality(mediaId, quality);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            String canonical = downloadQualityMediaId.peek();
+            downloadQualityOpen.set(false);
+            downloadQualityMediaId.set("");
+            downloadQualityTitle.set("");
+            completeDownloadChoice(downloadMediaSongAtQuality(canonical, quality));
+        }
     }
 
     public void cancelDownloadQuality() {
-        downloadQualityOpen.set(false);
-        downloadQualityMediaId.set("");
-        downloadQualityTitle.set("");
+        synchronized (QmlRuntimeLock.MONITOR) {
+            downloadQualityOpen.set(false);
+            downloadQualityMediaId.set("");
+            downloadQualityTitle.set("");
+            completeDownloadChoice(CompletableFuture.completedFuture(Boolean.FALSE));
+        }
     }
 
-    /** Right-click Download: show the quality sheet, then resolve the same stream
-     *  path playback uses. */
+    /**
+     * Right-click Download: show the quality sheet, then resolve the same stream path playback
+     * uses.
+     */
     public void downloadMediaSong(String mediaId) {
-        requestDownloadQuality(mediaId);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            requestDownloadQuality(mediaId);
+        }
     }
 
-    /** Distinct from {@link #downloadMediaSong(String)} so QML can pass a quality
-     *  token without relying on Java overload resolution. */
-    public void downloadMediaSongAtQuality(String mediaId, String quality) {
-        if (mediaId == null || mediaId.isEmpty()) return;
-        FileSavePicker picker = fileSavePicker;
-        if (picker == null) {
-            showToast(I18n.tr("toast.download.unsupported"));
-            return;
-        }
-        final MediaId id;
-        try { id = MediaId.parse(mediaId).requireKind(dev.t1m3.qplayer.media.MediaKind.SONG); }
-        catch (IllegalArgumentException error) {
-            showToast(I18n.tr("toast.id.song"));
-            return;
-        }
-        Track track = findTrackForMedia(mediaId);
-        if ("local".equals(id.provider())) {
-            if (track == null) {
-                showToast(I18n.tr("toast.download.staleSong"));
-                return;
+    /**
+     * Distinct from {@link #downloadMediaSong(String)} so QML can pass a quality token without
+     * relying on Java overload resolution.
+     */
+    public CompletableFuture<Boolean> downloadMediaSongAtQuality(String mediaId, String quality) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            FileSavePicker picker = fileSavePicker;
+            if (picker == null) {
+                showToast(I18n.tr("toast.download.unsupported"));
+                return CompletableFuture.completedFuture(Boolean.FALSE);
             }
-        }
-        if (track != null && track.source == Track.Source.LOCAL) {
-            String local = track.filePath != null && !track.filePath.isEmpty()
-                    ? track.filePath : track.contentUri;
-            if (local == null || local.isEmpty()) {
-                showToast(I18n.tr("toast.download.staleSong"));
-                return;
+            final MediaId id;
+            try {
+                id = MediaId.parse(mediaId).requireKind(dev.t1m3.qplayer.media.MediaKind.SONG);
+            } catch (IllegalArgumentException error) {
+                showToast(I18n.tr("toast.id.song"));
+                return CompletableFuture.completedFuture(Boolean.FALSE);
             }
-            saveLocalAudioCopy(picker, track, local);
-            return;
-        }
-        if (track == null) {
-            track = new Track();
-            track.applyCanonicalId(mediaId);
-            track.source = Track.Source.PLUGIN;
-        }
-        final Track named = track;
-        final String level = sanitizeDownloadQuality(quality, playLevel);
-        Logger.info("download {} quality={}", mediaId, level);
-        showToast(I18n.tr("toast.download.started"));
-        pluginProviders.resolveStream(id, level).whenComplete((stream, error) -> {
-            if (error != null || stream == null || stream.url == null || stream.url.isEmpty()) {
-                post(() -> showToast(I18n.tr("toast.download.failed",
-                        error != null ? safeMessage(error) : I18n.tr("toast.download.noStream"))));
-                return;
+            Track known = findTrackForMedia(mediaId);
+            if ("local".equals(id.provider())) {
+                String local = known != null ? known.filePath : null;
+                if (local == null || local.isEmpty()) {
+                    showToast(I18n.tr("toast.download.staleSong"));
+                    return CompletableFuture.completedFuture(Boolean.FALSE);
+                }
+                return saveLocalAudioCopy(picker, known, local);
             }
-            if (stream.trial) {
-                post(() -> showToast(I18n.tr("toast.download.trialOnly")));
-                return;
+            final Track named = known != null ? copyForQueue(known) : new Track();
+            if (known == null) {
+                named.applyCanonicalId(mediaId);
+                named.source = Track.Source.PLUGIN;
             }
-            post(() -> saveRemoteAudio(picker, id, named, stream.url,
-                    stream.headers, stream.mimeType));
-        });
+            String level = sanitizeDownloadQuality(quality, playLevel);
+            showToast(I18n.tr("toast.download.started"));
+            return pluginProviders
+                    .resolveStream(id, level)
+                    .handle(
+                            (stream, error) -> {
+                                if (error != null
+                                        || stream == null
+                                        || stream.url == null
+                                        || stream.url.isEmpty()) {
+                                    showToast(
+                                            I18n.tr(
+                                                    "toast.download.failed",
+                                                    error != null
+                                                            ? safeMessage(error)
+                                                            : I18n.tr("toast.download.noStream")));
+                                    return CompletableFuture.completedFuture(Boolean.FALSE);
+                                }
+                                if (stream.trial) {
+                                    showToast(I18n.tr("toast.download.trialOnly"));
+                                    return CompletableFuture.completedFuture(Boolean.FALSE);
+                                }
+                                return saveRemoteAudio(
+                                        picker,
+                                        id,
+                                        named,
+                                        stream.url,
+                                        stream.headers,
+                                        stream.mimeType);
+                            })
+                    .thenCompose(saved -> saved);
+        }
     }
 
     /** Copy a local library file through the same save dialog as plugin downloads. */
     public void downloadLocalFile(String filePath) {
-        if (filePath == null || filePath.isEmpty()) return;
-        FileSavePicker picker = fileSavePicker;
-        if (picker == null) {
-            showToast(I18n.tr("toast.download.unsupported"));
-            return;
-        }
-        java.nio.file.Path source = java.nio.file.Paths.get(filePath);
-        if (!java.nio.file.Files.isRegularFile(source)) {
-            showToast(I18n.tr("toast.download.staleSong"));
-            return;
-        }
-        Track track = new Track();
-        track.title = source.getFileName().toString();
-        saveLocalAudioCopy(picker, track, filePath);
-    }
-
-    private void saveLocalAudioCopy(FileSavePicker picker, Track track, String cached) {
-        String suggested = suggestedAudioName(track.title, track.artist, cached, "");
-        picker.save(suggested, "audio/*", (path, done) -> {
-            if (path == null || path.trim().isEmpty()) {
-                if (done != null) done.accept(Boolean.FALSE);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (filePath == null || filePath.isEmpty()) return;
+            FileSavePicker picker = fileSavePicker;
+            if (picker == null) {
+                showToast(I18n.tr("toast.download.unsupported"));
                 return;
             }
-            boolean ok = false;
-            try {
-                java.nio.file.Files.copy(java.nio.file.Paths.get(cached),
-                        java.nio.file.Paths.get(path),
-                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                ok = true;
-                showToast(I18n.tr("toast.download.done"));
-            } catch (Exception error) {
-                showToast(I18n.tr("toast.download.failed", safeMessage(error)));
-            }
-            if (done != null) done.accept(ok);
-        });
+            java.nio.file.Path source = java.nio.file.Paths.get(filePath);
+            Track track = new Track();
+            track.title = source.getFileName().toString();
+            saveLocalAudioCopy(picker, track, filePath);
+        }
     }
 
-    private void saveRemoteAudio(FileSavePicker picker, MediaId id, Track track,
-                                 String url, Map<String, String> headers, String mimeType) {
+    private CompletableFuture<Boolean> saveLocalAudioCopy(
+            FileSavePicker picker, Track track, String cached) {
+        String suggested = suggestedAudioName(track.title, track.artist, cached, "");
+        CompletableFuture<Boolean> saved =
+                invokeFileSave(
+                        picker,
+                        suggested,
+                        "audio/*",
+                        (path, done) ->
+                                ioWorker.submit(
+                                        () -> {
+                                            boolean success = false;
+                                            try {
+                                                if (path != null && !path.trim().isEmpty()) {
+                                                    java.nio.file.Files.copy(
+                                                            java.nio.file.Paths.get(cached),
+                                                            java.nio.file.Paths.get(path),
+                                                            java.nio.file.StandardCopyOption
+                                                                    .REPLACE_EXISTING);
+                                                    success = true;
+                                                }
+                                            } catch (Exception error) {
+                                                Logger.warn(
+                                                        "local audio copy failed: {}",
+                                                        safeMessage(error));
+                                            } finally {
+                                                if (done != null) done.accept(success);
+                                            }
+                                        }));
+        observeFileSave(saved);
+        return saved;
+    }
+
+    private void observeFileSave(CompletableFuture<Boolean> saved) {
+        saved.whenComplete(
+                (ok, error) -> {
+                    if (error != null)
+                        showToast(I18n.tr("toast.download.failed", safeMessage(error)));
+                    else if (!Boolean.TRUE.equals(ok))
+                        showToast(I18n.tr("toast.download.notSaved"));
+                    else showToast(I18n.tr("toast.download.done"));
+                });
+    }
+
+    private CompletableFuture<Boolean> saveRemoteAudio(
+            FileSavePicker picker,
+            MediaId id,
+            Track track,
+            String url,
+            Map<String, String> headers,
+            String mimeType) {
         String suggested = suggestedAudioName(track.title, track.artist, url, mimeType);
         String mime = mimeType == null || mimeType.isEmpty() ? "audio/*" : mimeType;
-        picker.save(suggested, mime, (path, done) -> {
-            if (path == null || path.trim().isEmpty()) {
-                if (done != null) done.accept(Boolean.FALSE);
-                return;
-            }
-            pluginHostApi.downloadReturnedFile(id.provider(), url, headers,
-                            java.nio.file.Paths.get(path), 1024L * 1024L * 1024L, 120_000,
-                            true)
-                    .whenComplete((ok, fail) -> {
-                        boolean success = fail == null && Boolean.TRUE.equals(ok);
-                        if (success) {
-                            embedDownloadTags(id, track, path);
-                            post(() -> {
-                                if (done != null) done.accept(true);
-                                showToast(I18n.tr("toast.download.done"));
-                            });
-                            return;
-                        }
-                        post(() -> {
-                            if (done != null) done.accept(false);
-                            showToast(I18n.tr("toast.download.failed",
-                                    fail != null ? safeMessage(fail)
-                                            : I18n.tr("toast.download.noStream")));
+        CompletableFuture<Boolean> saved =
+                invokeFileSave(
+                        picker,
+                        suggested,
+                        mime,
+                        (path, done) -> {
+                            if (path == null || path.trim().isEmpty()) {
+                                done.accept(false);
+                                return;
+                            }
+                            pluginHostApi
+                                    .downloadReturnedFile(
+                                            id.provider(),
+                                            url,
+                                            headers,
+                                            java.nio.file.Paths.get(path),
+                                            1024L * 1024L * 1024L,
+                                            120_000,
+                                            true)
+                                    .whenCompleteAsync(
+                                            (ok, error) -> {
+                                                boolean success =
+                                                        error == null && Boolean.TRUE.equals(ok);
+                                                if (success) embedDownloadTags(id, track, path);
+                                                if (done != null) done.accept(success);
+                                            },
+                                            ioWorker);
                         });
-                    });
-        });
+        observeFileSave(saved);
+        return saved;
     }
 
     private void embedDownloadTags(MediaId id, Track track, String path) {
@@ -1857,10 +2002,16 @@ public final class PlayerController {
 
     private CompletableFuture<Object> onMainResult(java.util.concurrent.Callable<Object> action) {
         CompletableFuture<Object> future = new CompletableFuture<>();
-        onMain(() -> {
-            try { future.complete(action.call()); }
-            catch (Throwable error) { future.completeExceptionally(error); }
-        });
+        onMain(
+                () -> {
+                    try {
+                        if (appShuttingDown)
+                            throw new IllegalStateException("controller is shutting down");
+                        future.complete(action.call());
+                    } catch (Throwable error) {
+                        future.completeExceptionally(error);
+                    }
+                });
         return future;
     }
 
@@ -1871,24 +2022,29 @@ public final class PlayerController {
     }
 
     private void pluginAppUnavailable(String pluginId) {
-        onMain(() -> {
-            if (!pluginId.equals(pluginAutoAdvanceBlocker)) return;
-            pluginAutoAdvanceBlocker = "";
-            if (!appShuttingDown && pendingNaturalEnd && !queue.isEmpty()) performAutoAdvance();
-        });
+        onMain(
+                () -> {
+                    if (!pluginId.equals(pluginAutoAdvanceBlocker)) return;
+                    pluginAutoAdvanceBlocker = "";
+                    if (!appShuttingDown && pendingNaturalEnd && !playbackSession.queue.isEmpty())
+                        performAutoAdvance();
+                });
     }
 
-    /** Remember an explicit local-only choice so onboarding is not forced again on
-     * every launch. Home keeps a persistent setup button for changing that choice. */
+    /**
+     * Remember an explicit local-only choice so onboarding is not forced again on every launch.
+     * Home keeps a persistent setup button for changing that choice.
+     */
     public void dismissSourceSetup() {
-        pluginSetupState.acknowledge();
-        sourceSetupPending.set(false);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            pluginSetupState.acknowledge();
+            sourceSetupPending.set(false);
+        }
     }
 
     private boolean detectLegacySourceMigration() {
         if (netease.hasStoredLegacyCredentials()) return true;
-        for (Track track : queue) if (isLegacyOnlineTrack(track)) return true;
-        for (Track track : customPlaylist) if (isLegacyOnlineTrack(track)) return true;
+        for (Track track : playbackSession.queue) if (isLegacyOnlineTrack(track)) return true;
         return false;
     }
 
@@ -1943,30 +2099,35 @@ public final class PlayerController {
 
     /** QML calls this once the prompt has been accepted or dismissed. */
     public void acknowledgePluginUpdate() {
-        pluginUpdateAvailable.set(false);
-        pluginUpdateId.set("");
-        pluginUpdateName.set("");
-        pluginUpdateVersion.set("");
-        pluginUpdateInstalledVersion.set("");
-        // Another installed plugin may also be out of date; offer the next one.
-        publishPluginUpdatePrompt();
+        synchronized (QmlRuntimeLock.MONITOR) {
+            pluginUpdateAvailable.set(false);
+            pluginUpdateId.set("");
+            pluginUpdateName.set("");
+            pluginUpdateVersion.set("");
+            pluginUpdateInstalledVersion.set("");
+            // Another installed plugin may also be out of date; offer the next one.
+            publishPluginUpdatePrompt();
+        }
     }
 
     /**
-     * QML calls this when the app updater pre-empts a plugin prompt that was
-     * already on screen. Unlike {@link #acknowledgePluginUpdate()} this does not
-     * consume the offer: the key is released so the same plugin is proposed
-     * again once the app dialog is gone.
+     * QML calls this when the app updater pre-empts a plugin prompt that was already on screen.
+     * Unlike {@link #acknowledgePluginUpdate()} this does not consume the offer: the key is
+     * released so the same plugin is proposed again once the app dialog is gone.
      */
     public void deferPluginUpdate() {
-        promptedPluginUpdates.remove(pluginUpdateId.peek() + "@" + pluginUpdateVersion.peek());
-        pluginUpdateAvailable.set(false);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            promptedPluginUpdates.remove(pluginUpdateId.peek() + "@" + pluginUpdateVersion.peek());
+            pluginUpdateAvailable.set(false);
+        }
     }
 
     /** QML calls this when the app-update dialog closes, releasing the hold. */
     public void appUpdatePromptClosed() {
-        appUpdatePromptDismissed = true;
-        publishPluginUpdatePrompt();
+        synchronized (QmlRuntimeLock.MONITOR) {
+            appUpdatePromptDismissed = true;
+            publishPluginUpdatePrompt();
+        }
     }
 
     private volatile boolean appUpdatePromptDismissed;
@@ -1989,77 +2150,95 @@ public final class PlayerController {
     }
 
     public void refreshPluginCatalog() {
-        if (Boolean.TRUE.equals(pluginCatalogLoading.peek())) return;
-        pluginCatalogLoading.set(true);
-        worker.submit(() -> {
-            try {
-                List<PluginCatalogEntry> entries = pluginCatalog.loadLatest(updateMirror);
-                markCatalogInstalledState(entries);
-                final List<PluginCatalogEntry> publishedEntries = entries;
-                post(() -> {
-                    pluginCatalogEntries.set(publishedEntries);
-                    pluginCatalogLoading.set(false);
-                    publishPluginUpdatePrompt();
-                });
-            } catch (Throwable error) {
-                post(() -> pluginCatalogLoading.set(false));
-                Logger.warn("plugin release lookup failed: {}", error.getMessage());
-                showToast(I18n.tr("toast.plugin.catalogFailed"));
-            }
-        });
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (Boolean.TRUE.equals(pluginCatalogLoading.peek())) return;
+            pluginCatalogLoading.set(true);
+            worker.submit(
+                    () -> {
+                        try {
+                            List<PluginCatalogEntry> entries =
+                                    pluginCatalog.loadLatest(updateMirror);
+                            markCatalogInstalledState(entries);
+                            final List<PluginCatalogEntry> publishedEntries = entries;
+                            post(
+                                    () -> {
+                                        pluginCatalogEntries.set(publishedEntries);
+                                        pluginCatalogLoading.set(false);
+                                        publishPluginUpdatePrompt();
+                                    });
+                        } catch (Throwable error) {
+                            post(() -> pluginCatalogLoading.set(false));
+                            Logger.warn("plugin release lookup failed: {}", error.getMessage());
+                            showToast(I18n.tr("toast.plugin.catalogFailed"));
+                        }
+                    });
+        }
     }
 
     public void installCatalogPlugin(String pluginId) {
-        if (pluginId == null || pluginId.isEmpty() || Boolean.TRUE.equals(pluginInstallBusy.peek())) return;
-        PluginCatalogEntry selected = null;
-        for (PluginCatalogEntry entry : pluginCatalogEntries.peek()) {
-            if (pluginId.equals(entry.id)) { selected = entry; break; }
-        }
-        if (selected == null) { showToast(I18n.tr("toast.plugin.unknownEntry")); return; }
-        final PluginCatalogEntry entry = selected;
-        pluginInstallBusy.set(true);
-        worker.submit(() -> {
-            try {
-                VerifiedPluginPackage verified = pluginCatalog.downloadAndVerify(
-                        entry, GitHubDownloadUrls.candidates(entry.downloadUrl, updateMirror));
-                pendingPluginPackage = verified;
-                pendingPluginPackageTemporary = true;
-                post(() -> {
-                    pendingPluginName.set(verified.manifest().name);
-                    pendingPluginId.set(verified.manifest().id);
-                    pendingPluginVersion.set(verified.manifest().version);
-                    pendingPluginPermissions.set(verified.manifest().permissions.isEmpty()
-                            ? I18n.tr("plugin.entry.noPermissions")
-                            : String.join(I18n.tr("common.listSeparator"),
-                                    verified.manifest().permissions));
-                    pendingPluginTrusted.set(true);
-                    pluginInstallBusy.set(false);
-                    pluginInstallPromptRevision.set(pluginInstallPromptRevision.peek() + 1L);
-                });
-            } catch (Throwable error) {
-                post(() -> pluginInstallBusy.set(false));
-                showToast(I18n.tr("toast.plugin.downloadFailed", safeMessage(error)));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (pluginId == null
+                    || pluginId.isEmpty()
+                    || Boolean.TRUE.equals(pluginInstallBusy.peek())) return;
+            PluginCatalogEntry selected = null;
+            for (PluginCatalogEntry entry : pluginCatalogEntries.peek()) {
+                if (pluginId.equals(entry.id)) {
+                    selected = entry;
+                    break;
+                }
             }
-        });
+            if (selected == null) {
+                showToast(I18n.tr("toast.plugin.unknownEntry"));
+                return;
+            }
+            final PluginCatalogEntry entry = selected;
+            pluginInstallBusy.set(true);
+            worker.submit(
+                    () -> {
+                        try {
+                            VerifiedPluginPackage verified =
+                                    pluginCatalog.downloadAndVerify(
+                                            entry,
+                                            GitHubDownloadUrls.candidates(
+                                                    entry.downloadUrl, updateMirror));
+                            pendingPluginPackage = verified;
+                            pendingPluginPackageTemporary = true;
+                            post(
+                                    () -> {
+                                        pendingPluginName.set(verified.manifest().name);
+                                        pendingPluginId.set(verified.manifest().id);
+                                        pendingPluginVersion.set(verified.manifest().version);
+                                        pendingPluginPermissions.set(
+                                                verified.manifest().permissions.isEmpty()
+                                                        ? I18n.tr("plugin.entry.noPermissions")
+                                                        : String.join(
+                                                                I18n.tr("common.listSeparator"),
+                                                                verified.manifest().permissions));
+                                        pendingPluginTrusted.set(true);
+                                        pluginInstallBusy.set(false);
+                                        pluginInstallPromptRevision.set(
+                                                pluginInstallPromptRevision.peek() + 1L);
+                                    });
+                        } catch (Throwable error) {
+                            post(() -> pluginInstallBusy.set(false));
+                            showToast(I18n.tr("toast.plugin.downloadFailed", safeMessage(error)));
+                        }
+                    });
+        }
     }
 
-    /** Delayed, non-destructive legacy migration: old queue records already carry
-     * canonical ids after schema-v2 loading, but remain on their compatibility
-     * route until a matching provider is actually installed and enabled. Once it
-     * is available, route them through the plugin without rewriting or deleting
-     * the old state file first. The next normal atomic save records PLUGIN. */
+    /**
+     * Delayed, non-destructive legacy migration: old queue records already carry canonical ids
+     * after schema-v2 loading, but remain on their compatibility route until a matching provider is
+     * actually installed and enabled. Once it is available, route them through the plugin without
+     * rewriting or deleting the old state file first. The next normal atomic save records PLUGIN.
+     */
     private void routeInstalledPluginTracks() {
-        boolean queueChanged = false;
-        for (Track track : queue) queueChanged |= routeInstalledPluginTrack(track);
-        boolean customChanged = false;
-        for (Track track : customPlaylist) customChanged |= routeInstalledPluginTrack(track);
-        if (queueChanged) {
-            queueTracks.set(new ArrayList<>(queue));
-            worker.submit(this::saveQueue);
-        }
-        if (customChanged) {
-            customPlaylistTracks.set(new ArrayList<>(customPlaylist));
-            worker.submit(this::saveCustomPlaylist);
+        boolean changed = false;
+        for (Track track : playbackSession.queue) changed |= routeInstalledPluginTrack(track);
+        if (changed) {
+            queueTracks.set(new ArrayList<>(playbackSession.queue));
+            saveQueue();
         }
     }
 
@@ -2153,15 +2332,7 @@ public final class PlayerController {
         }
     }
 
-    private PluginManifest providerWithId(String providerId, ProviderCapability capability) {
-        if (providerId == null || providerId.isEmpty()) return null;
-        for (PluginManifest manifest : pluginManager.enabledProviders()) {
-            if (providerId.equals(manifest.id)) {
-                return manifest.capabilitySet().contains(capability) ? manifest : null;
-            }
-        }
-        return null;
-    }
+    
 
     private void refreshPrimaryPluginLoginMetadata() {
         String primary = pluginRegistry.primaryProvider();
@@ -2303,17 +2474,26 @@ public final class PlayerController {
     @FunctionalInterface
     public interface PluginPicker { void pick(); }
 
-    public void setPluginPicker(PluginPicker picker) { this.pluginPicker = picker; }
+    public void setPluginPicker(PluginPicker picker) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            this.pluginPicker = picker;
+        }
+    }
 
     /** Host-owned save dialog. The plugin never sees a filesystem path. */
     @FunctionalInterface
     public interface FileSavePicker {
-        void save(String suggestedFileName, String mimeType,
-                  java.util.function.BiConsumer<String, java.util.function.Consumer<Boolean>> writer);
+        CompletableFuture<Boolean> save(
+                String suggestedFileName,
+                String mimeType,
+                java.util.function.BiConsumer<String, java.util.function.Consumer<Boolean>> writer);
     }
 
-    public void setFileSavePicker(FileSavePicker picker) { this.fileSavePicker = picker; }
-
+    public void setFileSavePicker(FileSavePicker picker) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            this.fileSavePicker = picker;
+        }
+    }
 
     // --- Plugin dialogs -----------------------------------------------------
     // A plugin contributes no QML. It returns a validated description from its
@@ -2325,6 +2505,9 @@ public final class PlayerController {
 
     /** True while a plugin dialog is on screen. */
     public final Property<Boolean> pluginDialogOpen = new Property<>(false);
+
+    public final Property<Long> pluginDialogSessionRevision = new Property<>(0L);
+
     /** Canonical JSON from {@link PluginUiDescription}; "" before the first reply. */
     public final Property<String> pluginDialogJson = new Property<>("");
     /** True while a user-initiated action is in flight (background refreshes do not set it). */
@@ -2337,61 +2520,78 @@ public final class PlayerController {
     private volatile String dialogContributionId = "";
 
     public void requestPluginUi(String pluginId, String contributionId) {
-        if (pluginId == null || contributionId == null) return;
-        if ("unlock".equals(pluginId) && "download".equals(contributionId)) {
-            Track current = currentTrack();
-            if (current == null || current.canonicalId() == null || current.canonicalId().isEmpty()) {
-                showToast(I18n.tr("toast.download.noCurrent"));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (pluginId == null || contributionId == null) return;
+            if ("unlock".equals(pluginId) && "download".equals(contributionId)) {
+                Track current = currentTrack();
+                if (current == null
+                        || current.canonicalId() == null
+                        || current.canonicalId().isEmpty()) {
+                    showToast(I18n.tr("toast.download.noCurrent"));
+                    return;
+                }
+                requestDownloadQuality(current.canonicalId());
                 return;
             }
-            requestDownloadQuality(current.canonicalId());
-            return;
-        }
-        String label = contributionId;
-        for (PluginUiContributionRow row : pluginUiContributions.peek()) {
-            if (row.pluginId.equals(pluginId) && row.id.equals(contributionId)) {
-                label = row.label;
-                break;
+            String label = contributionId;
+            for (PluginUiContributionRow row : pluginUiContributions.peek()) {
+                if (row.pluginId.equals(pluginId) && row.id.equals(contributionId)) {
+                    label = row.label;
+                    break;
+                }
             }
+            dialogPluginId = pluginId;
+            dialogContributionId = contributionId;
+            pluginDialogTitle.set(label);
+            pluginDialogJson.set("");
+            pluginDialogError.set("");
+            pluginDialogBusy.set(false);
+            pluginDialogSessionRevision.set(pluginDialogSessionRevision.peek() + 1L);
+            pluginDialogOpen.set(true);
+            invokePluginDialog("open", Collections.<String, Object>emptyMap(), true);
         }
-        dialogPluginId = pluginId;
-        dialogContributionId = contributionId;
-        pluginDialogTitle.set(label);
-        pluginDialogJson.set("");
-        pluginDialogError.set("");
-        pluginDialogBusy.set(false);
-        pluginDialogOpen.set(true);
-        invokePluginDialog("open", Collections.<String, Object>emptyMap(), true);
     }
 
     /** A button press: {@code actionId} is the button's own id. */
     public void pluginDialogAction(String actionId, String inputsJson) {
-        if (actionId == null || actionId.isEmpty()) return;
-        Map<String, Object> inputs;
-        try {
-            Map<String, Object> parsed = new Gson().fromJson(
-                    inputsJson == null || inputsJson.isEmpty() ? "{}" : inputsJson,
-                    new com.google.gson.reflect.TypeToken<java.util.LinkedHashMap<String, Object>>() {}.getType());
-            inputs = parsed != null ? parsed : Collections.<String, Object>emptyMap();
-        } catch (RuntimeException error) {
-            inputs = Collections.emptyMap();
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (actionId == null || actionId.isEmpty()) return;
+            Map<String, Object> inputs;
+            try {
+                Map<String, Object> parsed =
+                        new Gson()
+                                .fromJson(
+                                        inputsJson == null || inputsJson.isEmpty()
+                                                ? "{}"
+                                                : inputsJson,
+                                        new com.google.gson.reflect.TypeToken<
+                                                java.util.LinkedHashMap<
+                                                        String, Object>>() {}.getType());
+                inputs = parsed != null ? parsed : Collections.<String, Object>emptyMap();
+            } catch (RuntimeException error) {
+                inputs = Collections.emptyMap();
+            }
+            invokePluginDialog(actionId, inputs, true);
         }
-        invokePluginDialog(actionId, inputs, true);
     }
 
     /** Driven by the description's refreshMs; never blocks the buttons. */
     public void pluginDialogRefresh() {
-        if (Boolean.TRUE.equals(pluginDialogBusy.peek())) return;
-        invokePluginDialog("refresh", Collections.<String, Object>emptyMap(), false);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (Boolean.TRUE.equals(pluginDialogBusy.peek())) return;
+            invokePluginDialog("refresh", Collections.<String, Object>emptyMap(), false);
+        }
     }
 
     public void closePluginDialog() {
-        dialogPluginId = "";
-        dialogContributionId = "";
-        pluginDialogOpen.set(false);
-        pluginDialogJson.set("");
-        pluginDialogError.set("");
-        pluginDialogBusy.set(false);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            dialogPluginId = "";
+            dialogContributionId = "";
+            pluginDialogOpen.set(false);
+            pluginDialogJson.set("");
+            pluginDialogError.set("");
+            pluginDialogBusy.set(false);
+        }
     }
 
     private void invokePluginDialog(String action, Map<String, Object> inputs, boolean showBusy) {
@@ -2425,22 +2625,28 @@ public final class PlayerController {
     }
 
     public void requestPluginImport() {
-        PluginPicker picker = pluginPicker;
-        if (picker == null) {
-            showToast(I18n.tr("toast.plugin.pickUnsupported"));
-            return;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            PluginPicker picker = pluginPicker;
+            if (picker == null) {
+                showToast(I18n.tr("toast.plugin.pickUnsupported"));
+                return;
+            }
+            onHost(picker::pick);
         }
-        picker.pick();
     }
 
     /** Inspect on a worker before QML presents the mandatory code-execution warning. */
     public void inspectPluginPackage(String path) {
-        inspectPluginPackage(path, false);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            inspectPluginPackage(path, false);
+        }
     }
 
     /** Host-only variant for a package copied out of a content URI. */
     public void inspectTemporaryPluginPackage(String path) {
-        inspectPluginPackage(path, true);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            inspectPluginPackage(path, true);
+        }
     }
 
     private void inspectPluginPackage(String path, boolean deleteAfterInspection) {
@@ -2480,46 +2686,56 @@ public final class PlayerController {
 
     /** Called only after the user accepts the non-dismissable warning dialog. */
     public void confirmPendingPluginInstall() {
-        final VerifiedPluginPackage verified = pendingPluginPackage;
-        if (verified == null || Boolean.TRUE.equals(pluginInstallBusy.peek())) return;
-        pluginInstallBusy.set(true);
-        worker.submit(() -> {
-            try {
-                Set<PluginPermission> grants = verified.manifest().permissionSet();
-                pluginManager.installAndEnable(pluginInstaller, verified, grants);
-                pendingPluginPackage = null;
-                post(() -> {
-                    pluginInstallBusy.set(false);
-                    publishPlugins();
-                });
-                showToast(I18n.tr("toast.plugin.installed", verified.manifest().name));
-            } catch (Throwable error) {
-                pendingPluginPackage = null;
-                post(() -> pluginInstallBusy.set(false));
-                showToast(I18n.tr("toast.plugin.installFailed", error.getMessage()));
-            } finally {
-                if (pendingPluginPackageTemporary) {
-                    try { java.nio.file.Files.deleteIfExists(verified.file()); }
-                    catch (java.io.IOException ignored) {}
-                    pendingPluginPackageTemporary = false;
-                }
-            }
-        });
+        synchronized (QmlRuntimeLock.MONITOR) {
+            final VerifiedPluginPackage verified = pendingPluginPackage;
+            if (verified == null || Boolean.TRUE.equals(pluginInstallBusy.peek())) return;
+            pluginInstallBusy.set(true);
+            worker.submit(
+                    () -> {
+                        try {
+                            Set<PluginPermission> grants = verified.manifest().permissionSet();
+                            pluginManager.installAndEnable(pluginInstaller, verified, grants);
+                            pendingPluginPackage = null;
+                            post(
+                                    () -> {
+                                        pluginInstallBusy.set(false);
+                                        publishPlugins();
+                                    });
+                            showToast(I18n.tr("toast.plugin.installed", verified.manifest().name));
+                        } catch (Throwable error) {
+                            pendingPluginPackage = null;
+                            post(() -> pluginInstallBusy.set(false));
+                            showToast(I18n.tr("toast.plugin.installFailed", error.getMessage()));
+                        } finally {
+                            if (pendingPluginPackageTemporary) {
+                                try {
+                                    java.nio.file.Files.deleteIfExists(verified.file());
+                                } catch (java.io.IOException ignored) {
+                                }
+                                pendingPluginPackageTemporary = false;
+                            }
+                        }
+                    });
+        }
     }
 
     public void cancelPendingPluginInstall() {
-        VerifiedPluginPackage previous = pendingPluginPackage;
-        pendingPluginPackage = null;
-        if (pendingPluginPackageTemporary && previous != null) {
-            try { java.nio.file.Files.deleteIfExists(previous.file()); }
-            catch (java.io.IOException ignored) {}
+        synchronized (QmlRuntimeLock.MONITOR) {
+            VerifiedPluginPackage previous = pendingPluginPackage;
+            pendingPluginPackage = null;
+            if (pendingPluginPackageTemporary && previous != null) {
+                try {
+                    java.nio.file.Files.deleteIfExists(previous.file());
+                } catch (java.io.IOException ignored) {
+                }
+            }
+            pendingPluginPackageTemporary = false;
+            pendingPluginName.set("");
+            pendingPluginId.set("");
+            pendingPluginVersion.set("");
+            pendingPluginPermissions.set("");
+            pendingPluginTrusted.set(false);
         }
-        pendingPluginPackageTemporary = false;
-        pendingPluginName.set("");
-        pendingPluginId.set("");
-        pendingPluginVersion.set("");
-        pendingPluginPermissions.set("");
-        pendingPluginTrusted.set(false);
     }
 
     private void showCredentialNotice(NeteaseClient.CredentialEvent event) {
@@ -2568,51 +2784,62 @@ public final class PlayerController {
 
     /** Retry a potentially interactive key-store unlock without blocking rendering. */
     public void retryCredentialUnlock() {
-        showToast(I18n.tr("toast.keystore.waitingUnlock"));
-        worker.submit(() -> {
-            if (pluginHostApi.retryCredentialUnlock()) {
-                String provider = pluginRegistry.primaryProvider();
-                if (provider != null && !provider.isEmpty()) refreshPluginAccount(provider, null);
-            }
-        });
+        synchronized (QmlRuntimeLock.MONITOR) {
+            showToast(I18n.tr("toast.keystore.waitingUnlock"));
+            worker.submit(
+                    () -> {
+                        if (pluginHostApi.retryCredentialUnlock()) {
+                            String provider = pluginRegistry.primaryProvider();
+                            if (provider != null && !provider.isEmpty())
+                                refreshPluginAccount(provider, null);
+                        }
+                    });
+        }
     }
 
     /** Abandon the inaccessible envelope and persistently use owner-only encryption. */
     public boolean fallbackCredentialsToOwnerOnly() {
-        if (!pluginHostApi.fallbackUnreadableCredentials()) return false;
-        credentialOwnerOnlyFallback.set(true);
-        clearAccountStateAfterCredentialReset();
-        return true;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (!pluginHostApi.fallbackUnreadableCredentials()) return false;
+            credentialOwnerOnlyFallback.set(true);
+            clearAccountStateAfterCredentialReset();
+            return true;
+        }
     }
 
     /** Discard unreadable credentials and retry system-store encryption on login. */
     public void prepareEncryptedRelogin() {
-        if (credentialReloginBusy) return;
-        credentialReloginBusy = true;
-        showToast(I18n.tr("toast.keystore.checking"));
-        worker.submit(() -> {
-            boolean ready = pluginHostApi.resetUnreadableCredentialsForPlatformLogin();
-            post(() -> {
-                credentialReloginBusy = false;
-                if (ready) {
-                    credentialOwnerOnlyFallback.set(false);
-                    clearAccountStateAfterCredentialReset();
-                }
-                credentialReloginResult.set(ready ? 1 : 2);
-                credentialReloginRevision.set(credentialReloginRevision.peek() + 1L);
-            });
-        });
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (credentialReloginBusy) return;
+            credentialReloginBusy = true;
+            showToast(I18n.tr("toast.keystore.checking"));
+            worker.submit(
+                    () -> {
+                        boolean ready = pluginHostApi.resetUnreadableCredentialsForPlatformLogin();
+                        post(
+                                () -> {
+                                    credentialReloginBusy = false;
+                                    if (ready) {
+                                        credentialOwnerOnlyFallback.set(false);
+                                        clearAccountStateAfterCredentialReset();
+                                    }
+                                    credentialReloginResult.set(ready ? 1 : 2);
+                                    credentialReloginRevision.set(
+                                            credentialReloginRevision.peek() + 1L);
+                                });
+                    });
+        }
     }
 
     private void clearAccountStateAfterCredentialReset() {
-        uid = 0L;
+
         loggedIn.set(false);
         userName.set("");
         userAvatar.set("");
         userVipType.set(0);
         userLevel.set(0);
         userSignature.set("");
-        likedSet.clear();
+
         likedCount.set(0);
         likedRevision.set(likedRevision.peek() + 1);
         playlistCount.set(0);
@@ -2623,45 +2850,57 @@ public final class PlayerController {
 
     /** User-triggered migration from owner-only storage back to the system store. */
     public void reenableSystemCredentialProtection() {
-        if (Boolean.TRUE.equals(credentialProtectionBusy.peek())) return;
-        credentialProtectionBusy.set(true);
-        showToast(I18n.tr("toast.keystore.waiting"));
-        worker.submit(() -> {
-            boolean enabled = pluginHostApi.enableSystemCredentialProtection();
-            post(() -> {
-                credentialOwnerOnlyFallback.set(
-                        pluginHostApi.usesOwnerOnlyCredentialProtection());
-                credentialProtectionBusy.set(false);
-                if (!enabled) showToast(I18n.tr("toast.keystore.enableFailed"));
-            });
-        });
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (Boolean.TRUE.equals(credentialProtectionBusy.peek())) return;
+            credentialProtectionBusy.set(true);
+            showToast(I18n.tr("toast.keystore.waiting"));
+            worker.submit(
+                    () -> {
+                        boolean enabled = pluginHostApi.enableSystemCredentialProtection();
+                        post(
+                                () -> {
+                                    credentialOwnerOnlyFallback.set(
+                                            pluginHostApi.usesOwnerOnlyCredentialProtection());
+                                    credentialProtectionBusy.set(false);
+                                    if (!enabled) showToast(I18n.tr("toast.keystore.enableFailed"));
+                                });
+                    });
+        }
     }
 
     /** Platform color extractor for Monet seeds; set once at startup. */
     public void setColorExtractor(ColorExtractor extractor) {
-        this.colorExtractor = extractor;
-        if (extractor == null) return;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            this.colorExtractor = extractor;
+            if (extractor == null) return;
 
-        // Hosts install the platform extractor immediately after constructing the
-        // controller, while loadQueue() runs from the constructor. Do not miss a
-        // restored cover merely because it was read before this hook was installed.
-        long revision = coverRevision.get();
-        byte[] currentBytes = coverBytes.peek();
-        if (currentBytes != null && currentBytes.length > 0) {
-            scheduleSeedExtraction(currentBytes, revision, 1);
-        } else {
-            scheduleFastMonet(currentTrack(), revision);
+            // Hosts install the platform extractor immediately after constructing the
+            // controller, while loadQueue() runs from the constructor. Do not miss a
+            // restored cover merely because it was read before this hook was installed.
+            long revision = coverRevision.get();
+            byte[] currentBytes = coverBytes.peek();
+            if (currentBytes != null && currentBytes.length > 0) {
+                scheduleSeedExtraction(currentBytes, revision, 1);
+            } else {
+                scheduleFastMonet(currentTrack(), revision);
+            }
         }
     }
 
-    /** Platform clipboard sink (copies text to the system clipboard), set at startup.
-     *  The shell is responsible for putting the write on the right thread. */
+    /**
+     * Platform clipboard sink (copies text to the system clipboard), set at startup. The shell is
+     * responsible for putting the write on the right thread.
+     */
     public void setClipboard(java.util.function.Consumer<String> sink) {
-        this.clipboard = sink;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            this.clipboard = sink;
+        }
     }
 
     public boolean allowRemoteQmlResource(String url) {
-        return pluginHostApi.allowsAnyReturnedUrl(url);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            return pluginHostApi.allowsAnyReturnedUrl(url);
+        }
     }
 
     @FunctionalInterface
@@ -2677,19 +2916,27 @@ public final class PlayerController {
 
     /** Install the shell's bounded system-WebView JavaScript bridge. */
     public void setWebAuthScriptLauncher(WebAuthScriptLauncher launcher) {
-        this.webAuthScriptLauncher = launcher;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            this.webAuthScriptLauncher = launcher;
+        }
     }
 
     /** Install the shell's in-process system WebView login launcher. */
     public void setWebLoginLauncher(WebLoginLauncher launcher) {
-        this.webLoginLauncher = launcher;
-        webLoginAvailable.set(launcher != null
-                && (pendingPluginLoginProvider.isEmpty() || !pluginWebMethodId.isEmpty()));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            this.webLoginLauncher = launcher;
+            webLoginAvailable.set(
+                    launcher != null
+                            && (pendingPluginLoginProvider.isEmpty()
+                                    || !pluginWebMethodId.isEmpty()));
+        }
     }
 
     /** "android" or "desktop". Plugins only advertise {@code app} login on Android. */
     public void setHostPlatform(String platform) {
-        if (platform != null && !platform.isEmpty()) hostPlatform = platform;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (platform != null && !platform.isEmpty()) hostPlatform = platform;
+        }
     }
 
     @FunctionalInterface
@@ -2699,47 +2946,54 @@ public final class PlayerController {
 
     /** Install the shell's handler for confirming a login in another app. */
     public void setAppLinkLauncher(AppLinkLauncher launcher) {
-        this.appLinkLauncher = launcher;
-        pluginAppLoginAvailable.set(launcher != null && !pluginAppMethodId.isEmpty());
-        loginAppOpenAvailable.set(launcher != null && !loginAppUrl.peek().isEmpty());
+        synchronized (QmlRuntimeLock.MONITOR) {
+            this.appLinkLauncher = launcher;
+            pluginAppLoginAvailable.set(launcher != null && !pluginAppMethodId.isEmpty());
+            loginAppOpenAvailable.set(launcher != null && !loginAppUrl.peek().isEmpty());
+        }
     }
 
     /** Copy a canonical reference for a delayed-migration numeric song row. */
     public void copySongLink(long songId) {
-        if (songId == 0) return;
-        String url = "netease:song:" + songId;
-        java.util.function.Consumer<String> c = clipboard;
-        if (c != null) {
-            c.accept(url);
-            showToast(I18n.tr("toast.linkCopied"));
-        } else {
-            showToast(url);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (songId == 0) return;
+            String url = "netease:song:" + songId;
+            java.util.function.Consumer<String> c = clipboard;
+            if (c != null) {
+                c.accept(url);
+                showToast(I18n.tr("toast.linkCopied"));
+            } else {
+                showToast(url);
+            }
         }
     }
 
     /** Copy a canonical reference for a delayed-migration numeric playlist row. */
     public void copyPlaylistLink(long playlistId) {
-        if (playlistId == 0) return;
-        String url = "netease:playlist:" + playlistId;
-        java.util.function.Consumer<String> c = clipboard;
-        if (c != null) {
-            c.accept(url);
-            showToast(I18n.tr("toast.linkCopied"));
-        } else {
-            showToast(url);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (playlistId == 0) return;
+            String url = "netease:playlist:" + playlistId;
+            java.util.function.Consumer<String> c = clipboard;
+            if (c != null) {
+                c.accept(url);
+                showToast(I18n.tr("toast.linkCopied"));
+            } else {
+                showToast(url);
+            }
         }
     }
 
     // --- Volume fade in/out -------------------------------------------------
 
-    /** Start a fade-in from silence to the user's set volume. Called from the
-     *  backend's onStarted, i.e. once playback of the (possibly async-resolved)
-     *  source has actually begun -- not from playAt() itself, so the ramp's
-     *  full duration is real audible time regardless of how long resolving
-     *  the source took. */
+    /**
+     * Start a fade-in from silence to the user's set volume. Called from the backend's onStarted,
+     * i.e. once playback of the (possibly async-resolved) source has actually begun -- not from
+     * playAt() itself, so the ramp's full duration is real audible time regardless of how long
+     * resolving the source took.
+     */
     private void startFadeIn() {
         fadeOutDoneForTrack = false;
-        if (!playingIntent) {
+        if (!playbackSession.playing) {
             cancelFadeAtGain(1f);
             backend.pause();
             return;
@@ -2848,8 +3102,47 @@ public final class PlayerController {
     private void playBackend(String source, Map<String, String> headers, long startMs) {
         float initialGain = fadeEnabled && !suppressNextFadeIn ? 0f : 1f;
         cancelFadeAtGain(initialGain);
-        backend.play(source, headers != null ? headers : Collections.<String, String>emptyMap(), startMs);
+        long request = playbackSession.request();
+        Track track = playbackSession.current();
+        backend.setOnError(sourceCallback(request, track, this::onPlaybackError));
+        backend.setOnComplete(sourceCallback(request, track, this::autoAdvance));
+        backend.setOnStarted(sourceCallback(request, track, this::onPlaybackStarted));
+        backend.play(
+                source,
+                headers != null ? headers : Collections.<String, String>emptyMap(),
+                startMs);
         bindGrowingCacheForCurrent();
+    }
+
+    private Runnable sourceCallback(long request, Track track, Runnable action) {
+        return () ->
+                onMain(
+                        () -> {
+                            if (!appShuttingDown && playbackSession.accepts(request, track))
+                                action.run();
+                        });
+    }
+
+    private void onPlaybackStarted() {
+        if (appShuttingDown || playbackSession.resolving) return;
+        errorRetryMediaId = "";
+        consecutivePlaybackFailures = 0;
+        stoppedLyricPositionMs = Math.max(0L, backend.position());
+        playbackStarted = true;
+        post(() -> loading.set(false));
+        // User pause can land while prepareAsync is still in flight. Fade-out
+        // defers backend.pause(), so wantPlay stays true and this callback still
+        // fires. Honour playingIntent here: otherwise startFadeIn() bumps
+        // fadeGeneration and silently drops the deferred pause.
+        if (!playbackSession.playing) {
+            cancelFadeAtGain(1f);
+            backend.pause();
+            post(() -> playing.set(false));
+            notifyPlayback();
+            return;
+        }
+        notifyPlayback();
+        startFadeIn();
     }
 
     private void bindGrowingCacheForCurrent() {
@@ -2918,7 +3211,9 @@ public final class PlayerController {
     /** Drain queued UI mutations, refresh the play head + log. Call once per frame. */
     public void pump() {
         synchronized (QmlRuntimeLock.MONITOR) {
-            pumpLocked();
+            synchronized (QmlRuntimeLock.MONITOR) {
+                pumpLocked();
+            }
         }
     }
 
@@ -2962,48 +3257,54 @@ public final class PlayerController {
 
     /** The debug log overlay's visibility; gates the per-frame logText rebuild. */
     public void setLogVisible(boolean visible) {
-        this.logVisible = visible;
-        if (visible) lastLogVersion = -1;
-    }
-
-    /** Hosts gate expensive per-frame diagnostics (Android's 120-frame summary)
-     *  on this so a closed overlay never hits logcat / the ring buffer. */
-    public boolean isLogVisible() {
-        return logVisible;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            this.logVisible = visible;
+            if (visible) lastLogVersion = -1;
+        }
     }
 
     /**
-     * Zero the one-shot event counters QML watches, for a host that is about to
-     * build a fresh scene over a controller that outlived the previous one
-     * (Android keeps this instance in a static across Activity recreations so
-     * backgrounded playback stays connected).
+     * Hosts gate expensive per-frame diagnostics (Android's 120-frame summary) on this so a closed
+     * overlay never hits logcat / the ring buffer.
+     */
+    public boolean isLogVisible() {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            return logVisible;
+        }
+    }
+
+    /**
+     * Zero the one-shot event counters QML watches, for a host that is about to build a fresh scene
+     * over a controller that outlived the previous one (Android keeps this instance in a static
+     * across Activity recreations so backgrounded playback stays connected).
      *
-     * <p>Each of these properties is an event channel, not state: QML mirrors it
-     * into a {@code property real ...Watch} and acts in the Changed handler. A
-     * rebuilt scene's binding therefore initialises to whatever count the
-     * previous scene already consumed, which reads as a change from the
-     * property's 0 default and replays the last prompt -- during construction,
-     * before the scene has been parented or laid out. Every watcher ignores 0,
-     * so resetting is invisible to a scene that is still attached.
+     * <p>Each of these properties is an event channel, not state: QML mirrors it into a {@code
+     * property real ...Watch} and acts in the Changed handler. A rebuilt scene's binding therefore
+     * initialises to whatever count the previous scene already consumed, which reads as a change
+     * from the property's 0 default and replays the last prompt -- during construction, before the
+     * scene has been parented or laid out. Every watcher ignores 0, so resetting is invisible to a
+     * scene that is still attached.
      *
-     * <p>Call this before the new scene is created, never from a secondary scene
-     * (the desktop lyric window) that shares the same controller.
+     * <p>Call this before the new scene is created, never from a secondary scene (the desktop lyric
+     * window) that shares the same controller.
      */
     public void resetSceneEventRevisions() {
-        pluginInstallPromptRevision.set(0L);
-        pluginRemovalPromptRevision.set(0L);
-        pluginSettingsRevision.set(0L);
-        sourceSetupRevision.set(0L);
-        pageNavigationRevision.set(0L);
-        credentialNoticeRevision.set(0L);
-        credentialReloginRevision.set(0L);
-        webLoginSuccessRevision.set(0L);
-        debugRouteRevision.set(0L);
-        // The install prompt is the only one of these holding work in progress.
-        // With its event channel zeroed nothing can ever confirm it again, and
-        // the host may already have swept the package out of the cache, so let
-        // it go rather than leaving a reference to a file that is gone.
-        cancelPendingPluginInstall();
+        synchronized (QmlRuntimeLock.MONITOR) {
+            pluginInstallPromptRevision.set(0L);
+            pluginRemovalPromptRevision.set(0L);
+            pluginSettingsRevision.set(0L);
+            sourceSetupRevision.set(0L);
+            pageNavigationRevision.set(0L);
+            credentialNoticeRevision.set(0L);
+            credentialReloginRevision.set(0L);
+            webLoginSuccessRevision.set(0L);
+            debugRouteRevision.set(0L);
+            // The install prompt is the only one of these holding work in progress.
+            // With its event channel zeroed nothing can ever confirm it again, and
+            // the host may already have swept the package out of the cache, so let
+            // it go rather than leaving a reference to a file that is gone.
+            cancelPendingPluginInstall();
+        }
     }
 
     /** Host debug automation (adb broadcast). QML watches the revision and
@@ -3014,84 +3315,98 @@ public final class PlayerController {
 
     /** Drive navigation/playback from a host debug channel without tapping QML. */
     public void debugCommand(String command, String arg) {
-        if (command == null || command.isEmpty()) return;
-        String cmd = command.trim().toLowerCase(java.util.Locale.ROOT);
-        final String a = arg != null ? arg : "";
-        switch (cmd) {
-            case "status":
-                Logger.info("debug {}", debugStatus());
-                break;
-            case "toggle":
-                toggle();
-                break;
-            case "next":
-                next();
-                break;
-            case "prev":
-                prev();
-                break;
-            case "play":
-                onMain(() -> playRecommendation(0));
-                break;
-            case "home":
-                loadHome();
-                pushDebugRoute("tab", "0");
-                break;
-            case "search":
-                if (!a.isEmpty()) search(a);
-                pushDebugRoute("tab", "1");
-                break;
-            case "library":
-                loadMyPlaylists();
-                pushDebugRoute("tab", "2");
-                break;
-            case "local":
-                pushDebugRoute("tab", "3");
-                break;
-            case "settings":
-                pushDebugRoute("settings", "");
-                break;
-            case "lyrics":
-                post(() -> setLyricsOpen(true));
-                pushDebugRoute("lyrics", "");
-                break;
-            case "lyrics-close":
-            case "close-lyrics":
-                post(() -> setLyricsOpen(false));
-                pushDebugRoute("pop", "");
-                break;
-            case "playlist":
-                openDebugPlaylist(a);
-                break;
-            case "back":
-                pressBack();
-                break;
-            default:
-                Logger.warn("unknown debug command {}", cmd);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (command == null || command.isEmpty()) return;
+            String cmd = command.trim().toLowerCase(java.util.Locale.ROOT);
+            final String a = arg != null ? arg : "";
+            switch (cmd) {
+                case "status":
+                    Logger.info("debug {}", debugStatus());
+                    break;
+                case "toggle":
+                    toggle();
+                    break;
+                case "next":
+                    next();
+                    break;
+                case "prev":
+                    prev();
+                    break;
+                case "play":
+                    onMain(() -> playRecommendation(0));
+                    break;
+                case "home":
+                    loadHome();
+                    pushDebugRoute("tab", "0");
+                    break;
+                case "search":
+                    if (!a.isEmpty()) search(a);
+                    pushDebugRoute("tab", "1");
+                    break;
+                case "library":
+                    loadMyPlaylists();
+                    pushDebugRoute("tab", "2");
+                    break;
+                case "local":
+                    pushDebugRoute("tab", "3");
+                    break;
+                case "settings":
+                    pushDebugRoute("settings", "");
+                    break;
+                case "lyrics":
+                    post(() -> setLyricsOpen(true));
+                    pushDebugRoute("lyrics", "");
+                    break;
+                case "lyrics-close":
+                case "close-lyrics":
+                    post(() -> setLyricsOpen(false));
+                    pushDebugRoute("pop", "");
+                    break;
+                case "playlist":
+                    openDebugPlaylist(a);
+                    break;
+                case "back":
+                    pressBack();
+                    break;
+                default:
+                    Logger.warn("unknown debug command {}", cmd);
+            }
         }
     }
 
     public String debugStatus() {
-        List<Song> recs = sourceRecommendations.peek();
-        List<Playlist> playlists = sourceRecommendPlaylists.peek();
-        return "playing=" + playing.peek()
-                + " loggedIn=" + loggedIn.peek()
-                + " setup=" + sourceSetupRequired.peek()
-                + " title=" + title.peek()
-                + " queue=" + queue.size()
-                + " recs=" + (recs == null ? 0 : recs.size())
-                + " playlists=" + (playlists == null ? 0 : playlists.size())
-                + " homeLoading=" + homeLoading.peek()
-                + " lyrics=" + lyricsOpen.peek();
+        synchronized (QmlRuntimeLock.MONITOR) {
+            List<Song> recs = sourceRecommendations.peek();
+            List<Playlist> playlists = sourceRecommendPlaylists.peek();
+            return "playing="
+                    + playing.peek()
+                    + " loggedIn="
+                    + loggedIn.peek()
+                    + " setup="
+                    + sourceSetupRequired.peek()
+                    + " title="
+                    + title.peek()
+                    + " queue="
+                    + playbackSession.queue.size()
+                    + " recs="
+                    + (recs == null ? 0 : recs.size())
+                    + " playlists="
+                    + (playlists == null ? 0 : playlists.size())
+                    + " homeLoading="
+                    + homeLoading.peek()
+                    + " lyrics="
+                    + lyricsOpen.peek();
+        }
     }
 
     private void pushDebugRoute(String type, String id) {
-        post(() -> {
-            debugRouteType.set(type);
-            debugRouteId.set(id);
-            Long rev = debugRouteRevision.peek();
-            debugRouteRevision.set((rev == null ? 0L : rev) + 1L);
-        });
+        post(
+                () -> {
+                    debugRouteType.set(type);
+                    debugRouteId.set(id);
+                    Long rev = debugRouteRevision.peek();
+                    debugRouteRevision.set((rev == null ? 0L : rev) + 1L);
+                });
     }
 
     private void openDebugPlaylist(String arg) {
@@ -3112,8 +3427,10 @@ public final class PlayerController {
     }
 
     private void applyLyricsIfCurrent(Track t, List<LyricLine> ly) {
-        if (!isCurrentTrack(t)) return;
-        applyLyrics(ly);
+        onMain(
+                () -> {
+                    if (isCurrentTrack(t)) applyLyrics(ly);
+                });
     }
 
     /** Publish a new lyric list and derive {@link #lyricsCoverOnly}. */
@@ -3164,13 +3481,17 @@ public final class PlayerController {
     private volatile Runnable renderWake;
 
     /** Android GLSurfaceView uses this to leave WHEN_DIRTY when a host task lands. */
-    public synchronized void setRenderWake(Runnable wake) {
-        this.renderWake = wake;
+    public void setRenderWake(Runnable wake) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            this.renderWake = wake;
+        }
     }
 
     /** A retiring scene must not clear a replacement scene's wake callback. */
-    public synchronized void clearRenderWake(Runnable expected) {
-        if (renderWake == expected) renderWake = null;
+    public void clearRenderWake(Runnable expected) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (renderWake == expected) renderWake = null;
+        }
     }
 
     private void post(Runnable r) {
@@ -3184,104 +3505,124 @@ public final class PlayerController {
     }
 
     public void clearLog() {
-        Logger.clear();
-    }
-
-    public void setWideLayout(boolean wide) {
-        wideLayout.set(wide);
-    }
-
-    /** Physical pixels per QML logical pixel, pushed by each shell (GLFW window
-     *  content scale on desktop, display density on Android). QML is authored in
-     *  logical units and qml4j does NOT scale Image.sourceSize by it, so anything
-     *  that decodes to a display size has to multiply by this itself or it decodes
-     *  at 1x and gets upscaled into a blurry draw -- see CoverImage.qml. */
-    public void setPixelRatio(double ratio) {
-        if (ratio > 0 && ratio != pixelRatio.peek()) pixelRatio.set(ratio);
-    }
-
-    /** Resolution to fetch/cache a grid-card cover at (playlist / album) --
-     *  see {@link #wideLayout}. */
-    private String gridCoverSize() {
-        return Boolean.TRUE.equals(wideLayout.peek()) ? "1024" : "512";
-    }
-
-    /** Rewrites each album's coverThumbPath to {@link #gridCoverSize()} --
-     *  NeteaseClient.parseAlbum bakes in a fixed 128px thumb (it has no
-     *  layout awareness of its own), which looked small/soft in an
-     *  AlbumCard grid tile (ArtistDetailPage's album row, album search
-     *  results) that's well over 128px on most layouts. */
-    private void applyAlbumCoverSize(List<NeteaseAlbum> albums) {
-        if (albums == null) return;
-        String size = gridCoverSize();
-        for (NeteaseAlbum a : albums) {
-            if (a.coverUrl != null && !a.coverUrl.isEmpty()) a.coverThumbPath = thumbUrl(a.coverUrl, size);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            Logger.clear();
         }
     }
 
+    public void setWideLayout(boolean wide) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            wideLayout.set(wide);
+        }
+    }
+
+    /**
+     * Physical pixels per QML logical pixel, pushed by each shell (GLFW window content scale on
+     * desktop, display density on Android). QML is authored in logical units and qml4j does NOT
+     * scale Image.sourceSize by it, so anything that decodes to a display size has to multiply by
+     * this itself or it decodes at 1x and gets upscaled into a blurry draw -- see CoverImage.qml.
+     */
+    public void setPixelRatio(double ratio) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (ratio > 0 && ratio != pixelRatio.peek()) pixelRatio.set(ratio);
+        }
+    }
+
+    /**
+     * Rewrites each album's coverThumbPath to {@link #gridCoverSize()} -- NeteaseClient.parseAlbum
+     * bakes in a fixed 128px thumb (it has no layout awareness of its own), which looked small/soft
+     * in an AlbumCard grid tile (ArtistDetailPage's album row, album search results) that's well
+     * over 128px on most layouts.
+     */
     public void setRootInputBlocked(boolean blocked) {
-        rootInputBlocked.set(blocked);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            rootInputBlocked.set(blocked);
+        }
     }
 
     public void setLyricsOpen(boolean open) {
-        lyricsOpen.set(open);
-        // Closing the lyric page (Esc / Android back / the collapse button all funnel
-        // here) must also drop the offset panel's gesture-suppression flag — otherwise
-        // it stays stuck true and the lyric body's tap-to-seek never re-arms next time.
-        if (!open) lyricOffsetPanelOpen.set(false);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            lyricsOpen.set(open);
+            // Closing the lyric page (Esc / Android back / the collapse button all funnel
+            // here) must also drop the offset panel's gesture-suppression flag — otherwise
+            // it stays stuck true and the lyric body's tap-to-seek never re-arms next time.
+            if (!open) lyricOffsetPanelOpen.set(false);
+        }
     }
 
     public void setTemperaOpen(boolean open) {
-        temperaOpen.set(open);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            temperaOpen.set(open);
+        }
     }
 
     public void setLyricOffsetPanelOpen(boolean open) {
-        lyricOffsetPanelOpen.set(open);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            lyricOffsetPanelOpen.set(open);
+        }
     }
 
     /** Set from the fixed-step lyric-page slider. */
     public void setLyricOffset(int valueMs) {
-        Track track = currentTrack();
-        if (track == null) return;
-        int snapped = Math.round(valueMs / 50f) * 50;
-        setCurrentLyricOffset(track, Math.max(-5000, Math.min(5000, snapped)));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            Track track = currentTrack();
+            if (track == null) return;
+            int snapped = Math.round(valueMs / 50f) * 50;
+            setCurrentLyricOffset(track, Math.max(-5000, Math.min(5000, snapped)));
+        }
     }
 
     public void resetLyricOffset() {
-        Track track = currentTrack();
-        if (track != null) setCurrentLyricOffset(track, 0);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            Track track = currentTrack();
+            if (track != null) setCurrentLyricOffset(track, 0);
+        }
     }
 
     /** LyricOverlay.qml's manual lyrics/cover switch — see {@link #coverModeManual}. */
     public void setCoverMode(boolean on) {
-        coverModeManual.set(on);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            coverModeManual.set(on);
+        }
     }
 
     public void setQueueOpen(boolean open) {
-        queueOpen.set(open);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            queueOpen.set(open);
+        }
     }
 
-    /** Closes the artist/album drill-in pages (Main.qml's back handling and its
-     *  "opening something else replaces the current overlay" resets); opening
-     *  them back up is {@link #openArtist}/{@link #openAlbum} themselves. */
+    /**
+     * Closes the artist/album drill-in pages (Main.qml's back handling and its "opening something
+     * else replaces the current overlay" resets); opening them back up is {@link
+     * #openArtist}/{@link #openAlbum} themselves.
+     */
     public void setArtistPageOpen(boolean open) {
-        artistPageOpen.set(open);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            artistPageOpen.set(open);
+        }
     }
 
     public void setAlbumPageOpen(boolean open) {
-        albumPageOpen.set(open);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            albumPageOpen.set(open);
+        }
     }
 
-    /** SearchPage's type dropdown. Only sets the mode + clears the other kinds'
-     *  stale results -- the caller (QML) re-issues the actual search itself so
-     *  this doesn't need to remember the current query text. */
+    /**
+     * SearchPage's type dropdown. Only sets the mode + clears the other kinds' stale results -- the
+     * caller (QML) re-issues the actual search itself so this doesn't need to remember the current
+     * query text.
+     */
     public void setSearchMode(String mode) {
-        searchMode.set(mode);
-        searchAlbumResults.set(Collections.<NeteaseAlbum>emptyList());
-        searchArtistResults.set(Collections.<NeteaseArtist>emptyList());
-        searchResults.set(Collections.<NeteaseSong>emptyList());
-        localSearchResults.set(Collections.<Track>emptyList());
-        rebuildSearchRows();
+        synchronized (QmlRuntimeLock.MONITOR) {
+            searchMode.set(mode);
+            searchAlbumResults.set(Collections.<NeteaseAlbum>emptyList());
+            searchArtistResults.set(Collections.<NeteaseArtist>emptyList());
+            searchResults.set(Collections.<NeteaseSong>emptyList());
+            localSearchResults.set(Collections.<Track>emptyList());
+            rebuildSearchRows();
+        }
     }
 
     /** Bumped by the host on a system back press; QML watches it and pops the topmost
@@ -3296,18 +3637,25 @@ public final class PlayerController {
     private volatile ExitListener exitListener;
 
     public void setExitListener(ExitListener l) {
-        this.exitListener = l;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            this.exitListener = l;
+        }
     }
 
     /** Host calls this on a back press; routed to QML via {@link #backTick}. */
     public void pressBack() {
-        post(() -> backTick.set(backTick.peek() + 1));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            post(() -> backTick.set(backTick.peek() + 1));
+        }
     }
 
     /** Invoked from QML when no overlay/page consumed the back press. */
     public void requestExit() {
-        ExitListener l = exitListener;
-        if (l != null) onMain(l::onExit);
+        ExitListener listener;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            listener = exitListener;
+        }
+        if (listener != null) onHost(listener::onExit);
     }
 
     // --- App update check --------------------------------------------------
@@ -3315,17 +3663,14 @@ public final class PlayerController {
     // release, compare its tag against the running version, and (if newer) expose
     // the version + release notes + download url so QML pops an update dialog.
 
-    /** Latest GitHub release endpoint for the qplayer repo. gh-proxy.com proxies
-     *  api.github.com too, so with the mirror on the whole flow (check + download)
-     *  works on mainland networks where api.github.com is unreliable. */
-    private static final String RELEASE_API =
-            "https://api.github.com/repos/TIMER-err/qplayer/releases/latest";
     /** When true, application and plugin GitHub downloads prefer proxy URLs. */
     private volatile boolean updateMirror = false;
 
     /** Toggle the GitHub download mirror (driven by the settings switch). */
     public void setUpdateMirror(boolean enabled) {
-        this.updateMirror = enabled;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            this.updateMirror = enabled;
+        }
     }
 
     /** Picks this host's own downloadable release asset out of the release's asset
@@ -3339,11 +3684,17 @@ public final class PlayerController {
      *  works exactly as before. */
     private volatile AssetMatcher assetMatcher = name -> name.toLowerCase().endsWith(".apk");
 
-    /** Desktop hosts call this at startup with an OS-specific matcher (installer
-     *  .exe / .dmg / .AppImage) so {@link #checkForUpdate} finds their own asset
-     *  instead of never matching anything (there is no .apk in a desktop release). */
+    private final ReleaseUpdateChecker releaseUpdateChecker = new ReleaseUpdateChecker();
+
+    /**
+     * Desktop hosts call this at startup with an OS-specific matcher (installer .exe / .dmg /
+     * .AppImage) so {@link #checkForUpdate} finds their own asset instead of never matching
+     * anything (there is no .apk in a desktop release).
+     */
     public void setAssetMatcher(AssetMatcher m) {
-        this.assetMatcher = m != null ? m : (name -> name.toLowerCase().endsWith(".apk"));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            this.assetMatcher = m != null ? m : (name -> name.toLowerCase().endsWith(".apk"));
+        }
     }
 
     /** True once a newer release than the running version is found; QML watches it
@@ -3378,7 +3729,9 @@ public final class PlayerController {
     private volatile UrlOpener urlOpener;
 
     public void setUrlOpener(UrlOpener o) {
-        this.urlOpener = o;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            this.urlOpener = o;
+        }
     }
 
     /** Host hook to download an APK in-app and launch the system package installer.
@@ -3390,7 +3743,9 @@ public final class PlayerController {
     private volatile Installer installer;
 
     public void setInstaller(Installer i) {
-        this.installer = i;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            this.installer = i;
+        }
     }
 
     /** In-app update download progress: -1 idle, 0..100 downloading, 100 handing off
@@ -3399,21 +3754,27 @@ public final class PlayerController {
 
     /** Push download progress from the host (any thread). */
     public void setUpdateProgress(int pct) {
-        post(() -> updateProgress.set(pct));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            post(() -> updateProgress.set(pct));
+        }
     }
 
-    /** Start the in-app download + install of the pending update (QML "更新" button).
-     *  Falls back to opening the url in a browser when there's no APK or no installer. */
+    /**
+     * Start the in-app download + install of the pending update (QML "更新" button). Falls back to
+     * opening the url in a browser when there's no APK or no installer.
+     */
     public void startUpdateDownload() {
-        Installer in = installer;
-        String apk = updateApkRaw;
-        if (in == null || apk == null || apk.isEmpty()) {
-            openUpdateUrl();
-            return;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            Installer in = installer;
+            String apk = updateApkRaw;
+            if (in == null || apk == null || apk.isEmpty()) {
+                openUpdateUrl();
+                return;
+            }
+            final String[] candidates = downloadCandidates(apk);
+            post(() -> updateProgress.set(0));
+            onHost(() -> in.downloadAndInstall(candidates));
         }
-        final String[] candidates = downloadCandidates(apk);
-        post(() -> updateProgress.set(0));
-        onMain(() -> in.downloadAndInstall(candidates));
     }
 
     /** Build the ordered download urls: mirrors first (when enabled) then the direct
@@ -3424,272 +3785,171 @@ public final class PlayerController {
 
     /** Host injects the running app version (e.g. "0.5.2") for the update compare. */
     public void setCurrentVersion(String version) {
-        this.currentVersion = version == null ? "" : version;
-        post(() -> appVersion.set(this.currentVersion));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            this.currentVersion = version == null ? "" : version;
+            post(() -> appVersion.set(this.currentVersion));
+        }
     }
 
-    /** Silent (startup) check — no feedback when already up to date or on failure,
-     *  only the update dialog when a newer release is actually found. */
+    /**
+     * Silent (startup) check — no feedback when already up to date or on failure, only the update
+     * dialog when a newer release is actually found.
+     */
     public void checkForUpdate() {
-        checkForUpdate(false);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            checkForUpdate(false);
+        }
     }
 
-    /** Settings > 关于's "检查更新" button (a distinct name rather than an overload
-     *  call from QML, to sidestep any doubt about how the QML/Java bridge resolves
-     *  overloaded method calls). */
+    /**
+     * Settings > 关于's "检查更新" button (a distinct name rather than an overload call from QML, to
+     * sidestep any doubt about how the QML/Java bridge resolves overloaded method calls).
+     */
     public void checkForUpdateManual() {
-        checkForUpdate(true);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            checkForUpdate(true);
+        }
     }
 
-    /** Fetch the latest release off the worker thread; on a newer version, publish
-     *  it to the update Properties (QML pops the dialog). Best-effort on failure
-     *  (offline, rate-limited, parse error): just logs, unless {@code manual}.
+    /**
+     * Fetch the latest release off the worker thread; on a newer version, publish it to the update
+     * Properties (QML pops the dialog). Best-effort on failure (offline, rate-limited, parse
+     * error): just logs, unless {@code manual}.
      *
-     * @param manual true for a user-initiated "检查更新" tap (Settings > 关于) —
-     *  toasts I18n.tr("toast.update.upToDate")/an error message instead of failing silently, since a
-     *  button the user just pressed needs to visibly do *something*. */
+     * @param manual true for a user-initiated "检查更新" tap (Settings > 关于) — toasts
+     *     I18n.tr("toast.update.upToDate")/an error message instead of failing silently, since a
+     *     button the user just pressed needs to visibly do *something*.
+     */
     public void checkForUpdate(boolean manual) {
-        worker.submit(() -> {
-            try {
-                if (currentVersion == null || currentVersion.isEmpty()) {
-                    throw new IllegalStateException("current version is unset");
-                }
-                String json = fetchReleaseJson();
-                JsonObject obj = parseReleaseObject(json);
-
-                String tag = optString(obj, "tag_name");
-                String latest = tag.startsWith("v") ? tag.substring(1) : tag;
-                if (!isNewer(latest, currentVersion)) {
-                    if (manual) showToast(I18n.tr("toast.update.upToDate"));
-                    return;
-                }
-
-                String notes = optString(obj, "body");
-                String apk = "";
-                if (obj.has("assets") && obj.get("assets").isJsonArray()) {
-                    JsonArray assets = obj.getAsJsonArray("assets");
-                    for (JsonElement e : assets) {
-                        if (!e.isJsonObject()) continue;
-                        JsonObject a = e.getAsJsonObject();
-                        if (assetMatcher.matches(optString(a, "name"))) {
-                            apk = optString(a, "browser_download_url");
-                            break;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (appShuttingDown) return;
+            String version = currentVersion;
+            boolean mirror = updateMirror;
+            AssetMatcher matcher = assetMatcher;
+            worker.submit(
+                    () -> {
+                        try {
+                            java.util.Optional<ReleaseUpdateChecker.Update> update =
+                                    releaseUpdateChecker.check(version, mirror, matcher::matches);
+                            if (!update.isPresent()) {
+                                if (manual) showToast(I18n.tr("toast.update.upToDate"));
+                                return;
+                            }
+                            ReleaseUpdateChecker.Update release = update.get();
+                            post(
+                                    () -> {
+                                        if (manual) appUpdatePromptDismissed = false;
+                                        updateApkRaw = release.assetUrl();
+                                        updateUrl = release.browserUrl();
+                                        updateVersion.set(release.version());
+                                        updateNotes.set(release.notes());
+                                        updateAvailable.set(true);
+                                        updatePromptRevision.set(updatePromptRevision.peek() + 1);
+                                    });
+                        } catch (Exception error) {
+                            if (appShuttingDown) return;
+                            Logger.warn("update check failed: {}", error.toString());
+                            if (manual) showToast(I18n.tr("toast.update.checkFailed"));
                         }
-                    }
-                }
-                // Keep the raw APK url for the (mirror-cycling) in-app downloader; the
-                // browser fallback opens the APK directly, or the release page if none.
-                final String fApk = apk;
-                final String fUrl = apk.isEmpty() ? optString(obj, "html_url") : apk;
-                final String fVer = latest;
-                final String fNotes = notes;
-                post(() -> {
-                    // A previous dialog may have been dismissed while updateAvailable
-                    // stayed true; clearing the hold lets a manual re-check reopen it
-                    // and unblocks the plugin-update prompt afterwards.
-                    if (manual) appUpdatePromptDismissed = false;
-                    updateApkRaw = fApk;
-                    updateUrl = fUrl;
-                    updateVersion.set(fVer);
-                    updateNotes.set(fNotes);
-                    updateAvailable.set(true);
-                    updatePromptRevision.set(updatePromptRevision.peek() + 1);
-                });
-                Logger.info("update available: {} (running {})", latest, currentVersion);
-            } catch (Throwable e) {
-                Logger.warn("update check failed: {}", e.toString());
-                if (manual) showToast(I18n.tr("toast.update.checkFailed"));
-            }
-        });
-    }
-
-    /** Fetch the latest-release JSON, preferring the mirror when enabled (so the
-     *  version check works on mainland networks where api.github.com is unreliable),
-     *  and falling back to the other endpoint if the first fails. A 200 that is
-     *  not a GitHub release object (proxy HTML, empty JSON) is treated as a
-     *  failure so we try the next candidate instead of reporting "already up
-     *  to date". */
-    private String fetchReleaseJson() throws java.io.IOException {
-        String[] candidates = GitHubDownloadUrls.apiCandidates(RELEASE_API, updateMirror);
-        java.io.IOException last = null;
-        for (String url : candidates) {
-            try {
-                String body = httpGet(url);
-                parseReleaseObject(body);
-                return body;
-            } catch (java.io.IOException e) {
-                last = e;
-            } catch (RuntimeException e) {
-                last = new java.io.IOException("release response is invalid", e);
-            }
+                    });
         }
-        throw last != null ? last : new java.io.IOException("release lookup has no candidates");
-    }
-
-    /** Require a GitHub release object with a non-empty {@code tag_name}. */
-    static JsonObject parseReleaseObject(String json) throws java.io.IOException {
-        JsonElement root;
-        try {
-            root = JsonParser.parseString(json);
-        } catch (RuntimeException e) {
-            throw new java.io.IOException("release JSON is invalid", e);
-        }
-        if (root == null || !root.isJsonObject()) {
-            throw new java.io.IOException("release response is not an object");
-        }
-        JsonObject obj = root.getAsJsonObject();
-        if (optString(obj, "tag_name").isEmpty()) {
-            throw new java.io.IOException("release has no tag");
-        }
-        return obj;
     }
 
     /** Open an arbitrary external url via the host browser (e.g. the project page). */
     public void openExternalUrl(String url) {
-        UrlOpener o = urlOpener;
-        if (o != null && url != null && !url.isEmpty()) {
-            final String u = url;
-            onMain(() -> o.open(u));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            UrlOpener o = urlOpener;
+            if (o != null && url != null && !url.isEmpty()) {
+                final String u = url;
+                onHost(() -> o.open(u));
+            }
         }
     }
 
     /** Open the stored download url via the host (invoked from the QML dialog). */
     public void openUpdateUrl() {
-        UrlOpener o = urlOpener;
-        String url = updateUrl;
-        if (o != null && url != null && !url.isEmpty()) {
-            final String u = url;
-            onMain(() -> o.open(u));
-        }
-    }
-
-    private static String optString(JsonObject obj, String key) {
-        JsonElement e = obj.get(key);
-        return (e == null || e.isJsonNull()) ? "" : e.getAsString();
-    }
-
-    /** Semver compare on the first three numeric components; pre-release/suffix
-     *  parts (e.g. the "-debug" on debug builds) are ignored. */
-    static boolean isNewer(String latest, String current) {
-        if (latest == null || latest.isEmpty() || current == null || current.isEmpty()) {
-            return false;
-        }
-        int[] a = parseVersion(latest);
-        int[] b = parseVersion(current);
-        for (int i = 0; i < 3; i++) {
-            if (a[i] != b[i]) return a[i] > b[i];
-        }
-        return false;
-    }
-
-    private static int[] parseVersion(String v) {
-        int[] out = new int[3];
-        String[] parts = v.split("[.+\\-]");
-        for (int i = 0; i < 3 && i < parts.length; i++) {
-            try {
-                out[i] = Integer.parseInt(parts[i].trim());
-            } catch (NumberFormatException ignored) {
-                // leave 0
+        synchronized (QmlRuntimeLock.MONITOR) {
+            UrlOpener o = urlOpener;
+            String url = updateUrl;
+            if (o != null && url != null && !url.isEmpty()) {
+                final String u = url;
+                onHost(() -> o.open(u));
             }
-        }
-        return out;
-    }
-
-    /** Minimal HTTP GET (same HttpURLConnection-only stance as NeteaseClient — no
-     *  extra deps). GitHub requires a User-Agent and rejects requests without one. */
-    private static String httpGet(String urlStr) throws java.io.IOException {
-        java.net.HttpURLConnection conn =
-                (java.net.HttpURLConnection) new java.net.URL(urlStr).openConnection();
-        try {
-            conn.setRequestMethod("GET");
-            conn.setConnectTimeout(10_000);
-            conn.setReadTimeout(15_000);
-            conn.setRequestProperty("User-Agent", "qplayer-update-check");
-            conn.setRequestProperty("Accept", "application/vnd.github+json");
-            int code = conn.getResponseCode();
-            java.io.InputStream is =
-                    (code >= 400) ? conn.getErrorStream() : conn.getInputStream();
-            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-            if (is != null) {
-                byte[] buf = new byte[4096];
-                int n;
-                while ((n = is.read(buf)) > 0) out.write(buf, 0, n);
-                is.close();
-            }
-            String body = new String(out.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
-            if (code >= 400) {
-                throw new java.io.IOException("HTTP " + code);
-            }
-            return body;
-        } finally {
-            conn.disconnect();
         }
     }
 
     /** Jump to a slot in the live queue (queue-page tap). */
     public void playQueueIndex(int i) {
-        playAt(i);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            playAt(i);
+        }
     }
 
     /** Insert a live-list track immediately after the currently playing one. */
     public void playNext(int listIndex) {
-        Track track = copyForQueue(trackFromVisibleList(listIndex));
-        if (track == null) {
-            showToast(I18n.tr("toast.playlist.addFailed"));
-            return;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            Track track = copyForQueue(trackFromVisibleList(listIndex));
+            if (track == null) {
+                showToast(I18n.tr("toast.playlist.addFailed"));
+                return;
+            }
+            insertNext(track);
         }
-        insertNext(track);
     }
 
     public void playNextMedia(String mediaId) {
-        Track track = copyForQueue(findTrackForMedia(mediaId));
-        if (track == null) {
-            showToast(I18n.tr("toast.playlist.addFailed"));
-            return;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            Track track = copyForQueue(findTrackForMedia(mediaId));
+            if (track == null) {
+                showToast(I18n.tr("toast.playlist.addFailed"));
+                return;
+            }
+            insertNext(track);
         }
-        insertNext(track);
     }
 
     public void playNextLocalFile(String filePath) {
-        if (filePath == null || filePath.isEmpty()) return;
-        Track found = null;
-        for (Track t : library) {
-            if (filePath.equals(t.filePath) || filePath.equals(t.contentUri)) {
-                found = t;
-                break;
-            }
-        }
-        if (found == null) {
-            for (Track t : queue) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (filePath == null || filePath.isEmpty()) return;
+            Track found = null;
+            for (Track t : library) {
                 if (filePath.equals(t.filePath) || filePath.equals(t.contentUri)) {
                     found = t;
                     break;
                 }
             }
+            if (found == null) {
+                for (Track t : playbackSession.queue) {
+                    if (filePath.equals(t.filePath) || filePath.equals(t.contentUri)) {
+                        found = t;
+                        break;
+                    }
+                }
+            }
+            Track track = copyForQueue(found);
+            if (track == null) {
+                showToast(I18n.tr("toast.playlist.addFailed"));
+                return;
+            }
+            insertNext(track);
         }
-        Track track = copyForQueue(found);
-        if (track == null) {
-            showToast(I18n.tr("toast.playlist.addFailed"));
-            return;
-        }
-        insertNext(track);
     }
 
     private void insertNext(Track track) {
-        if (queue.isEmpty() || playIndex < 0) {
-            queue.clear();
+        if (playbackSession.queue.isEmpty() || playbackSession.index < 0) {
+            playbackSession.queue.clear();
             shuffleHistory.clear();
-            queue.add(track);
-            queueTracks.set(new ArrayList<>(queue));
-            worker.submit(this::saveQueue);
-            onMain(() -> playAt(0));
+            playbackSession.queue.add(track);
+            queueTracks.set(new ArrayList<>(playbackSession.queue));
+            saveQueue();
+            playAt(0);
             showToast(I18n.tr("toast.queue.playNext"));
             return;
         }
-        int at = Math.min(playIndex + 1, queue.size());
-        queue.add(at, track);
-        queueTracks.set(new ArrayList<>(queue));
-        worker.submit(this::saveQueue);
+        int at = Math.min(playbackSession.index + 1, playbackSession.queue.size());
+        playbackSession.queue.add(at, track);
+        queueTracks.set(new ArrayList<>(playbackSession.queue));
+        saveQueue();
         showToast(I18n.tr("toast.queue.playNext"));
     }
 
@@ -3698,7 +3958,7 @@ public final class PlayerController {
         List<Track> local = localPlaylistTracks.peek();
         if (local != null && i < local.size()) return local.get(i);
         if (i < library.size()) return library.get(i);
-        if (i < queue.size()) return queue.get(i);
+        if (i < playbackSession.queue.size()) return playbackSession.queue.get(i);
         return null;
     }
 
@@ -3731,167 +3991,114 @@ public final class PlayerController {
     }
 
     /** Drop a slot from the queue; keep playing the right track. */
-    public void removeFromQueue(int i) {
-        if (i < 0 || i >= queue.size()) return;
-        int cur = playIndex;
-        queue.remove(i);
-        queueTracks.set(new ArrayList<>(queue));
-        if (queue.isEmpty()) {
-            playIndex = -1;
-            shuffleHistory.clear();
-            index.set(-1);
-            currentFilePath.set("");
-            currentMediaId.set("");
-            return;
-        }
-        if (i < cur) {
-            playIndex = cur - 1;
-            index.set(cur - 1);
-        } else if (i == cur) {
-            onMain(() -> playAt(Math.min(cur, queue.size() - 1)));
+    public void removeFromQueue(int position) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (position < 0 || position >= playbackSession.queue.size()) return;
+            int current = playbackSession.index;
+            playbackSession.queue.remove(position);
+            queueTracks.set(new ArrayList<>(playbackSession.queue));
+            if (playbackSession.queue.isEmpty()) {
+                playbackSession.invalidate();
+                playbackSession.index = -1;
+                playbackSession.playing = false;
+                backend.pause();
+                playing.set(false);
+                loading.set(false);
+                shuffleHistory.clear();
+                index.set(-1);
+                currentFilePath.set("");
+                currentMediaId.set("");
+                title.set("");
+                artist.set("");
+                album.set("");
+                durationMs.set(0L);
+                positionMs.set(0L);
+                currentLiked.set(false);
+                currentLikeable.set(false);
+                coverUrl.set("");
+                coverPath.set("");
+                applyCover(null, coverRevision.incrementAndGet());
+                pendingResumeIndex = -1;
+                pendingResumeMs = 0L;
+                needsReplay = false;
+                beginLyricClockLoad(0L);
+                applyLyrics(Collections.emptyList());
+                saveQueue();
+                notifyPlayback();
+                return;
+            }
+            if (position < current) {
+                playbackSession.index = current - 1;
+                index.set(playbackSession.index);
+            } else if (position == current) {
+                playbackSession.invalidate();
+                playAt(Math.min(current, playbackSession.queue.size() - 1));
+            }
+            saveQueue();
         }
     }
 
     // --- Custom playlist (local "play later" list, independent of the live queue) --
 
-    /** True when a netease song is already in the custom playlist — drives the
-     *  song long-press menu's add/remove toggle. */
-    public boolean isInCustomPlaylist(long songId) {
-        if (songId == 0) return false;
-        for (Track t : customPlaylist) if (t.neteaseId == songId) return true;
-        return false;
-    }
-
-    /** Add a netease song (looked up from whichever live list the long-press menu was
-     *  opened from) to the custom playlist. */
-    public void addToCustomPlaylist(long songId) {
-        if (songId == 0 || isInCustomPlaylist(songId)) return;
-        Track t = findLiveTrack(songId);
-        if (t == null) {
-            showToast(I18n.tr("toast.playlist.addFailed"));
-            return;
-        }
-        customPlaylist.add(t);
-        customPlaylistTracks.set(new ArrayList<>(customPlaylist));
-        showToast(I18n.tr("toast.custom.added"));
-        worker.submit(this::saveCustomPlaylist);
-    }
-
-    /** The track list behind {@link #cachedSongs}, kept so {@link #playCachedSong}
-     *  can re-queue it without touching the (render-thread) Property directly. */
+    /**
+     * The track list behind {@link #cachedSongs}, kept so {@link #playCachedSong} can re-queue it
+     * without touching the (render-thread) Property directly.
+     */
     private final List<Track> cachedSongTracks = new ArrayList<>();
 
     /** Compatibility entry for a pre-plugin numeric menu row. */
     public void cacheSong(long songId) {
-        showToast(I18n.tr("toast.cache.legacyEntry"));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            showToast(I18n.tr("toast.cache.legacyEntry"));
+        }
     }
 
-    /** Rebuild {@link #cachedSongs} from the audio cache dir + the metadata index.
-     *  Called by the rail's download menu when it opens. Cheap: one directory
-     *  listing + a membership check per indexed song — no per-file I/O beyond that. */
+    /**
+     * Rebuild {@link #cachedSongs} from the audio cache dir + the metadata index. Called by the
+     * rail's download menu when it opens. Cheap: one directory listing + a membership check per
+     * indexed song — no per-file I/O beyond that.
+     */
     public void refreshCachedSongs() {
-        try {
-            List<Track> out = new ArrayList<>();
-            for (Track t : mediaMetaIndex.all()) {
-                if (diskCache.hasAudio(t.canonicalId())) {
-                    // Prefer an on-disk thumbnail so the cached list renders fully
-                    // offline; toTrack's fallback is the network thumb URL. The
-                    // 1024px image is the one cacheSongAsync actually downloads
-                    // for every manually-cached song (see its "fully offline-ready"
-                    // comment) into DiskCache.IMAGE, whose eviction budget scales
-                    // with the audio cache itself; THUMB64 is a much flimsier,
-                    // hard-capped-at-128-files browsing cache shared by every
-                    // playlist/search view, so a cached song's own thumbnail
-                    // routinely gets evicted from THUMB64 by unrelated browsing
-                    // long before its audio does -- check IMAGE first.
-                    String localThumb = diskCache.getImage(thumbUrl(t.coverUrl, "1024"));
-                    if (localThumb == null) localThumb = diskCache.getThumb64(thumbUrl(t.coverUrl, "512"));
-                    if (localThumb == null) localThumb = diskCache.getThumb64(thumbUrl(t.coverUrl, "64"));
-                    if (localThumb != null) t.coverThumbPath = localThumb;
-                    out.add(t);
-                }
-            }
-            cachedSongTracks.clear();
-            cachedSongTracks.addAll(out);
-            cachedSongs.set(new ArrayList<>(out));
-        } catch (Throwable e) {
-            Logger.warn("refreshCachedSongs failed: {}", e.getMessage());
-        }
+        worker.submit(
+                () -> {
+                    try {
+                        List<Track> out = new ArrayList<>();
+                        for (Track track : mediaMetaIndex.all()) {
+                            if (!diskCache.hasAudio(track.canonicalId())) continue;
+                            String local = artworkResolver.cachedPath(track);
+                            if (local != null) track.coverThumbPath = local;
+                            out.add(track);
+                        }
+                        post(
+                                () -> {
+                                    cachedSongTracks.clear();
+                                    cachedSongTracks.addAll(out);
+                                    cachedSongs.set(Collections.unmodifiableList(out));
+                                });
+                    } catch (Exception error) {
+                        Logger.warn("refreshCachedSongs failed: {}", safeMessage(error));
+                    }
+                });
     }
 
     /** Play the offline-cached list starting at a slot (rail download-menu tap). */
     public void playCachedSong(int i) {
-        if (i < 0 || i >= cachedSongTracks.size()) return;
-        playQueue(new ArrayList<>(cachedSongTracks), i);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (i < 0 || i >= cachedSongTracks.size()) return;
+            playQueue(new ArrayList<>(cachedSongTracks), i);
+        }
     }
 
-    /** Delete a cached song's audio from disk (cached-songs list right-click menu).
-     *  Drops the row from {@link #cachedSongs} so the open list updates in place;
-     *  reopening via {@link #refreshCachedSongs} is a fresh disk scan. */
+    /**
+     * Delete a cached song's audio from disk (cached-songs list right-click menu). Drops the row
+     * from {@link #cachedSongs} so the open list updates in place; reopening via {@link
+     * #refreshCachedSongs} is a fresh disk scan.
+     */
     public void deleteCachedSong(long songId) {
-        if (songId == 0) return;
-        boolean ok = diskCache.deleteAudio(songId);
-        if (ok) {
-            for (int i = 0; i < cachedSongTracks.size(); i++) {
-                if (cachedSongTracks.get(i).neteaseId == songId) {
-                    cachedSongTracks.remove(i);
-                    break;
-                }
-            }
-            cachedSongs.set(new ArrayList<>(cachedSongTracks));
-            showToast(I18n.tr("toast.cache.removed"));
-        } else {
-            showToast(I18n.tr("toast.cache.removeFailed"));
-        }
+        removeMediaCache(neteaseMediaId(songId));
     }
 
     /** Remove a netease song from the custom playlist by id (song long-press menu). */
-    public void removeFromCustomPlaylist(long songId) {
-        for (Track t : customPlaylist) {
-            if (t.neteaseId == songId) {
-                customPlaylist.remove(t);
-                customPlaylistTracks.set(new ArrayList<>(customPlaylist));
-                showToast(I18n.tr("toast.custom.removed"));
-                worker.submit(this::saveCustomPlaylist);
-                return;
-            }
-        }
-    }
-
-    public boolean isMediaInCustomPlaylist(String mediaId) {
-        if (mediaId == null || mediaId.isEmpty()) return false;
-        for (Track track : customPlaylist) {
-            if (mediaId.equals(track.canonicalId())) return true;
-        }
-        return false;
-    }
-
-    public void addMediaToCustomPlaylist(String mediaId) {
-        if (mediaId == null || mediaId.isEmpty() || isMediaInCustomPlaylist(mediaId)) return;
-        Song song = findPluginSong(mediaId);
-        if (song == null) {
-            showToast(I18n.tr("toast.custom.staleSong"));
-            return;
-        }
-        customPlaylist.add(toTrackPlugin(song));
-        customPlaylistTracks.set(new ArrayList<>(customPlaylist));
-        showToast(I18n.tr("toast.custom.added"));
-        worker.submit(this::saveCustomPlaylist);
-    }
-
-    public void removeMediaFromCustomPlaylist(String mediaId) {
-        if (mediaId == null || mediaId.isEmpty()) return;
-        for (Track track : customPlaylist) {
-            if (mediaId.equals(track.canonicalId())) {
-                customPlaylist.remove(track);
-                customPlaylistTracks.set(new ArrayList<>(customPlaylist));
-                showToast(I18n.tr("toast.custom.removed"));
-                worker.submit(this::saveCustomPlaylist);
-                return;
-            }
-        }
-    }
-
     private Song findPluginSong(String mediaId) {
         for (List<Song> values : pluginSearchByProvider.values()) {
             for (Song song : values) if (mediaId.equals(song.id)) return song;
@@ -3910,66 +4117,13 @@ public final class PlayerController {
     // the add/remove-by-id methods above are netease-only, since a local Track has
     // no neteaseId; filePath is the local equivalent of a stable identity). ---
 
-    /** True when a local file is already in the custom playlist. */
-    public boolean isLocalInCustomPlaylist(String filePath) {
-        if (filePath == null || filePath.isEmpty()) return false;
-        for (Track t : customPlaylist) {
-            if (t.source == Track.Source.LOCAL && filePath.equals(t.filePath)) return true;
-        }
-        return false;
-    }
-
-    /** Add a local file (looked up from the scanned library by path) to the custom
-     *  playlist. */
-    public void addLocalToCustomPlaylist(String filePath) {
-        if (filePath == null || filePath.isEmpty() || isLocalInCustomPlaylist(filePath)) return;
-        Track found = null;
-        for (Track t : library) if (filePath.equals(t.filePath)) { found = t; break; }
-        if (found == null) {
-            showToast(I18n.tr("toast.playlist.addFailed"));
-            return;
-        }
-        customPlaylist.add(found);
-        customPlaylistTracks.set(new ArrayList<>(customPlaylist));
-        showToast(I18n.tr("toast.custom.added"));
-        worker.submit(this::saveCustomPlaylist);
-    }
-
-    /** Remove a local file from the custom playlist by path. */
-    public void removeLocalFromCustomPlaylist(String filePath) {
-        if (filePath == null || filePath.isEmpty()) return;
-        for (Track t : customPlaylist) {
-            if (t.source == Track.Source.LOCAL && filePath.equals(t.filePath)) {
-                customPlaylist.remove(t);
-                customPlaylistTracks.set(new ArrayList<>(customPlaylist));
-                showToast(I18n.tr("toast.custom.removed"));
-                worker.submit(this::saveCustomPlaylist);
-                return;
-            }
-        }
-    }
-
-    /** Drop a slot from the custom playlist by position (queue-page tab). */
-    public void removeFromCustomPlaylistIndex(int i) {
-        if (i < 0 || i >= customPlaylist.size()) return;
-        customPlaylist.remove(i);
-        customPlaylistTracks.set(new ArrayList<>(customPlaylist));
-        worker.submit(this::saveCustomPlaylist);
-    }
-
-    /** Play the custom playlist starting at a slot (queue-page tab tap). Replaces the
-     *  live queue with a snapshot of the custom list, same as opening a real playlist. */
-    public void playCustomPlaylistIndex(int i) {
-        if (i < 0 || i >= customPlaylist.size()) return;
-        playQueue(new ArrayList<>(customPlaylist), i);
-    }
-
-    /** Resolve a netease song id to a fresh Track from whichever live list opened
-     *  the shared context menu. Track-backed rows are copied so playback mutations
-     *  cannot alias into the custom/cached lists; page rows use NeteaseSong. */
+    /**
+     * Resolve a netease song id to a fresh Track from whichever live list opened the shared context
+     * menu. Track-backed rows are copied so playback mutations cannot alias into the custom/cached
+     * lists; page rows use NeteaseSong.
+     */
     private Track findLiveTrack(long songId) {
-        for (Track t : queue) if (t.neteaseId == songId) return copyNeteaseTrack(t);
-        for (Track t : customPlaylist) if (t.neteaseId == songId) return copyNeteaseTrack(t);
+        for (Track t : playbackSession.queue) if (t.neteaseId == songId) return copyNeteaseTrack(t);
         for (Track t : cachedSongTracks) if (t.neteaseId == songId) return copyNeteaseTrack(t);
         NeteaseSong s = findLiveSong(songId);
         return s != null ? toTrack(s) : null;
@@ -4013,103 +4167,9 @@ public final class PlayerController {
         return null;
     }
 
-    private void saveCustomPlaylist() {
-        try {
-            java.nio.file.Path file = AppDirs.stateFile("custom-playlist.json");
-            StringBuilder sb = new StringBuilder();
-            sb.append("{\"schemaVersion\":2,\"tracks\":[");
-            List<Track> snap = new ArrayList<>(customPlaylist);
-            for (int i = 0; i < snap.size(); i++) {
-                Track t = snap.get(i);
-                if (i > 0) sb.append(',');
-                sb.append("{\"source\":\"").append(t.source).append('"');
-                String mediaId = t.canonicalId();
-                if (!mediaId.isEmpty()) sb.append(",\"mediaId\":").append(jsonStr(mediaId));
-                if (t.neteaseId != 0) sb.append(",\"neteaseId\":").append(t.neteaseId);
-                sb.append(",\"title\":").append(jsonStr(t.title));
-                sb.append(",\"artist\":").append(jsonStr(t.artist));
-                if (t.artistId != 0) sb.append(",\"artistId\":").append(t.artistId);
-                if (t.artistMediaId != null && !t.artistMediaId.isEmpty())
-                    sb.append(",\"artistMediaId\":").append(jsonStr(t.artistMediaId));
-                if (t.artistIdsCsv != null && !t.artistIdsCsv.isEmpty()) {
-                    sb.append(",\"artistIdsCsv\":").append(jsonStr(t.artistIdsCsv));
-                    sb.append(",\"artistNamesCsv\":").append(jsonStr(t.artistNamesCsv));
-                }
-                sb.append(",\"album\":").append(jsonStr(t.album));
-                sb.append(",\"coverUrl\":").append(jsonStr(t.coverUrl));
-                sb.append(",\"durationMs\":").append(t.durationMs);
-                if (t.filePath != null) sb.append(",\"filePath\":").append(jsonStr(t.filePath));
-                if (t.contentUri != null) sb.append(",\"contentUri\":").append(jsonStr(t.contentUri));
-                sb.append('}');
-            }
-            sb.append("]}");
-            StorageFiles.writeUtf8Atomic(file, sb.toString());
-        } catch (Throwable e) {
-            Logger.warn("saveCustomPlaylist failed: {}", e.getMessage());
-        }
-    }
+    
 
-    private void loadCustomPlaylist() {
-        try {
-            java.nio.file.Path file = AppDirs.stateFile("custom-playlist.json");
-            if (!java.nio.file.Files.exists(file)) return;
-            String text = StorageFiles.readUtf8(file);
-            com.google.gson.JsonObject root = new com.google.gson.JsonParser().parse(text).getAsJsonObject();
-            com.google.gson.JsonArray arr = root.has("tracks") ? root.getAsJsonArray("tracks") : new com.google.gson.JsonArray();
-            List<Track> loaded = new ArrayList<>();
-            for (com.google.gson.JsonElement el : arr) {
-                if (!el.isJsonObject()) continue;
-                com.google.gson.JsonObject o = el.getAsJsonObject();
-                Track t = new Track();
-                String src = o.has("source") ? o.get("source").getAsString() : "NETEASE";
-                boolean persistedAsPlugin = "PLUGIN".equals(src);
-                t.source = "LOCAL".equals(src) ? Track.Source.LOCAL
-                        : "CUSTOM_API".equals(src) ? Track.Source.CUSTOM_API
-                        : persistedAsPlugin ? Track.Source.PLUGIN
-                        : Track.Source.NETEASE;
-                t.neteaseId = o.has("neteaseId") ? o.get("neteaseId").getAsLong() : 0;
-                if (o.has("mediaId") && !o.get("mediaId").isJsonNull()) {
-                    t.applyCanonicalId(o.get("mediaId").getAsString());
-                    // See loadQueue(): a "netease" provider id is also how an
-                    // installed netease plugin addresses songs; don't let
-                    // applyCanonicalId() downgrade a plugin-sourced record onto the
-                    // legacy built-in client.
-                    if (persistedAsPlugin) t.source = Track.Source.PLUGIN;
-                }
-                t.title    = o.has("title")    && !o.get("title").isJsonNull()    ? o.get("title").getAsString()    : "";
-                t.artist   = o.has("artist")   && !o.get("artist").isJsonNull()   ? o.get("artist").getAsString()   : "";
-                t.artistId = o.has("artistId") ? o.get("artistId").getAsLong() : 0L;
-                t.artistMediaId = o.has("artistMediaId") && !o.get("artistMediaId").isJsonNull()
-                        ? o.get("artistMediaId").getAsString() : "";
-                t.artistIdsCsv = o.has("artistIdsCsv") && !o.get("artistIdsCsv").isJsonNull()
-                        ? o.get("artistIdsCsv").getAsString() : "";
-                t.artistNamesCsv = o.has("artistNamesCsv") && !o.get("artistNamesCsv").isJsonNull()
-                        ? o.get("artistNamesCsv").getAsString() : "";
-                t.album    = o.has("album")    && !o.get("album").isJsonNull()    ? o.get("album").getAsString()    : "";
-                t.durationMs = o.has("durationMs") ? o.get("durationMs").getAsLong() : 0;
-                if (t.source == Track.Source.LOCAL) {
-                    t.filePath   = o.has("filePath")   && !o.get("filePath").isJsonNull()   ? o.get("filePath").getAsString()   : null;
-                    t.contentUri = o.has("contentUri") && !o.get("contentUri").isJsonNull() ? o.get("contentUri").getAsString() : null;
-                    // A saved local entry whose file the library no longer has (deleted,
-                    // or a rescan just hasn't run yet this launch) still shows up with
-                    // its last-known title/artist rather than silently vanishing; play
-                    // will simply fail like any other missing local file would.
-                } else {
-                    t.coverUrl = o.has("coverUrl") && !o.get("coverUrl").isJsonNull() ? o.get("coverUrl").getAsString() : "";
-                    t.coverThumbPath = trackCoverUrl(t, "128");
-                }
-                t.canonicalId();
-                loaded.add(t);
-            }
-            if (!loaded.isEmpty()) {
-                customPlaylist.addAll(loaded);
-                final List<Track> snap = new ArrayList<>(loaded);
-                post(() -> customPlaylistTracks.set(snap));
-            }
-        } catch (Throwable e) {
-            Logger.warn("loadCustomPlaylist failed: {}", e.getMessage());
-        }
-    }
+    
 
     // --- Local playlists --------------------------------------------------
     //
@@ -4134,17 +4194,17 @@ public final class PlayerController {
 
     /** Render thread: republish the playlist list after any structural change. */
     private void publishLocalPlaylists() {
-        List<LocalPlaylist> all = localPlaylistStore.all();
+        List<LocalPlaylistStore.Summary> all = localPlaylistStore.summaries();
         List<Playlist> cards = new ArrayList<>(all.size());
-        for (LocalPlaylist playlist : all) {
+        for (LocalPlaylistStore.Summary playlist : all) {
             Playlist card = new Playlist();
             card.id = playlist.id;
             card.name = playlist.name;
             card.description = playlist.description;
-            card.artworkUrl = playlist.artworkUrl();
+            card.artworkUrl = playlist.artworkUrl;
             card.coverUrl = card.artworkUrl;
             card.sourceName = I18n.tr("playlist.local.sourceName");
-            card.trackCount = playlist.size();
+            card.trackCount = playlist.trackCount;
             card.owned = true;
             card.mutable = true;
             card.deletable = true;
@@ -4193,74 +4253,135 @@ public final class PlayerController {
                 new ArrayList<>(playlist.subscriptions)));
     }
 
-    private void saveLocalPlaylists() {
-        worker.submit(localPlaylistStore::save);
+    private void savePlaylistOrder() {
+        ioWorker.submit(
+                () -> {
+                    if (!myPlaylistOrderStore.save()) {
+                        Logger.warn("playlist order save failed");
+                        showToast(I18n.tr("toast.actionFailed", "storage unavailable"));
+                    }
+                });
+    }
+
+    private CompletableFuture<Boolean> saveLocalPlaylists() {
+        return CompletableFuture.supplyAsync(localPlaylistStore::save, ioWorker)
+                .whenComplete(
+                        (saved, error) -> {
+                            if (error != null || !Boolean.TRUE.equals(saved)) {
+                                Logger.warn(
+                                        "local playlist save failed: {}",
+                                        error != null ? safeMessage(error) : "storage unavailable");
+                                showToast(
+                                        I18n.tr(
+                                                "toast.actionFailed",
+                                                error != null
+                                                        ? safeMessage(error)
+                                                        : "storage unavailable"));
+                            }
+                        });
     }
 
     /** Both republish and persist, after a mutation to {@code playlistId}. */
-    private void afterLocalPlaylistChange(String playlistId) {
+    private CompletableFuture<Boolean> afterLocalPlaylistChange(String playlistId) {
         publishLocalPlaylists();
         if (playlistId != null && playlistId.equals(openLocalPlaylistId.peek())) {
             publishOpenLocalPlaylist();
         }
-        saveLocalPlaylists();
+        return saveLocalPlaylists();
     }
 
     public void createLocalPlaylist(String name) {
-        LocalPlaylist created = localPlaylistStore.create(name);
-        publishLocalPlaylists();
-        saveLocalPlaylists();
-        showToast(I18n.tr("toast.localPlaylist.created", created.name));
+        try {
+            synchronized (QmlRuntimeLock.MONITOR) {
+                LocalPlaylist created = localPlaylistStore.create(name);
+                publishLocalPlaylists();
+                saveLocalPlaylists()
+                        .thenAccept(
+                                saved -> {
+                                    if (saved)
+                                        showToast(
+                                                I18n.tr(
+                                                        "toast.localPlaylist.created",
+                                                        created.name));
+                                });
+            }
+
+        } catch (IllegalStateException error) {
+            Logger.warn("playlist mutation failed: {}", safeMessage(error));
+            showToast(I18n.tr("toast.actionFailed", safeMessage(error)));
+        }
     }
 
     public void renameLocalPlaylist(String playlistId, String name) {
-        if (!localPlaylistStore.rename(playlistId, name)) return;
-        afterLocalPlaylistChange(playlistId);
+        try {
+            synchronized (QmlRuntimeLock.MONITOR) {
+                if (!localPlaylistStore.rename(playlistId, name)) return;
+                afterLocalPlaylistChange(playlistId);
+            }
+
+        } catch (IllegalStateException error) {
+            Logger.warn("playlist mutation failed: {}", safeMessage(error));
+            showToast(I18n.tr("toast.actionFailed", safeMessage(error)));
+        }
     }
 
     public void deleteLocalPlaylist(String playlistId) {
-        // Read the cover before the record goes, or the file is orphaned.
-        LocalPlaylist doomed = localPlaylistStore.get(playlistId);
-        if (!localPlaylistStore.delete(playlistId)) return;
-        if (doomed != null && doomed.hasCustomCover()) {
-            final String cover = doomed.coverPath;
-            worker.submit(() -> deleteQuietly(cover));
+        try {
+            synchronized (QmlRuntimeLock.MONITOR) {
+                LocalPlaylist doomed = localPlaylistStore.get(playlistId);
+                if (!localPlaylistStore.delete(playlistId)) return;
+                if (playlistId.equals(openLocalPlaylistId.peek())) closeLocalPlaylist();
+                publishLocalPlaylists();
+                saveLocalPlaylists()
+                        .thenAccept(
+                                saved -> {
+                                    if (!saved) return;
+                                    if (doomed != null && doomed.hasCustomCover())
+                                        deleteQuietly(doomed.coverPath);
+                                    showToast(I18n.tr("toast.localPlaylist.deleted"));
+                                });
+            }
+
+        } catch (IllegalStateException error) {
+            Logger.warn("playlist mutation failed: {}", safeMessage(error));
+            showToast(I18n.tr("toast.actionFailed", safeMessage(error)));
         }
-        if (playlistId.equals(openLocalPlaylistId.peek())) closeLocalPlaylist();
-        publishLocalPlaylists();
-        saveLocalPlaylists();
-        showToast(I18n.tr("toast.localPlaylist.deleted"));
     }
 
     public void openLocalPlaylist(String playlistId) {
-        if (!LocalPlaylist.isLocalPlaylistId(playlistId)) return;
-        LocalPlaylist playlist = localPlaylistStore.get(playlistId);
-        if (playlist == null) {
-            showToast(I18n.tr("toast.localPlaylist.missing"));
-            return;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (!LocalPlaylist.isLocalPlaylistId(playlistId)) return;
+            LocalPlaylist playlist = localPlaylistStore.get(playlistId);
+            if (playlist == null) {
+                showToast(I18n.tr("toast.localPlaylist.missing"));
+                return;
+            }
+            openLocalPlaylistId.set(playlistId);
+            publishOpenLocalPlaylist();
+            resetSyncIndicatorFor(playlistId);
+            // Opening is also the sync trigger, subject to the cooldown so flipping
+            // between playlists doesn't hammer every source.
+            syncLocalPlaylist(playlistId, false);
         }
-        openLocalPlaylistId.set(playlistId);
-        publishOpenLocalPlaylist();
-        resetSyncIndicatorFor(playlistId);
-        // Opening is also the sync trigger, subject to the cooldown so flipping
-        // between playlists doesn't hammer every source.
-        syncLocalPlaylist(playlistId, false);
     }
 
     public void closeLocalPlaylist() {
-        openLocalPlaylistId.set("");
-        localPlaylistTitle.set("");
-        localPlaylistCover.set("");
-        localPlaylistCustomCover.set(false);
-        localPlaylistTracks.set(Collections.<Track>emptyList());
-        localPlaylistSubscriptions.set(Collections.<PlaylistSubscription>emptyList());
-        localPlaylistSyncing.set(false);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            openLocalPlaylistId.set("");
+            localPlaylistTitle.set("");
+            localPlaylistCover.set("");
+            localPlaylistCustomCover.set(false);
+            localPlaylistTracks.set(Collections.<Track>emptyList());
+            localPlaylistSubscriptions.set(Collections.<PlaylistSubscription>emptyList());
+            localPlaylistSyncing.set(false);
+        }
     }
 
     /** Menu state: whether this playlist already holds this song. */
     public boolean isInLocalPlaylist(String playlistId, String songMediaId) {
-        LocalPlaylist playlist = localPlaylistStore.get(playlistId);
-        return playlist != null && playlist.contains(songMediaId);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            return localPlaylistStore.contains(playlistId, songMediaId);
+        }
     }
 
     // The row menu offers the same three identities the rest of the app uses —
@@ -4268,19 +4389,27 @@ public final class PlayerController {
     // each to its canonical id here keeps that mapping out of QML.
 
     public boolean isSongInLocalPlaylist(String playlistId, long songId) {
-        return isInLocalPlaylist(playlistId, neteaseMediaId(songId));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            return isInLocalPlaylist(playlistId, neteaseMediaId(songId));
+        }
     }
 
     public boolean isLocalFileInLocalPlaylist(String playlistId, String filePath) {
-        return isInLocalPlaylist(playlistId, localFileMediaId(filePath));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            return isInLocalPlaylist(playlistId, localFileMediaId(filePath));
+        }
     }
 
     public void removeSongFromLocalPlaylist(String playlistId, long songId) {
-        removeMediaFromLocalPlaylist(playlistId, neteaseMediaId(songId));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            removeMediaFromLocalPlaylist(playlistId, neteaseMediaId(songId));
+        }
     }
 
     public void removeLocalFileFromLocalPlaylist(String playlistId, String filePath) {
-        removeMediaFromLocalPlaylist(playlistId, localFileMediaId(filePath));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            removeMediaFromLocalPlaylist(playlistId, localFileMediaId(filePath));
+        }
     }
 
     private static String neteaseMediaId(long songId) {
@@ -4303,48 +4432,76 @@ public final class PlayerController {
 
     /** True when any local playlist holds it — drives the row's filled/outline icon. */
     public boolean isInAnyLocalPlaylist(String songMediaId) {
-        if (songMediaId == null || songMediaId.isEmpty()) return false;
-        for (LocalPlaylist playlist : localPlaylistStore.all()) {
-            if (playlist.contains(songMediaId)) return true;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            for (LocalPlaylistStore.Summary playlist : localPlaylistStore.summaries()) {
+                if (localPlaylistStore.contains(playlist.id, songMediaId)) return true;
+            }
+            return false;
         }
-        return false;
     }
 
     public void addMediaToLocalPlaylist(String playlistId, String songMediaId) {
-        Track track = findTrackForMedia(songMediaId);
-        if (track == null) {
-            showToast(I18n.tr("toast.custom.staleSong"));
-            return;
+        try {
+            synchronized (QmlRuntimeLock.MONITOR) {
+                Track track = findTrackForMedia(songMediaId);
+                if (track == null) {
+                    showToast(I18n.tr("toast.custom.staleSong"));
+                    return;
+                }
+                addTrackToLocalPlaylist(playlistId, track);
+            }
+
+        } catch (IllegalStateException error) {
+            Logger.warn("playlist mutation failed: {}", safeMessage(error));
+            showToast(I18n.tr("toast.actionFailed", safeMessage(error)));
         }
-        addTrackToLocalPlaylist(playlistId, track);
     }
 
     /** Netease compatibility entry (numeric id from a legacy row's menu). */
     public void addSongToLocalPlaylist(String playlistId, long songId) {
-        Track track = findLiveTrack(songId);
-        if (track == null) {
-            showToast(I18n.tr("toast.playlist.addFailed"));
-            return;
+        try {
+            synchronized (QmlRuntimeLock.MONITOR) {
+                Track track = findLiveTrack(songId);
+                if (track == null) {
+                    showToast(I18n.tr("toast.playlist.addFailed"));
+                    return;
+                }
+                addTrackToLocalPlaylist(playlistId, track);
+            }
+
+        } catch (IllegalStateException error) {
+            Logger.warn("playlist mutation failed: {}", safeMessage(error));
+            showToast(I18n.tr("toast.actionFailed", safeMessage(error)));
         }
-        addTrackToLocalPlaylist(playlistId, track);
     }
 
     public void addLocalFileToLocalPlaylist(String playlistId, String filePath) {
-        if (filePath == null || filePath.isEmpty()) return;
-        Track found = null;
-        for (Track candidate : library) {
-            if (filePath.equals(candidate.filePath)) { found = candidate; break; }
+        try {
+            synchronized (QmlRuntimeLock.MONITOR) {
+                if (filePath == null || filePath.isEmpty()) return;
+                Track found = null;
+                for (Track candidate : library) {
+                    if (filePath.equals(candidate.filePath)) {
+                        found = candidate;
+                        break;
+                    }
+                }
+                if (found == null) {
+                    showToast(I18n.tr("toast.playlist.addFailed"));
+                    return;
+                }
+                addTrackToLocalPlaylist(playlistId, found);
+            }
+
+        } catch (IllegalStateException error) {
+            Logger.warn("playlist mutation failed: {}", safeMessage(error));
+            showToast(I18n.tr("toast.actionFailed", safeMessage(error)));
         }
-        if (found == null) {
-            showToast(I18n.tr("toast.playlist.addFailed"));
-            return;
-        }
-        addTrackToLocalPlaylist(playlistId, found);
     }
 
     private void addTrackToLocalPlaylist(String playlistId, Track track) {
-        final PlaylistTrack entry = PlaylistTrack.from(
-                track, PlaylistTrack.MANUAL, System.currentTimeMillis());
+        final PlaylistTrack entry =
+                PlaylistTrack.from(track, PlaylistTrack.MANUAL, System.currentTimeMillis());
         if (!entry.valid()) {
             showToast(I18n.tr("toast.custom.staleSong"));
             return;
@@ -4354,37 +4511,72 @@ public final class PlayerController {
             showToast(I18n.tr("toast.localPlaylist.duplicate"));
             return;
         }
-        afterLocalPlaylistChange(playlistId);
-        showToast(I18n.tr("toast.custom.added"));
+        afterLocalPlaylistChange(playlistId)
+                .thenAccept(
+                        saved -> {
+                            if (saved) showToast(I18n.tr("toast.custom.added"));
+                        });
     }
 
     // One-step "new playlist + add", so the row menu can offer it without owning
     // a dialog. The playlist takes the default name, de-duplicated by the store.
 
     public void addMediaToNewLocalPlaylist(String songMediaId) {
-        addMediaToLocalPlaylist(newLocalPlaylistId(), songMediaId);
+        try {
+            synchronized (QmlRuntimeLock.MONITOR) {
+                addMediaToLocalPlaylist(newLocalPlaylistId(), songMediaId);
+            }
+
+        } catch (IllegalStateException error) {
+            Logger.warn("playlist mutation failed: {}", safeMessage(error));
+            showToast(I18n.tr("toast.actionFailed", safeMessage(error)));
+        }
     }
 
     public void addSongToNewLocalPlaylist(long songId) {
-        addSongToLocalPlaylist(newLocalPlaylistId(), songId);
+        try {
+            synchronized (QmlRuntimeLock.MONITOR) {
+                addSongToLocalPlaylist(newLocalPlaylistId(), songId);
+            }
+
+        } catch (IllegalStateException error) {
+            Logger.warn("playlist mutation failed: {}", safeMessage(error));
+            showToast(I18n.tr("toast.actionFailed", safeMessage(error)));
+        }
     }
 
     public void addLocalFileToNewLocalPlaylist(String filePath) {
-        addLocalFileToLocalPlaylist(newLocalPlaylistId(), filePath);
+        try {
+            synchronized (QmlRuntimeLock.MONITOR) {
+                addLocalFileToLocalPlaylist(newLocalPlaylistId(), filePath);
+            }
+
+        } catch (IllegalStateException error) {
+            Logger.warn("playlist mutation failed: {}", safeMessage(error));
+            showToast(I18n.tr("toast.actionFailed", safeMessage(error)));
+        }
     }
 
     public void followSourcePlaylistInNewLocalPlaylist(String sourcePlaylistId) {
-        // Name the new playlist after the source it is being seeded from, which is
-        // almost always what the user would have typed anyway.
-        String name = "";
         try {
-            name = sourcePlaylistDisplayName(MediaId.parse(sourcePlaylistId));
-        } catch (IllegalArgumentException ignored) {
-            // fall back to the default name
+            synchronized (QmlRuntimeLock.MONITOR) {
+                // Name the new playlist after the source it is being seeded from, which is
+                // almost always what the user would have typed anyway.
+                String name = "";
+                try {
+                    name = sourcePlaylistDisplayName(MediaId.parse(sourcePlaylistId));
+                } catch (IllegalArgumentException ignored) {
+                    // fall back to the default name
+                }
+                LocalPlaylist created = localPlaylistStore.create(name);
+                publishLocalPlaylists();
+                followSourcePlaylist(created.id, sourcePlaylistId);
+            }
+
+        } catch (IllegalStateException error) {
+            Logger.warn("playlist mutation failed: {}", safeMessage(error));
+            showToast(I18n.tr("toast.actionFailed", safeMessage(error)));
         }
-        LocalPlaylist created = localPlaylistStore.create(name);
-        publishLocalPlaylists();
-        followSourcePlaylist(created.id, sourcePlaylistId);
     }
 
     private String newLocalPlaylistId() {
@@ -4396,51 +4588,87 @@ public final class PlayerController {
     /**
      * Remove by the row's position on screen.
      *
-     * <p>That is a position in the sorted view, which is not the stored position
-     * once any sort is active — so it is resolved to the song's id against the
-     * published rows rather than used as an index into the stored list.
+     * <p>That is a position in the sorted view, which is not the stored position once any sort is
+     * active — so it is resolved to the song's id against the published rows rather than used as an
+     * index into the stored list.
      */
     public void removeFromLocalPlaylistAt(String playlistId, int index) {
-        List<Track> rows = playlistId != null && playlistId.equals(openLocalPlaylistId.peek())
-                ? localPlaylistTracks.peek() : tracksOf(playlistId);
-        if (rows == null || index < 0 || index >= rows.size()) return;
-        removeMediaFromLocalPlaylist(playlistId, rows.get(index).canonicalId());
+        try {
+            synchronized (QmlRuntimeLock.MONITOR) {
+                List<Track> rows =
+                        playlistId != null && playlistId.equals(openLocalPlaylistId.peek())
+                                ? localPlaylistTracks.peek()
+                                : tracksOf(playlistId);
+                if (rows == null || index < 0 || index >= rows.size()) return;
+                removeMediaFromLocalPlaylist(playlistId, rows.get(index).canonicalId());
+            }
+
+        } catch (IllegalStateException error) {
+            Logger.warn("playlist mutation failed: {}", safeMessage(error));
+            showToast(I18n.tr("toast.actionFailed", safeMessage(error)));
+        }
     }
 
     public void removeMediaFromLocalPlaylist(String playlistId, String songMediaId) {
-        if (!localPlaylistStore.mutate(playlistId, playlist -> playlist.remove(songMediaId))) return;
-        afterLocalPlaylistChange(playlistId);
-        showToast(I18n.tr("toast.custom.removed"));
+        try {
+            synchronized (QmlRuntimeLock.MONITOR) {
+                if (!localPlaylistStore.mutate(
+                        playlistId, playlist -> playlist.remove(songMediaId))) return;
+                afterLocalPlaylistChange(playlistId);
+                showToast(I18n.tr("toast.custom.removed"));
+            }
+
+        } catch (IllegalStateException error) {
+            Logger.warn("playlist mutation failed: {}", safeMessage(error));
+            showToast(I18n.tr("toast.actionFailed", safeMessage(error)));
+        }
     }
 
     /** QML selection mode: newline-separated canonical ids. */
     public void removeMediaManyFromLocalPlaylist(String playlistId, String idsText) {
-        List<String> ids = splitIds(idsText);
-        if (ids.isEmpty()) return;
-        final int[] removed = { 0 };
-        boolean changed = localPlaylistStore.mutate(playlistId, playlist -> {
-            removed[0] = playlist.removeAll(ids);
-            return removed[0] > 0;
-        });
-        if (!changed) return;
-        afterLocalPlaylistChange(playlistId);
-        showToast(I18n.tr("toast.playlist.songsRemoved", removed[0]));
+        try {
+            synchronized (QmlRuntimeLock.MONITOR) {
+                List<String> ids = splitIds(idsText);
+                if (ids.isEmpty()) return;
+                final int[] removed = {0};
+                boolean changed =
+                        localPlaylistStore.mutate(
+                                playlistId,
+                                playlist -> {
+                                    removed[0] = playlist.removeAll(ids);
+                                    return removed[0] > 0;
+                                });
+                if (!changed) return;
+                afterLocalPlaylistChange(playlistId);
+                showToast(I18n.tr("toast.playlist.songsRemoved", removed[0]));
+            }
+
+        } catch (IllegalStateException error) {
+            Logger.warn("playlist mutation failed: {}", safeMessage(error));
+            showToast(I18n.tr("toast.actionFailed", safeMessage(error)));
+        }
     }
 
     public void playLocalPlaylistIndex(String playlistId, int index) {
-        List<Track> rows = playlistId != null && playlistId.equals(openLocalPlaylistId.peek())
-                ? localPlaylistTracks.peek() : tracksOf(playlistId);
-        if (rows == null || index < 0 || index >= rows.size()) return;
-        playQueue(new ArrayList<>(rows), index);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            List<Track> rows =
+                    playlistId != null && playlistId.equals(openLocalPlaylistId.peek())
+                            ? localPlaylistTracks.peek()
+                            : tracksOf(playlistId);
+            if (rows == null || index < 0 || index >= rows.size()) return;
+            playQueue(new ArrayList<>(rows), index);
+        }
     }
 
     public void playLocalPlaylist(String playlistId) {
-        List<Track> rows = tracksOf(playlistId);
-        if (rows == null || rows.isEmpty()) {
-            showToast(I18n.tr("toast.localPlaylist.empty"));
-            return;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            List<Track> rows = tracksOf(playlistId);
+            if (rows == null || rows.isEmpty()) {
+                showToast(I18n.tr("toast.localPlaylist.empty"));
+                return;
+            }
+            playQueue(rows, 0);
         }
-        playQueue(rows, 0);
     }
 
     /** Rows in the order the page shows them, so "play all" and a card tap follow
@@ -4456,100 +4684,166 @@ public final class PlayerController {
 
     // --- Local playlists: ordering -----------------------------------------
 
-    /** Change the sort of one playlist. A sort between two non-custom fields is
-     *  a view only — the stored order underneath is untouched. Entering custom
-     *  FROM one, though, bakes in whatever that sort was just displaying as the
-     *  new stored/draggable order: "start dragging from here", not "jump back
-     *  to however it was arranged before that sort". */
+    /**
+     * Change the sort of one playlist. A sort between two non-custom fields is a view only — the
+     * stored order underneath is untouched. Entering custom FROM one, though, bakes in whatever
+     * that sort was just displaying as the new stored/draggable order: "start dragging from here",
+     * not "jump back to however it was arranged before that sort".
+     */
     public void setLocalPlaylistSort(String playlistId, String field, boolean descending) {
-        final String safe = LocalPlaylist.isSortField(field) ? field : LocalPlaylist.SORT_CUSTOM;
-        boolean changed = localPlaylistStore.mutate(playlistId, playlist -> {
-            if (safe.equals(playlist.sortField) && playlist.sortDescending == descending) {
-                return false;
+        try {
+            synchronized (QmlRuntimeLock.MONITOR) {
+                final String safe =
+                        LocalPlaylist.isSortField(field) ? field : LocalPlaylist.SORT_CUSTOM;
+                boolean changed =
+                        localPlaylistStore.mutate(
+                                playlistId,
+                                playlist -> {
+                                    if (safe.equals(playlist.sortField)
+                                            && playlist.sortDescending == descending) {
+                                        return false;
+                                    }
+                                    if (LocalPlaylist.SORT_CUSTOM.equals(safe)
+                                            && !LocalPlaylist.SORT_CUSTOM.equals(
+                                                    playlist.sortField)) {
+                                        playlist.tracks = playlist.sortedTracks();
+                                    }
+                                    playlist.sortField = safe;
+                                    playlist.sortDescending = descending;
+                                    return true;
+                                });
+                if (!changed) return;
+                afterLocalPlaylistChange(playlistId);
             }
-            if (LocalPlaylist.SORT_CUSTOM.equals(safe)
-                    && !LocalPlaylist.SORT_CUSTOM.equals(playlist.sortField)) {
-                playlist.tracks = playlist.sortedTracks();
-            }
-            playlist.sortField = safe;
-            playlist.sortDescending = descending;
-            return true;
-        });
-        if (!changed) return;
-        afterLocalPlaylistChange(playlistId);
+
+        } catch (IllegalStateException error) {
+            Logger.warn("playlist mutation failed: {}", safeMessage(error));
+            showToast(I18n.tr("toast.actionFailed", safeMessage(error)));
+        }
     }
 
     /**
-     * Move a row during a drag. Both positions are stored positions, which is the
-     * same as on-screen positions because dragging is only offered in the custom
-     * sort ({@link #localPlaylistReorderable}).
+     * Move a row during a drag. Both positions are stored positions, which is the same as on-screen
+     * positions because dragging is only offered in the custom sort ({@link
+     * #localPlaylistReorderable}).
      *
-     * <p>Deliberately does not persist; the page calls
-     * {@link #commitLocalPlaylistOrder} when the gesture ends. The list now sends
-     * one of these per gesture rather than one per row crossed (it previews the
-     * gap on screen and only applies the move on release), but keeping the write
-     * out of here also keeps a programmatic caller from writing the file per step.
+     * <p>Deliberately does not persist; the page calls {@link #commitLocalPlaylistOrder} when the
+     * gesture ends. The list now sends one of these per gesture rather than one per row crossed (it
+     * previews the gap on screen and only applies the move on release), but keeping the write out
+     * of here also keeps a programmatic caller from writing the file per step.
      */
     public void moveLocalPlaylistTrack(String playlistId, int from, int to) {
-        if (!Boolean.TRUE.equals(localPlaylistReorderable.peek())) return;
-        if (!localPlaylistStore.mutate(playlistId, playlist -> playlist.move(from, to))) return;
-        publishLocalPlaylists();
-        if (playlistId.equals(openLocalPlaylistId.peek())) publishOpenLocalPlaylist();
+        try {
+            synchronized (QmlRuntimeLock.MONITOR) {
+                if (!Boolean.TRUE.equals(localPlaylistReorderable.peek())) return;
+                if (!localPlaylistStore.mutate(playlistId, playlist -> playlist.move(from, to)))
+                    return;
+                publishLocalPlaylists();
+                if (playlistId.equals(openLocalPlaylistId.peek())) publishOpenLocalPlaylist();
+            }
+
+        } catch (IllegalStateException error) {
+            Logger.warn("playlist mutation failed: {}", safeMessage(error));
+            showToast(I18n.tr("toast.actionFailed", safeMessage(error)));
+        }
     }
 
     /** Persist the arrangement once a drag finishes. */
     public void commitLocalPlaylistOrder(String playlistId) {
-        saveLocalPlaylists();
+        try {
+            synchronized (QmlRuntimeLock.MONITOR) {
+                saveLocalPlaylists();
+            }
+
+        } catch (IllegalStateException error) {
+            Logger.warn("playlist mutation failed: {}", safeMessage(error));
+            showToast(I18n.tr("toast.actionFailed", safeMessage(error)));
+        }
     }
 
     // --- Local playlists: following a source playlist ----------------------
 
     /** Whether a local playlist already follows this source playlist. */
     public boolean isSourcePlaylistFollowed(String playlistId, String sourcePlaylistId) {
-        LocalPlaylist playlist = localPlaylistStore.get(playlistId);
-        return playlist != null && playlist.subscribed(sourcePlaylistId);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            LocalPlaylist playlist = localPlaylistStore.get(playlistId);
+            return playlist != null && playlist.subscribed(sourcePlaylistId);
+        }
     }
 
     /**
-     * Add a whole source playlist to a local one. The songs are pulled
-     * immediately, and re-pulled whenever the local playlist is opened, so the
-     * local copy follows the source.
+     * Add a whole source playlist to a local one. The songs are pulled immediately, and re-pulled
+     * whenever the local playlist is opened, so the local copy follows the source.
      */
     public void followSourcePlaylist(String playlistId, String sourcePlaylistId) {
-        if (!LocalPlaylist.isLocalPlaylistId(playlistId)) return;
-        final MediaId id;
         try {
-            id = MediaId.parse(sourcePlaylistId).requireKind(dev.t1m3.qplayer.media.MediaKind.PLAYLIST);
-        } catch (IllegalArgumentException error) {
-            showToast(I18n.tr("toast.id.playlist"));
-            return;
+            synchronized (QmlRuntimeLock.MONITOR) {
+                if (!LocalPlaylist.isLocalPlaylistId(playlistId)) return;
+                final MediaId id;
+                try {
+                    id =
+                            MediaId.parse(sourcePlaylistId)
+                                    .requireKind(dev.t1m3.qplayer.media.MediaKind.PLAYLIST);
+                } catch (IllegalArgumentException error) {
+                    showToast(I18n.tr("toast.id.playlist"));
+                    return;
+                }
+                PlaylistSubscription subscription =
+                        new PlaylistSubscription(
+                                id.toString(),
+                                sourcePlaylistDisplayName(id),
+                                providerDisplayName(id.provider()),
+                                sourcePlaylistArtwork(id));
+                boolean added =
+                        localPlaylistStore.mutate(
+                                playlistId, playlist -> playlist.subscribe(subscription));
+                if (!added) {
+                    showToast(I18n.tr("toast.localPlaylist.alreadyFollowed"));
+                    return;
+                }
+                afterLocalPlaylistChange(playlistId)
+                        .thenAccept(
+                                saved -> {
+                                    if (saved)
+                                        showToast(
+                                                I18n.tr(
+                                                        "toast.localPlaylist.following",
+                                                        subscription.name));
+                                });
+                syncLocalPlaylist(playlistId, true);
+            }
+
+        } catch (IllegalStateException error) {
+            Logger.warn("playlist mutation failed: {}", safeMessage(error));
+            showToast(I18n.tr("toast.actionFailed", safeMessage(error)));
         }
-        PlaylistSubscription subscription = new PlaylistSubscription(
-                id.toString(), sourcePlaylistDisplayName(id), providerDisplayName(id.provider()),
-                sourcePlaylistArtwork(id));
-        boolean added = localPlaylistStore.mutate(playlistId,
-                playlist -> playlist.subscribe(subscription));
-        if (!added) {
-            showToast(I18n.tr("toast.localPlaylist.alreadyFollowed"));
-            return;
-        }
-        afterLocalPlaylistChange(playlistId);
-        showToast(I18n.tr("toast.localPlaylist.following", subscription.name));
-        syncLocalPlaylist(playlistId, true);
     }
 
     public void unfollowSourcePlaylist(String playlistId, String sourcePlaylistId) {
-        if (!localPlaylistStore.mutate(playlistId,
-                playlist -> playlist.unsubscribe(sourcePlaylistId))) {
-            return;
+        try {
+            synchronized (QmlRuntimeLock.MONITOR) {
+                if (!localPlaylistStore.mutate(
+                        playlistId, playlist -> playlist.unsubscribe(sourcePlaylistId))) {
+                    return;
+                }
+                afterLocalPlaylistChange(playlistId)
+                        .thenAccept(
+                                saved -> {
+                                    if (saved) showToast(I18n.tr("toast.localPlaylist.unfollowed"));
+                                });
+            }
+
+        } catch (IllegalStateException error) {
+            Logger.warn("playlist mutation failed: {}", safeMessage(error));
+            showToast(I18n.tr("toast.actionFailed", safeMessage(error)));
         }
-        afterLocalPlaylistChange(playlistId);
-        showToast(I18n.tr("toast.localPlaylist.unfollowed"));
     }
 
     /** Manual refresh button: ignores the cooldown. */
     public void refreshLocalPlaylist(String playlistId) {
-        syncLocalPlaylist(playlistId, true);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            syncLocalPlaylist(playlistId, true);
+        }
     }
 
     /**
@@ -4689,8 +4983,12 @@ public final class PlayerController {
         if (mediaId == null || mediaId.isEmpty()) return null;
         Song song = findPluginSong(mediaId);
         if (song != null) return toTrackPlugin(song);
-        List<List<Track>> lists = java.util.Arrays.asList(
-                queue, customPlaylist, cachedSongTracks, localPlaylistTracks.peek(), library);
+        List<List<Track>> lists =
+                java.util.Arrays.asList(
+                        playbackSession.queue,
+                        cachedSongTracks,
+                        localPlaylistTracks.peek(),
+                        library);
         for (List<Track> list : lists) {
             if (list == null) continue;
             for (Track track : list) {
@@ -4704,33 +5002,50 @@ public final class PlayerController {
 
     /** Open the host image picker for a local playlist (QML entry point). */
     public void pickLocalPlaylistCover(String playlistId) {
-        if (!LocalPlaylist.isLocalPlaylistId(playlistId)) return;
-        pickPlaylistCover(playlistId);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (!LocalPlaylist.isLocalPlaylistId(playlistId)) return;
+            pickPlaylistCover(playlistId);
+        }
     }
 
     /** Drop the chosen cover and go back to deriving one from the songs. */
     public void clearLocalPlaylistCover(String playlistId) {
-        final java.util.concurrent.atomic.AtomicReference<String> removed =
-                new java.util.concurrent.atomic.AtomicReference<>("");
-        boolean changed = localPlaylistStore.mutate(playlistId, playlist -> {
-            if (!playlist.hasCustomCover()) return false;
-            removed.set(playlist.coverPath);
-            playlist.coverPath = "";
-            return true;
-        });
-        if (!changed) return;
-        final String path = removed.get();
-        worker.submit(() -> deleteQuietly(path));
-        afterLocalPlaylistChange(playlistId);
-        showToast(I18n.tr("toast.cover.cleared"));
+        try {
+            synchronized (QmlRuntimeLock.MONITOR) {
+                final java.util.concurrent.atomic.AtomicReference<String> removed =
+                        new java.util.concurrent.atomic.AtomicReference<>("");
+                boolean changed =
+                        localPlaylistStore.mutate(
+                                playlistId,
+                                playlist -> {
+                                    if (!playlist.hasCustomCover()) return false;
+                                    removed.set(playlist.coverPath);
+                                    playlist.coverPath = "";
+                                    return true;
+                                });
+                if (!changed) return;
+                final String path = removed.get();
+                afterLocalPlaylistChange(playlistId)
+                        .thenAccept(
+                                saved -> {
+                                    if (saved) {
+                                        deleteQuietly(path);
+                                        showToast(I18n.tr("toast.cover.cleared"));
+                                    }
+                                });
+            }
+
+        } catch (IllegalStateException error) {
+            Logger.warn("playlist mutation failed: {}", safeMessage(error));
+            showToast(I18n.tr("toast.actionFailed", safeMessage(error)));
+        }
     }
 
     /**
      * Worker thread: keep a copy of the picked image and point the playlist at it.
      *
-     * <p>Copied rather than referenced so the cover survives the original being
-     * moved or deleted, and named after the playlist so one playlist can only
-     * ever own one cover file.
+     * <p>Copied rather than referenced so the cover survives the original being moved or deleted,
+     * and named after the playlist so one playlist can only ever own one cover file.
      */
     private void storeLocalPlaylistCover(String playlistId, byte[] data, String filename) {
         String extension = imageExtension(filename);
@@ -4738,7 +5053,13 @@ public final class PlayerController {
         try {
             java.nio.file.Path dir = AppDirs.playlistCoversDir();
             java.nio.file.Files.createDirectories(dir);
-            target = dir.resolve(MediaId.parse(playlistId).nativeId() + '.' + extension);
+            target =
+                    dir.resolve(
+                            MediaId.parse(playlistId).nativeId()
+                                    + "-"
+                                    + System.nanoTime()
+                                    + '.'
+                                    + extension);
             java.nio.file.Files.write(target, data);
         } catch (Throwable error) {
             Logger.warn("store local playlist cover failed: {}", error.getMessage());
@@ -4748,11 +5069,22 @@ public final class PlayerController {
         final String path = target.toAbsolutePath().toString();
         final java.util.concurrent.atomic.AtomicReference<String> previous =
                 new java.util.concurrent.atomic.AtomicReference<>("");
-        boolean changed = localPlaylistStore.mutate(playlistId, playlist -> {
-            previous.set(playlist.coverPath);
-            playlist.coverPath = path;
-            return true;
-        });
+        boolean changed;
+        try {
+            changed =
+                    localPlaylistStore.mutate(
+                            playlistId,
+                            playlist -> {
+                                previous.set(playlist.coverPath);
+                                playlist.coverPath = path;
+                                return true;
+                            });
+        } catch (IllegalStateException error) {
+            deleteQuietly(path);
+            Logger.warn("local playlist cover mutation failed: {}", safeMessage(error));
+            showToast(I18n.tr("toast.cover.updateFailed"));
+            return;
+        }
         if (!changed) {
             // The playlist was deleted while the picker was open.
             deleteQuietly(path);
@@ -4760,11 +5092,17 @@ public final class PlayerController {
         }
         // Replacing a .png with a .jpg leaves the old file behind otherwise.
         String old = previous.get();
-        if (old != null && !old.isEmpty() && !old.equals(path)) deleteQuietly(old);
-        post(() -> {
-            afterLocalPlaylistChange(playlistId);
-            showToast(I18n.tr("toast.cover.updated"));
-        });
+        post(
+                () -> {
+                    afterLocalPlaylistChange(playlistId)
+                            .thenAccept(
+                                    saved -> {
+                                        if (!saved) return;
+                                        if (old != null && !old.isEmpty() && !old.equals(path))
+                                            deleteQuietly(old);
+                                        showToast(I18n.tr("toast.cover.updated"));
+                                    });
+                });
     }
 
     private static void deleteQuietly(String path) {
@@ -4810,90 +5148,169 @@ public final class PlayerController {
     private volatile PlaylistFileBridge playlistFiles;
 
     public void setPlaylistFileBridge(PlaylistFileBridge bridge) {
-        this.playlistFiles = bridge;
-        post(() -> playlistTransferAvailable.set(bridge != null));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            this.playlistFiles = bridge;
+            post(() -> playlistTransferAvailable.set(bridge != null));
+        }
     }
 
     /** Whether QML should offer the import/export rows at all. */
     public final Property<Boolean> playlistTransferAvailable = new Property<>(false);
 
     public void requestLocalPlaylistExport(String playlistId) {
-        PlaylistFileBridge bridge = playlistFiles;
-        final LocalPlaylist playlist = localPlaylistStore.get(playlistId);
-        if (bridge == null || playlist == null) {
-            showToast(I18n.tr("toast.localPlaylist.transferUnavailable"));
-            return;
-        }
-        if (playlist.tracks.isEmpty()) {
-            showToast(I18n.tr("toast.localPlaylist.empty"));
-            return;
-        }
-        final String suggested = PlaylistTransfer.suggestedFileName(playlist.name);
-        onMain(() -> bridge.save(suggested, path -> worker.submit(() -> {
-            try {
-                String json = PlaylistTransfer.export(playlist, currentVersion,
-                        this::providerDisplayName);
-                StorageFiles.writeUtf8Atomic(java.nio.file.Paths.get(path), json);
-                post(() -> showToast(I18n.tr("toast.localPlaylist.exported",
-                        playlist.tracks.size())));
-            } catch (Throwable error) {
-                Logger.warn("playlist export failed: {}", error.getMessage());
-                post(() -> showToast(I18n.tr("toast.localPlaylist.exportFailed")));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            PlaylistFileBridge bridge = playlistFiles;
+            final LocalPlaylist playlist = localPlaylistStore.get(playlistId);
+            if (bridge == null || playlist == null) {
+                showToast(I18n.tr("toast.localPlaylist.transferUnavailable"));
+                return;
             }
-        })));
+            if (playlist.tracks.isEmpty()) {
+                showToast(I18n.tr("toast.localPlaylist.empty"));
+                return;
+            }
+            final String suggested = PlaylistTransfer.suggestedFileName(playlist.name);
+            onHost(
+                    () ->
+                            bridge.save(
+                                    suggested,
+                                    path ->
+                                            worker.submit(
+                                                    () -> {
+                                                        try {
+                                                            String json =
+                                                                    PlaylistTransfer.export(
+                                                                            playlist,
+                                                                            currentVersion,
+                                                                            this
+                                                                                    ::providerDisplayName);
+                                                            StorageFiles.writeUtf8Atomic(
+                                                                    java.nio.file.Paths.get(path),
+                                                                    json);
+                                                            post(
+                                                                    () ->
+                                                                            showToast(
+                                                                                    I18n.tr(
+                                                                                            "toast.localPlaylist.exported",
+                                                                                            playlist
+                                                                                                    .tracks
+                                                                                                    .size())));
+                                                        } catch (Throwable error) {
+                                                            Logger.warn(
+                                                                    "playlist export failed: {}",
+                                                                    error.getMessage());
+                                                            post(
+                                                                    () ->
+                                                                            showToast(
+                                                                                    I18n.tr(
+                                                                                            "toast.localPlaylist.exportFailed")));
+                                                        }
+                                                    })));
+        }
     }
 
     public void requestLocalPlaylistImport() {
-        PlaylistFileBridge bridge = playlistFiles;
-        if (bridge == null) {
-            showToast(I18n.tr("toast.localPlaylist.transferUnavailable"));
-            return;
-        }
-        onMain(() -> bridge.open(path -> worker.submit(() -> {
-            try {
-                String json = StorageFiles.readUtf8(java.nio.file.Paths.get(path));
-                LocalPlaylist parsed = PlaylistTransfer.parse(json);
-                LocalPlaylist inserted = localPlaylistStore.insertImported(parsed);
-                localPlaylistStore.save();
-                post(() -> {
-                    publishLocalPlaylists();
-                    showToast(I18n.tr("toast.localPlaylist.imported",
-                            inserted.name, inserted.size()));
-                    // A file written on another machine carries a snapshot of its
-                    // subscriptions; pull them now so the copy is current rather
-                    // than however stale the export was.
-                    if (!inserted.subscriptions.isEmpty()) {
-                        syncLocalPlaylist(inserted.id, true);
-                    }
-                });
-            } catch (PlaylistTransfer.UnsupportedFormat error) {
-                post(() -> showToast(I18n.tr("toast.localPlaylist.importUnsupported")));
-            } catch (Throwable error) {
-                Logger.warn("playlist import failed: {}", error.getMessage());
-                post(() -> showToast(I18n.tr("toast.localPlaylist.importFailed")));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            PlaylistFileBridge bridge = playlistFiles;
+            if (bridge == null) {
+                showToast(I18n.tr("toast.localPlaylist.transferUnavailable"));
+                return;
             }
-        })));
+            onHost(
+                    () ->
+                            bridge.open(
+                                    path ->
+                                            worker.submit(
+                                                    () -> {
+                                                        try {
+                                                            String json =
+                                                                    StorageFiles.readUtf8(
+                                                                            java.nio.file.Paths.get(
+                                                                                    path));
+                                                            LocalPlaylist parsed =
+                                                                    PlaylistTransfer.parse(json);
+                                                            LocalPlaylist inserted =
+                                                                    localPlaylistStore
+                                                                            .insertImported(parsed);
+                                                            if (!localPlaylistStore.save())
+                                                                throw new java.io.IOException(
+                                                                        "local playlist save"
+                                                                                + " failed");
+                                                            post(
+                                                                    () -> {
+                                                                        publishLocalPlaylists();
+                                                                        showToast(
+                                                                                I18n.tr(
+                                                                                        "toast.localPlaylist.imported",
+                                                                                        inserted.name,
+                                                                                        inserted
+                                                                                                .size()));
+                                                                        // A file written on another
+                                                                        // machine carries a
+                                                                        // snapshot of its
+                                                                        // subscriptions; pull them
+                                                                        // now so the copy is
+                                                                        // current rather
+                                                                        // than however stale the
+                                                                        // export was.
+                                                                        if (!inserted.subscriptions
+                                                                                .isEmpty()) {
+                                                                            syncLocalPlaylist(
+                                                                                    inserted.id,
+                                                                                    true);
+                                                                        }
+                                                                    });
+                                                        } catch (
+                                                                PlaylistTransfer.UnsupportedFormat
+                                                                        error) {
+                                                            post(
+                                                                    () ->
+                                                                            showToast(
+                                                                                    I18n.tr(
+                                                                                            "toast.localPlaylist.importUnsupported")));
+                                                        } catch (Throwable error) {
+                                                            Logger.warn(
+                                                                    "playlist import failed: {}",
+                                                                    error.getMessage());
+                                                            post(
+                                                                    () ->
+                                                                            showToast(
+                                                                                    I18n.tr(
+                                                                                            "toast.localPlaylist.importFailed")));
+                                                        }
+                                                    })));
+        }
     }
 
     // --- Local library ----------------------------------------------------
 
     /** Scan a local folder for audio files (platform-neutral, uses Files.walk). */
     public void scan(String folder) {
-        worker.submit(() -> {
-            try {
-                LibraryScanner scanner = new LibraryScanner(metadataReader);
-                List<Track> found = scanner.scan(folder);
-                post(() -> applyLibrary(found));
-            } catch (Throwable e) {
-                Logger.exception(e);
-                post(() -> toast.set(I18n.tr("toast.local.scanFailed", e.getMessage())));
-            }
-        });
+        synchronized (QmlRuntimeLock.MONITOR) {
+            worker.submit(
+                    () -> {
+                        try {
+                            LibraryScanner scanner = new LibraryScanner(metadataReader);
+                            List<Track> found = scanner.scan(folder);
+                            post(() -> applyLibrary(found));
+                        } catch (Throwable e) {
+                            Logger.exception(e);
+                            post(
+                                    () ->
+                                            toast.set(
+                                                    I18n.tr(
+                                                            "toast.local.scanFailed",
+                                                            e.getMessage())));
+                        }
+                    });
+        }
     }
 
     /** Accept a pre-scanned track list (e.g. from MediaStore on Android 11+). */
     public void scanTracks(List<Track> tracks) {
-        post(() -> applyLibrary(tracks));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            applyLibrary(tracks);
+        }
     }
 
     private void applyLibrary(List<Track> found) {
@@ -4904,294 +5321,303 @@ public final class PlayerController {
     }
 
     public int trackCount() {
-        return library.size();
+        synchronized (QmlRuntimeLock.MONITOR) {
+            return library.size();
+        }
     }
 
     public String trackTitle(int i) {
-        return i >= 0 && i < library.size() ? orEmpty(library.get(i).title) : "";
+        synchronized (QmlRuntimeLock.MONITOR) {
+            return i >= 0 && i < library.size() ? orEmpty(library.get(i).title) : "";
+        }
     }
 
     public String trackArtist(int i) {
-        return i >= 0 && i < library.size() ? orEmpty(library.get(i).artist) : "";
+        synchronized (QmlRuntimeLock.MONITOR) {
+            return i >= 0 && i < library.size() ? orEmpty(library.get(i).artist) : "";
+        }
     }
 
     public String resultTitle(int i) {
-        List<NeteaseSong> r = searchResults.peek();
-        return i >= 0 && i < r.size() ? orEmpty(r.get(i).name) : "";
+        synchronized (QmlRuntimeLock.MONITOR) {
+            List<NeteaseSong> r = searchResults.peek();
+            return i >= 0 && i < r.size() ? orEmpty(r.get(i).name) : "";
+        }
     }
 
     public String resultArtist(int i) {
-        List<NeteaseSong> r = searchResults.peek();
-        return i >= 0 && i < r.size() ? orEmpty(r.get(i).artist) : "";
+        synchronized (QmlRuntimeLock.MONITOR) {
+            List<NeteaseSong> r = searchResults.peek();
+            return i >= 0 && i < r.size() ? orEmpty(r.get(i).artist) : "";
+        }
     }
 
     public long resultId(int i) {
-        List<NeteaseSong> r = searchResults.peek();
-        return i >= 0 && i < r.size() ? r.get(i).id : 0L;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            List<NeteaseSong> r = searchResults.peek();
+            return i >= 0 && i < r.size() ? r.get(i).id : 0L;
+        }
     }
 
     // --- Playback control -------------------------------------------------
 
     /** Play local library starting at {@code i}. */
     public void play(int i) {
-        if (i < 0 || i >= library.size()) return;
-        // Snapshot: library is the live scan list — a later rescan rewrites it in
-        // place, and handing the same reference to the queue would let that rescan
-        // silently swap the track playIndex points at mid-playback.
-        playQueue(new ArrayList<>(library), i);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (i < 0 || i >= library.size()) return;
+            // Snapshot: library is the live scan list — a later rescan rewrites it in
+            // place, and handing the same reference to the queue would let that rescan
+            // silently swap the track playIndex points at mid-playback.
+            playQueue(new ArrayList<>(library), i);
+        }
     }
 
-    /** Queue a netease song-list and start at {@code i}. Search history is fed by
-     *  the query text the user actually typed/submitted (SearchPage.qml), not by
-     *  which result they clicked — a song title isn't a search the user made. */
+    /**
+     * Queue a netease song-list and start at {@code i}. Search history is fed by the query text the
+     * user actually typed/submitted (SearchPage.qml), not by which result they clicked — a song
+     * title isn't a search the user made.
+     */
     public void playSearchResult(int i) {
-        List<NeteaseSong> songs = searchResults.peek();
-        playSongList(songs, i);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            List<NeteaseSong> songs = searchResults.peek();
+            playSongList(songs, i);
+        }
     }
 
     public void playRecommendation(int i) {
-        if (Boolean.TRUE.equals(sourceContentActive.peek())) {
-            playPluginSongList(sourceRecommendations.peek(), i);
-            return;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (Boolean.TRUE.equals(sourceContentActive.peek())) {
+                playPluginSongList(sourceRecommendations.peek(), i);
+                return;
+            }
+            playSongList(recommendations.peek(), i);
         }
-        playSongList(recommendations.peek(), i);
     }
 
     public void playRecentSong(int i) {
-        if (Boolean.TRUE.equals(sourceContentActive.peek())) {
-            playPluginSongList(sourceRecentSongs.peek(), i);
-            return;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (Boolean.TRUE.equals(sourceContentActive.peek())) {
+                playPluginSongList(sourceRecentSongs.peek(), i);
+                return;
+            }
+            playSongList(recentSongs.peek(), i);
         }
-        playSongList(recentSongs.peek(), i);
     }
 
     public void playPlaylistTrack(int i) {
-        if (!openSourcePlaylistId.peek().isEmpty()) {
-            playPluginSongList(sourcePlaylistTracks.peek(), i, openSourcePlaylistId.peek());
-            return;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (!openSourcePlaylistId.peek().isEmpty()) {
+                playPluginSongList(sourcePlaylistTracks.peek(), i, openSourcePlaylistId.peek());
+                return;
+            }
+            playSongList(playlistTracks.peek(), i, currentPlaylistId);
         }
-        playSongList(playlistTracks.peek(), i, currentPlaylistId);
     }
 
-    /** Replace the queue with NetEase's heart-mode recommendations, using the
-     *  current song when this playlist already owns the queue and otherwise its
-     *  first track as the seed. */
+    /**
+     * Replace the queue with NetEase's heart-mode recommendations, using the current song when this
+     * playlist already owns the queue and otherwise its first track as the seed.
+     */
     public void startIntelligenceMode(long playlistId) {
-        if (!loggedIn.peek()) {
-            showToast(I18n.tr("toast.heart.signIn"));
-            return;
-        }
-        if (playlistId == 0L || Boolean.TRUE.equals(intelligenceLoading.peek())) return;
-        List<NeteaseSong> visible = playlistTracks.peek();
-        long seedId = 0L;
-        Track current = currentTrack();
-        if (currentQueuePlaylistId == playlistId && current != null
-                && current.source == Track.Source.NETEASE) {
-            seedId = current.neteaseId;
-        }
-        if (seedId == 0L && visible != null && !visible.isEmpty()) seedId = visible.get(0).id;
-        if (seedId == 0L) {
-            showToast(I18n.tr("toast.heart.empty"));
-            return;
-        }
-        final long seed = seedId;
-        intelligenceLoading.set(true);
-        worker.submit(() -> {
-            try {
-                // NetEase currently accepts only the account's default "我喜欢的音乐"
-                // playlist as the intelligence context. The seed itself may come
-                // from any normal playlist (the official client does the same).
-                // Passing the visible playlist directly makes the endpoint reject
-                // nearly every user-created/subscribed list with "不支持该歌单类型".
-                long intelligencePid = favoritePid;
-                if (intelligencePid == 0L) {
-                    long accountId = uid != 0L ? uid : netease.loginUid();
-                    List<NeteasePlaylist> playlists = netease.userPlaylists(accountId, 1);
-                    if (!playlists.isEmpty()) {
-                        intelligencePid = playlists.get(0).id;
-                        favoritePid = intelligencePid;
-                    }
-                }
-                if (intelligencePid == 0L) throw new java.io.IOException(I18n.tr("toast.heart.noLikedPlaylist"));
-                List<NeteaseSong> songs =
-                        netease.intelligenceSongs(seed, intelligencePid, seed);
-                fillMissingCovers(songs);
-                buildSongThumbs(songs, "128");
-                if (songs.isEmpty()) {
-                    post(() -> {
-                        intelligenceLoading.set(false);
-                        showToast(I18n.tr("toast.heart.none"));
-                    });
-                    return;
-                }
-                post(() -> {
-                    intelligenceLoading.set(false);
-                    playSongList(songs, 0, playlistId);
-                    showToast(I18n.tr("toast.heart.started"));
-                });
-            } catch (Throwable e) {
-                Logger.warn("heart-mode recommendation failed: {}", e.getMessage());
-                post(() -> {
-                    intelligenceLoading.set(false);
-                    showToast(I18n.tr("toast.heart.failed", safeMessage(e)));
-                });
-            }
-        });
+        startMediaIntelligenceMode("netease:playlist:" + playlistId);
     }
 
     public void startMediaIntelligenceMode(String playlistMediaId) {
-        if (!loggedIn.peek()) {
-            showToast(I18n.tr("toast.heart.signIn"));
-            return;
-        }
-        if (playlistMediaId == null || playlistMediaId.isEmpty()
-                || Boolean.TRUE.equals(intelligenceLoading.peek())) return;
-        final MediaId playlistId;
-        try {
-            playlistId = MediaId.parse(playlistMediaId).requireKind(
-                    dev.t1m3.qplayer.media.MediaKind.PLAYLIST);
-        } catch (IllegalArgumentException error) {
-            showToast(I18n.tr("toast.id.playlist"));
-            return;
-        }
-        if (!pluginHasCapability(playlistId.provider(), ProviderCapability.HEART_RECOMMENDATION)) {
-            showToast(I18n.tr("toast.heart.unsupported"));
-            return;
-        }
-        MediaId seed = null;
-        Track current = currentTrack();
-        if (playlistMediaId.equals(currentQueueMediaPlaylistId) && current != null) {
-            try {
-                MediaId candidate = MediaId.parse(current.canonicalId()).requireKind(
-                        dev.t1m3.qplayer.media.MediaKind.SONG);
-                if (playlistId.provider().equals(candidate.provider())) seed = candidate;
-            } catch (IllegalArgumentException ignored) {
-            }
-        }
-        if (seed == null && !sourcePlaylistTracks.peek().isEmpty()) {
-            try { seed = MediaId.parse(sourcePlaylistTracks.peek().get(0).id); }
-            catch (IllegalArgumentException ignored) { }
-        }
-        if (seed == null) {
-            showToast(I18n.tr("toast.heart.empty"));
-            return;
-        }
-        intelligenceLoading.set(true);
-        final MediaId selectedSeed = seed;
-        pluginProviders.heartRecommendations(selectedSeed, playlistId, 100)
-                .whenComplete((songs, error) -> post(() -> {
-                    intelligenceLoading.set(false);
-                    if (error != null) {
-                        showToast(I18n.tr("toast.heart.failed", safeMessage(error)));
-                    } else if (songs == null || songs.isEmpty()) {
-                        showToast(I18n.tr("toast.heart.none"));
-                    } else {
-                        playPluginSongList(songs, 0, playlistMediaId);
-                        showToast(I18n.tr("toast.heart.started"));
-                    }
-                }));
-    }
-
-    /** Fetch a playlist from its card context menu and start it from the first song.
-     *  This deliberately does not open the detail page or replace its loading state. */
-    public void playPlaylist(long playlistId) {
-        if (playlistId == 0) return;
-        worker.submit(() -> {
-            List<NeteaseSong> songs;
-            try {
-                songs = netease.playlistTracks(playlistId, 200);
-                fillMissingCovers(songs);
-                buildSongThumbs(songs, "128");
-            } catch (Throwable e) {
-                Logger.warn("play playlist {} failed: {}", playlistId, e.getMessage());
-                PlaylistCacheIndex.Cached cached = playlistCacheIndex.get(playlistId);
-                if (cached == null || cached.songs.isEmpty()) {
-                    showToast(I18n.tr("toast.playlist.playFailed"));
-                    return;
-                }
-                songs = new ArrayList<>(cached.songs.size());
-                for (NeteaseSong song : cached.songs) songs.add(withLocalThumb(song));
-            }
-            if (songs.isEmpty()) {
-                showToast(I18n.tr("toast.playlist.empty"));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (!canHeartMediaPlaylist(playlistMediaId)) {
+                showToast(I18n.tr("toast.heart.signIn"));
                 return;
             }
-            List<NeteaseSong> ready = songs;
-            post(() -> playSongList(ready, 0, playlistId));
-        });
+            if (playlistMediaId == null
+                    || playlistMediaId.isEmpty()
+                    || Boolean.TRUE.equals(intelligenceLoading.peek())) return;
+            final MediaId playlistId;
+            try {
+                playlistId =
+                        MediaId.parse(playlistMediaId)
+                                .requireKind(dev.t1m3.qplayer.media.MediaKind.PLAYLIST);
+            } catch (IllegalArgumentException error) {
+                showToast(I18n.tr("toast.id.playlist"));
+                return;
+            }
+            if (!pluginHasCapability(
+                    playlistId.provider(), ProviderCapability.HEART_RECOMMENDATION)) {
+                showToast(I18n.tr("toast.heart.unsupported"));
+                return;
+            }
+            MediaId seed = null;
+            Track current = currentTrack();
+            if (playlistMediaId.equals(currentQueueMediaPlaylistId) && current != null) {
+                try {
+                    MediaId candidate =
+                            MediaId.parse(current.canonicalId())
+                                    .requireKind(dev.t1m3.qplayer.media.MediaKind.SONG);
+                    if (playlistId.provider().equals(candidate.provider())) seed = candidate;
+                } catch (IllegalArgumentException ignored) {
+                }
+            }
+            if (seed == null && !sourcePlaylistTracks.peek().isEmpty()) {
+                try {
+                    seed = MediaId.parse(sourcePlaylistTracks.peek().get(0).id);
+                } catch (IllegalArgumentException ignored) {
+                }
+            }
+            if (seed == null) {
+                showToast(I18n.tr("toast.heart.empty"));
+                return;
+            }
+            intelligenceLoading.set(true);
+            final MediaId selectedSeed = seed;
+            pluginProviders
+                    .heartRecommendations(selectedSeed, playlistId, 100)
+                    .whenComplete(
+                            (songs, error) ->
+                                    post(
+                                            () -> {
+                                                intelligenceLoading.set(false);
+                                                if (error != null) {
+                                                    showToast(
+                                                            I18n.tr(
+                                                                    "toast.heart.failed",
+                                                                    safeMessage(error)));
+                                                } else if (songs == null || songs.isEmpty()) {
+                                                    showToast(I18n.tr("toast.heart.none"));
+                                                } else {
+                                                    playPluginSongList(songs, 0, playlistMediaId);
+                                                    showToast(I18n.tr("toast.heart.started"));
+                                                }
+                                            }));
+        }
+    }
+
+    /**
+     * Fetch a playlist from its card context menu and start it from the first song. This
+     * deliberately does not open the detail page or replace its loading state.
+     */
+    public void playPlaylist(long playlistId) {
+        playMediaPlaylist("netease:playlist:" + playlistId);
     }
 
     /** Source-neutral playlist playback entry point used by cards and menus. */
     public void playMediaPlaylist(String mediaId) {
-        if (mediaId == null || mediaId.isEmpty()) return;
-        if (mediaId.indexOf(':') < 0) {
-            try { playPlaylist(Long.parseLong(mediaId)); } catch (NumberFormatException ignored) {}
-            return;
-        }
-        final MediaId id;
-        try { id = MediaId.parse(mediaId).requireKind(dev.t1m3.qplayer.media.MediaKind.PLAYLIST); }
-        catch (IllegalArgumentException error) { showToast(I18n.tr("toast.id.playlist")); return; }
-        pluginProviders.playlist(id).whenComplete((playlist, error) -> post(() -> {
-            Playlist resolved = playlist;
-            if (error != null || resolved == null) {
-                resolved = mediaPlaylistCacheIndex.get(id.toString());
-                if (resolved == null) {
-                    showToast(I18n.tr("toast.playlist.playFailedReason", safeMessage(error)));
-                    return;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (mediaId == null || mediaId.isEmpty()) return;
+            if (mediaId.indexOf(':') < 0) {
+                try {
+                    playPlaylist(Long.parseLong(mediaId));
+                } catch (NumberFormatException ignored) {
                 }
-            }
-            if (resolved.songs.isEmpty()) {
-                showToast(I18n.tr("toast.playlist.empty"));
                 return;
             }
-            mediaPlaylistCacheIndex.upsert(resolved);
-            worker.submit(mediaPlaylistCacheIndex::save);
-            playPluginSongList(resolved.songs, 0, id.toString());
-        }));
+            final MediaId id;
+            try {
+                id = MediaId.parse(mediaId).requireKind(dev.t1m3.qplayer.media.MediaKind.PLAYLIST);
+            } catch (IllegalArgumentException error) {
+                showToast(I18n.tr("toast.id.playlist"));
+                return;
+            }
+            pluginProviders
+                    .playlist(id)
+                    .whenComplete(
+                            (playlist, error) ->
+                                    post(
+                                            () -> {
+                                                Playlist resolved = playlist;
+                                                if (error != null || resolved == null) {
+                                                    resolved =
+                                                            mediaPlaylistCacheIndex.get(
+                                                                    id.toString());
+                                                    if (resolved == null) {
+                                                        showToast(
+                                                                I18n.tr(
+                                                                        "toast.playlist.playFailedReason",
+                                                                        safeMessage(error)));
+                                                        return;
+                                                    }
+                                                }
+                                                if (resolved.songs.isEmpty()) {
+                                                    showToast(I18n.tr("toast.playlist.empty"));
+                                                    return;
+                                                }
+                                                mediaPlaylistCacheIndex.upsert(resolved);
+                                                worker.submit(mediaPlaylistCacheIndex::save);
+                                                playPluginSongList(
+                                                        resolved.songs, 0, id.toString());
+                                            }));
+        }
     }
 
     public void copyMediaReference(String mediaId) {
-        if (mediaId == null || mediaId.isEmpty()) return;
-        if (mediaId.indexOf(':') < 0) {
-            try { copyPlaylistLink(Long.parseLong(mediaId)); } catch (NumberFormatException ignored) {}
-            return;
-        }
-        java.util.function.Consumer<String> sink = clipboard;
-        if (sink != null) {
-            sink.accept(mediaId);
-            showToast(I18n.tr("toast.mediaIdCopied"));
-        } else {
-            showToast(mediaId);
-        }
-    }
-
-    public void shareMedia(String mediaId) {
-        final MediaId id;
-        try { id = MediaId.parse(mediaId); }
-        catch (IllegalArgumentException error) { showToast(I18n.tr("toast.id.media")); return; }
-        if (!pluginHasCapability(id.provider(), ProviderCapability.SHARE)) {
-            copyMediaReference(mediaId);
-            return;
-        }
-        pluginProviders.share(id).whenComplete((url, error) -> post(() -> {
-            if (error != null || url == null || url.isEmpty()) {
-                showToast(I18n.tr("toast.share.failed", safeMessage(error)));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (mediaId == null || mediaId.isEmpty()) return;
+            if (mediaId.indexOf(':') < 0) {
+                try {
+                    copyPlaylistLink(Long.parseLong(mediaId));
+                } catch (NumberFormatException ignored) {
+                }
                 return;
             }
             java.util.function.Consumer<String> sink = clipboard;
             if (sink != null) {
-                sink.accept(url);
-                showToast(I18n.tr("toast.linkCopied"));
-            } else showToast(url);
-        }));
+                sink.accept(mediaId);
+                showToast(I18n.tr("toast.mediaIdCopied"));
+            } else {
+                showToast(mediaId);
+            }
+        }
+    }
+
+    public void shareMedia(String mediaId) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            final MediaId id;
+            try {
+                id = MediaId.parse(mediaId);
+            } catch (IllegalArgumentException error) {
+                showToast(I18n.tr("toast.id.media"));
+                return;
+            }
+            if (!pluginHasCapability(id.provider(), ProviderCapability.SHARE)) {
+                copyMediaReference(mediaId);
+                return;
+            }
+            pluginProviders
+                    .share(id)
+                    .whenComplete(
+                            (url, error) ->
+                                    post(
+                                            () -> {
+                                                if (error != null || url == null || url.isEmpty()) {
+                                                    showToast(
+                                                            I18n.tr(
+                                                                    "toast.share.failed",
+                                                                    safeMessage(error)));
+                                                    return;
+                                                }
+                                                java.util.function.Consumer<String> sink =
+                                                        clipboard;
+                                                if (sink != null) {
+                                                    sink.accept(url);
+                                                    showToast(I18n.tr("toast.linkCopied"));
+                                                } else showToast(url);
+                                            }));
+        }
     }
 
     /** Play a single netease song id (no surrounding queue). */
     public void playNetease(long songId) {
-        Track t = new Track();
-        t.source = Track.Source.NETEASE;
-        t.neteaseId = songId;
-        playQueue(Collections.singletonList(t), 0);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (!pluginHasCapability("netease", ProviderCapability.RESOLVE_STREAM)) {
+                showToast(I18n.tr("toast.play.missingPlugin"));
+                return;
+            }
+            Track track = findLiveTrack(songId);
+            if (track == null) {
+                showToast(I18n.tr("toast.cache.staleSong"));
+                return;
+            }
+            routeInstalledPluginTrack(track);
+            playQueue(Collections.singletonList(track), 0);
+        }
     }
 
     private void playSongList(List<NeteaseSong> songs, int i) {
@@ -5202,7 +5628,7 @@ public final class PlayerController {
         if (songs == null || i < 0 || i >= songs.size()) return;
         List<Track> q = new ArrayList<>(songs.size());
         for (NeteaseSong s : songs) q.add(toTrack(s));
-        playQueue(q, i, playlistId);
+        playQueue(q, i, playlistId != 0L ? "netease:playlist:" + playlistId : "");
     }
 
     private void playPluginSongList(List<Song> songs, int i) {
@@ -5213,77 +5639,53 @@ public final class PlayerController {
         if (songs == null || i < 0 || i >= songs.size()) return;
         List<Track> tracks = new ArrayList<>(songs.size());
         for (Song song : songs) tracks.add(toTrackPlugin(song));
-        currentQueueMediaPlaylistId = playlistId != null ? playlistId : "";
-        playQueue(tracks, i);
+        playQueue(tracks, i, playlistId);
     }
 
     /** Queue one provider's stable search bucket and start the selected row. */
     public void playPluginSearchResult(String providerId, int i) {
-        List<Song> songs = pluginSearchByProvider.get(providerId);
-        if (songs == null || i < 0 || i >= songs.size()) return;
-        List<Track> q = new ArrayList<>(songs.size());
-        for (Song song : songs) q.add(toTrackPlugin(song));
-        playQueue(q, i);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            List<Song> songs = pluginSearchByProvider.get(providerId);
+            if (songs == null || i < 0 || i >= songs.size()) return;
+            List<Track> q = new ArrayList<>(songs.size());
+            for (Song song : songs) q.add(toTrackPlugin(song));
+            playQueue(q, i);
+        }
     }
 
     private void playQueue(List<Track> q, int start) {
-        playQueue(q, start, 0L);
+        playQueue(q, start, "");
     }
 
-    private void playQueue(List<Track> q, int start, long sourcePlaylistId) {
-        // Checked before the queue is replaced: a rejected selection must leave the
-        // queue exactly as the plugin driving playback last set it.
-        if (q != null && start >= 0 && start < q.size() && blockedByPluginSession(q.get(start))) {
-            return;
+    private void playQueue(List<Track> tracks, int start, String playlistMediaId) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (tracks == null || start < 0 || start >= tracks.size()) return;
+            if (blockedByPluginSession(tracks.get(start))) return;
+            playbackSession.queue.clear();
+            playbackSession.queue.addAll(tracks);
+            playbackSession.index = -1;
+            currentQueueMediaPlaylistId = playlistMediaId != null ? playlistMediaId : "";
+            shuffleHistory.clear();
+            queueTracks.set(new ArrayList<>(playbackSession.queue));
+            playAt(start);
         }
-        currentQueuePlaylistId = sourcePlaylistId;
-        if (sourcePlaylistId != 0L) currentQueueMediaPlaylistId = "";
-        queue.clear();
-        shuffleHistory.clear();
-        playIndex = -1;
-        queue.addAll(q);
-        queueTracks.set(new ArrayList<>(queue));
-        onMain(() -> playAt(start));
     }
 
-    // Runs on the main thread (via onMain). Updates the plain playIndex synchronously,
-    // marshals UI Property writes to the render thread via post(), and drives the
-    // backend directly so playback advances even while the GL pump is paused.
-    /** Reports the track being switched away from to netease's play-report endpoint,
-     *  so its own server-side 最近播放/play-count history reflects plays made through
-     *  qplayer (see {@link NeteaseClient#scrobble}). Only netease tracks qualify —
-     *  local/custom-API sources have no netease-side record to update. Skips a track
-     *  abandoned within its first few seconds (accidental clicks, rapid browsing),
-     *  same rough threshold the official client applies. Reads the *live* backend
-     *  clock, not the {@link #positionMs} Property (which only refreshes from
-     *  pump() and can be stale right at a transition) — same reasoning as
-     *  {@link #saveQueue()}'s position capture. */
+    /** Report the outgoing source's live played duration through its plugin capability. */
     private void scrobbleOutgoingTrack(boolean naturalEnd) {
-        if (playIndex < 0 || playIndex >= queue.size()) return;
-        Track t = queue.get(playIndex);
-        if (t.source == Track.Source.PLUGIN && t.mediaId != null) {
-            long played = Math.max(0L, backend.position());
-            if (played < 3000L) return;
-            try {
-                MediaId id = MediaId.parse(t.mediaId).requireKind(
-                        dev.t1m3.qplayer.media.MediaKind.SONG);
-                if (pluginHasCapability(id.provider(), ProviderCapability.SCROBBLE)) {
-                    pluginProviders.scrobble(id, played, t.durationMs, naturalEnd)
-                            .exceptionally(error -> {
-                                Logger.warn("plugin scrobble failed: {}", safeMessage(error));
-                                return null;
-                            });
-                }
-            } catch (IllegalArgumentException ignored) {
-            }
-            return;
-        }
-        if (t.source != Track.Source.NETEASE || t.neteaseId == 0) return;
-        long seconds = Math.max(0L, backend.position()) / 1000L;
-        if (seconds < 3) return;
-        long songId = t.neteaseId;
-        String end = naturalEnd ? "playend" : "ui";
-        worker.submit(() -> netease.scrobble(songId, 0L, seconds, end));
+        Track track = playbackSession.current();
+        if (track == null || track.source != Track.Source.PLUGIN) return;
+        long played = Math.max(0L, backend.position());
+        if (played < 3000L) return;
+        MediaId id = MediaId.parse(track.canonicalId());
+        if (!pluginHasCapability(id.provider(), ProviderCapability.SCROBBLE)) return;
+        pluginProviders
+                .scrobble(id, played, track.durationMs, naturalEnd)
+                .exceptionally(
+                        error -> {
+                            Logger.warn("plugin scrobble failed: {}", safeMessage(error));
+                            return null;
+                        });
     }
 
     private void playAt(int i) {
@@ -5292,281 +5694,138 @@ public final class PlayerController {
         }
     }
 
-    private void playAtLocked(int i) {
-        if (i < 0 || i >= queue.size()) return;
-        if (blockedByPluginSession(queue.get(i))) return;
-        String requestedMediaId = queue.get(i).canonicalId();
-        if (pendingPluginDesiredPlaying != null
-                && !pendingPluginTargetMediaId.equals(requestedMediaId)) {
-            pendingPluginDesiredPlaying = null;
-            pendingPluginTargetMediaId = "";
-        }
-        // Any real local/remote selection supersedes a follower's delayed takeover.
-        // The generation also makes an already-queued timeout callback harmless.
-        // loadQueue() sets needsReplay because its restored track exists only as
-        // metadata until the user resumes it. Any successful route into playAt(),
-        // including clicking a different song first, is now taking responsibility
-        // for loading a real backend source, so the restore-only marker must not
-        // survive. If it leaked, the first pause -> resume later called playAt()
-        // again instead of backend.resume(); pendingResumeMs had already been
-        // consumed, so that accidental replay restarted the current song at 0.
-        needsReplay = false;
+    private void playAtLocked(int requestedIndex) {
+        if (appShuttingDown || requestedIndex < 0 || requestedIndex >= playbackSession.queue.size())
+            return;
+        Track track = playbackSession.queue.get(requestedIndex);
+        routeInstalledPluginTrack(track);
+        if (blockedByPluginSession(track)) return;
+        Track outgoing = playbackSession.current();
         scrobbleOutgoingTrack(pendingNaturalEnd);
         pendingNaturalEnd = false;
-        rememberShufflePredecessor(i);
-        Track outgoing = currentTrack();
-        playIndex = i;
-        final long currentCoverRevision = coverRevision.incrementAndGet();
-        // Consumed unconditionally on every call (see field comment), so a saved
-        // session position only ever gets one shot at applying, and only to the
-        // exact slot it was saved for.
-        long resumeMs = (i == pendingResumeIndex) ? Math.max(0L, pendingResumeMs) : 0L;
-        pendingResumeMs = 0L;
+        rememberShufflePredecessor(requestedIndex);
+        boolean desiredPlaying =
+                pendingPluginDesiredPlaying == null
+                        || !pendingPluginTargetMediaId.equals(track.canonicalId())
+                        || pendingPluginDesiredPlaying;
+        pendingPluginDesiredPlaying = null;
+        pendingPluginTargetMediaId = "";
+        playbackSession.index = requestedIndex;
+        playbackSession.select(desiredPlaying);
+        needsReplay = false;
+        long revision = coverRevision.incrementAndGet();
+        long resumeMs = requestedIndex == pendingResumeIndex ? Math.max(0L, pendingResumeMs) : 0L;
         pendingResumeIndex = -1;
+        pendingResumeMs = 0L;
+        playbackSession.startPositionMs = resumeMs;
         beginLyricClockLoad(resumeMs);
-        // Blank the now-playing surface (lyrics + cover fall back to their
-        // placeholders) and start the progress bars' loading sweep, whether or not
-        // the outgoing track fades. The loaders below re-apply the real lyrics/cover
-        // in the same render-queue drain (no flash for instant sources); the
-        // backend's onStarted ends the sweep once playback actually begins.
-        // If something is actually audible, ramp it down instead of a hard cut —
-        // FADE_OUT_MS is well under how long a netease URL resolve typically takes,
-        // so this never adds perceptible wait on top of that; backend.pause() only
-        // runs once the ramp reaches silence. Nothing to fade when already silent
-        // (fresh start, already paused) — pause immediately as before.
-        if (fadeEnabled && backend.isPlaying()) {
-            startFadeOut(FADE_OUT_MS, () -> backend.pause());
-        } else {
-            backend.pause();
-        }
-        post(() -> {
-            loading.set(true);
-            applyCover(null, currentCoverRevision);
-            coverPath.set("");
-        });
-        worker.submit(this::saveQueue);
-        final int idx = i;
-        final Track t = queue.get(i);
-        // Clear outgoing lyrics immediately so background hosts cannot show the
-        // previous song while the identity-gated loaders fetch the new lyrics.
-        // Same-track replay keeps loaded lyrics and skips loaders: a missing
-        // local sidecar must not replace the retained lyrics with an empty list.
-        boolean keepLyrics = outgoing != null
-                && outgoing.canonicalId().equals(t.canonicalId())
-                && lyrics.peek() != null && !lyrics.peek().isEmpty();
+        if (fadeEnabled && backend.isPlaying()) startFadeOut(FADE_OUT_MS, backend::pause);
+        else backend.pause();
+        loading.set(true);
+        playing.set(desiredPlaying);
+        applyCover(null, revision);
+        coverPath.set("");
+        boolean keepLyrics =
+                outgoing != null
+                        && outgoing.canonicalId().equals(track.canonicalId())
+                        && lyrics.peek() != null
+                        && !lyrics.peek().isEmpty();
         if (!keepLyrics) {
             applyLyrics(Collections.emptyList());
             coverModeManual.set(false);
         }
-        // Compact lyric hosts (Android overlay, desktop lyrics) and the host-drawn
-        // lyric page read these off the render pump. Android pauses GL in the
-        // background, so a post()ed write sits in uiQueue until the user returns.
-        // Property.set on a Property nobody is mid-iterating is safe here.
-        applyTrackLyricOffset(t);
-        index.set(idx);
-        currentFilePath.set(t.source == Track.Source.LOCAL && t.filePath != null ? t.filePath : "");
-        currentMediaId.set(t.canonicalId());
-        title.set(orEmpty(t.title));
-        artist.set(orEmpty(t.artist));
-        publishPlayingArtist(t);
-        album.set(orEmpty(t.album));
-        coverUrl.set(orEmpty(trackCoverUrl(t, "512")));
-        durationMs.set(t.durationMs);
+        applyTrackLyricOffset(track);
+        index.set(requestedIndex);
+        currentFilePath.set(track.source == Track.Source.LOCAL ? orEmpty(track.filePath) : "");
+        currentMediaId.set(track.canonicalId());
+        title.set(orEmpty(track.title));
+        artist.set(orEmpty(track.artist));
+        publishPlayingArtist(track);
+        album.set(orEmpty(track.album));
+        coverUrl.set(trackCoverUrl(track, "512"));
+        durationMs.set(track.durationMs);
         positionMs.set(resumeMs);
-        String canonical = t.canonicalId();
-        boolean pluginLikeable = t.source == Track.Source.PLUGIN
-                && providerForMediaHas(canonical, ProviderCapability.LIKE);
-        currentLiked.set(pluginLikeable ? pluginLikedSet.contains(canonical)
-                : t.neteaseId != 0 && likedSet.contains(t.neteaseId));
-        currentLikeable.set(pluginLikeable || t.neteaseId != 0);
-        wakeRenderer();
-        updateCover(t, currentCoverRevision);
-
-        // Protect whatever is about to play from the audio-cache eviction this
-        // same track's own (re-)caching below can trigger — see DiskCache's
-        // currentlyPlayingKey doc for the mid-playback auto-skip this avoids.
-        if (t.source == Track.Source.NETEASE) {
-            diskCache.setCurrentlyPlaying(t.neteaseId);
-        } else if (t.source == Track.Source.PLUGIN) {
-            diskCache.setCurrentlyPlaying(t.canonicalId());
-        } else {
-            diskCache.clearCurrentlyPlaying();
-        }
-
-        if (t.source == Track.Source.LOCAL) {
-            String src = t.playable();
-            if (src == null || src.isEmpty()) return;
-            if (!keepLyrics) loadLocalLyrics(t);
-            Logger.info("play local: {}", t.title);
-            playBackend(src, resumeMs);
-            playingIntent = true;
-            post(() -> playing.set(true));
-            notifyPlayback();
-        } else if (t.source == Track.Source.NETEASE) {
-            if (onlineSourcesArePluginOnly()) {
-                playingIntent = false;
-                post(() -> {
-                    playing.set(false);
-                    loading.set(false);
-                    showToast(I18n.tr("toast.play.missingPlugin"));
-                });
-                notifyPlayback();
+        boolean likeable =
+                track.source == Track.Source.PLUGIN
+                        && providerForMediaHas(track.canonicalId(), ProviderCapability.LIKE);
+        currentLikeable.set(likeable);
+        currentLiked.set(likeable && pluginLikedSet.contains(track.canonicalId()));
+        updateCover(track, revision);
+        if (track.source == Track.Source.PLUGIN) diskCache.setCurrentlyPlaying(track.canonicalId());
+        else diskCache.clearCurrentlyPlaying();
+        saveQueue();
+        if (track.source == Track.Source.LOCAL) {
+            String source = track.playable();
+            if (source == null || source.isEmpty()) {
+                skipUnplayable(track, I18n.tr("toast.play.audioFailed"));
                 return;
             }
-            // Always prefer a cached local file over (re-)streaming, regardless of
-            // play mode — a song played once is served from disk on every later play.
-            String cached = t.neteaseId != 0 ? diskCache.getAudio(t.neteaseId) : null;
-            if (cached != null) {
-                Logger.info("play netease (audio cache): {}", t.title);
-                playBackend(cached, resumeMs);
-                playingIntent = true;
-                post(() -> playing.set(true));
-                notifyPlayback();
-                // The audio fast-path skips resolveAndPlayNetease, so load the lyrics
-                // (cache-first inside) here too — else a cached song plays wordless.
-                if (!keepLyrics) loadNeteaseLyrics(t);
-                // Same reason: cacheAudioAsync (which downloads the 64x64 offline-
-                // playlist thumbnail) never runs on this path either, so a track
-                // cached before that thumbnail existed — or just replayed a second
-                // time — would otherwise never get one and stay a gray placeholder
-                // in an offline playlist's song list forever.
-                cacheThumb64Async(t.coverUrl);
-            } else if (t.streamUrl != null) {
-                Logger.info("play netease (cached url): {}", t.title);
-                playBackend(t.playable(), resumeMs);
-                playingIntent = true;
-                post(() -> playing.set(true));
-                notifyPlayback();
-                if (!keepLyrics) loadNeteaseLyrics(t);
-                // Populate the disk cache so the next play is local (skip trial clips).
-                cacheAudioAsync(t);
-            } else {
-                resolveAndPlayNetease(t, resumeMs, currentCoverRevision);
-            }
-        } else if (t.source == Track.Source.CUSTOM_API) {
-            skipUnplayable(t, I18n.tr("toast.play.legacySourceGone"));
-        } else if (t.source == Track.Source.PLUGIN) {
-            String cached = diskCache.getAudio(t.canonicalId());
-            if (cached != null) {
-                Logger.info("play plugin {} (audio cache): {}", providerOf(t), t.title);
-                playBackend(cached, resumeMs);
-                playingIntent = true;
-                post(() -> playing.set(true));
-                notifyPlayback();
-                if (!keepLyrics) loadPluginLyrics(t);
-            } else if (hasFreshPluginStream(t)) {
-                Logger.info("play plugin {} (cached url): {}", providerOf(t), t.title);
-                playBackend(t.playable(), t.streamHeaders, resumeMs);
-                playingIntent = true;
-                post(() -> playing.set(true));
-                notifyPlayback();
-                if (!keepLyrics) loadPluginLyrics(t);
-                cachePluginAudioAfterStart(t);
-            } else {
-                t.streamUrl = null;
-                t.streamHeaders.clear();
-                resolveAndPlayPlugin(t, resumeMs, currentCoverRevision);
-            }
+            if (!keepLyrics) ioWorker.submit(() -> loadLocalLyrics(track));
+            playBackend(source, resumeMs);
+            if (!playbackSession.playing) backend.pause();
+        } else if (track.source == Track.Source.PLUGIN) {
+            preparePluginPlayback(track, keepLyrics, revision);
+        } else {
+            skipUnplayable(track, I18n.tr("toast.play.missingPlugin"));
+            return;
         }
-        // Current track's fetches are now queued; warm next/prev behind them.
         preloadAdjacent();
+        notifyPlayback();
     }
 
-    /** Feed coverBytes for the fluid backdrop: local tracks carry embedded
-     *  bytes; NETEASE tracks download lazily off-thread, keyed by the caller's
-     *  {@link #coverRevision} so a stale fetch for a skipped-past track is dropped
-     *  (see {@link #applyCoverAndPath} for why the queue index cannot do that job). */
+    /**
+     * Feed coverBytes for the fluid backdrop: local tracks carry embedded bytes; NETEASE tracks
+     * download lazily off-thread, keyed by the caller's {@link #coverRevision} so a stale fetch for
+     * a skipped-past track is dropped (see {@link #applyCoverAndPath} for why the queue index
+     * cannot do that job).
+     */
     private void updateCover(Track t, long revision) {
-        if (t.coverBytes != null) {   // present (embedded, or preloaded by preloadTrack)
-            final byte[] cb = t.coverBytes;
-            final String path = coverDiskPath(t);   // local file for the QML cover image
-            post(() -> applyCoverAndPath(cb, path, revision));
-            notifyPlayback();
-            return;
-        }
-        // Local track: cover lives in a cache file (an absolute path, not an http url).
-        // Prefer the larger now-playing copy over the row thumbnail for the fluid
-        // backdrop + Monet seed; fall back to the thumbnail if only it exists.
-        // Note: this must not test for a leading "/" — that only holds for Unix-style
-        // paths (Android) and silently breaks Windows desktop, where local-cache cover
-        // paths look like "C:\Users\...\covers\<hash>.img" instead.
-        // LOCAL-source only: a NETEASE coverThumbPath can also hold a local 64px offline
-        // thumb (diskCache.getThumb64) — treating that as the now-playing cover would
-        // stick the lyric page / SMTC on a postage-stamp image even while the full-size
-        // cover is a moment away online. Those tracks fall through to the 1024 fetch.
-        String localCover = t.coverLocalPath != null ? t.coverLocalPath : t.coverThumbPath;
-        if (t.source == Track.Source.LOCAL
-                && localCover != null && !localCover.startsWith("http://") && !localCover.startsWith("https://")) {
-            byte[] data = readBytesFromFile(localCover);
-            if (data != null && data.length > 0) {
-                // Keep the bytes on the current Track so the media session can read the
-                // cover off the render thread (see PlaybackService): the coverBytes
-                // Property is only committed on the render queue, which is paused while
-                // backgrounded, so a background track-switch would otherwise show stale art.
-                t.coverBytes = data;
-                final String path = localCover;
-                post(() -> applyCoverAndPath(data, path, revision));
-                notifyPlayback();
+        ioWorker.submit(() -> updateCoverOnIo(t, revision));
+    }
+
+    private void updateCoverOnIo(Track track, long revision) {
+        if (coverRevision.get() != revision) return;
+        try {
+            ArtworkResolver.Cover cached = artworkResolver.cachedCover(track);
+            if (cached.bytes() != null && cached.bytes().length > 0) {
+                publishArtwork(track, cached.bytes(), cached.path(), revision);
                 return;
             }
+        } catch (java.io.IOException error) {
+            Logger.warn("cached cover read failed: {}", safeMessage(error));
         }
-        // A 128px netease thumbnail is enough for the 32px color histogram and
-        // usually arrives well before the 1024px lyric/background copy below.
-        // Its lower-quality seed is replaced (never overwritten) by the full one.
-        scheduleFastMonet(t, revision);
-        post(() -> applyCoverAndPath(null, "", revision));
-        if (t.coverUrl == null || t.coverUrl.isEmpty()) return;
-        // The original (netease covers are commonly 1000-3000px+) was being fetched
-        // uncapped for the fluid lyric backdrop -- on a slow connection that routinely
-        // missed the fixed download timeout below while the UI's own 512px thumbnail
-        // (see the coverUrl Property, thumbUrl(t.coverUrl, "512")) came in fine, so the
-        // lyric page sat on its gray placeholder even though a perfectly good cover was
-        // already showing elsewhere. A blurred full-screen backdrop doesn't need more
-        // detail than this anyway.
-        final String url = trackCoverUrl(t, "1024");
+        scheduleFastMonet(track, revision);
+        if (track.source != Track.Source.PLUGIN) return;
+        String url = trackCoverUrl(track, "1024");
+        if (url.isEmpty()) return;
+        String provider = providerOf(track);
+        pluginHostApi
+                .fetchReturnedBytes(
+                        provider, url, Collections.emptyMap(), 16L * 1024L * 1024L, 8_000)
+                .whenCompleteAsync(
+                        (data, error) -> {
+                            if (error != null || data == null || data.length == 0) {
+                                Logger.warn(
+                                        "plugin {} cover fetch failed: {}",
+                                        provider,
+                                        error != null ? safeMessage(error) : "empty response");
+                                return;
+                            }
+                            String path = diskCache.imagePath(url);
+                            if (path != null) writeBytesToFile(data, path);
+                            publishArtwork(track, data, path, revision);
+                        },
+                        ioWorker);
+    }
 
-        // Check disk cache first.
-        String cachedImg = diskCache.getImage(url);
-        if (cachedImg != null) {
-            byte[] data = readBytesFromFile(cachedImg);
-            if (data != null && data.length > 0) {
-                t.coverBytes = data;
-                final String path = cachedImg;
-                post(() -> applyCoverAndPath(data, path, revision));
-                notifyPlayback();
-                return;
-            }
-        }
-
-        if (t.source == Track.Source.PLUGIN) {
-            String provider = providerOf(t);
-            pluginHostApi.fetchReturnedBytes(provider, url, Collections.<String, String>emptyMap(),
-                    16L * 1024L * 1024L, 8_000).whenComplete((data, error) -> {
-                if (error != null || data == null || data.length == 0) {
-                    Logger.warn("plugin {} cover fetch failed: {}", provider,
-                            error != null ? safeMessage(error) : "empty response");
-                    return;
-                }
-                t.coverBytes = data;
-                String imgPath = diskCache.imagePath(url);
-                if (imgPath != null) writeBytesToFile(data, imgPath);
-                post(() -> applyCoverAndPath(data, imgPath, revision));
-                notifyPlayback();
-            });
-            return;
-        }
-
-        worker.submit(() -> {
-            byte[] data = downloadBytes(url);
-            if (data == null) return;
-            t.coverBytes = data;
-            // Cache cover image to disk (write already-downloaded bytes, no re-fetch).
-            String imgPath = diskCache.imagePath(url);
-            if (imgPath != null) writeBytesToFile(data, imgPath);
-            final String path = imgPath;
-            post(() -> applyCoverAndPath(data, path, revision));
-            notifyPlayback(); // refresh the media-notification artwork
-        });
+    private void publishArtwork(Track track, byte[] data, String path, long revision) {
+        onMain(
+                () -> {
+                    if (coverRevision.get() != revision || !isCurrentTrack(track)) return;
+                    track.coverBytes = data;
+                    applyCoverAndPath(data, path, revision);
+                    notifyPlayback();
+                });
     }
 
     /** Commit one track switch's cover bytes AND its on-disk path together, on the
@@ -5604,41 +5863,25 @@ public final class PlayerController {
         scheduleSeedExtraction(data, revision, 1);
     }
 
-    /** Fetch a tiny current-track cover independently of the 1024px backdrop.
-     *  Netease supports CDN resize parameters; other sources keep using their full
-     *  cover path to avoid assuming an unsupported URL format. */
+    /** Read a local thumbnail independently of full-artwork IO for a faster theme seed. */
     private void scheduleFastMonet(Track t, long revision) {
         final ColorExtractor ex = colorExtractor;
         if (ex == null || t == null) return;
         String localThumb = t.coverThumbPath;
-        if (localThumb != null && !localThumb.isEmpty()
-                && !localThumb.startsWith("http://") && !localThumb.startsWith("https://")) {
+        if (localThumb != null
+                && !localThumb.isEmpty()
+                && !localThumb.startsWith("http://")
+                && !localThumb.startsWith("https://")) {
             final String path = localThumb;
-            monetFetchWorker.execute(() -> {
-                if (coverRevision.get() != revision) return;
-                byte[] data = readBytesFromFile(path);
-                if (data != null && data.length > 0) scheduleSeedExtraction(data, revision, 0);
-            });
+            monetFetchWorker.execute(
+                    () -> {
+                        if (coverRevision.get() != revision) return;
+                        byte[] data = readBytesFromFile(path);
+                        if (data != null && data.length > 0)
+                            scheduleSeedExtraction(data, revision, 0);
+                    });
             return;
         }
-        if (t.source != Track.Source.NETEASE || t.coverUrl == null || t.coverUrl.isEmpty()) return;
-        final String url = thumbUrl(t.coverUrl, "128");
-        monetFetchWorker.execute(() -> {
-            if (coverRevision.get() != revision) return;
-            byte[] data = null;
-            String cached = diskCache.getImage(url);
-            if (cached != null) data = readBytesFromFile(cached);
-            if (data == null || data.length == 0) {
-                data = downloadBytes(url, 3000);
-                if (data != null) {
-                    String path = diskCache.imagePath(url);
-                    if (path != null) writeBytesToFile(data, path);
-                }
-            }
-            if (data != null && data.length > 0 && coverRevision.get() == revision) {
-                scheduleSeedExtraction(data, revision, 0);
-            }
-        });
     }
 
     private void scheduleSeedExtraction(byte[] data, long revision, int quality) {
@@ -5664,96 +5907,42 @@ public final class PlayerController {
         });
     }
 
-    /** Local file path for a track's cover (for the QML cover Image): the on-disk
-     *  full/thumb copy for a local track, or the disk-cached download for a netease
-     *  one; "" when only a remote URL is available. */
-    private String coverDiskPath(Track t) {
-        // On-disk full/thumb cover files exist only for LOCAL tracks (LibraryCache).
-        // A NETEASE coverThumbPath may instead point at a tiny 64px offline thumb —
-        // never surface that as the now-playing cover; that must come from the
-        // 1024px cache/download below (SMTC/MiniPlayer fall back to the remote URL).
-        if (t.source == Track.Source.LOCAL) {
-            String local = t.coverLocalPath != null ? t.coverLocalPath : t.coverThumbPath;
-            if (local != null && !local.startsWith("http://") && !local.startsWith("https://")) return local;
-        }
-        if (t.coverUrl != null && !t.coverUrl.isEmpty()) {
-            // Must use the same 1024px key updateCover() and loadCoverBytes() cache
-            // under: hashing the raw coverUrl points at a file nothing ever writes,
-            // so this always returned "". That went unnoticed everywhere except the
-            // lyric page, whose cover Image binds coverPath alone (the MiniPlayer's
-            // falls back to the remote coverUrl) -- so playing a track preloaded by
-            // preloadAdjacent, which takes updateCover's coverBytes fast path and
-            // gets its coverPath from here, left the lyric page on its placeholder
-            // while the fluid backdrop and Monet seed came up fine from the same bytes.
-            String cached = diskCache.getImage(trackCoverUrl(t, "1024"));
-            if (cached != null) return cached;
-        }
-        return "";
-    }
-
-    /** Resolve a track's cover bytes (embedded -> local file -> disk cache -> download,
-     *  writing the download to the disk cache). Blocking; call on the worker thread. */
-    private byte[] loadCoverBytes(Track t) {
-        if (t.coverBytes != null) return t.coverBytes;
-        // Same LOCAL-only rule as updateCover/coverDiskPath: a local coverThumbPath on
-        // a netease track is its 64px offline thumb, not the now-playing artwork.
-        if (t.source == Track.Source.LOCAL) {
-            String local = t.coverLocalPath != null ? t.coverLocalPath : t.coverThumbPath;
-            if (local != null && !local.startsWith("http://") && !local.startsWith("https://")) {
-                byte[] d = readBytesFromFile(local);
-                if (d != null && d.length > 0) return d;
-            }
-        }
-        if (t.coverUrl == null || t.coverUrl.isEmpty()) return null;
-        // Same 1024px cap as updateCover() -- see its comment for why.
-        String url = trackCoverUrl(t, "1024");
-        String cachedImg = diskCache.getImage(url);
-        if (cachedImg != null) {
-            byte[] d = readBytesFromFile(cachedImg);
-            if (d != null && d.length > 0) return d;
-        }
-        byte[] data = downloadBytes(url);
-        if (data != null) {
-            String imgPath = diskCache.imagePath(url);
-            if (imgPath != null) writeBytesToFile(data, imgPath);
-        }
-        return data;
-    }
-
-    /** After the current track settles, warm the next + previous tracks' lyrics and
-     *  cover bytes on the worker so switching to them is instant (no load-in stutter).
-     *  Runs on the main thread; submits per-track work that queues behind the current
-     *  track's own fetches (single worker), so the current song always loads first. */
+    /**
+     * After the current track settles, warm the next + previous tracks' lyrics and cover bytes on
+     * the worker so switching to them is instant (no load-in stutter). Runs on the main thread;
+     * submits per-track work that queues behind the current track's own fetches (single worker), so
+     * the current song always loads first.
+     */
     private void preloadAdjacent() {
-        int n = queue.size();
+        int n = playbackSession.queue.size();
         if (n <= 1) return;
-        int cur = playIndex;
+        int cur = playbackSession.index;
         if (cur < 0 || cur >= n) return;
-        Track next = queue.get((cur + 1) % n);
-        Track prev = queue.get((cur - 1 + n) % n);
+        Track next = playbackSession.queue.get((cur + 1) % n);
+        Track prev = playbackSession.queue.get((cur - 1 + n) % n);
         preloadTrack(next);
         if (prev != next) preloadTrack(prev);
     }
 
-    private void preloadTrack(Track t) {
-        if (t == null) return;
-        if (t.source == Track.Source.NETEASE && t.neteaseId != 0 && !lyricMem.containsKey(t.neteaseId)) {
-            final long id = t.neteaseId;
-            worker.submit(() -> fetchNeteaseLyrics(id));
-        }
-        if (t.coverBytes == null && t.source != Track.Source.PLUGIN) {
-            final Track tr = t;
-            worker.submit(() -> {
-                byte[] data = loadCoverBytes(tr);
-                if (data != null) tr.coverBytes = data;
-            });
-        }
+    private void preloadTrack(Track track) {
+        if (track == null || track.source != Track.Source.LOCAL || track.coverBytes != null) return;
+        ioWorker.submit(
+                () -> {
+                    try {
+                        ArtworkResolver.Cover cover = artworkResolver.cachedCover(track);
+                        post(() -> track.coverBytes = cover.bytes());
+                    } catch (java.io.IOException error) {
+                        Logger.warn("cover preload failed: {}", safeMessage(error));
+                    }
+                });
     }
 
     /** Toggle Monet dynamic color; re-applies the seed (render thread). */
     public void setMonetEnabled(boolean enabled) {
-        this.monetEnabled = enabled;
-        post(this::reapplySeed);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            this.monetEnabled = enabled;
+            post(this::reapplySeed);
+        }
     }
 
     /** Push the effective seed into StyleManager: the cover seed when Monet is on and
@@ -5783,33 +5972,9 @@ public final class PlayerController {
         return Collections.emptyList();
     }
 
-    private static byte[] downloadBytes(String url) {
-        return downloadBytes(url, 8000);
-    }
+    
 
-    private static byte[] downloadBytes(String url, int timeoutMs) {
-        java.net.HttpURLConnection c = null;
-        try {
-            c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
-            c.setConnectTimeout(timeoutMs);
-            c.setReadTimeout(timeoutMs);
-            c.setRequestProperty("User-Agent", "qplayer/1.0");
-            try (java.io.InputStream in = c.getInputStream();
-                 java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
-                byte[] buf = new byte[8192];
-                int n;
-                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
-                return out.toByteArray();
-            }
-        } catch (Throwable e) {
-            // Shared by cover + ttml-lyric fetches; log the URL so the failing
-            // resource is clear instead of always blaming the cover.
-            Logger.warn("download failed for {}: {}", url, e.getMessage());
-            return null;
-        } finally {
-            if (c != null) c.disconnect();
-        }
-    }
+    
 
     // ---- disk I/O helpers ------------------------------------------------
 
@@ -5826,148 +5991,131 @@ public final class PlayerController {
         }
     }
 
-    private static void writeBytesToFile(byte[] data, String path) {
+    private void writeBytesToFile(byte[] data, String path) {
         if (data == null || path == null) return;
-        try {
+        try (DiskCache.WriteLease lease = diskCache.beginExternalWrite(path)) {
             StorageFiles.writeBytesAtomic(java.nio.file.Paths.get(path), data);
-        } catch (Throwable ignored) { }
+        } catch (Exception error) {
+            Logger.warn("artwork cache write failed: {}", safeMessage(error));
+        }
     }
 
     public void toggle() {
-        onMain(() -> {
-            if (playIndex < 0 && !library.isEmpty()) {
-                play(0);
-                return;
-            }
-            if (playingIntent) {
-                playingIntent = false;
-                post(() -> playing.set(false));
-                if (fadeEnabled && (playbackStarted || backend.isPlaying())) {
-                    // UI reflects paused immediately; the actual backend.pause()
-                    // is deferred until the fade-out reaches silence so it's a
-                    // ramp-down, not a hard cut. If the user hits resume again
-                    // before that fires, playingIntent is already back to true
-                    // by then and this deferred call is skipped entirely — the
-                    // resume branch below picks it up as "never really paused".
-                    // Before onStarted there is nothing audible to ramp, and
-                    // deferring pause leaves Android wantPlay=true so prepare
-                    // still starts the new source.
-                    startFadeOut(FADE_OUT_MS, () -> { if (!playingIntent) backend.pause(); });
-                } else {
-                    cancelFadeAtGain(1f);
-                    backend.pause();
-                }
-            } else {
-                if (needsReplay && playIndex >= 0) {
-                    needsReplay = false;
-                    playAt(playIndex);
-                    return;
-                }
-                if (isFadeRunning() && backend.isPlaying()) {
-                    // Caught mid a pause's deferred fade-out (backend.pause() never
-                    // actually ran) -- cancel that pending pause and ramp back up
-                    // from wherever the gain currently sits instead of restarting
-                    // from silence or leaving it stuck fading down.
-                    if (fadeEnabled) {
-                        startVolumeFade(currentFadeGain(), 1f, FADE_IN_MS, null);
-                    } else {
-                        cancelFadeAtGain(1f);
+        onMain(
+                () -> {
+                    if (playbackSession.index < 0 && !library.isEmpty()) {
+                        play(0);
+                        return;
                     }
-                } else {
-                    // Genuinely paused already (no ramp in flight to pick back up) --
-                    // fade back in from silence, symmetric with the pause fade-out.
-                    if (fadeEnabled) {
-                        startVolumeFade(0f, 1f, FADE_IN_MS, null);
-                    } else {
-                        cancelFadeAtGain(1f);
-                    }
-                    backend.resume();
-                }
-                playingIntent = true;
-                post(() -> playing.set(true));
-            }
-            notifyPlayback();
-        });
+                    if (playbackSession.playing) mediaPause();
+                    else mediaResume();
+                });
     }
 
     /** Cycle list-loop -> shuffle -> repeat-one -> list-loop. */
     public void cyclePlayMode() {
-        setPlayMode((playMode.peek() + 1) % 3);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            setPlayMode((playMode.peek() + 1) % 3);
+        }
     }
 
-    /** Select list-loop (0), shuffle (1), or repeat-one (2). Host media-session
-     *  adapters use this for their explicit shuffle/repeat properties. */
+    /**
+     * Select list-loop (0), shuffle (1), or repeat-one (2). Host media-session adapters use this
+     * for their explicit shuffle/repeat properties.
+     */
     public void setPlayMode(int mode) {
-        playMode.set(Math.max(0, Math.min(2, mode)));
-        notifyPlayback();
+        synchronized (QmlRuntimeLock.MONITOR) {
+            playMode.set(Math.max(0, Math.min(2, mode)));
+            notifyPlayback();
+        }
     }
 
     // A different queue slot than the current one (shuffle never repeats a track
     // back-to-back unless the queue has a single entry).
     private int randomIndex() {
-        int n = queue.size();
+        int n = playbackSession.queue.size();
         if (n == 0) return 0;
         if (n == 1) return 0;
         int r;
         do {
             r = rng.nextInt(n);
-        } while (r == playIndex);
+        } while (r == playbackSession.index);
         return r;
     }
 
     // Manual skip: shuffle picks a random slot, otherwise step forward and wrap.
     // Repeat-one only affects auto-advance -- a manual press still moves on.
     public void next() {
-        onMain(() -> {
-            if (queue.isEmpty()) return;
-            suppressNextFadeIn = true;
-            playAt(playMode.peek() == 1 ? randomIndex() : (playIndex + 1) % queue.size());
-        });
+        synchronized (QmlRuntimeLock.MONITOR) {
+            onMain(
+                    () -> {
+                        if (playbackSession.queue.isEmpty()) return;
+                        suppressNextFadeIn = true;
+                        playAt(
+                                playMode.peek() == 1
+                                        ? randomIndex()
+                                        : (playbackSession.index + 1)
+                                                % playbackSession.queue.size());
+                    });
+        }
     }
 
     public void prev() {
-        onMain(() -> {
-            if (queue.isEmpty()) return;
-            int n = queue.size();
-            suppressNextFadeIn = true;
-            if (playMode.peek() == 1) {
-                int remembered = popShuffleHistoryIndex();
-                if (remembered >= 0) {
-                    consumingShuffleHistory = true;
-                    try {
-                        playAt(remembered);
-                    } finally {
-                        consumingShuffleHistory = false;
-                    }
-                    return;
-                }
-            }
-            playAt(playMode.peek() == 1 ? randomIndex() : (playIndex - 1 + n) % n);
-        });
+        synchronized (QmlRuntimeLock.MONITOR) {
+            onMain(
+                    () -> {
+                        if (playbackSession.queue.isEmpty()) return;
+                        int n = playbackSession.queue.size();
+                        suppressNextFadeIn = true;
+                        if (playMode.peek() == 1) {
+                            int remembered = popShuffleHistoryIndex();
+                            if (remembered >= 0) {
+                                consumingShuffleHistory = true;
+                                try {
+                                    playAt(remembered);
+                                } finally {
+                                    consumingShuffleHistory = false;
+                                }
+                                return;
+                            }
+                        }
+                        playAt(
+                                playMode.peek() == 1
+                                        ? randomIndex()
+                                        : (playbackSession.index - 1 + n) % n);
+                    });
+        }
     }
 
-    /** Record the track we are leaving so shuffle's {@link #prev} can find it.
-     *  No-op when replaying the same slot, when prev() itself is consuming the
-     *  stack, or when the outgoing id is empty/identical to the incoming one. */
+    /**
+     * Record the track we are leaving so shuffle's {@link #prev} can find it. No-op when replaying
+     * the same slot, when prev() itself is consuming the stack, or when the outgoing id is
+     * empty/identical to the incoming one.
+     */
     private void rememberShufflePredecessor(int incomingIndex) {
         if (consumingShuffleHistory) return;
-        if (playIndex < 0 || playIndex >= queue.size() || playIndex == incomingIndex) return;
-        if (incomingIndex < 0 || incomingIndex >= queue.size()) return;
-        String outgoing = queue.get(playIndex).canonicalId();
+        if (playbackSession.index < 0
+                || playbackSession.index >= playbackSession.queue.size()
+                || playbackSession.index == incomingIndex) return;
+        if (incomingIndex < 0 || incomingIndex >= playbackSession.queue.size()) return;
+        String outgoing = playbackSession.queue.get(playbackSession.index).canonicalId();
         if (outgoing == null || outgoing.isEmpty()) return;
-        if (outgoing.equals(queue.get(incomingIndex).canonicalId())) return;
+        if (outgoing.equals(playbackSession.queue.get(incomingIndex).canonicalId())) return;
         shuffleHistory.addLast(outgoing);
         while (shuffleHistory.size() > MAX_SHUFFLE_HISTORY) shuffleHistory.removeFirst();
     }
 
-    /** Most recent remembered track that is still in the queue and is not the
-     *  one already playing. Skips ids dropped by a queue edit. */
+    /**
+     * Most recent remembered track that is still in the queue and is not the one already playing.
+     * Skips ids dropped by a queue edit.
+     */
     private int popShuffleHistoryIndex() {
         while (!shuffleHistory.isEmpty()) {
             String id = shuffleHistory.removeLast();
             if (id == null || id.isEmpty()) continue;
-            for (int i = 0; i < queue.size(); i++) {
-                if (i != playIndex && id.equals(queue.get(i).canonicalId())) return i;
+            for (int i = 0; i < playbackSession.queue.size(); i++) {
+                if (i != playbackSession.index
+                        && id.equals(playbackSession.queue.get(i).canonicalId())) return i;
             }
         }
         return -1;
@@ -5983,9 +6131,10 @@ public final class PlayerController {
     // list-loop advances. Wired to backend.onComplete (not next()) so repeat-one
     // doesn't fight a user's manual skip. Already on the main thread (onComplete).
     private void autoAdvance() {
-        if (queue.isEmpty()) return;
+        if (playbackSession.queue.isEmpty()) return;
         Track ending = currentTrack();
-        if (ending != null && ending.durationMs > 0
+        if (ending != null
+                && ending.durationMs > 0
                 && ending.durationMs - Math.max(0L, backend.position()) > TRUNCATED_END_GUARD_MS
                 && retryStaleStreamUrl(ending)) {
             return;
@@ -6000,46 +6149,46 @@ public final class PlayerController {
         // autoAdvance() and pluginAppUnavailable() both check this, but the plugin
         // host's "playback.next" calls straight in — and the list-loop branch below
         // divides by the queue size.
-        if (queue.isEmpty()) return;
+        if (playbackSession.queue.isEmpty()) return;
         switch (playMode.peek()) {
             case 2:
-                playAt(playIndex);
+                playAt(playbackSession.index);
                 break;
             case 1:
                 playAt(randomIndex());
                 break;
             default:
-                playAt((playIndex + 1) % queue.size());
+                playAt((playbackSession.index + 1) % playbackSession.queue.size());
                 break;
         }
     }
 
     public void seek(long ms) {
-        final long t = Math.max(0L, ms);
-        onMain(() -> {
+        onMain(() -> mediaSeek(ms));
+    }
+
+    /**
+     * Seek immediately — like {@link #mediaPause()} / {@link #mediaResume()}, bypasses the
+     * main-thread Handler to avoid OEM background throttling.
+     */
+    public void mediaSeek(long ms) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            final long t = Math.max(0L, ms);
             resetNaturalEndFadeAfterSeek();
             seekRevision.incrementAndGet();
             stoppedLyricPositionMs = t;
-            backend.seek(t);
+            playbackSession.startPositionMs = t;
+            if (pendingResumeIndex == playbackSession.index) pendingResumeMs = t;
+            if (!playbackSession.resolving) backend.seek(t);
             post(() -> positionMs.set(t));
             notifyPlayback();
-        });
-    }
-
-    /** Seek immediately — like {@link #mediaPause()} / {@link #mediaResume()},
-     *  bypasses the main-thread Handler to avoid OEM background throttling. */
-    public void mediaSeek(long ms) {
-        final long t = Math.max(0L, ms);
-        resetNaturalEndFadeAfterSeek();
-        seekRevision.incrementAndGet();
-        stoppedLyricPositionMs = t;
-        backend.seek(t);
-        post(() -> positionMs.set(t));
-        notifyPlayback();
+        }
     }
 
     public long seekRevision() {
-        return seekRevision.get();
+        synchronized (QmlRuntimeLock.MONITOR) {
+            return seekRevision.get();
+        }
     }
 
     private void resetNaturalEndFadeAfterSeek() {
@@ -6053,27 +6202,39 @@ public final class PlayerController {
     }
 
     public long position() {
-        return backend.position();
+        synchronized (QmlRuntimeLock.MONITOR) {
+            return backend.position();
+        }
     }
 
-    /** True only while song time should advance visually. Unlike {@link #isPlaying()},
-     * this stays false during async source loading. During a manual fade-out it stays
-     * true until the backend really pauses, keeping lyrics aligned with audible audio. */
+    /**
+     * True only while song time should advance visually. Unlike {@link #isPlaying()}, this stays
+     * false during async source loading. During a manual fade-out it stays true until the backend
+     * really pauses, keeping lyrics aligned with audible audio.
+     */
     public boolean isLyricClockRunning() {
-        return playbackStarted && backend.isPlaying();
+        synchronized (QmlRuntimeLock.MONITOR) {
+            return playbackStarted && backend.isPlaying();
+        }
     }
 
-    /** Exact lyric-clock baseline. While running this is the live backend position;
-     * after a source has started, its paused position remains the source of truth too,
-     * so pause/resume cannot diverge and then visibly jump back into alignment. */
+    /**
+     * Exact lyric-clock baseline. While running this is the live backend position; after a source
+     * has started, its paused position remains the source of truth too, so pause/resume cannot
+     * diverge and then visibly jump back into alignment.
+     */
     public long lyricClockPosition() {
-        return playbackStarted
-                ? Math.max(0L, backend.position())
-                : Math.max(0L, stoppedLyricPositionMs);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            return playbackStarted
+                    ? Math.max(0L, backend.position())
+                    : Math.max(0L, stoppedLyricPositionMs);
+        }
     }
 
     public long playbackRevision() {
-        return playbackRevision.get();
+        synchronized (QmlRuntimeLock.MONITOR) {
+            return playbackRevision.get();
+        }
     }
 
     private void beginLyricClockLoad(long startMs) {
@@ -6083,99 +6244,115 @@ public final class PlayerController {
     }
 
     /**
-     * Position intended for a host media session. Unlike {@link #position()},
-     * this also sees a queue's saved resume point before the asynchronous UI
-     * queue has published it and before the audio backend has started.
+     * Position intended for a host media session. Unlike {@link #position()}, this also sees a
+     * queue's saved resume point before the asynchronous UI queue has published it and before the
+     * audio backend has started.
      */
     public long mediaSessionPosition() {
-        long backendPosition = Math.max(0L, backend.position());
-        if (playingIntent || backendPosition > 0L) return backendPosition;
-        if (pendingResumeIndex == playIndex) return Math.max(0L, pendingResumeMs);
-        Long propertyPosition = positionMs.peek();
-        return propertyPosition != null ? Math.max(0L, propertyPosition) : 0L;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (playbackSession.resolving || needsReplay) {
+                if (pendingResumeIndex == playbackSession.index)
+                    return Math.max(0L, pendingResumeMs);
+                return Math.max(0L, stoppedLyricPositionMs);
+            }
+            long live = Math.max(0L, backend.position());
+            if (playbackStarted || backend.isPlaying() || live > 0L) return live;
+            return Math.max(0L, stoppedLyricPositionMs);
+        }
     }
 
     public void setVolume(float v) {
-        float clamped = Math.max(0f, Math.min(1f, v));
-        userVolume = clamped;
-        applyEffectiveVolume(currentFadeGain());
-        volume.set(clamped);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            float clamped = Math.max(0f, Math.min(1f, v));
+            userVolume = clamped;
+            applyEffectiveVolume(currentFadeGain());
+            volume.set(clamped);
+        }
     }
 
     public void setPlayLevel(String level) {
-        if (level != null && !level.isEmpty()) playLevel = level;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (level != null && !level.isEmpty()) playLevel = level;
+        }
     }
 
-    /** Settings toggle: netease playback quality. On (default) requests "exhigh"
-     *  (~320kbps); off requests "standard" (~128kbps) to save bandwidth. Only
-     *  affects tracks resolved after the change, not the currently playing one. */
+    /**
+     * Settings toggle: netease playback quality. On (default) requests "exhigh" (~320kbps); off
+     * requests "standard" (~128kbps) to save bandwidth. Only affects tracks resolved after the
+     * change, not the currently playing one.
+     */
     public void setHighQualityEnabled(boolean enabled) {
-        setPlayLevel(enabled ? "exhigh" : "standard");
+        synchronized (QmlRuntimeLock.MONITOR) {
+            setPlayLevel(enabled ? "exhigh" : "standard");
+        }
     }
 
-    /** Settings toggle: fade the volume in at the start of a track and out
-     *  approaching its natural end, instead of a hard cut. Turning it off
-     *  mid-fade snaps straight back to the user's actual volume setting. */
+    /**
+     * Settings toggle: fade the volume in at the start of a track and out approaching its natural
+     * end, instead of a hard cut. Turning it off mid-fade snaps straight back to the user's actual
+     * volume setting.
+     */
     public void setFadeEnabled(boolean enabled) {
-        this.fadeEnabled = enabled;
-        if (!enabled) {
-            cancelFadeAtGain(1f);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            this.fadeEnabled = enabled;
+            if (!enabled) {
+                cancelFadeAtGain(1f);
+            }
         }
     }
 
-    /** Load a netease track's lyrics off-thread (AMLL TTML mirror, else Netease's
-     *  own). tryAmllTtml hits the disk cache first, so a previously-played song shows
-     *  its lyrics with no network. Called on every netease play — including the
-     *  audio-cache fast path, which bypasses the URL resolve that used to fetch them. */
-    private void loadNeteaseLyrics(Track t) {
-        final long songId = t.neteaseId;
-        if (songId == 0) return;
-        List<LyricLine> mem = lyricMem.get(songId);
-        if (mem != null) {   // preloaded / recently played -> apply instantly
-            applyLyricsIfCurrent(t, mem);
-            return;
-        }
-        // (Lyrics were already blanked at the track switch in playAt; the async fetch
-        // eases them back in when it lands.) lyricWorker, not worker: this runs
-        // concurrently with updateCover()'s own worker-queued download instead of
-        // sitting behind it -- see lyricWorker's field javadoc.
-        lyricWorker.submit(() -> {
-            List<LyricLine> ly = fetchNeteaseLyrics(songId);
-            applyLyricsIfCurrent(t, ly);
-        });
-    }
-
+    /**
+     * Load a netease track's lyrics off-thread (AMLL TTML mirror, else Netease's own). tryAmllTtml
+     * hits the disk cache first, so a previously-played song shows its lyrics with no network.
+     * Called on every netease play — including the audio-cache fast path, which bypasses the URL
+     * resolve that used to fetch them.
+     */
     private void loadPluginLyrics(Track track) {
-        final String id = track.canonicalId();
-        if (id.isEmpty() || !pluginHasCapability(providerOf(track), ProviderCapability.LYRICS)) return;
-        List<LyricLine> cached = pluginLyricMem.get(id);
-        if (cached != null) {
-            applyLyricsIfCurrent(track, cached);
-            return;
-        }
-        final MediaId mediaId;
+        final String canonical = track.canonicalId();
+        final MediaId id;
         try {
-            mediaId = MediaId.parse(id);
+            id = MediaId.parse(canonical);
         } catch (IllegalArgumentException error) {
-            Logger.warn("invalid plugin lyric id {}: {}", id, error.getMessage());
             return;
         }
-        pluginProviders.lyrics(mediaId).whenComplete((payload, error) -> {
-            if (error != null) {
-                Logger.warn("plugin {} lyric fetch failed: {}", mediaId.provider(), safeMessage(error));
-                return;
-            }
-            List<LyricLine> lines;
-            try {
-                lines = LyricParser.fromPluginAssets(payload);
-            } catch (Throwable parseError) {
-                Logger.warn("plugin {} lyric parse failed: {}", mediaId.provider(),
-                        safeMessage(parseError));
-                return;
-            }
-            if (!lines.isEmpty()) pluginLyricMem.put(id, lines);
-            applyLyricsIfCurrent(track, lines);
-        });
+        ioWorker.submit(
+                () -> {
+                    List<LyricLine> cached = pluginLyricMem.get(canonical);
+                    if (cached == null && "netease".equals(id.provider())) {
+                        try {
+                            cached = fetchNeteaseLyrics(Long.parseLong(id.nativeId()));
+                        } catch (NumberFormatException ignored) {
+                            cached = Collections.emptyList();
+                        }
+                    }
+                    if (cached != null && !cached.isEmpty()) applyLyricsIfCurrent(track, cached);
+                    if (!pluginHasCapability(id.provider(), ProviderCapability.LYRICS)) return;
+                    pluginProviders
+                            .lyrics(id)
+                            .whenCompleteAsync(
+                                    (payload, error) -> {
+                                        if (error != null) {
+                                            Logger.warn(
+                                                    "plugin {} lyric fetch failed: {}",
+                                                    id.provider(),
+                                                    safeMessage(error));
+                                            return;
+                                        }
+                                        try {
+                                            List<LyricLine> lines =
+                                                    LyricParser.fromPluginAssets(payload);
+                                            if (!lines.isEmpty())
+                                                pluginLyricMem.put(canonical, lines);
+                                            applyLyricsIfCurrent(track, lines);
+                                        } catch (RuntimeException parseError) {
+                                            Logger.warn(
+                                                    "plugin {} lyric parse failed: {}",
+                                                    id.provider(),
+                                                    safeMessage(parseError));
+                                        }
+                                    },
+                                    ioWorker);
+                });
     }
 
      /** True while {@code t} is still the track a loader fetched data for. Compares
@@ -6205,268 +6382,66 @@ public final class PlayerController {
 
     private static final Gson LYRIC_GSON = new Gson();
 
-    /** Netease's own lyric payload (YRC/LRC/translation/romaji), disk-cache-first so a
-     *  previously-played song shows lyrics offline even when it has no AMLL TTML. The
-     *  payload is serialized to JSON next to the TTML cache (a .nlrc file). */
+    /**
+     * Netease's own lyric payload (YRC/LRC/translation/romaji), disk-cache-first so a
+     * previously-played song shows lyrics offline even when it has no AMLL TTML. The payload is
+     * serialized to JSON next to the TTML cache (a .nlrc file).
+     */
     private List<LyricLine> neteaseLyricCacheFirst(long songId) {
         String cached = diskCache.getNeteaseLyric(songId);
         if (cached != null) {
             try {
                 byte[] data = readBytesFromFile(cached);
                 if (data != null && data.length > 0) {
-                    NeteaseLyric nl = LYRIC_GSON.fromJson(
-                            new String(data, java.nio.charset.StandardCharsets.UTF_8), NeteaseLyric.class);
+                    NeteaseLyric nl =
+                            LYRIC_GSON.fromJson(
+                                    new String(data, java.nio.charset.StandardCharsets.UTF_8),
+                                    NeteaseLyric.class);
                     if (nl != null && !nl.isEmpty()) {
-                        return LyricParser.fromNeteaseStrings(nl.yrc, nl.lrc, nl.tlyric, nl.romalrc);
+                        return LyricParser.fromNeteaseStrings(
+                                nl.yrc, nl.lrc, nl.tlyric, nl.romalrc);
                     }
                 }
-            } catch (Throwable ignored) { }
-        }
-        try {
-            NeteaseLyric nl = netease.lyric(songId);
-            if (nl.isEmpty()) return Collections.emptyList();
-            byte[] data = LYRIC_GSON.toJson(nl).getBytes(java.nio.charset.StandardCharsets.UTF_8);
-            diskCache.cacheNeteaseLyric(data, songId);
-            return LyricParser.fromNeteaseStrings(nl.yrc, nl.lrc, nl.tlyric, nl.romalrc);
-        } catch (Throwable e) {
-            Logger.warn("lyric load failed for {}: {}", songId, e.getMessage());
-            return Collections.emptyList();
-        }
-    }
-
-    /** Coalescing 1-slot mailbox for {@link #cacheAudioAsync}: rapid skipping
-     *  (or a burst of auto-advances) must not queue every skipped-past track's
-     *  audio for download one after another on the single-threaded cacheWorker
-     *  — by the time an earlier one would start, it's already stale. A new
-     *  request just overwrites whatever was pending-but-not-yet-started, so
-     *  once the worker is free again it always picks up the LATEST track
-     *  (typically whatever's actually still playing), silently dropping the
-     *  ones skipped past in between. A download already in flight for a
-     *  since-superseded track is still let to finish (aborting a raw socket
-     *  read mid-flight isn't worth the complexity for this) before the queue
-     *  is drained again. */
-    private final Object autoCacheLock = new Object();
-    private Track autoCachePending;
-    private boolean autoCacheRunning;
-
-    /** Auto-cache a netease track's audio to disk for local replay (playback's
-     *  own paths only — the user-initiated "缓存此歌曲" flow is {@link
-     *  #cacheSongAsync}, which also marks the result actively-cached). Skips
-     *  trial/preview clips and tracks lacking an id or resolved url. */
-    private void cacheAudioAsync(Track t) {
-        if (t == null || t.trial || t.neteaseId == 0 || t.streamUrl == null) return;
-        // Whatever gets its audio cached is, by definition, playable offline —
-        // remember its title/artist/cover so offline search can actually surface
-        // it later, regardless of whether it was ever a search result itself
-        // (played from a playlist/recommendation/liked list, say). Cheap/in-memory,
-        // so this always runs even for a track whose actual audio download below
-        // ends up coalesced away.
-        mediaMetaIndex.upsert(t);
-        cacheThumb64Async(t.coverUrl);
-        synchronized (autoCacheLock) {
-            autoCachePending = t;
-            if (autoCacheRunning) return; // the drain loop will pick this up when it's free
-            autoCacheRunning = true;
-        }
-        cacheWorker.submit(this::drainAutoCacheQueue);
-    }
-
-    private void drainAutoCacheQueue() {
-        // The running flag has to be cleared even on an unexpected throw: leaving it
-        // set makes every later cacheAudioAsync() return at its `if (autoCacheRunning)`
-        // check, silently disabling auto-caching for the rest of the session with no
-        // way back. The layers below all catch their own failures today, so this is
-        // insurance against an Error rather than a live path.
-        try {
-            while (true) {
-                Track t;
-                synchronized (autoCacheLock) {
-                    t = autoCachePending;
-                    autoCachePending = null;
-                    if (t == null) return;
-                }
-                diskCache.cacheAudio(t.streamUrl, t.neteaseId);
-                mediaMetaIndex.save();
-                if (diskCache.hasAudio(t.neteaseId) && isCurrentTrack(t)) {
-                    backend.notifyCacheComplete();
-                }
-            }
-        } finally {
-            // Clearing the flag is not enough on its own: between the loop's own
-            // `pending == null` check (which releases the lock to return) and this
-            // block, a cacheAudioAsync() can have queued a track and seen
-            // autoCacheRunning still true, so it submitted nothing. Re-check under
-            // the lock and hand the drain off to a fresh task when that happened.
-            boolean requeue;
-            synchronized (autoCacheLock) {
-                requeue = autoCachePending != null;
-                autoCacheRunning = requeue;
-            }
-            if (requeue) {
-                try {
-                    cacheWorker.submit(this::drainAutoCacheQueue);
-                } catch (RejectedExecutionException shuttingDown) {
-                    // shutdown() stopped the pool. Release the flag rather than
-                    // letting this throw out of a finally block and mask whatever
-                    // sent us here; there is no session left to auto-cache for.
-                    synchronized (autoCacheLock) {
-                        autoCacheRunning = false;
-                    }
-                }
+            } catch (Throwable ignored) {
             }
         }
+        return Collections.emptyList();
     }
 
-    /** Manual-cache a netease track (song long-press menu): audio + thumbnail +
-     *  full cover + lyrics, so a song cached without ever being played still shows
-     *  its art and words offline. Playback's own paths cache those separately on
-     *  first play ({@link #updateCover}, {@link #loadNeteaseLyrics}); this makes
-     *  the manual action produce the same fully-offline result up front. Lyrics
-     *  resolve through the same cache-writing chain as playback (AMLL TTML, then
-     *  Netease's own), the cover at the same 1024px key {@link #updateCover} uses.
-     *  All disk-cache-first, so re-caching a track that was already played skips
-     *  the network. Runs on the cache worker; {@code onDone} fires on the render
-     *  thread when the whole job finishes (success or failure). */
-    private void cacheSongAsync(Track t, Runnable onDone) {
-        if (t == null || t.trial || t.neteaseId == 0 || t.streamUrl == null) return;
-        final String url = t.streamUrl;
-        final long nid = t.neteaseId;
-        final String cover = t.coverUrl;
-        // Whatever gets its audio cached is, by definition, playable offline —
-        // remember its title/artist/cover so offline search can actually surface
-        // it later, regardless of whether it was ever a search result itself.
-        mediaMetaIndex.upsert(t);
-        cacheWorker.submit(() -> {
-            diskCache.cacheAudio(url, nid);
-            // Protect it from auto-cache eviction only once the download actually
-            // landed -- marking a failed download would protect a file that
-            // doesn't exist.
-            if (diskCache.hasAudio(nid)) diskCache.markActivelyCached(nid);
-            // A manually cached song must be fully offline-ready: pull the cover
-            // and lyrics that playback paths only fetch on first play.
-            if (cover != null && !cover.isEmpty()) {
-                diskCache.cacheImage(thumbUrl(cover, "1024"));
-            }
-            fetchNeteaseLyrics(nid);   // disk-caches AMLL TTML and/or .nlrc
-            mediaMetaIndex.save();
-            if (onDone != null) post(onDone);
-        });
-        cacheThumb64Async(cover);
-    }
-
-    /** A 64x64 cover thumbnail for offline playlist browsing (PlaylistCacheIndex
-     *  persists coverUrl only, no thumbnail bytes — this is the only place one
-     *  actually gets downloaded). Stored in DiskCache's dedicated thumb64
-     *  sub-cache, capped by file count (oldest evicted first, see
-     *  {@code DiskCache.THUMB64_MAX_COUNT}) rather than a per-call limit here —
-     *  browsing a playlist queues one download per track (hasThumb64 skips
-     *  ones already cached, so reopening the same playlist is cheap), and the
-     *  disk-side cap keeps total thumbnail storage/count bounded regardless of
-     *  how many different playlists get browsed over time. Idempotent and safe
-     *  to call from any thread — only the actual download runs on
-     *  {@link #cacheWorker}. Called from {@link #openPlaylist} for every track in
-     *  a freshly (re)opened playlist, and from {@link #cacheAudioAsync} / playAt()'s
-     *  already-cached fast path so a track actually played still gets one even
-     *  if it was evicted (or never browsed) since. */
-    private void cacheThumb64Async(String coverUrl) {
-        if (coverUrl == null || coverUrl.isEmpty()) return;
-        String thumb64 = thumbUrl(coverUrl, "64");
-        if (diskCache.hasThumb64(thumb64)) return;
-        cacheWorker.submit(() -> diskCache.cacheThumb64(thumb64));
-    }
-
-    /** Same idea as {@link #cacheThumb64Async}, but at 512 instead of 64 —
-     *  a playlist's own cover is shown at a much larger size than a track row's
-     *  (PlaylistCard tiles, the playlist-detail header), so a 64px cache fallback
-     *  looked visibly blurry next to the CDN image it was standing in for. Still
-     *  keyed by url (same DiskCache thumb64 sub-cache and file-count cap — the
-     *  size lives in the url's own ?param= query, not a separate cache dir). */
-    private void cachePlaylistCoverAsync(String coverUrl) {
-        if (coverUrl == null || coverUrl.isEmpty()) return;
-        String thumb = thumbUrl(coverUrl, gridCoverSize());
-        if (diskCache.hasThumb64(thumb)) return;
-        cacheWorker.submit(() -> diskCache.cacheThumb64(thumb));
-    }
-
-    private void resolveAndPlayNetease(Track t, long resumeMs,
-                                       long expectedCoverRevision) {
-        long songId = t.neteaseId;
-        // Compatibility-only playback path for queues persisted before canonical
-        // media IDs. Online resolution now belongs to PluginProviderService; this
-        // path fails closed after the migration window and contains no endpoint.
-        long tSubmit = System.currentTimeMillis();
-        worker.submit(() -> {
-            long t0 = System.currentTimeMillis();
-            long queueWaitMs = t0 - tSubmit;
-            if (queueWaitMs > 50) Logger.info("netease: timing queued behind other worker tasks for {}ms", queueWaitMs);
-            try {
-                Logger.info("netease: resolve song {} (loggedIn={}, level={})",
-                        songId, netease.isLoggedIn(), playLevel);
-                // Legacy /search/get returns no album picUrl, so search-sourced tracks
-                // arrive without a cover; fetch song detail to fill any missing field.
-                if (t.title == null || t.title.isEmpty()
-                        || t.coverUrl == null || t.coverUrl.isEmpty()) {
-                    NeteaseSong sd = netease.songDetail(songId);
-                    Logger.info("netease: timing songDetail +{}ms", System.currentTimeMillis() - t0);
-                    if (sd != null) {
-                        if (t.title == null || t.title.isEmpty()) t.title = sd.name;
-                        if (t.artist == null || t.artist.isEmpty()) t.artist = sd.artist;
-                        if (t.album == null || t.album.isEmpty()) t.album = sd.album;
-                        if (t.coverUrl == null || t.coverUrl.isEmpty()) t.coverUrl = sd.coverUrl;
-                        if (t.durationMs <= 0) t.durationMs = sd.durationMs;
-                    }
-                }
-                NeteaseClient.UrlInfo info = netease.songUrlInfo(songId, playLevel);
-                Logger.info("netease: timing songUrlInfo +{}ms", System.currentTimeMillis() - t0);
-                String url = (info != null && !info.trial) ? info.url : null;
-                if (url == null && info != null && info.trial && info.url != null) {
-                    url = info.url; // nothing better available — play the preview clip
-                }
-                final boolean isTrialOnly = info != null && info.trial && url != null;
-                Logger.info("netease: url={} (trial={})", url, isTrialOnly);
-                Logger.info("netease: timing resolve total +{}ms (click-to-resolve-start {}ms)",
-                        System.currentTimeMillis() - t0, queueWaitMs);
-                final String playUrl = url;
-                // Hop to the main thread for the backend control (works backgrounded);
-                // UI Property writes still marshal to the render thread via post().
-                onMain(() -> {
-                    if (!isCurrentTrack(t)) return;
-                    if (playUrl == null) {
-                        Logger.warn("netease song {} has no url (blocked/VIP/login required)", songId);
-                        skipUnplayable(t, netease.isLoggedIn()
-                                ? I18n.tr("toast.play.vipOrBlocked") : I18n.tr("toast.signInRequired"));
-                        return;
-                    }
-                    t.streamUrl = playUrl;
-                    t.trial = isTrialOnly;
-                    post(() -> {
-                        if (isTrialOnly) showToast(I18n.tr("toast.play.trialOnly"));
-                        title.set(orEmpty(t.title));
-                        artist.set(orEmpty(t.artist));
-                        publishPlayingArtist(t);
-                        album.set(orEmpty(t.album));
-                        coverUrl.set(orEmpty(thumbUrl(t.coverUrl, "512")));
-                        durationMs.set(t.durationMs);
-                    });
-                    updateCover(t, expectedCoverRevision);
-                    loadNeteaseLyrics(t);
-                    Logger.info("play netease: {} — {}", t.title, playUrl);
-                    playBackend(playUrl, resumeMs);
-                    playingIntent = true;
-                    post(() -> playing.set(true));
-                    notifyPlayback();
-                    // Populate the disk cache so later plays are served locally.
-                    cacheAudioAsync(t);
+    private void preparePluginPlayback(Track track, boolean keepLyrics, long coverRevision) {
+        playbackSession.resolving = true;
+        long request = playbackSession.request();
+        ioWorker.submit(
+                () -> {
+                    String cached = diskCache.getAudio(track.canonicalId());
+                    onMain(
+                            () -> {
+                                if (!playbackSession.accepts(request, track)) return;
+                                if (cached == null && !hasFreshPluginStream(track)) {
+                                    track.streamUrl = null;
+                                    track.streamHeaders.clear();
+                                    resolveAndPlayPlugin(
+                                            track, playbackSession.startPositionMs, coverRevision);
+                                    return;
+                                }
+                                playbackSession.resolving = false;
+                                if (cached != null)
+                                    playBackend(cached, playbackSession.startPositionMs);
+                                else
+                                    playBackend(
+                                            track.playable(),
+                                            track.streamHeaders,
+                                            playbackSession.startPositionMs);
+                                if (!playbackSession.playing) backend.pause();
+                                playing.set(playbackSession.playing);
+                                if (!keepLyrics) loadPluginLyrics(track);
+                                if (cached == null) cachePluginAudioAfterStart(track);
+                                notifyPlayback();
+                            });
                 });
-            } catch (Throwable e) {
-                Logger.warn("netease resolve failed for {}: {}", songId, e.getMessage());
-                onMain(() -> skipUnplayable(t, I18n.tr("toast.play.resolveFailed")));
-            }
-        });
     }
 
-    private void resolveAndPlayPlugin(Track track, long resumeMs,
-                                      long expectedCoverRevision) {
+    private void resolveAndPlayPlugin(Track track, long resumeMs, long expectedCoverRevision) {
         final MediaId id;
         try {
             id = MediaId.parse(track.canonicalId());
@@ -6478,38 +6453,69 @@ public final class PlayerController {
             skipUnplayable(track, I18n.tr("toast.play.pluginNoStream"));
             return;
         }
-        pluginProviders.resolveStream(id, playLevel).whenComplete((stream, error) -> onMain(() -> {
-            if (!isCurrentTrack(track)) return;
-            if (error != null || stream == null || stream.url == null || stream.url.isEmpty()) {
-                Logger.warn("plugin {} stream resolve failed: {}", id.provider(),
-                        error != null ? safeMessage(error) : "empty URL");
-                skipUnplayable(track, I18n.tr("toast.play.pluginStreamFailed"));
-                return;
-            }
-            track.streamUrl = stream.url;
-            track.streamHeaders.clear();
-            track.streamHeaders.putAll(stream.headers);
-            track.streamExpiresAtMs = stream.expiresAtMs;
-            track.renditionId = stream.renditionId;
-            track.trial = stream.trial;
-            track.streamCacheable = stream.cacheable;
-            post(() -> {
-                title.set(orEmpty(track.title));
-                artist.set(orEmpty(track.artist));
-                album.set(orEmpty(track.album));
-                coverUrl.set(orEmpty(track.coverUrl));
-                durationMs.set(track.durationMs);
-                if (stream.trial) showToast(I18n.tr("toast.play.trialOnly"));
-            });
-            updateCover(track, expectedCoverRevision);
-            loadPluginLyrics(track);
-            Logger.info("play plugin {}: {}", id.provider(), track.title);
-            playBackend(stream.url, stream.headers, resumeMs);
-            playingIntent = true;
-            post(() -> playing.set(true));
-            notifyPlayback();
-            cachePluginAudioAfterStart(track);
-        }));
+        playbackSession.resolving = true;
+        final long request = playbackSession.request();
+        pluginProviders
+                .resolveStream(id, playLevel)
+                .whenComplete(
+                        (stream, error) ->
+                                onMain(
+                                        () ->
+                                                completePluginResolution(
+                                                        request,
+                                                        track,
+                                                        id,
+                                                        stream,
+                                                        error,
+                                                        expectedCoverRevision)));
+    }
+
+    private void completePluginResolution(
+            long request,
+            Track track,
+            MediaId id,
+            StreamDescriptor stream,
+            Throwable error,
+            long expectedCoverRevision) {
+        if (!playbackSession.accepts(request, track)) return;
+        playbackSession.resolving = false;
+        if (error != null || stream == null || stream.url == null || stream.url.isEmpty()) {
+            Logger.warn(
+                    "plugin {} stream resolve failed: {}",
+                    id.provider(),
+                    error != null ? safeMessage(error) : "empty URL");
+            skipUnplayable(track, I18n.tr("toast.play.pluginStreamFailed"));
+            return;
+        }
+        track.streamUrl = stream.url;
+        track.streamHeaders.clear();
+        track.streamHeaders.putAll(stream.headers);
+        track.streamExpiresAtMs = stream.expiresAtMs;
+        track.renditionId = stream.renditionId;
+        track.trial = stream.trial;
+        track.streamCacheable = stream.cacheable;
+        post(
+                () -> {
+                    if (!playbackSession.accepts(request, track)) return;
+                    title.set(orEmpty(track.title));
+                    artist.set(orEmpty(track.artist));
+                    album.set(orEmpty(track.album));
+                    coverUrl.set(orEmpty(track.coverUrl));
+                    durationMs.set(track.durationMs);
+                    if (stream.trial) showToast(I18n.tr("toast.play.trialOnly"));
+                });
+        updateCover(track, expectedCoverRevision);
+        loadPluginLyrics(track);
+        Logger.info("play plugin {}: {}", id.provider(), track.title);
+        playBackend(stream.url, stream.headers, playbackSession.startPositionMs);
+        if (!playbackSession.playing) backend.pause();
+        post(
+                () -> {
+                    if (playbackSession.accepts(request, track))
+                        playing.set(playbackSession.playing);
+                });
+        notifyPlayback();
+        cachePluginAudioAfterStart(track);
     }
 
     /**
@@ -6527,77 +6533,139 @@ public final class PlayerController {
      */
     private static final long AUTO_CACHE_DELAY_MS = 2_000L;
 
-    /** Queue the auto-cache for a track that just started playing. Skipped if the
-     *  user has moved on by the time it fires -- caching a track they skipped past
-     *  would take bandwidth from whatever they skipped to. */
+    /**
+     * Queue the auto-cache for a track that just started playing. Skipped if the user has moved on
+     * by the time it fires -- caching a track they skipped past would take bandwidth from whatever
+     * they skipped to.
+     */
     private void cachePluginAudioAfterStart(Track track) {
         final String mediaId = track != null ? track.canonicalId() : "";
-        if (mediaId.isEmpty() || diskCache.hasAudio(mediaId)) return;
-        fadeWorker.schedule(() -> onMain(() -> {
-            Track current = currentTrack();
-            if (current == null || !mediaId.equals(current.canonicalId())) return;
-            cachePluginAudioAsync(track, false, null);
-        }), AUTO_CACHE_DELAY_MS, TimeUnit.MILLISECONDS);
+        if (mediaId.isEmpty()) return;
+        fadeWorker.schedule(
+                () ->
+                        onMain(
+                                () -> {
+                                    Track current = currentTrack();
+                                    if (current == null || !mediaId.equals(current.canonicalId()))
+                                        return;
+                                    cachePluginAudioAsync(track, false);
+                                }),
+                AUTO_CACHE_DELAY_MS,
+                TimeUnit.MILLISECONDS);
     }
 
-    private void cachePluginAudioAsync(Track track, boolean active, Runnable completion) {
-        String mediaId = track != null ? track.canonicalId() : "";
-        if (mediaId.isEmpty() || track.streamUrl == null || track.streamUrl.isEmpty()
-                || track.trial || !track.streamCacheable || diskCache.hasAudio(mediaId)) {
-            if (completion != null) post(completion);
-            return;
+    private CompletableFuture<Boolean> cachePluginAudioAsync(Track track, boolean active) {
+        if (track == null || track.canonicalId().isEmpty() || appShuttingDown) {
+            return CompletableFuture.completedFuture(Boolean.FALSE);
         }
-        final MediaId id;
-        try { id = MediaId.parse(mediaId).requireKind(dev.t1m3.qplayer.media.MediaKind.SONG); }
-        catch (IllegalArgumentException error) { if (completion != null) post(completion); return; }
-        mediaMetaIndex.upsert(track);
-        String path = diskCache.audioPath(mediaId);
-        pluginHostApi.downloadReturnedFile(id.provider(), track.streamUrl,
-                        track.streamHeaders, java.nio.file.Paths.get(path),
-                        1024L * 1024L * 1024L, 120_000, true)
-                .whenComplete((success, error) -> {
-                    if (error == null && Boolean.TRUE.equals(success)) {
-                        if (active) diskCache.markActivelyCached(mediaId);
-                        diskCache.finishExternalWrite();
-                        mediaMetaIndex.save();
-                        Track current = currentTrack();
-                        if (current != null && mediaId.equals(current.canonicalId())) {
-                            backend.notifyCacheComplete();
-                        }
-                    } else if (error != null) {
-                        Logger.warn("plugin audio cache failed for {}: {}", mediaId, safeMessage(error));
+        Track request = copyForQueue(track);
+        if (hasFreshPluginStream(track)) {
+            request.streamUrl = track.streamUrl;
+            request.streamHeaders.putAll(track.streamHeaders);
+            request.streamExpiresAtMs = track.streamExpiresAtMs;
+            request.streamCacheable = track.streamCacheable;
+            request.trial = track.trial;
+        }
+        String canonical = request.canonicalId();
+        CompletableFuture<Boolean> result = audioCacheCoordinator.cache(request, active);
+        result.whenComplete(
+                (saved, error) -> {
+                    if (error != null)
+                        Logger.warn(
+                                "plugin audio cache failed for {}: {}",
+                                canonical,
+                                safeMessage(error));
+                    if (error == null && Boolean.TRUE.equals(saved))
+                        onMain(
+                                () -> {
+                                    Track current = playbackSession.current();
+                                    if (!appShuttingDown
+                                            && current != null
+                                            && canonical.equals(current.canonicalId())) {
+                                        backend.notifyCacheComplete();
+                                    }
+                                });
+                });
+        return result;
+    }
+
+    private CompletableFuture<Boolean> downloadPluginCache(Track track, String target) {
+        MediaId id =
+                MediaId.parse(track.canonicalId())
+                        .requireKind(dev.t1m3.qplayer.media.MediaKind.SONG);
+        CompletableFuture<StreamDescriptor> stream;
+        if (hasFreshPluginStream(track)) {
+            StreamDescriptor known = new StreamDescriptor();
+            known.url = track.streamUrl;
+            known.headers.putAll(track.streamHeaders);
+            known.trial = track.trial;
+            known.cacheable = track.streamCacheable;
+            stream = CompletableFuture.completedFuture(known);
+        } else {
+            stream = pluginProviders.resolveStream(id, playLevel);
+        }
+        return stream.thenCompose(
+                resolved -> {
+                    if (resolved == null
+                            || resolved.url == null
+                            || resolved.url.isEmpty()
+                            || resolved.trial
+                            || !resolved.cacheable) {
+                        return CompletableFuture.completedFuture(Boolean.FALSE);
                     }
-                    if (completion != null) post(completion);
+                    return pluginHostApi.downloadReturnedFile(
+                            id.provider(),
+                            resolved.url,
+                            resolved.headers,
+                            java.nio.file.Paths.get(target),
+                            1024L * 1024L * 1024L,
+                            120_000,
+                            true);
                 });
     }
 
     public void cacheMediaSong(String mediaId) {
-        if (mediaId == null || mediaId.isEmpty()) return;
-        if (diskCache.hasAudio(mediaId)) { showToast(I18n.tr("toast.cache.already")); return; }
-        Track track = findTrackForMedia(mediaId);
-        if (track == null) { showToast(I18n.tr("toast.cache.staleSong")); return; }
-        final MediaId id;
-        try { id = MediaId.parse(mediaId).requireKind(dev.t1m3.qplayer.media.MediaKind.SONG); }
-        catch (IllegalArgumentException error) { showToast(I18n.tr("toast.id.song")); return; }
-        showToast(I18n.tr("toast.cache.started"));
-        pluginProviders.resolveStream(id, playLevel).whenComplete((stream, error) -> {
-            if (error != null || stream == null || stream.trial || !stream.cacheable) {
-                post(() -> showToast(I18n.tr("toast.cache.failedReason", safeMessage(error))));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            Track known = findTrackForMedia(mediaId);
+            if (known == null) {
+                showToast(I18n.tr("toast.cache.staleSong"));
                 return;
             }
-            track.streamUrl = stream.url;
-            track.streamHeaders.putAll(stream.headers);
-            track.streamExpiresAtMs = stream.expiresAtMs;
-            track.streamCacheable = stream.cacheable;
-            cachePluginAudioAsync(track, true, () -> showToast(
-                    diskCache.hasAudio(mediaId) ? I18n.tr("toast.cache.done") : I18n.tr("toast.cache.failed")));
-        });
+            try {
+                MediaId.parse(mediaId).requireKind(dev.t1m3.qplayer.media.MediaKind.SONG);
+            } catch (IllegalArgumentException error) {
+                showToast(I18n.tr("toast.id.song"));
+                return;
+            }
+            showToast(I18n.tr("toast.cache.started"));
+            cachePluginAudioAsync(known, true)
+                    .whenComplete(
+                            (saved, error) -> {
+                                if (error != null)
+                                    showToast(
+                                            I18n.tr(
+                                                    "toast.cache.failedReason",
+                                                    safeMessage(error)));
+                                else
+                                    showToast(
+                                            I18n.tr(
+                                                    Boolean.TRUE.equals(saved)
+                                                            ? "toast.cache.done"
+                                                            : "toast.cache.failed"));
+                            });
+        }
     }
 
     public void removeMediaCache(String mediaId) {
-        boolean removed = diskCache.deleteAudio(mediaId);
-        if (removed) refreshCachedSongs();
-        showToast(removed ? I18n.tr("toast.cache.removed") : I18n.tr("toast.cache.removeFailed"));
+        ioWorker.submit(
+                () -> {
+                    boolean removed = diskCache.deleteAudio(mediaId);
+                    if (removed) refreshCachedSongs();
+                    showToast(
+                            removed
+                                    ? I18n.tr("toast.cache.removed")
+                                    : I18n.tr("toast.cache.removeFailed"));
+                });
     }
 
     private boolean pluginHasCapability(String provider, ProviderCapability capability) {
@@ -6606,6 +6674,42 @@ public final class PlayerController {
             if (provider.equals(manifest.id)) return manifest.capabilitySet().contains(capability);
         }
         return false;
+    }
+
+    /** Account projection is scoped to the actual target, never the primary source. */
+    public boolean providerLoggedIn(String providerId) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            List<SourceAccountRow> accounts = sourceAccounts.peek();
+            if (accounts == null) return false;
+            for (SourceAccountRow account : accounts) {
+                if (Objects.equals(providerId, account.providerId)) return account.loggedIn;
+            }
+            return false;
+        }
+    }
+
+    public boolean canMutateMediaPlaylist(String canonicalId) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            return authorizedPlaylist(canonicalId, ProviderCapability.PLAYLIST_MUTATION);
+        }
+    }
+
+    public boolean canHeartMediaPlaylist(String canonicalId) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            return authorizedPlaylist(canonicalId, ProviderCapability.HEART_RECOMMENDATION);
+        }
+    }
+
+    private boolean authorizedPlaylist(String canonicalId, ProviderCapability capability) {
+        try {
+            MediaId id =
+                    MediaId.parse(canonicalId)
+                            .requireKind(dev.t1m3.qplayer.media.MediaKind.PLAYLIST);
+            return providerLoggedIn(id.provider())
+                    && pluginHasCapability(id.provider(), capability);
+        } catch (IllegalArgumentException error) {
+            return false;
+        }
     }
 
     private boolean providerForMediaHas(String mediaId, ProviderCapability capability) {
@@ -6710,36 +6814,42 @@ public final class PlayerController {
     // --- Search history ---------------------------------------------------
 
     public void addSearchHistory(String keyword) {
-        if (keyword == null || keyword.trim().isEmpty()) return;
-        String kw = keyword.trim();
-        synchronized (historyList) {
-            for (int i = historyList.size() - 1; i >= 0; i--) {
-                if (historyList.get(i).equalsIgnoreCase(kw)) historyList.remove(i);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (keyword == null || keyword.trim().isEmpty()) return;
+            String kw = keyword.trim();
+            synchronized (historyList) {
+                for (int i = historyList.size() - 1; i >= 0; i--) {
+                    if (historyList.get(i).equalsIgnoreCase(kw)) historyList.remove(i);
+                }
+                historyList.add(0, kw);
+                if (historyList.size() > HISTORY_MAX) historyList.remove(historyList.size() - 1);
+                List<String> snap = new ArrayList<>(historyList);
+                post(() -> searchHistory.set(snap));
             }
-            historyList.add(0, kw);
-            if (historyList.size() > HISTORY_MAX) historyList.remove(historyList.size() - 1);
-            List<String> snap = new ArrayList<>(historyList);
-            post(() -> searchHistory.set(snap));
+            worker.submit(this::saveSearchHistory);
         }
-        worker.submit(this::saveSearchHistory);
     }
 
     public void removeSearchHistory(int i) {
-        synchronized (historyList) {
-            if (i < 0 || i >= historyList.size()) return;
-            historyList.remove(i);
-            List<String> snap = new ArrayList<>(historyList);
-            post(() -> searchHistory.set(snap));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            synchronized (historyList) {
+                if (i < 0 || i >= historyList.size()) return;
+                historyList.remove(i);
+                List<String> snap = new ArrayList<>(historyList);
+                post(() -> searchHistory.set(snap));
+            }
+            worker.submit(this::saveSearchHistory);
         }
-        worker.submit(this::saveSearchHistory);
     }
 
     public void clearSearchHistory() {
-        synchronized (historyList) {
-            historyList.clear();
-            post(() -> searchHistory.set(Collections.<String>emptyList()));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            synchronized (historyList) {
+                historyList.clear();
+                post(() -> searchHistory.set(Collections.<String>emptyList()));
+            }
+            worker.submit(this::saveSearchHistory);
         }
-        worker.submit(this::saveSearchHistory);
     }
 
     private void saveSearchHistory() {
@@ -6803,138 +6913,23 @@ public final class PlayerController {
 
     // --- Queue persistence ------------------------------------------------
 
-    private synchronized void saveQueue() {
-        try {
-            java.nio.file.Path target = AppDirs.stateFile("queue.json");
-            // Live backend position, not the positionMs Property: the Property only
-            // refreshes from pump() (render thread, paused while backgrounded/during
-            // shutdown), so it can be stale exactly when this matters most — the
-            // final save on app exit.
-            long pos = playIndex >= 0 ? Math.max(0L, backend.position()) : 0L;
-            StringBuilder sb = new StringBuilder();
-            sb.append("{\"schemaVersion\":2,\"playIndex\":").append(playIndex)
-              .append(",\"positionMs\":").append(pos)
-              .append(",\"playMode\":").append(playMode.peek())
-              .append(",\"tracks\":[");
-            List<Track> snap = new ArrayList<>(queue);
-            for (int i = 0; i < snap.size(); i++) {
-                Track t = snap.get(i);
-                if (i > 0) sb.append(',');
-                sb.append("{\"source\":\"").append(t.source).append('"');
-                String mediaId = t.canonicalId();
-                if (!mediaId.isEmpty()) sb.append(",\"mediaId\":").append(jsonStr(mediaId));
-                if (t.neteaseId != 0) sb.append(",\"neteaseId\":").append(t.neteaseId);
-                if (t.customId != null) sb.append(",\"customId\":").append(jsonStr(t.customId));
-                sb.append(",\"title\":").append(jsonStr(t.title));
-                sb.append(",\"artist\":").append(jsonStr(t.artist));
-                if (t.artistId != 0) sb.append(",\"artistId\":").append(t.artistId);
-                if (t.artistMediaId != null && !t.artistMediaId.isEmpty())
-                    sb.append(",\"artistMediaId\":").append(jsonStr(t.artistMediaId));
-                if (t.artistIdsCsv != null && !t.artistIdsCsv.isEmpty()) {
-                    sb.append(",\"artistIdsCsv\":").append(jsonStr(t.artistIdsCsv));
-                    sb.append(",\"artistNamesCsv\":").append(jsonStr(t.artistNamesCsv));
-                }
-                sb.append(",\"album\":").append(jsonStr(t.album));
-                sb.append(",\"coverUrl\":").append(jsonStr(t.coverUrl));
-                sb.append(",\"durationMs\":").append(t.durationMs);
-                if (t.filePath != null) sb.append(",\"filePath\":").append(jsonStr(t.filePath));
-                if (t.contentUri != null) sb.append(",\"contentUri\":").append(jsonStr(t.contentUri));
-                // Persist the local cover path: without it a restored LOCAL track
-                // has null coverLocalPath/coverThumbPath, so updateCover() bails
-                // and the now-playing card / SMTC keeps no artwork across restarts.
-                // Prefer the full-size cover, fall back to the row thumbnail.
-                if (t.coverLocalPath != null) {
-                    sb.append(",\"coverLocalPath\":").append(jsonStr(t.coverLocalPath));
-                } else if (t.coverThumbPath != null && !t.coverThumbPath.startsWith("http")) {
-                    sb.append(",\"coverLocalPath\":").append(jsonStr(t.coverThumbPath));
-                }
-                sb.append('}');
-            }
-            sb.append("]}");
-            StorageFiles.writeUtf8Atomic(target, sb.toString());
-        } catch (Throwable e) {
-            Logger.warn("saveQueue failed: {}", e.getMessage());
-        }
-    }
-
-    private static String jsonStr(String s) {
-        if (s == null) return "null";
-        return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"")
-                       .replace("\n", "\\n").replace("\r", "\\r") + "\"";
+    private void saveQueue() {
+        saveSessionStateAsync();
     }
 
     private void loadQueue() {
         try {
-            java.nio.file.Path file = AppDirs.stateFile("queue.json");
-            if (!java.nio.file.Files.exists(file)) return;
-            String text = StorageFiles.readUtf8(file);
-            com.google.gson.JsonObject root = new com.google.gson.JsonParser().parse(text).getAsJsonObject();
-            int savedIdx = root.has("playIndex") ? root.get("playIndex").getAsInt() : 0;
-            long savedPos = root.has("positionMs") ? root.get("positionMs").getAsLong() : 0L;
-            int savedMode = root.has("playMode") ? root.get("playMode").getAsInt() : 0;
-            com.google.gson.JsonArray arr = root.has("tracks") ? root.getAsJsonArray("tracks") : new com.google.gson.JsonArray();
-            List<Track> loaded = new ArrayList<>();
-            for (com.google.gson.JsonElement el : arr) {
-                if (!el.isJsonObject()) continue;
-                com.google.gson.JsonObject o = el.getAsJsonObject();
-                Track t = new Track();
-                String src = o.has("source") ? o.get("source").getAsString() : "NETEASE";
-                boolean persistedAsPlugin = "PLUGIN".equals(src);
-                t.source = "LOCAL".equals(src) ? Track.Source.LOCAL
-                        : "CUSTOM_API".equals(src) ? Track.Source.CUSTOM_API
-                        : persistedAsPlugin ? Track.Source.PLUGIN
-                        : Track.Source.NETEASE;
-                t.neteaseId = o.has("neteaseId") ? o.get("neteaseId").getAsLong() : 0;
-                t.customId  = o.has("customId")  && !o.get("customId").isJsonNull()  ? o.get("customId").getAsString()  : null;
-                if (o.has("mediaId") && !o.get("mediaId").isJsonNull()) {
-                    t.applyCanonicalId(o.get("mediaId").getAsString());
-                    // A provider id named "netease" is also how an installed netease
-                    // plugin addresses songs; applyCanonicalId() maps that provider to
-                    // the legacy built-in Source.NETEASE unconditionally, which would
-                    // silently route a plugin-sourced queue entry back onto the old
-                    // built-in client on every restart (see toTrackPlugin()).
-                    if (persistedAsPlugin) t.source = Track.Source.PLUGIN;
-                } else {
-                    t.canonicalId();
-                }
-                t.title     = o.has("title")     && !o.get("title").isJsonNull()     ? o.get("title").getAsString()     : "";
-                t.artist    = o.has("artist")    && !o.get("artist").isJsonNull()    ? o.get("artist").getAsString()    : "";
-                t.artistId  = o.has("artistId") ? o.get("artistId").getAsLong() : 0L;
-                t.artistMediaId = o.has("artistMediaId") && !o.get("artistMediaId").isJsonNull()
-                        ? o.get("artistMediaId").getAsString() : "";
-                t.artistIdsCsv = o.has("artistIdsCsv") && !o.get("artistIdsCsv").isJsonNull()
-                        ? o.get("artistIdsCsv").getAsString() : "";
-                t.artistNamesCsv = o.has("artistNamesCsv") && !o.get("artistNamesCsv").isJsonNull()
-                        ? o.get("artistNamesCsv").getAsString() : "";
-                t.album     = o.has("album")     && !o.get("album").isJsonNull()     ? o.get("album").getAsString()     : "";
-                t.coverUrl  = o.has("coverUrl")  && !o.get("coverUrl").isJsonNull()  ? o.get("coverUrl").getAsString()  : "";
-                t.durationMs = o.has("durationMs") ? o.get("durationMs").getAsLong() : 0;
-                if (t.source == Track.Source.LOCAL) {
-                    t.filePath   = o.has("filePath")   && !o.get("filePath").isJsonNull()   ? o.get("filePath").getAsString()   : null;
-                    t.contentUri = o.has("contentUri") && !o.get("contentUri").isJsonNull() ? o.get("contentUri").getAsString() : null;
-                    // Restore the persisted local cover path (saved as coverLocalPath,
-                    // the full-size cover preferred over the row thumbnail) so updateCover
-                    // has a file to read and the now-playing card / SMTC keeps its art.
-                    t.coverLocalPath = o.has("coverLocalPath") && !o.get("coverLocalPath").isJsonNull()
-                            ? o.get("coverLocalPath").getAsString() : null;
-                } else if (t.source == Track.Source.CUSTOM_API || t.source == Track.Source.PLUGIN) {
-                    // No netease-CDN thumbnail convention for a custom source — the
-                    // Remote cover URL doubles as its own thumbnail for legacy rows.
-                    t.coverThumbPath = t.coverUrl;
-                } else if (t.coverUrl != null && !t.coverUrl.isEmpty()) {
-                    // NETEASE row art is a CDN thumbnail URL derived from coverUrl; the
-                    // queue JSON only persists coverUrl, so rebuild it here (loadCustom-
-                    // Playlist does the same) — else restored queue rows show no cover.
-                    t.coverThumbPath = NeteaseClient.thumbUrl(t.coverUrl);
-                }
-                t.canonicalId();
-                loaded.add(t);
-            }
+            QueuePersistence.Snapshot restored = queuePersistence.load();
+            List<Track> loaded = restored.tracks();
+            for (Track track : loaded) routeInstalledPluginTrack(track);
+            int savedIdx = restored.playIndex();
+            long savedPos = restored.positionMs();
+            int savedMode = restored.playMode();
             if (!loaded.isEmpty()) {
-                queue.addAll(loaded);
+                playbackSession.queue.addAll(loaded);
                 final List<Track> snap = new ArrayList<>(loaded);
                 int idx = Math.max(0, Math.min(savedIdx, loaded.size() - 1));
-                playIndex = idx;
+                playbackSession.index = idx;
                 long restoredCoverRevision = coverRevision.incrementAndGet();
                 needsReplay = true;
                 long clampedPos = Math.max(0L, savedPos);
@@ -6947,7 +6942,10 @@ public final class PlayerController {
                 applyTrackLyricOffset(cur);
                 queueTracks.set(snap);
                 index.set(idx);
-                currentFilePath.set(cur.source == Track.Source.LOCAL && cur.filePath != null ? cur.filePath : "");
+                currentFilePath.set(
+                        cur.source == Track.Source.LOCAL && cur.filePath != null
+                                ? cur.filePath
+                                : "");
                 currentMediaId.set(cur.canonicalId());
                 title.set(cur.title != null ? cur.title : "");
                 artist.set(cur.artist != null ? cur.artist : "");
@@ -6962,8 +6960,8 @@ public final class PlayerController {
                 // audio source is not opened until the first Play press. Publish
                 // the same favorite-button state as playAt() now, rather than
                 // leaving the heart disabled for the whole pre-playback session.
-                currentLiked.set(cur.neteaseId != 0 && likedSet.contains(cur.neteaseId));
-                currentLikeable.set(cur.neteaseId != 0);
+                currentLiked.set(pluginLikedSet.contains(cur.canonicalId()));
+                currentLikeable.set(isMediaLikeable(cur.canonicalId()));
                 playMode.set(Math.max(0, Math.min(2, savedMode)));
                 wakeRenderer();
                 // Load the full cover art + lyrics now (both cache-first internally)
@@ -6971,11 +6969,12 @@ public final class PlayerController {
                 // does this, but playAt() itself isn't called until then.
                 updateCover(cur, restoredCoverRevision);
                 if (cur.source == Track.Source.LOCAL) {
-                    loadLocalLyrics(cur);
-                } else if (cur.source == Track.Source.NETEASE) {
-                    loadNeteaseLyrics(cur);
+                    ioWorker.submit(() -> loadLocalLyrics(cur));
                 } else if (cur.source == Track.Source.PLUGIN) {
                     loadPluginLyrics(cur);
+                } else if (cur.source == Track.Source.NETEASE && cur.neteaseId != 0L) {
+                    ioWorker.submit(
+                            () -> applyLyricsIfCurrent(cur, fetchNeteaseLyrics(cur.neteaseId)));
                 }
             }
         } catch (Throwable e) {
@@ -7070,280 +7069,111 @@ public final class PlayerController {
 
     /** Load hot search keywords from Netease API. Called once on search page open. */
     public void loadHotSearches() {
-        PluginManifest provider = primaryProviderWith(ProviderCapability.HOT_SEARCH);
-        if (provider != null) {
-            pluginProviders.hotSearch(provider.id).whenComplete((values, error) -> post(() -> {
-                if (!provider.id.equals(pluginRegistry.primaryProvider())) return;
-                if (error != null) {
-                    Logger.warn("plugin {} hot search failed: {}", provider.id, safeMessage(error));
-                    return;
-                }
-                hotSearches.set(values);
-            }));
-            return;
-        }
-        if (onlineSourcesArePluginOnly()) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            PluginManifest provider = primaryProviderWith(ProviderCapability.HOT_SEARCH);
+            if (provider != null) {
+                pluginProviders
+                        .hotSearch(provider.id)
+                        .whenComplete(
+                                (values, error) ->
+                                        post(
+                                                () -> {
+                                                    if (!provider.id.equals(
+                                                            pluginRegistry.primaryProvider()))
+                                                        return;
+                                                    if (error != null) {
+                                                        Logger.warn(
+                                                                "plugin {} hot search failed: {}",
+                                                                provider.id,
+                                                                safeMessage(error));
+                                                        return;
+                                                    }
+                                                    hotSearches.set(values);
+                                                }));
+                return;
+            }
+
             hotSearches.set(Collections.<String>emptyList());
             return;
         }
-        worker.submit(() -> {
-            try {
-                List<String> hot = netease.searchHot();
-                post(() -> hotSearches.set(hot));
-            } catch (Throwable e) {
-                Logger.warn("loadHotSearches failed: {}", e.toString());
-            }
-        });
     }
 
-    /** Search and publish to {@link #searchResults}. Results are cached for
-     *  {@value #SEARCH_CACHE_TTL_MS} ms; a cache hit returns immediately without
-     *  a network round-trip. */
+    /** Search enabled source plugins and publish provider-scoped result buckets. */
     public void search(String keyword) {
-        if (keyword == null || keyword.trim().isEmpty()) return;
-        final String query = keyword.trim();
-        final String key = query.toLowerCase(Locale.ROOT);
-        currentSearchKey = key;
-        currentSearchQuery = query;
-        boolean pluginSearchStarted = searchPlugins(query, key);
-        if (onlineSourcesArePluginOnly()) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (keyword == null || keyword.trim().isEmpty()) return;
+            final String query = keyword.trim();
+            final String key = query.toLowerCase(Locale.ROOT);
+            currentSearchKey = key;
+            currentSearchQuery = query;
+            boolean pluginSearchStarted = searchPlugins(query, key);
+
             searchResults.set(Collections.<NeteaseSong>emptyList());
-            searchPageInFlight = false;
+
             if (!pluginSearchStarted) searchLoading.set(false);
             searchHasMore.set(false);
             rebuildSearchRows();
             return;
         }
-        // Fast path: check cache on the calling (render) thread.
-        CacheEntry entry = searchCache.get(key);
-        if (entry != null && !entry.isExpired()) {
-            searchResults.set(entry.songs);
-            resultCount.set(entry.songs.size());
-            searchNextOffset = entry.nextOffset;
-            searchPageInFlight = false;
-            searchLoading.set(false);
-            searchHasMore.set(entry.hasMore);
-            rebuildSearchRows();
-            Logger.info("search cache hit: {}", key);
-            return;
-        }
-        searchPageInFlight = true;
-        searchLoading.set(true);
-        searchHasMore.set(false);
-        searchWorker.submit(() -> {
-            try {
-                if (!key.equals(currentSearchKey)) return;
-                // Double-check: another search for the same keyword may have
-                // completed while we were waiting for the worker slot.
-                CacheEntry existing = searchCache.get(key);
-                if (existing != null && !existing.isExpired()) {
-                    if (!key.equals(currentSearchKey)) return;
-                    post(() -> {
-                        if (!key.equals(currentSearchKey)) return;
-                        searchResults.set(existing.songs);
-                        resultCount.set(existing.songs.size());
-                        searchNextOffset = existing.nextOffset;
-                        searchPageInFlight = false;
-                        searchLoading.set(false);
-                        searchHasMore.set(existing.hasMore);
-                        rebuildSearchRows();
-                    });
-                    return;
-                }
-                NeteaseClient.SongSearchPage page =
-                        netease.searchSongsPage(query, SEARCH_PAGE_SIZE, 0);
-                if (!key.equals(currentSearchKey)) return;
-                // Refresh the thumbnail URL for any rows whose cover metadata had
-                // to be completed through the song-detail endpoint.
-                List<NeteaseSong> r = page.songs;
-                fillMissingCovers(r);
-                buildSongThumbs(r, "128");
-                int nextOffset = page.consumed;
-                boolean hasMore = page.hasMore(0, SEARCH_PAGE_SIZE);
-                searchCache.put(key, new CacheEntry(r, nextOffset, hasMore));
-                for (NeteaseSong s : r) mediaMetaIndex.upsert(toTrack(s));
-                mediaMetaIndex.save();
-                post(() -> {
-                    if (!key.equals(currentSearchKey)) return;
-                    searchResults.set(r);
-                    resultCount.set(r.size());
-                    searchNextOffset = nextOffset;
-                    searchPageInFlight = false;
-                    searchLoading.set(false);
-                    searchHasMore.set(hasMore);
-                    rebuildSearchRows();
-                });
-            } catch (Throwable e) {
-                Logger.warn("search failed: {}", e.getMessage());
-                // Offline (or the API's just down): fall back to songs this process
-                // has actually seen before (search results, anything ever played) —
-                // DiskCache alone only knows bare ids, no title/artist to show, so
-                // this is the only source offline search has to work with.
-                List<NeteaseSong> offline = Collections.emptyList();
-                if (!key.equals(currentSearchKey)) return;
-                post(() -> {
-                    if (!key.equals(currentSearchKey)) return;
-                    searchResults.set(offline);
-                    resultCount.set(offline.size());
-                    searchNextOffset = 0;
-                    searchPageInFlight = false;
-                    searchLoading.set(false);
-                    searchHasMore.set(false);
-                    rebuildSearchRows();
-                    // Give feedback either way -- an empty offline list used to
-                    // leave the page blank with zero explanation (looked stuck,
-                    // not "no matches"); this covers both "no network + found
-                    // some cached matches" and "no network + nothing matched".
-                    showToast(offline.isEmpty()
-                        ? I18n.tr("toast.offline.searchEmpty")
-                        : I18n.tr("toast.offline.searchCached"));
-                });
-            }
-        });
     }
 
-    /** Album-mode counterpart to {@link #search}: cloudsearch type 10, no cache/
-     *  offline-fallback/pagination layer -- SearchPage's album filter is a much
-     *  smaller surface than song search, so it stays a plain single-shot fetch. */
+    /**
+     * Album-mode counterpart to {@link #search}: cloudsearch type 10, no cache/
+     * offline-fallback/pagination layer -- SearchPage's album filter is a much smaller surface than
+     * song search, so it stays a plain single-shot fetch.
+     */
     public void searchAlbums(String keyword) {
-        if (keyword == null || keyword.trim().isEmpty()) return;
-        final String query = keyword.trim();
-        final String key = query.toLowerCase(Locale.ROOT);
-        currentSearchKey = key;
-        currentSearchQuery = query;
-        searchLoading.set(true);
-        List<PluginManifest> providers = providersWith(ProviderCapability.SEARCH_ALBUMS);
-        if (!providers.isEmpty()) {
-            sourceSearchAlbumResults.set(Collections.<Album>emptyList());
-            searchPluginCatalog(providers, query, key, ProviderCapability.SEARCH_ALBUMS);
-            return;
-        }
-        if (onlineSourcesArePluginOnly()) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (keyword == null || keyword.trim().isEmpty()) return;
+            final String query = keyword.trim();
+            final String key = query.toLowerCase(Locale.ROOT);
+            currentSearchKey = key;
+            currentSearchQuery = query;
+            searchLoading.set(true);
+            List<PluginManifest> providers = providersWith(ProviderCapability.SEARCH_ALBUMS);
+            if (!providers.isEmpty()) {
+                sourceSearchAlbumResults.set(Collections.<Album>emptyList());
+                searchPluginCatalog(providers, query, key, ProviderCapability.SEARCH_ALBUMS);
+                return;
+            }
+
             searchLoading.set(false);
             sourceSearchAlbumResults.set(Collections.<Album>emptyList());
             return;
         }
-        searchWorker.submit(() -> {
-            try {
-                List<NeteaseAlbum> r = netease.searchAlbums(query, SEARCH_PAGE_SIZE);
-                applyAlbumCoverSize(r);
-                if (!key.equals(currentSearchKey)) return;
-                post(() -> {
-                    if (!key.equals(currentSearchKey)) return;
-                    searchAlbumResults.set(r);
-                    resultCount.set(r.size());
-                    searchLoading.set(false);
-                    rebuildSearchRows();
-                });
-            } catch (Throwable e) {
-                Logger.warn("album search failed: {}", e.getMessage());
-                if (!key.equals(currentSearchKey)) return;
-                post(() -> {
-                    if (!key.equals(currentSearchKey)) return;
-                    searchLoading.set(false);
-                    showToast(I18n.tr("toast.search.albumFailed"));
-                });
-            }
-        });
     }
 
     /** Artist-mode counterpart to {@link #search}; see {@link #searchAlbums}. */
     public void searchArtists(String keyword) {
-        if (keyword == null || keyword.trim().isEmpty()) return;
-        final String query = keyword.trim();
-        final String key = query.toLowerCase(Locale.ROOT);
-        currentSearchKey = key;
-        currentSearchQuery = query;
-        searchLoading.set(true);
-        List<PluginManifest> providers = providersWith(ProviderCapability.SEARCH_ARTISTS);
-        if (!providers.isEmpty()) {
-            sourceSearchArtistResults.set(Collections.<Artist>emptyList());
-            searchPluginCatalog(providers, query, key, ProviderCapability.SEARCH_ARTISTS);
-            return;
-        }
-        if (onlineSourcesArePluginOnly()) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (keyword == null || keyword.trim().isEmpty()) return;
+            final String query = keyword.trim();
+            final String key = query.toLowerCase(Locale.ROOT);
+            currentSearchKey = key;
+            currentSearchQuery = query;
+            searchLoading.set(true);
+            List<PluginManifest> providers = providersWith(ProviderCapability.SEARCH_ARTISTS);
+            if (!providers.isEmpty()) {
+                sourceSearchArtistResults.set(Collections.<Artist>emptyList());
+                searchPluginCatalog(providers, query, key, ProviderCapability.SEARCH_ARTISTS);
+                return;
+            }
+
             searchLoading.set(false);
             sourceSearchArtistResults.set(Collections.<Artist>emptyList());
             return;
         }
-        searchWorker.submit(() -> {
-            try {
-                List<NeteaseArtist> r = netease.searchArtists(query, SEARCH_PAGE_SIZE);
-                if (!key.equals(currentSearchKey)) return;
-                post(() -> {
-                    if (!key.equals(currentSearchKey)) return;
-                    searchArtistResults.set(r);
-                    resultCount.set(r.size());
-                    searchLoading.set(false);
-                    rebuildSearchRows();
-                });
-            } catch (Throwable e) {
-                Logger.warn("artist search failed: {}", e.getMessage());
-                if (!key.equals(currentSearchKey)) return;
-                post(() -> {
-                    if (!key.equals(currentSearchKey)) return;
-                    searchLoading.set(false);
-                    showToast(I18n.tr("toast.search.artistFailed"));
-                });
-            }
-        });
     }
 
     /** Fetch the next cloudsearch page when SearchPage's virtual list nears its end. */
     public void loadMoreSearch() {
-        if (!pluginSearchByProvider.isEmpty()) {
-            loadMorePluginSearch();
-            if (onlineSourcesArePluginOnly()) return;
-        }
-        if (onlineSourcesArePluginOnly()) return;
-        if (searchPageInFlight || !Boolean.TRUE.equals(searchHasMore.peek())) return;
-        final String query = currentSearchQuery;
-        final String key = currentSearchKey;
-        final int offset = searchNextOffset;
-        if (query.isEmpty() || key.isEmpty()) return;
-
-        List<NeteaseSong> current = searchResults.peek();
-        final List<NeteaseSong> base = current == null
-                ? new ArrayList<NeteaseSong>() : new ArrayList<>(current);
-        searchPageInFlight = true;
-        searchLoading.set(true);
-        searchWorker.submit(() -> {
-            try {
-                if (!key.equals(currentSearchKey) || offset != searchNextOffset) return;
-                NeteaseClient.SongSearchPage page =
-                        netease.searchSongsPage(query, SEARCH_PAGE_SIZE, offset);
-                if (!key.equals(currentSearchKey) || offset != searchNextOffset) return;
-
-                List<NeteaseSong> additions = page.songs;
-                fillMissingCovers(additions);
-                buildSongThumbs(additions, "128");
-                List<NeteaseSong> merged = appendUniqueSongs(base, additions);
-                int nextOffset = offset + page.consumed;
-                boolean hasMore = page.hasMore(offset, SEARCH_PAGE_SIZE)
-                        && page.consumed > 0;
-                searchCache.put(key, new CacheEntry(merged, nextOffset, hasMore));
-                for (NeteaseSong song : additions) mediaMetaIndex.upsert(toTrack(song));
-                mediaMetaIndex.save();
-                post(() -> {
-                    if (!key.equals(currentSearchKey) || offset != searchNextOffset) return;
-                    searchResults.set(merged);
-                    resultCount.set(merged.size());
-                    searchNextOffset = nextOffset;
-                    searchPageInFlight = false;
-                    searchLoading.set(false);
-                    searchHasMore.set(hasMore);
-                    rebuildSearchRows();
-                });
-            } catch (Throwable e) {
-                Logger.warn("load more search failed at offset {}: {}", offset, e.getMessage());
-                post(() -> {
-                    if (!key.equals(currentSearchKey) || offset != searchNextOffset) return;
-                    searchPageInFlight = false;
-                    searchLoading.set(false);
-                    // Keep hasMore=true: scrolling away and back can retry.
-                });
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (!pluginSearchByProvider.isEmpty()) {
+                loadMorePluginSearch();
+                return;
             }
-        });
+            return;
+        }
     }
 
     /** Fetch one additional cursor page from every provider that still has one.
@@ -7424,48 +7254,34 @@ public final class PlayerController {
         return false;
     }
 
-    private static List<NeteaseSong> appendUniqueSongs(List<NeteaseSong> base,
-            List<NeteaseSong> additions) {
-        List<NeteaseSong> merged = new ArrayList<>(base.size() + additions.size());
-        Set<Long> ids = new HashSet<>();
-        for (NeteaseSong song : base) {
-            merged.add(song);
-            if (song.id != 0L) ids.add(song.id);
-        }
-        for (NeteaseSong song : additions) {
-            if (song.id != 0L && !ids.add(song.id)) continue;
-            merged.add(song);
-        }
-        return merged;
-    }
-
     /**
-     * Invalidate visible results as soon as the input text changes, before the
-     * debounce timer starts the next requests. This also advances both network
-     * generation keys immediately, so an older response cannot be published in
-     * the 350 ms debounce window and appear under an unrelated keyword.
+     * Invalidate visible results as soon as the input text changes, before the debounce timer
+     * starts the next requests. This also advances both network generation keys immediately, so an
+     * older response cannot be published in the 350 ms debounce window and appear under an
+     * unrelated keyword.
      */
     public void prepareSearch(String keyword) {
-        String query = keyword == null ? "" : keyword.trim();
-        pluginSearchGeneration.incrementAndGet();
-        pluginSearchByProvider.clear();
-        pluginProviderNames.clear();
-        pluginSearchCursors.clear();
-        pluginSearchPageInFlight = false;
-        currentSearchKey = query.toLowerCase(Locale.ROOT);
-        currentSearchQuery = query;
-        searchNextOffset = 0;
-        searchPageInFlight = false;
-        searchResults.set(Collections.<NeteaseSong>emptyList());
-        localSearchResults.set(Collections.<Track>emptyList());
-        searchAlbumResults.set(Collections.<NeteaseAlbum>emptyList());
-        searchArtistResults.set(Collections.<NeteaseArtist>emptyList());
-        sourceSearchAlbumResults.set(Collections.<Album>emptyList());
-        sourceSearchArtistResults.set(Collections.<Artist>emptyList());
-        resultCount.set(0);
-        searchLoading.set(false);
-        searchHasMore.set(false);
-        rebuildSearchRows();
+        synchronized (QmlRuntimeLock.MONITOR) {
+            String query = keyword == null ? "" : keyword.trim();
+            pluginSearchGeneration.incrementAndGet();
+            pluginSearchByProvider.clear();
+            pluginProviderNames.clear();
+            pluginSearchCursors.clear();
+            pluginSearchPageInFlight = false;
+            currentSearchKey = query.toLowerCase(Locale.ROOT);
+            currentSearchQuery = query;
+
+            searchResults.set(Collections.<NeteaseSong>emptyList());
+            localSearchResults.set(Collections.<Track>emptyList());
+            searchAlbumResults.set(Collections.<NeteaseAlbum>emptyList());
+            searchArtistResults.set(Collections.<NeteaseArtist>emptyList());
+            sourceSearchAlbumResults.set(Collections.<Album>emptyList());
+            sourceSearchArtistResults.set(Collections.<Artist>emptyList());
+            resultCount.set(0);
+            searchLoading.set(false);
+            searchHasMore.set(false);
+            rebuildSearchRows();
+        }
     }
 
     /** Start one isolated search per enabled provider. Each completion is merged into
@@ -7560,29 +7376,30 @@ public final class PlayerController {
         return Collections.unmodifiableList(result);
     }
 
-    /** Compatibility readers remain for one delayed-migration release, but the
-     * core never uses them as an online source. */
-    private static boolean onlineSourcesArePluginOnly() { return true; }
-
-    /** Filter the local library by title/artist/album substring (case-insensitive)
-     *  and publish to {@link #localSearchResults}. Synchronous — the library is
-     *  already in memory (scanned at startup), no network round-trip to wait on. */
+    /**
+     * Filter the local library by title/artist/album substring (case-insensitive) and publish to
+     * {@link #localSearchResults}. Synchronous — the library is already in memory (scanned at
+     * startup), no network round-trip to wait on.
+     */
     public void searchLocal(String keyword) {
-        String q = keyword == null ? "" : keyword.trim().toLowerCase(Locale.ROOT);
-        if (q.isEmpty()) {
-            localSearchResults.set(Collections.<Track>emptyList());
-            rebuildSearchRows();
-            return;
-        }
-        List<Track> matches = new ArrayList<>();
-        for (Track t : library) {
-            if (containsIgnoreCase(t.title, q) || containsIgnoreCase(t.artist, q)
-                    || containsIgnoreCase(t.album, q)) {
-                matches.add(t);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            String q = keyword == null ? "" : keyword.trim().toLowerCase(Locale.ROOT);
+            if (q.isEmpty()) {
+                localSearchResults.set(Collections.<Track>emptyList());
+                rebuildSearchRows();
+                return;
             }
+            List<Track> matches = new ArrayList<>();
+            for (Track t : library) {
+                if (containsIgnoreCase(t.title, q)
+                        || containsIgnoreCase(t.artist, q)
+                        || containsIgnoreCase(t.album, q)) {
+                    matches.add(t);
+                }
+            }
+            localSearchResults.set(matches);
+            rebuildSearchRows();
         }
-        localSearchResults.set(matches);
-        rebuildSearchRows();
     }
 
     /** Flatten online provider results and {@link #localSearchResults} into
@@ -7671,17 +7488,28 @@ public final class PlayerController {
         if ("song".equals(searchMode.peek())) resultCount.set(rows.size());
     }
 
-    /** Route a click on the unified search list (SearchPage.qml) back to the
-     *  right source-specific play method by {@link SearchRow#kind}. */
+    /**
+     * Route a click on the unified search list (SearchPage.qml) back to the right source-specific
+     * play method by {@link SearchRow#kind}.
+     */
     public void playSearchRow(int rowIndex) {
-        List<SearchRow> rows = searchRows.peek();
-        if (rows == null || rowIndex < 0 || rowIndex >= rows.size()) return;
-        SearchRow row = rows.get(rowIndex);
-        switch (row.kind) {
-            case "plugin": playPluginSearchResult(row.providerId, row.index); break;
-            case "netease": playSearchResult(row.index); break;
-            case "local": playLocalSearchResult(row.index); break;
-            default: break;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            List<SearchRow> rows = searchRows.peek();
+            if (rows == null || rowIndex < 0 || rowIndex >= rows.size()) return;
+            SearchRow row = rows.get(rowIndex);
+            switch (row.kind) {
+                case "plugin":
+                    playPluginSearchResult(row.providerId, row.index);
+                    break;
+                case "netease":
+                    playSearchResult(row.index);
+                    break;
+                case "local":
+                    playLocalSearchResult(row.index);
+                    break;
+                default:
+                    break;
+            }
         }
     }
 
@@ -7689,40 +7517,18 @@ public final class PlayerController {
         return s != null && s.toLowerCase(Locale.ROOT).contains(needleLower);
     }
 
-    /** Play a track from {@link #localSearchResults} — a filtered view of
-     *  {@link #library}, so it needs its own queue-index mapping rather than
-     *  {@link #play(int)}, which indexes into the full library. */
+    /**
+     * Play a track from {@link #localSearchResults} — a filtered view of {@link #library}, so it
+     * needs its own queue-index mapping rather than {@link #play(int)}, which indexes into the full
+     * library.
+     */
     public void playLocalSearchResult(int i) {
-        List<Track> results = localSearchResults.peek();
-        if (results == null || i < 0 || i >= results.size()) return;
-        // Snapshot for the same reason as play(int): typing a new query rewrites
-        // localSearchResults in place and must not mutate the live queue.
-        playQueue(new ArrayList<>(results), i);
-    }
-
-    /** Batch-fill missing coverUrl fields from /v3/song/detail (the legacy
-     *  /search/get omits album picUrl). Runs on the worker thread. */
-    private void fillMissingCovers(List<NeteaseSong> songs) {
-        if (songs == null || songs.isEmpty()) return;
-        List<Long> missingIds = new ArrayList<>();
-        for (NeteaseSong s : songs) {
-            if (s.coverUrl == null || s.coverUrl.isEmpty()) missingIds.add(s.id);
-        }
-        if (missingIds.isEmpty()) return;
-        try {
-            List<NeteaseSong> details = netease.songDetails(missingIds);
-            Map<Long, NeteaseSong> detailMap = new HashMap<>();
-            for (NeteaseSong d : details) detailMap.put(d.id, d);
-            for (NeteaseSong s : songs) {
-                if ((s.coverUrl == null || s.coverUrl.isEmpty())) {
-                    NeteaseSong d = detailMap.get(s.id);
-                    if (d != null && d.coverUrl != null && !d.coverUrl.isEmpty()) {
-                        s.coverUrl = d.coverUrl;
-                    }
-                }
-            }
-        } catch (Throwable e) {
-            Logger.warn("fillMissingCovers failed: {}", e.getMessage());
+        synchronized (QmlRuntimeLock.MONITOR) {
+            List<Track> results = localSearchResults.peek();
+            if (results == null || i < 0 || i >= results.size()) return;
+            // Snapshot for the same reason as play(int): typing a new query rewrites
+            // localSearchResults in place and must not mutate the live queue.
+            playQueue(new ArrayList<>(results), i);
         }
     }
 
@@ -7734,23 +7540,13 @@ public final class PlayerController {
                                  : url + "?param=" + size + "y" + size;
     }
 
-    /** Only the legacy NetEase CDN contract understands the {@code param=} resize
-     * suffix. Provider and custom-source artwork URLs must remain byte-for-byte as
-     * returned instead of having a host-specific query parameter grafted onto them. */
+    /**
+     * Only the legacy NetEase CDN contract understands the {@code param=} resize suffix. Provider
+     * and custom-source artwork URLs must remain byte-for-byte as returned instead of having a
+     * host-specific query parameter grafted onto them.
+     */
     private static String trackCoverUrl(Track track, String size) {
-        if (track == null || track.coverUrl == null) return "";
-        return track.source == Track.Source.NETEASE
-                ? thumbUrl(track.coverUrl, size) : track.coverUrl;
-    }
-
-    /** Batch-build {@link NeteaseSong#coverThumbPath} for a list of songs. */
-    private static void buildSongThumbs(List<NeteaseSong> songs, String size) {
-        if (songs == null) return;
-        for (NeteaseSong s : songs) {
-            if (s.coverUrl != null && !s.coverUrl.isEmpty()) {
-                s.coverThumbPath = thumbUrl(s.coverUrl, size);
-            }
-        }
+        return ArtworkResolver.url(track, size);
     }
 
     /** Handle a playback error from the audio backend. For netease/plugin tracks
@@ -7762,63 +7558,72 @@ public final class PlayerController {
         skipUnplayable(currentTrack(), I18n.tr("toast.play.audioFailed"));
     }
 
-    /** Retry a track whose cached streamUrl may be bad (expired VIP link, region
-     *  lock, a CDN that cut the response short, ...): clear the url and re-resolve
-     *  from wherever playback actually stopped. errorRetryId/errorRetryMediaId
-     *  guard against an endless error→re-resolve loop when the fresh url also
-     *  fails; they're reset when a track actually starts playing.
-     *  @return true if a retry was launched (caller must not also skip/advance). */
+    /**
+     * Retry a track whose cached streamUrl may be bad (expired VIP link, region lock, a CDN that
+     * cut the response short, ...): clear the url and re-resolve from wherever playback actually
+     * stopped. errorRetryId/errorRetryMediaId guard against an endless error→re-resolve loop when
+     * the fresh url also fails; they're reset when a track actually starts playing.
+     *
+     * @return true if a retry was launched (caller must not also skip/advance).
+     */
     private boolean retryStaleStreamUrl(Track t) {
         if (t == null || t.streamUrl == null) return false;
         long backendMs = Math.max(0L, backend.position());
         Long shown = positionMs.peek();
         long resumeMs = Math.max(backendMs, shown != null ? shown : 0L);
-        if (t.source == Track.Source.NETEASE && t.neteaseId != errorRetryId) {
-            errorRetryId = t.neteaseId;
-            beginLyricClockLoad(resumeMs);
-            Logger.warn("playback error on netease track {}, clearing stale url and retrying at {}ms",
-                    t.neteaseId, resumeMs);
-            t.streamUrl = null;
-            resolveAndPlayNetease(t, resumeMs, coverRevision.get());
-            return true;
-        }
         if (t.source == Track.Source.PLUGIN && !t.canonicalId().equals(errorRetryMediaId)) {
             errorRetryMediaId = t.canonicalId();
             beginLyricClockLoad(resumeMs);
-            Logger.warn("playback error on plugin track {}, clearing stale url and retrying at {}ms",
-                    t.canonicalId(), resumeMs);
+            Logger.warn(
+                    "playback error on plugin track {}, clearing stale url and retrying at {}ms",
+                    t.canonicalId(),
+                    resumeMs);
             t.streamUrl = null;
             t.streamHeaders.clear();
+            playbackSession.startPositionMs = resumeMs;
+            playbackSession.invalidate();
             resolveAndPlayPlugin(t, resumeMs, coverRevision.get());
             return true;
         }
         return false;
     }
 
-    /** Stop waiting on an unplayable queue entry and advance once. The failure
-     *  count is reset only by backend.onStarted, so a queue in which every entry
-     *  is blocked makes at most one full pass instead of spinning forever. */
+    /**
+     * Stop waiting on an unplayable queue entry and advance once. The failure count is reset only
+     * by backend.onStarted, so a queue in which every entry is blocked makes at most one full pass
+     * instead of spinning forever.
+     */
     private void skipUnplayable(Track expected, String reason) {
         if (!isCurrentTrack(expected)) return;
+        if (!playbackSession.playing) {
+            needsReplay = true;
+            pendingResumeIndex = playbackSession.index;
+            pendingResumeMs = mediaSessionPosition();
+            loading.set(false);
+            showToast(reason);
+            notifyPlayback();
+            return;
+        }
         consecutivePlaybackFailures++;
         int failures = consecutivePlaybackFailures;
-        if (queue.size() <= 1 || failures >= queue.size()) {
+        if (playbackSession.queue.size() <= 1 || failures >= playbackSession.queue.size()) {
             stoppedLyricPositionMs = Math.max(0L, backend.position());
             playbackStarted = false;
-            playingIntent = false;
+            playbackSession.playing = false;
             backend.pause();
-            post(() -> {
-                loading.set(false);
-                playing.set(false);
-                showToast(I18n.tr("toast.play.failed", reason));
-            });
+            post(
+                    () -> {
+                        loading.set(false);
+                        playing.set(false);
+                        showToast(I18n.tr("toast.play.failed", reason));
+                    });
             notifyPlayback();
             return;
         }
         post(() -> showToast(I18n.tr("toast.play.skipped", reason)));
         // Failed tracks must never obey repeat-one, and a deterministic walk avoids
         // shuffle selecting the same broken entry again before trying the others.
-        playAt((playIndex + 1) % queue.size());
+        playAt((playbackSession.index + 1) % playbackSession.queue.size());
     }
 
     /** How many plain recommended playlists to ask the source for; the titled
@@ -7827,11 +7632,13 @@ public final class PlayerController {
     private boolean homeRequested;
 
     public void setHomePlaylistLimit(int value) {
-        int next = Math.max(1, Math.min(100, value));
-        if (next == homePlaylistLimit) return;
-        homePlaylistLimit = next;
-        // Startup seeds this before the first load; only a real change reloads.
-        if (homeRequested) loadHome();
+        synchronized (QmlRuntimeLock.MONITOR) {
+            int next = Math.max(1, Math.min(100, value));
+            if (next == homePlaylistLimit) return;
+            homePlaylistLimit = next;
+            // Startup seeds this before the first load; only a real change reloads.
+            if (homeRequested) loadHome();
+        }
     }
 
     private void publishHomeSections(List<HomeSection> sections) {
@@ -7854,68 +7661,63 @@ public final class PlayerController {
 
     /** Load the home content: recommended songs (login) + recommended playlists. */
     public void loadHome() {
-        post(() -> homeLoading.set(true));
-        // Switching away and back fast would otherwise let the first source's
-        // in-flight result land on top of the second one's.
-        final long generation = homeGeneration.incrementAndGet();
-        homeRequested = true;
-        PluginManifest provider = primaryProviderWith(ProviderCapability.HOME);
-        if (provider != null) {
-            pluginProviders.home(provider.id, homePlaylistLimit)
-                    .whenComplete((home, error) -> post(() -> {
-                if (generation != homeGeneration.get()) return;
-                if (!provider.id.equals(pluginRegistry.primaryProvider())) return;
-                homeLoading.set(false);
-                if (error != null) {
-                    Logger.warn("plugin {} home failed: {}", provider.id, safeMessage(error));
-                    clearHomeSections();
-                    sourceRecommendPlaylists.set(Collections.<Playlist>emptyList());
-                    sourceRecommendations.set(Collections.<Song>emptyList());
-                    return;
-                }
-                ProviderHome value = home != null ? home : new ProviderHome();
-                publishHomeSections(value.sections);
-                sourceRecommendPlaylists.set(Collections.unmodifiableList(
-                        new ArrayList<>(value.playlists)));
-                sourceRecommendations.set(Collections.unmodifiableList(
-                        new ArrayList<>(value.songs)));
-            }));
-            return;
-        }
-        clearHomeSections();
-        // No source can serve home right now: publish the empty state instead of
-        // leaving the previous source's recommendations up forever.
-        sourceRecommendPlaylists.set(Collections.<Playlist>emptyList());
-        sourceRecommendations.set(Collections.<Song>emptyList());
-        if (onlineSourcesArePluginOnly()) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            post(() -> homeLoading.set(true));
+            // Switching away and back fast would otherwise let the first source's
+            // in-flight result land on top of the second one's.
+            final long generation = homeGeneration.incrementAndGet();
+            homeRequested = true;
+            PluginManifest provider = primaryProviderWith(ProviderCapability.HOME);
+            if (provider != null) {
+                pluginProviders
+                        .home(provider.id, homePlaylistLimit)
+                        .whenComplete(
+                                (home, error) ->
+                                        post(
+                                                () -> {
+                                                    if (generation != homeGeneration.get()) return;
+                                                    if (!provider.id.equals(
+                                                            pluginRegistry.primaryProvider()))
+                                                        return;
+                                                    homeLoading.set(false);
+                                                    if (error != null) {
+                                                        Logger.warn(
+                                                                "plugin {} home failed: {}",
+                                                                provider.id,
+                                                                safeMessage(error));
+                                                        clearHomeSections();
+                                                        sourceRecommendPlaylists.set(
+                                                                Collections.<Playlist>emptyList());
+                                                        sourceRecommendations.set(
+                                                                Collections.<Song>emptyList());
+                                                        return;
+                                                    }
+                                                    ProviderHome value =
+                                                            home != null
+                                                                    ? home
+                                                                    : new ProviderHome();
+                                                    publishHomeSections(value.sections);
+                                                    sourceRecommendPlaylists.set(
+                                                            Collections.unmodifiableList(
+                                                                    new ArrayList<>(
+                                                                            value.playlists)));
+                                                    sourceRecommendations.set(
+                                                            Collections.unmodifiableList(
+                                                                    new ArrayList<>(value.songs)));
+                                                }));
+                return;
+            }
+            clearHomeSections();
+            // No source can serve home right now: publish the empty state instead of
+            // leaving the previous source's recommendations up forever.
+            sourceRecommendPlaylists.set(Collections.<Playlist>emptyList());
+            sourceRecommendations.set(Collections.<Song>emptyList());
+
             recommendations.set(Collections.<NeteaseSong>emptyList());
             recommendPlaylists.set(Collections.<NeteasePlaylist>emptyList());
             homeLoading.set(false);
             return;
         }
-        worker.submit(() -> {
-            try {
-                List<NeteasePlaylist> picks = netease.personalizedPlaylists(12);
-                String size = gridCoverSize();
-                for (NeteasePlaylist p : picks) {
-                    p.coverThumbPath = thumbUrl(p.coverUrl, size);
-                }
-                post(() -> recommendPlaylists.set(picks));
-            } catch (Throwable e) {
-                Logger.warn("personalized playlists failed: {}", e.toString());
-            }
-            if (netease.isLoggedIn()) {
-                try {
-                    List<NeteaseSong> daily = netease.recommendSongs();
-                    fillMissingCovers(daily);
-                    buildSongThumbs(daily, "128");
-                    post(() -> recommendations.set(daily));
-                } catch (Throwable e) {
-                    Logger.warn("daily recommend failed: {}", e.toString());
-                }
-            }
-            post(() -> homeLoading.set(false));
-        });
     }
 
     private void publishPlayingArtist(Track t) {
@@ -7928,62 +7730,70 @@ public final class PlayerController {
 
     /** Lyric-page artist tap: picker when several credits, otherwise the one artist. */
     public void openPlayingArtist() {
-        openSongArtistPicker(playingArtistIdsCsv.peek(), playingArtistNamesCsv.peek());
+        synchronized (QmlRuntimeLock.MONITOR) {
+            openSongArtistPicker(playingArtistIdsCsv.peek(), playingArtistNamesCsv.peek());
+        }
     }
 
-    /** Opens SongContextMenu's "查看歌手" picker. QML hands over the song's full
-     *  artist list as two parallel CSVs (ids comma-joined, names joined on
-     *  U+0001 so a name containing a comma can't desync the pairing) rather
-     *  than a structured object -- passing a List built in QML script back
-     *  across the bridge as a Java method parameter isn't a pattern used
-     *  anywhere else in this codebase, while plain-string method args are. */
+    /**
+     * Opens SongContextMenu's "查看歌手" picker. QML hands over the song's full artist list as two
+     * parallel CSVs (ids comma-joined, names joined on U+0001 so a name containing a comma can't
+     * desync the pairing) rather than a structured object -- passing a List built in QML script
+     * back across the bridge as a Java method parameter isn't a pattern used anywhere else in this
+     * codebase, while plain-string method args are.
+     */
     public void openSongArtistPicker(String idsCsv, String namesCsv) {
-        if (idsCsv == null || idsCsv.isEmpty()) return;
-        String[] ids = idsCsv.split(",", -1);
-        String[] namesArr = namesCsv != null ? namesCsv.split(String.valueOf((char) 1), -1) : new String[0];
-        List<NeteaseSong.ArtistRef> refs = new ArrayList<>();
-        for (int i = 0; i < ids.length; i++) {
-            String token = ids[i] != null ? ids[i].trim() : "";
-            if (token.isEmpty()) continue;
-            NeteaseSong.ArtistRef ref = new NeteaseSong.ArtistRef();
-            if (token.indexOf(':') >= 0) {
-                ref.mediaId = token;
-            } else {
-                try {
-                    ref.id = Long.parseLong(token);
-                } catch (NumberFormatException e) {
-                    continue;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (idsCsv == null || idsCsv.isEmpty()) return;
+            String[] ids = idsCsv.split(",", -1);
+            String[] namesArr =
+                    namesCsv != null ? namesCsv.split(String.valueOf((char) 1), -1) : new String[0];
+            List<NeteaseSong.ArtistRef> refs = new ArrayList<>();
+            for (int i = 0; i < ids.length; i++) {
+                String token = ids[i] != null ? ids[i].trim() : "";
+                if (token.isEmpty()) continue;
+                NeteaseSong.ArtistRef ref = new NeteaseSong.ArtistRef();
+                if (token.indexOf(':') >= 0) {
+                    ref.mediaId = token;
+                } else {
+                    try {
+                        ref.id = Long.parseLong(token);
+                    } catch (NumberFormatException e) {
+                        continue;
+                    }
                 }
+                ref.name = i < namesArr.length ? namesArr[i] : "";
+                refs.add(ref);
             }
-            ref.name = i < namesArr.length ? namesArr[i] : "";
-            refs.add(ref);
+            if (refs.isEmpty()) return;
+            // A single credit has no choice to make. Use the exact same entry point as
+            // selecting an item from the multi-artist dialog, but skip the dialog and
+            // its avatar request entirely.
+            if (refs.size() == 1) {
+                closeSongArtistPicker();
+                openArtistCredit(refs.get(0));
+                return;
+            }
+            // The lyric chrome is a separate host pass above Main.qml. A picker
+            // opened while that layer is up is covered, so drop lyrics first.
+            if (Boolean.TRUE.equals(lyricsOpen.peek())) setLyricsOpen(false);
+            songArtistPickerList.set(refs);
+            songArtistPickerOpen.set(true);
+            // A song's own artist credits carry no avatar (id/name only) -- fetch
+            // each one's profile picture in the background and patch it in as it
+            // arrives, same "show text now, images pop in" idea as everywhere else
+            // covers load lazily.
+            final long revision = ++songArtistPickerRevision;
+            worker.submit(() -> fetchSongArtistAvatars(refs, revision));
         }
-        if (refs.isEmpty()) return;
-        // A single credit has no choice to make. Use the exact same entry point as
-        // selecting an item from the multi-artist dialog, but skip the dialog and
-        // its avatar request entirely.
-        if (refs.size() == 1) {
-            closeSongArtistPicker();
-            openArtistCredit(refs.get(0));
-            return;
-        }
-        // The lyric chrome is a separate host pass above Main.qml. A picker
-        // opened while that layer is up is covered, so drop lyrics first.
-        if (Boolean.TRUE.equals(lyricsOpen.peek())) setLyricsOpen(false);
-        songArtistPickerList.set(refs);
-        songArtistPickerOpen.set(true);
-        // A song's own artist credits carry no avatar (id/name only) -- fetch
-        // each one's profile picture in the background and patch it in as it
-        // arrives, same "show text now, images pop in" idea as everywhere else
-        // covers load lazily.
-        final long revision = ++songArtistPickerRevision;
-        worker.submit(() -> fetchSongArtistAvatars(refs, revision));
     }
 
     public void openArtistCredit(NeteaseSong.ArtistRef ref) {
-        if (ref == null) return;
-        if (ref.mediaId != null && !ref.mediaId.isEmpty()) openMediaArtist(ref.mediaId);
-        else openArtist(ref.id);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (ref == null) return;
+            if (ref.mediaId != null && !ref.mediaId.isEmpty()) openMediaArtist(ref.mediaId);
+            else openArtist(ref.id);
+        }
     }
 
     private void fetchSongArtistAvatars(List<NeteaseSong.ArtistRef> refs, long revision) {
@@ -7993,7 +7803,10 @@ public final class PlayerController {
                 String cover = fetchArtistCreditCover(ref);
                 if (cover == null || cover.isEmpty()) continue;
                 ref.coverUrl = cover;
-                ref.coverThumbPath = cover.startsWith("http") ? thumbUrl(cover, "128") : cover;
+                ref.coverThumbPath =
+                        ref.mediaId != null && !ref.mediaId.isEmpty()
+                                ? cover
+                                : (cover.startsWith("http") ? thumbUrl(cover, "128") : cover);
                 if (songArtistPickerRevision != revision) return;
                 // Fresh ArtistRef instances, not the same mutated objects re-wrapped in
                 // a new ArrayList: List.equals() compares elements pairwise, and two
@@ -8004,29 +7817,34 @@ public final class PlayerController {
                 // [[qplayer-2026-07-status]]), so QML would never see this update.
                 List<NeteaseSong.ArtistRef> copy = new ArrayList<>(refs.size());
                 for (NeteaseSong.ArtistRef r : refs) copy.add(copyArtistRef(r));
-                post(() -> {
-                    if (songArtistPickerRevision != revision) return;
-                    songArtistPickerList.set(copy);
-                });
+                post(
+                        () -> {
+                            if (songArtistPickerRevision != revision) return;
+                            songArtistPickerList.set(copy);
+                        });
             } catch (Throwable e) {
-                Logger.warn("song-artist-picker avatar fetch failed for {}: {}",
-                        ref.mediaId != null && !ref.mediaId.isEmpty() ? ref.mediaId : Long.toString(ref.id),
+                Logger.warn(
+                        "song-artist-picker avatar fetch failed for {}: {}",
+                        ref.mediaId != null && !ref.mediaId.isEmpty()
+                                ? ref.mediaId
+                                : Long.toString(ref.id),
                         e.toString());
             }
         }
     }
 
     private String fetchArtistCreditCover(NeteaseSong.ArtistRef ref) throws Exception {
-        if (ref.mediaId != null && !ref.mediaId.isEmpty()) {
-            Artist artist = pluginProviders.artist(MediaId.parse(ref.mediaId)).get(8, TimeUnit.SECONDS);
-            if (artist == null) return null;
-            if (artist.artworkUrl != null && !artist.artworkUrl.isEmpty()) return artist.artworkUrl;
-            return artist.coverUrl;
-        }
-        if (ref.id == 0L) return null;
-        NeteaseClient.ArtistPage page = netease.artistDetail(ref.id);
-        NeteaseArtist artist = page != null ? page.artist : null;
-        return artist != null ? artist.coverUrl : null;
+        String canonical =
+                ref.mediaId != null && !ref.mediaId.isEmpty()
+                        ? ref.mediaId
+                        : "netease:artist:" + ref.id;
+        MediaId id = MediaId.parse(canonical);
+        if (!pluginHasCapability(id.provider(), ProviderCapability.ARTIST_DETAILS)) return null;
+        Artist artist = pluginProviders.artist(id).get(8, TimeUnit.SECONDS);
+        if (artist == null) return null;
+        return artist.artworkUrl != null && !artist.artworkUrl.isEmpty()
+                ? artist.artworkUrl
+                : artist.coverUrl;
     }
 
     private static NeteaseSong.ArtistRef copyArtistRef(NeteaseSong.ArtistRef r) {
@@ -8040,216 +7858,191 @@ public final class PlayerController {
     }
 
     public void closeSongArtistPicker() {
-        songArtistPickerRevision++;
-        songArtistPickerOpen.set(false);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            songArtistPickerRevision++;
+            songArtistPickerOpen.set(false);
+        }
     }
 
-    /** Open a playlist: detail (name) + its tracks. */
     /** Open an artist page: profile (name/avatar/bio) + hot songs + albums. */
     public void openMediaArtist(String mediaId) {
-        if (mediaId == null || mediaId.isEmpty()) return;
-        if (mediaId.indexOf(':') < 0) {
-            try { openArtist(Long.parseLong(mediaId)); } catch (NumberFormatException ignored) {}
-            return;
-        }
-        final MediaId id;
-        try { id = MediaId.parse(mediaId).requireKind(dev.t1m3.qplayer.media.MediaKind.ARTIST); }
-        catch (IllegalArgumentException error) { showToast(I18n.tr("toast.id.artist")); return; }
-        openSourceArtistId.set(id.toString());
-        openArtistId.set(0L);
-        artistPageOpen.set(true);
-        pageNavigationTarget.set("artist");
-        pageNavigationEntityId.set(id.toString());
-        pageNavigationRevision.set(++pageNavigationSequence);
-        artistLoading.set(true);
-        artistName.set("");
-        artistCoverPath.set("");
-        artistBriefDesc.set("");
-        sourceArtistSongs.set(Collections.<Song>emptyList());
-        sourceArtistAlbums.set(Collections.<Album>emptyList());
-        pluginProviders.artist(id).whenComplete((artist, error) -> post(() -> {
-            if (!id.toString().equals(openSourceArtistId.peek())) return;
-            artistLoading.set(false);
-            if (error != null || artist == null) {
-                Logger.warn("plugin artist {} failed: {}", id, safeMessage(error));
-                showToast(I18n.tr("toast.artist.loadFailedPlugin"));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (mediaId == null || mediaId.isEmpty()) return;
+            if (mediaId.indexOf(':') < 0) {
+                try {
+                    openArtist(Long.parseLong(mediaId));
+                } catch (NumberFormatException ignored) {
+                }
                 return;
             }
-            artistName.set(artist.name);
-            artistCoverPath.set(artist.artworkUrl);
-            artistBriefDesc.set(artist.description);
-            sourceArtistSongs.set(Collections.unmodifiableList(new ArrayList<>(artist.songs)));
-            sourceArtistAlbums.set(Collections.unmodifiableList(new ArrayList<>(artist.albums)));
-        }));
+            final MediaId id;
+            try {
+                id = MediaId.parse(mediaId).requireKind(dev.t1m3.qplayer.media.MediaKind.ARTIST);
+            } catch (IllegalArgumentException error) {
+                showToast(I18n.tr("toast.id.artist"));
+                return;
+            }
+            openSourceArtistId.set(id.toString());
+            openArtistId.set(0L);
+            artistPageOpen.set(true);
+            pageNavigationTarget.set("artist");
+            pageNavigationEntityId.set(id.toString());
+            pageNavigationRevision.set(++pageNavigationSequence);
+            artistLoading.set(true);
+            artistName.set("");
+            artistCoverPath.set("");
+            artistBriefDesc.set("");
+            sourceArtistSongs.set(Collections.<Song>emptyList());
+            sourceArtistAlbums.set(Collections.<Album>emptyList());
+            pluginProviders
+                    .artist(id)
+                    .whenComplete(
+                            (artist, error) ->
+                                    post(
+                                            () -> {
+                                                if (!id.toString()
+                                                        .equals(openSourceArtistId.peek())) return;
+                                                artistLoading.set(false);
+                                                if (error != null || artist == null) {
+                                                    Logger.warn(
+                                                            "plugin artist {} failed: {}",
+                                                            id,
+                                                            safeMessage(error));
+                                                    showToast(
+                                                            I18n.tr(
+                                                                    "toast.artist.loadFailedPlugin"));
+                                                    return;
+                                                }
+                                                artistName.set(artist.name);
+                                                artistCoverPath.set(artist.artworkUrl);
+                                                artistBriefDesc.set(artist.description);
+                                                sourceArtistSongs.set(
+                                                        Collections.unmodifiableList(
+                                                                new ArrayList<>(artist.songs)));
+                                                sourceArtistAlbums.set(
+                                                        Collections.unmodifiableList(
+                                                                new ArrayList<>(artist.albums)));
+                                            }));
+        }
     }
 
     public void openArtist(long artistId) {
-        if (onlineSourcesArePluginOnly()) { showToast(I18n.tr("toast.openWithPlugin.artist")); return; }
-        if (artistId == 0L) return;
-        openSourceArtistId.set("");
-        pageNavigationEntityId.set(Long.toString(artistId));
-        currentArtistId = artistId;
-        openArtistId.set(artistId);
-        artistPageOpen.set(true);
-        pageNavigationTarget.set("artist");
-        pageNavigationRevision.set(++pageNavigationSequence);
-        artistLoading.set(true);
-        artistName.set("");
-        artistCoverPath.set("");
-        artistBriefDesc.set("");
-        artistSongs.set(Collections.<NeteaseSong>emptyList());
-        artistAlbums.set(Collections.<NeteaseAlbum>emptyList());
-        worker.submit(() -> {
-            try {
-                NeteaseClient.ArtistPage page = netease.artistDetail(artistId);
-                List<NeteaseAlbum> albums = netease.artistAlbums(artistId, 50);
-                applyAlbumCoverSize(albums);
-                List<NeteaseSong> hotSongs = page != null ? page.hotSongs : Collections.<NeteaseSong>emptyList();
-                fillMissingCovers(hotSongs);
-                buildSongThumbs(hotSongs, "128");
-                NeteaseArtist artist = page != null ? page.artist : null;
-                post(() -> {
-                    if (currentArtistId != artistId) return;   // a newer open won
-                    artistName.set(artist != null && artist.name != null ? artist.name : "");
-                    artistCoverPath.set(artist != null && artist.coverUrl != null
-                            ? thumbUrl(artist.coverUrl, "256") : "");
-                    artistBriefDesc.set(artist != null && artist.briefDesc != null ? artist.briefDesc : "");
-                    artistSongs.set(hotSongs);
-                    artistAlbums.set(albums);
-                    artistLoading.set(false);
-                });
-            } catch (Throwable e) {
-                Logger.warn("open artist {} failed: {}", artistId, e.getMessage());
-                post(() -> {
-                    if (currentArtistId != artistId) return;
-                    artistLoading.set(false);
-                    showToast(I18n.tr("toast.artist.loadFailed"));
-                });
-            }
-        });
+        openMediaArtist("netease:artist:" + artistId);
     }
 
     /** Play a song from the open artist's hot-songs list. */
     public void playArtistSong(int i) {
-        if (!openSourceArtistId.peek().isEmpty()) {
-            playPluginSongList(sourceArtistSongs.peek(), i);
-            return;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (!openSourceArtistId.peek().isEmpty()) {
+                playPluginSongList(sourceArtistSongs.peek(), i);
+                return;
+            }
+            playSongList(artistSongs.peek(), i);
         }
-        playSongList(artistSongs.peek(), i);
     }
 
     /** Open an album page: profile (name/cover/artist) + full tracklist. */
     public void openMediaAlbum(String mediaId) {
-        if (mediaId == null || mediaId.isEmpty()) return;
-        if (mediaId.indexOf(':') < 0) {
-            try { openAlbum(Long.parseLong(mediaId)); } catch (NumberFormatException ignored) {}
-            return;
-        }
-        final MediaId id;
-        try { id = MediaId.parse(mediaId).requireKind(dev.t1m3.qplayer.media.MediaKind.ALBUM); }
-        catch (IllegalArgumentException error) { showToast(I18n.tr("toast.id.album")); return; }
-        openSourceAlbumId.set(id.toString());
-        openAlbumId.set(0L);
-        albumPageOpen.set(true);
-        pageNavigationTarget.set("album");
-        pageNavigationEntityId.set(id.toString());
-        pageNavigationRevision.set(++pageNavigationSequence);
-        albumLoading.set(true);
-        albumName.set("");
-        albumCoverPath.set("");
-        albumArtistName.set("");
-        albumArtistId.set(0L);
-        albumArtistMediaId.set("");
-        albumPublishYear.set("");
-        sourceAlbumTracks.set(Collections.<Song>emptyList());
-        pluginProviders.album(id).whenComplete((album, error) -> post(() -> {
-            if (!id.toString().equals(openSourceAlbumId.peek())) return;
-            albumLoading.set(false);
-            if (error != null || album == null) {
-                Logger.warn("plugin album {} failed: {}", id, safeMessage(error));
-                showToast(I18n.tr("toast.album.loadFailedPlugin"));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (mediaId == null || mediaId.isEmpty()) return;
+            if (mediaId.indexOf(':') < 0) {
+                try {
+                    openAlbum(Long.parseLong(mediaId));
+                } catch (NumberFormatException ignored) {
+                }
                 return;
             }
-            albumName.set(album.name);
-            albumCoverPath.set(album.artworkUrl);
-            albumArtistName.set(album.artistName);
-            albumArtistMediaId.set(album.artistMediaId);
-            albumPublishYear.set(album.publishTimeMs > 0
-                    ? new java.text.SimpleDateFormat(I18n.tr("album.yearFormat"), java.util.Locale.getDefault())
-                            .format(new java.util.Date(album.publishTimeMs)) : "");
-            sourceAlbumTracks.set(Collections.unmodifiableList(new ArrayList<>(album.songs)));
-        }));
+            final MediaId id;
+            try {
+                id = MediaId.parse(mediaId).requireKind(dev.t1m3.qplayer.media.MediaKind.ALBUM);
+            } catch (IllegalArgumentException error) {
+                showToast(I18n.tr("toast.id.album"));
+                return;
+            }
+            openSourceAlbumId.set(id.toString());
+            openAlbumId.set(0L);
+            albumPageOpen.set(true);
+            pageNavigationTarget.set("album");
+            pageNavigationEntityId.set(id.toString());
+            pageNavigationRevision.set(++pageNavigationSequence);
+            albumLoading.set(true);
+            albumName.set("");
+            albumCoverPath.set("");
+            albumArtistName.set("");
+            albumArtistId.set(0L);
+            albumArtistMediaId.set("");
+            albumPublishYear.set("");
+            sourceAlbumTracks.set(Collections.<Song>emptyList());
+            pluginProviders
+                    .album(id)
+                    .whenComplete(
+                            (album, error) ->
+                                    post(
+                                            () -> {
+                                                if (!id.toString().equals(openSourceAlbumId.peek()))
+                                                    return;
+                                                albumLoading.set(false);
+                                                if (error != null || album == null) {
+                                                    Logger.warn(
+                                                            "plugin album {} failed: {}",
+                                                            id,
+                                                            safeMessage(error));
+                                                    showToast(
+                                                            I18n.tr(
+                                                                    "toast.album.loadFailedPlugin"));
+                                                    return;
+                                                }
+                                                albumName.set(album.name);
+                                                albumCoverPath.set(album.artworkUrl);
+                                                albumArtistName.set(album.artistName);
+                                                albumArtistMediaId.set(album.artistMediaId);
+                                                albumPublishYear.set(
+                                                        album.publishTimeMs > 0
+                                                                ? new java.text.SimpleDateFormat(
+                                                                                I18n.tr(
+                                                                                        "album.yearFormat"),
+                                                                                java.util.Locale
+                                                                                        .getDefault())
+                                                                        .format(
+                                                                                new java.util.Date(
+                                                                                        album.publishTimeMs))
+                                                                : "");
+                                                sourceAlbumTracks.set(
+                                                        Collections.unmodifiableList(
+                                                                new ArrayList<>(album.songs)));
+                                            }));
+        }
     }
 
     public void openAlbum(long albumId) {
-        if (onlineSourcesArePluginOnly()) { showToast(I18n.tr("toast.openWithPlugin.album")); return; }
-        if (albumId == 0L) return;
-        openSourceAlbumId.set("");
-        albumArtistMediaId.set("");
-        pageNavigationEntityId.set(Long.toString(albumId));
-        currentAlbumId = albumId;
-        openAlbumId.set(albumId);
-        albumPageOpen.set(true);
-        pageNavigationTarget.set("album");
-        pageNavigationRevision.set(++pageNavigationSequence);
-        albumLoading.set(true);
-        albumName.set("");
-        albumCoverPath.set("");
-        albumArtistName.set("");
-        albumArtistId.set(0L);
-        albumPublishYear.set("");
-        albumTracks.set(Collections.<NeteaseSong>emptyList());
-        worker.submit(() -> {
-            try {
-                NeteaseClient.AlbumPage page = netease.albumDetail(albumId);
-                List<NeteaseSong> songs = page != null ? page.songs : Collections.<NeteaseSong>emptyList();
-                fillMissingCovers(songs);
-                buildSongThumbs(songs, "128");
-                NeteaseAlbum album = page != null ? page.album : null;
-                post(() -> {
-                    if (currentAlbumId != albumId) return;   // a newer open won
-                    albumName.set(album != null && album.name != null ? album.name : "");
-                    albumCoverPath.set(album != null && album.coverUrl != null
-                            ? thumbUrl(album.coverUrl, "256") : "");
-                    albumArtistName.set(album != null && album.artistName != null ? album.artistName : "");
-                    albumArtistId.set(album != null ? album.artistId : 0L);
-                    albumPublishYear.set(album != null && album.publishTime > 0
-                            ? new java.text.SimpleDateFormat(I18n.tr("album.yearFormat"), java.util.Locale.getDefault())
-                                    .format(new java.util.Date(album.publishTime))
-                            : "");
-                    albumTracks.set(songs);
-                    albumLoading.set(false);
-                });
-            } catch (Throwable e) {
-                Logger.warn("open album {} failed: {}", albumId, e.getMessage());
-                post(() -> {
-                    if (currentAlbumId != albumId) return;
-                    albumLoading.set(false);
-                    showToast(I18n.tr("toast.album.loadFailed"));
-                });
-            }
-        });
+        openMediaAlbum("netease:album:" + albumId);
     }
 
     /** Play a song from the open album's tracklist. */
     public void playAlbumTrack(int i) {
-        if (!openSourceAlbumId.peek().isEmpty()) {
-            playPluginSongList(sourceAlbumTracks.peek(), i);
-            return;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (!openSourceAlbumId.peek().isEmpty()) {
+                playPluginSongList(sourceAlbumTracks.peek(), i);
+                return;
+            }
+            playSongList(albumTracks.peek(), i);
         }
-        playSongList(albumTracks.peek(), i);
     }
 
     public void openMediaPlaylist(String mediaId) {
-        loadMediaPlaylist(mediaId, false);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            loadMediaPlaylist(mediaId, false);
+        }
     }
 
     /** Refresh the current playlist without clearing its rows or filter state. */
     public void refreshPlaylist() {
-        if (Boolean.TRUE.equals(playlistLoading.peek())) return;
-        String mediaId = openSourcePlaylistId.peek();
-        if (mediaId != null && !mediaId.isEmpty()) loadMediaPlaylist(mediaId, true);
-        else if (currentPlaylistId > 0) openPlaylist(currentPlaylistId);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (Boolean.TRUE.equals(playlistLoading.peek())) return;
+            String mediaId = openSourcePlaylistId.peek();
+            if (mediaId != null && !mediaId.isEmpty()) loadMediaPlaylist(mediaId, true);
+            else if (currentPlaylistId > 0) openPlaylist(currentPlaylistId);
+        }
     }
 
     private void loadMediaPlaylist(String mediaId, boolean refreshing) {
@@ -8325,274 +8118,85 @@ public final class PlayerController {
     }
 
     public void openPlaylist(long playlistId) {
-        if (onlineSourcesArePluginOnly()) { showToast(I18n.tr("toast.openWithPlugin.playlist")); return; }
-        // Called on the render thread from QML: clear the previous playlist and show
-        // the spinner immediately, before the off-thread fetch starts.
-        currentPlaylistId = playlistId;
-        openSourcePlaylistId.set("");
-        openPlaylistId.set(playlistId);
-        playlistLoading.set(true);
-        playlistTracks.set(Collections.<NeteaseSong>emptyList());
-        playlistTitle.set("");
-        playlistCoverPath.set("");
-        // Reset the collect state; the real values land once playlist/detail resolves, so
-        // the icon stays hidden (loading) until then rather than flashing a wrong state.
-        playlistSubscribed.set(false);
-        playlistOwned.set(false);
-        playlistDeletable.set(false);
-        worker.submit(() -> {
-            try {
-                fetchAndPublishPlaylist(playlistId);
-            } catch (Throwable e) {
-                Logger.warn("open playlist {} failed: {}", playlistId, e.getMessage());
-                offlinePlaylistFallback(playlistId);
-            }
-        });
+        openMediaPlaylist("netease:playlist:" + playlistId);
     }
 
-    /** The actual network fetch + publish, shared by {@link #openPlaylist}'s own
-     *  attempt and {@link #scheduleOfflineRetry}'s background retry loop once
-     *  offline data is already showing — same fetch/build/publish either way, they
-     *  only differ in whether the caller already reset the UI to a loading state
-     *  first (retry deliberately doesn't, so the offline content stays on screen
-     *  until a real update actually lands, no loading-spinner flash every retry). */
-    private void fetchAndPublishPlaylist(long playlistId) throws Exception {
-        NeteasePlaylist detail = netease.playlistDetail(playlistId);
-        List<NeteaseSong> songs = netease.playlistTracks(playlistId, 200);
-        fillMissingCovers(songs);
-        buildSongThumbs(songs, "128");
-        // Thumbnails are keyed by coverUrl, not by playlist, so a track already
-        // cached from being seen in another playlist is reused here rather than
-        // re-fetched over the network; getThumb64 also touches it, so a song
-        // that keeps showing up across playlists stays recently-used and
-        // survives THUMB64_MAX_COUNT eviction instead of aging out unnoticed.
-        for (NeteaseSong s : songs) {
-            if (s.coverUrl != null && !s.coverUrl.isEmpty()) {
-                String localThumb = diskCache.getThumb64(thumbUrl(s.coverUrl, "64"));
-                if (localThumb != null) s.coverThumbPath = localThumb;
-            }
-            s.cachedOffline = s.id != 0 && diskCache.hasAudio(s.id);
-        }
-        String name = detail != null ? detail.name : "";
-        // Same cache-preference as loadMyPlaylists: this playlist's cover was
-        // very likely already cached (at this same layout's size) from
-        // appearing in 我的, so prefer that over the CDN url to survive a
-        // mid-session network drop.
-        String localCover = detail != null && detail.coverUrl != null
-                ? diskCache.getThumb64(thumbUrl(detail.coverUrl, gridCoverSize())) : null;
-        String cover = localCover != null ? localCover : detail != null
-                ? (detail.coverThumbPath != null ? detail.coverThumbPath : detail.coverUrl) : null;
-        boolean subscribed = detail != null && detail.subscribed;
-        boolean owned = detail != null && uid != 0 && detail.creatorUid == uid;
-        post(() -> {
-            if (currentPlaylistId != playlistId) return;   // a newer open won
-            playlistTitle.set(name == null ? "" : name);
-            playlistCoverPath.set(cover == null ? "" : cover);
-            playlistTracks.set(songs);
-            playlistSubscribed.set(subscribed);
-            playlistOwned.set(owned);
-            playlistDeletable.set(owned && favoritePid != 0L && playlistId != favoritePid);
-            playlistLoading.set(false);
-            playlistOffline.set(false);
-        });
-        // mine=false: opening a playlist (推荐, search, a shared link, or one of
-        // 我的 own) doesn't by itself prove membership in 我的 — only
-        // loadMyPlaylists's own enumeration does, and that upsert is sticky
-        // (see PlaylistCacheIndex.upsert), so an actually-owned playlist keeps
-        // its mine=true from there regardless of this call.
-        playlistCacheIndex.upsert(playlistId, name,
-                detail != null ? detail.coverUrl : null, songs.size(), songs, false);
-        cachePlaylistCoverAsync(detail != null ? detail.coverUrl : null);
-        // One download per track (DiskCache's thumb64 count-cap bounds
-        // total storage/downloads over time, not this call).
-        for (NeteaseSong s : songs) cacheThumb64Async(s.coverUrl);
-        // cacheWorker runs its downloads in submission order (single thread), so
-        // appending this after the loop above guarantees it only runs once every
-        // one of those downloads has finished (succeeded OR failed) — the one
-        // signal we need to re-apply "prefer local cache" for any track that
-        // wasn't cached yet when the list was first built above. Covers exactly
-        // "opened this playlist online, network dropped moments later": whatever
-        // finished downloading before it dropped still gets picked up here, no
-        // network needed for that re-check.
-        cacheWorker.submit(() -> refreshPlaylistCoversFromCache(playlistId, songs));
-        playlistCacheIndex.save();
-    }
-
-    /** Re-checks disk cache for every track's thumbnail once all of {@link
-     *  #fetchAndPublishPlaylist}'s cacheThumb64Async downloads for this open have
-     *  settled, and republishes {@link #playlistTracks} only if something actually
-     *  changed. Mutates the same {@code NeteaseSong} instances the UI is currently
-     *  showing (fine — a plain field write off the render thread, only ever read
-     *  from it after the post() below) rather than rebuilding the list. */
-    private void refreshPlaylistCoversFromCache(long playlistId, List<NeteaseSong> songs) {
-        if (currentPlaylistId != playlistId) return;
-        boolean changed = false;
-        for (NeteaseSong s : songs) {
-            if (s.coverUrl == null || s.coverUrl.isEmpty()) continue;
-            String localThumb = diskCache.getThumb64(thumbUrl(s.coverUrl, "64"));
-            if (localThumb != null && !localThumb.equals(s.coverThumbPath)) {
-                s.coverThumbPath = localThumb;
-                changed = true;
-            }
-        }
-        if (!changed) return;
-        post(() -> { if (currentPlaylistId == playlistId) playlistTracks.set(new ArrayList<>(songs)); });
-    }
-
-    /** {@link #openPlaylist} couldn't reach the network: fall back to whatever
-     *  {@link #playlistCacheIndex} has for this id, if anything. Songs never
-     *  actually played have no cached thumbnail (only {@code cacheAudioAsync}
-     *  downloads one) — those rows just show the placeholder glyph, same as a
-     *  cover still decoding. */
-    private void offlinePlaylistFallback(long playlistId) {
-        PlaylistCacheIndex.Cached cached = playlistCacheIndex.get(playlistId);
-        if (cached == null || cached.songs.isEmpty()) {
-            post(() -> {
-                if (currentPlaylistId != playlistId) return;
-                playlistLoading.set(false);
-                showToast(I18n.tr("toast.offline.playlistNone"));
-            });
-            return;
-        }
-        List<NeteaseSong> offline = new ArrayList<>(cached.songs.size());
-        for (NeteaseSong s : cached.songs) offline.add(withLocalThumb(s));
-        String cover = cached.coverUrl != null ? diskCache.getThumb64(thumbUrl(cached.coverUrl, gridCoverSize())) : null;
-        final String name = cached.name;
-        post(() -> {
-            if (currentPlaylistId != playlistId) return;
-            playlistTitle.set(name == null ? "" : name);
-            playlistCoverPath.set(cover == null ? "" : cover);
-            playlistTracks.set(offline);
-            playlistLoading.set(false);
-            playlistOffline.set(true);
-            showToast(I18n.tr("toast.offline.playlistCached"));
-        });
-        scheduleOfflineRetry(playlistId);
-    }
-
-    /** Quietly retries {@link #fetchAndPublishPlaylist} in the background every 20s
-     *  while this playlist is still open and still showing offline data, so it
-     *  updates itself the moment the network comes back instead of staying stuck
-     *  on a stale offline snapshot until the user happens to reopen it. Stops the
-     *  moment the user navigates away ({@code currentPlaylistId} changes) or a
-     *  retry actually succeeds (fetchAndPublishPlaylist itself clears
-     *  playlistOffline). Runs on the dedicated retryWorker, not worker, since it
-     *  deliberately blocks its own thread for the whole wait. */
-    private void scheduleOfflineRetry(long playlistId) {
-        retryWorker.submit(() -> {
-            try {
-                Thread.sleep(20_000L);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
-            }
-            if (currentPlaylistId != playlistId) return;             // user moved on
-            if (!Boolean.TRUE.equals(playlistOffline.peek())) return; // already back online
-            try {
-                fetchAndPublishPlaylist(playlistId);
-                post(() -> { if (currentPlaylistId == playlistId) showToast(I18n.tr("toast.offline.playlistRefreshed")); });
-            } catch (Throwable e) {
-                scheduleOfflineRetry(playlistId); // still offline -- try again in another 20s
-            }
-        });
-    }
-
-    /** Copy of {@code s} with {@code coverThumbPath} resolved to its disk-cached
-     *  64x64 file (empty if that track was never actually played/cached) — never
-     *  mutates the shared instance living inside {@link #playlistCacheIndex}. */
-    private NeteaseSong withLocalThumb(NeteaseSong s) {
-        NeteaseSong copy = new NeteaseSong();
-        copy.id = s.id;
-        copy.name = s.name;
-        copy.artist = s.artist;
-        copy.album = s.album;
-        copy.coverUrl = s.coverUrl;
-        copy.durationMs = s.durationMs;
-        copy.fee = s.fee;
-        copy.cachedOffline = s.id != 0 && diskCache.hasAudio(s.id);
-        if (s.coverUrl != null && !s.coverUrl.isEmpty()) {
-            String local = diskCache.getThumb64(thumbUrl(s.coverUrl, "64"));
-            copy.coverThumbPath = local != null ? local : "";
-        }
-        return copy;
-    }
-
-    /** Collect / un-collect the currently open playlist. No-op on your own playlist or
-     *  when signed out. Optimistically flips the icon, reverting if the server refuses. */
+    /**
+     * Collect / un-collect the currently open playlist. No-op on your own playlist or when signed
+     * out. Optimistically flips the icon, reverting if the server refuses.
+     */
     public void togglePlaylistSubscribe() {
-        String sourceId = openSourcePlaylistId.peek();
-        if (sourceId != null && !sourceId.isEmpty()) {
-            toggleMediaPlaylistSubscribe(sourceId);
-            return;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            String id = openSourcePlaylistId.peek();
+            if (id != null && !id.isEmpty()) toggleMediaPlaylistSubscribe(id);
         }
-        if (!loggedIn.get() || playlistOwned.get()) return;
-        if (subscribeBusy) return;   // one in flight: ignore the tap, never stack/retry
-        final long id = currentPlaylistId;
-        if (id == 0) return;
-        final boolean target = !playlistSubscribed.get();
-        subscribeBusy = true;
-        playlistSubscribed.set(target);
-        worker.submit(() -> {
-            boolean ok = false;
-            try {
-                ok = netease.playlistSubscribe(id, target);
-            } catch (Throwable e) {
-                Logger.warn("playlist subscribe {} -> {} failed: {}", id, target, e.getMessage());
-            }
-            final boolean done = ok;
-            post(() -> {
-                subscribeBusy = false;
-                if (currentPlaylistId != id) return;
-                if (done) {
-                    showToast(I18n.tr(target ? "toast.playlist.subscribed" : "toast.playlist.unsubscribed"));
-                    loadMyPlaylists();   // reflect the change in 我的
-                } else {
-                    playlistSubscribed.set(!target);   // revert the optimistic flip; no auto-retry
-                }
-            });
-        });
     }
 
     private void toggleMediaPlaylistSubscribe(String mediaId) {
-        if (!loggedIn.peek() || playlistOwned.peek()) return;
+        if (Boolean.TRUE.equals(playlistOwned.peek()) || !canMutateMediaPlaylist(mediaId)) return;
         setMediaPlaylistSubscribed(mediaId, !Boolean.TRUE.equals(playlistSubscribed.peek()));
     }
 
     /**
-     * Collect / un-collect a playlist by id, whether or not it is the one currently
-     * open. 我的's card menu acts on a grid entry rather than on the detail page, so
-     * it cannot read the target's state from {@link #playlistSubscribed} — it passes
-     * the desired state in instead.
+     * Collect / un-collect a playlist by id, whether or not it is the one currently open. 我的's card
+     * menu acts on a grid entry rather than on the detail page, so it cannot read the target's
+     * state from {@link #playlistSubscribed} — it passes the desired state in instead.
      *
-     * <p>The optimistic flip and its revert only apply while the affected playlist
-     * is the open one; the toast and the 我的 refresh always run, since the result
-     * matters to the grid even when no detail page is showing it.
+     * <p>The optimistic flip and its revert only apply while the affected playlist is the open one;
+     * the toast and the 我的 refresh always run, since the result matters to the grid even when no
+     * detail page is showing it.
      */
     public void setMediaPlaylistSubscribed(String mediaId, boolean subscribed) {
-        // A collect is heavily risk-controlled upstream, so a second tap while one
-        // is in flight is dropped rather than queued — same rule the detail page's
-        // button has always followed.
-        if (subscribeBusy) return;
-        final MediaId id;
-        try { id = MediaId.parse(mediaId).requireKind(dev.t1m3.qplayer.media.MediaKind.PLAYLIST); }
-        catch (IllegalArgumentException error) { showToast(I18n.tr("toast.id.playlist")); return; }
-        if (!pluginHasCapability(id.provider(), ProviderCapability.PLAYLIST_MUTATION)) return;
-        subscribeBusy = true;
-        if (id.toString().equals(openSourcePlaylistId.peek())) playlistSubscribed.set(subscribed);
-        pluginProviders.mutatePlaylist(id, subscribed ? "subscribe" : "unsubscribe",
-                        Collections.<MediaId>emptyList(), null)
-                .whenComplete((success, error) -> post(() -> {
-                    subscribeBusy = false;
-                    boolean stillOpen = id.toString().equals(openSourcePlaylistId.peek());
-                    if (error == null && Boolean.TRUE.equals(success)) {
-                        showToast(I18n.tr(subscribed
-                                ? "toast.playlist.subscribed" : "toast.playlist.unsubscribed"));
-                        loadMyPlaylists();
-                    } else {
-                        if (stillOpen) playlistSubscribed.set(!subscribed);
-                        showToast(I18n.tr("toast.actionFailed", safeMessage(error)));
-                    }
-                }));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            // A collect is heavily risk-controlled upstream, so a second tap while one
+            // is in flight is dropped rather than queued — same rule the detail page's
+            // button has always followed.
+            if (subscribeBusy) return;
+            final MediaId id;
+            try {
+                id = MediaId.parse(mediaId).requireKind(dev.t1m3.qplayer.media.MediaKind.PLAYLIST);
+            } catch (IllegalArgumentException error) {
+                showToast(I18n.tr("toast.id.playlist"));
+                return;
+            }
+            if (!pluginHasCapability(id.provider(), ProviderCapability.PLAYLIST_MUTATION)) return;
+            if (!canMutateMediaPlaylist(id.toString())) return;
+            subscribeBusy = true;
+            if (id.toString().equals(openSourcePlaylistId.peek()))
+                playlistSubscribed.set(subscribed);
+            pluginProviders
+                    .mutatePlaylist(
+                            id,
+                            subscribed ? "subscribe" : "unsubscribe",
+                            Collections.<MediaId>emptyList(),
+                            null)
+                    .whenComplete(
+                            (success, error) ->
+                                    post(
+                                            () -> {
+                                                subscribeBusy = false;
+                                                boolean stillOpen =
+                                                        id.toString()
+                                                                .equals(
+                                                                        openSourcePlaylistId
+                                                                                .peek());
+                                                if (error == null && Boolean.TRUE.equals(success)) {
+                                                    showToast(
+                                                            I18n.tr(
+                                                                    subscribed
+                                                                            ? "toast.playlist.subscribed"
+                                                                            : "toast.playlist.unsubscribed"));
+                                                    loadMyPlaylists();
+                                                } else {
+                                                    if (stillOpen)
+                                                        playlistSubscribed.set(!subscribed);
+                                                    showToast(
+                                                            I18n.tr(
+                                                                    "toast.actionFailed",
+                                                                    safeMessage(error)));
+                                                }
+                                            }));
+        }
     }
 
     /** Per-source slices of 我的, keyed by provider id. Main thread only. */
@@ -8603,108 +8207,89 @@ public final class PlayerController {
     private final AtomicLong myPlaylistsGeneration = new AtomicLong();
     private int myPlaylistsPending;
 
-    /** Load the signed-in user's playlists (favorites + created) from every enabled
-     *  source, not just the primary one: sources keep independent accounts, and a
-     *  playlist stays openable by its own provider regardless of which one is primary. */
+    /**
+     * Load the signed-in user's playlists (favorites + created) from every enabled source, not just
+     * the primary one: sources keep independent accounts, and a playlist stays openable by its own
+     * provider regardless of which one is primary.
+     */
     public void loadMyPlaylists() {
-        List<PluginManifest> providers = new ArrayList<>();
-        String primary = pluginRegistry.primaryProvider();
-        for (PluginManifest manifest : pluginManager.enabledProviders()) {
-            if (manifest.capabilitySet().contains(ProviderCapability.USER_PLAYLISTS)) {
-                if (manifest.id.equals(primary)) providers.add(0, manifest);
-                else providers.add(manifest);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            List<PluginManifest> providers = new ArrayList<>();
+            String primary = pluginRegistry.primaryProvider();
+            for (PluginManifest manifest : pluginManager.enabledProviders()) {
+                if (manifest.capabilitySet().contains(ProviderCapability.USER_PLAYLISTS)) {
+                    if (manifest.id.equals(primary)) providers.add(0, manifest);
+                    else providers.add(manifest);
+                }
             }
-        }
-        if (!providers.isEmpty()) {
-            final long generation = myPlaylistsGeneration.incrementAndGet();
-            final List<String> order = new ArrayList<>();
-            for (PluginManifest manifest : providers) order.add(manifest.id);
-            post(() -> {
-                myPlaylistSourceOrder = order;
-                // A source that is gone (disabled/removed) must not keep contributing.
-                myPlaylistsBySource.keySet().retainAll(order);
-                myPlaylistsPending = order.size();
-                publishMyPlaylists();
-            });
-            for (PluginManifest manifest : providers) {
-                final String providerId = manifest.id;
-                final String providerName = manifest.name;
-                pluginProviders.userPlaylists(providerId, 100)
-                        .whenComplete((playlists, error) -> post(() -> {
-                            if (generation != myPlaylistsGeneration.get()) return;
-                            myPlaylistsPending--;
-                            if (error != null) {
-                                Logger.warn("plugin {} user playlists failed: {}", providerId,
-                                        safeMessage(error));
-                                myPlaylistsBySource.remove(providerId);
-                            } else {
-                                for (Playlist playlist : playlists) {
-                                    playlist.sourceName = providerName;
-                                }
-                                myPlaylistsBySource.put(providerId, playlists);
-                            }
+            if (!providers.isEmpty()) {
+                final long generation = myPlaylistsGeneration.incrementAndGet();
+                final List<String> order = new ArrayList<>();
+                for (PluginManifest manifest : providers) order.add(manifest.id);
+                post(
+                        () -> {
+                            myPlaylistSourceOrder = order;
+                            // A source that is gone (disabled/removed) must not keep contributing.
+                            myPlaylistsBySource.keySet().retainAll(order);
+                            myPlaylistsPending = order.size();
                             publishMyPlaylists();
-                            // A signed-out source simply reports an error, so only
-                            // complain once every source failed while signed in.
-                            if (myPlaylistsPending == 0 && myPlaylistsBySource.isEmpty()
-                                    && Boolean.TRUE.equals(loggedIn.peek())) {
-                                showToast(I18n.tr("toast.playlist.loadFailedPlugin"));
-                            }
-                        }));
+                        });
+                for (PluginManifest manifest : providers) {
+                    final String providerId = manifest.id;
+                    final String providerName = manifest.name;
+                    pluginProviders
+                            .userPlaylists(providerId, 100)
+                            .whenComplete(
+                                    (playlists, error) ->
+                                            post(
+                                                    () -> {
+                                                        if (generation
+                                                                != myPlaylistsGeneration.get())
+                                                            return;
+                                                        myPlaylistsPending--;
+                                                        if (error != null) {
+                                                            Logger.warn(
+                                                                    "plugin {} user playlists"
+                                                                            + " failed: {}",
+                                                                    providerId,
+                                                                    safeMessage(error));
+                                                            myPlaylistsBySource.remove(providerId);
+                                                        } else {
+                                                            for (Playlist playlist : playlists) {
+                                                                playlist.sourceName = providerName;
+                                                            }
+                                                            myPlaylistsBySource.put(
+                                                                    providerId, playlists);
+                                                        }
+                                                        publishMyPlaylists();
+                                                        // A signed-out source simply reports an
+                                                        // error, so only
+                                                        // complain once every source failed while
+                                                        // signed in.
+                                                        if (myPlaylistsPending == 0
+                                                                && myPlaylistsBySource.isEmpty()
+                                                                && Boolean.TRUE.equals(
+                                                                        loggedIn.peek())) {
+                                                            showToast(
+                                                                    I18n.tr(
+                                                                            "toast.playlist.loadFailedPlugin"));
+                                                        }
+                                                    }));
+                }
+                return;
             }
-            return;
-        }
-        myPlaylistsGeneration.incrementAndGet();
-        post(() -> {
-            myPlaylistSourceOrder = Collections.emptyList();
-            myPlaylistsBySource.clear();
-            myPlaylistsPending = 0;
-            publishMyPlaylists();
-        });
-        if (onlineSourcesArePluginOnly()) {
+            myPlaylistsGeneration.incrementAndGet();
+            post(
+                    () -> {
+                        myPlaylistSourceOrder = Collections.emptyList();
+                        myPlaylistsBySource.clear();
+                        myPlaylistsPending = 0;
+                        publishMyPlaylists();
+                    });
+
             myPlaylists.set(Collections.<NeteasePlaylist>emptyList());
             return;
         }
-        // uid == 0 normally means "not logged in, nothing to load" -- except when
-        // refreshLogin's own live check just failed offline but cookies say we
-        // were logged in last session (see its catch block): there's no live uid
-        // to call userPlaylists(uid, ...) with, but there may still be a cached
-        // snapshot from a previous online session worth falling back to.
-        if (uid == 0) {
-            worker.submit(this::offlineMyPlaylistsFallback);
-            return;
-        }
-        worker.submit(() -> {
-            try {
-                List<NeteasePlaylist> pls = netease.userPlaylists(uid, 100);
-                long favPid = 0L;
-                String size = gridCoverSize();
-                for (NeteasePlaylist p : pls) {
-                    // Prefer an already-cached thumbnail over the CDN url: a playlist
-                    // browsed before survives the network dropping mid-session without
-                    // needing an app restart to fall back to offlineMyPlaylistsFallback.
-                    // Playlist covers are cached at gridCoverSize() (matches the
-                    // online display size, unlike the small per-track thumbnails) —
-                    // see cachePlaylistCoverAsync.
-                    String local = diskCache.getThumb64(thumbUrl(p.coverUrl, size));
-                    p.coverThumbPath = local != null ? local : thumbUrl(p.coverUrl, size);
-                    p.owned = p.creatorUid == uid;
-                    // The "我喜欢的音乐" default is the first playlist the user owns.
-                    if (favPid == 0L && p.owned) favPid = p.id;
-                    playlistCacheIndex.upsert(p.id, p.name, p.coverUrl, p.trackCount, null, true);
-                    cachePlaylistCoverAsync(p.coverUrl);
-                }
-                favoritePid = favPid;
-                playlistCacheIndex.save();
-                post(() -> {
-                    myPlaylists.set(pls);
-                    playlistCount.set(pls.size());
-                });
-            } catch (Throwable e) {
-                Logger.warn("user playlists failed: {}", e.getMessage());
-                offlineMyPlaylistsFallback();
-            }
-        });
     }
 
     /** Flatten {@link #myPlaylistsBySource} into 我的, primary source first. Called
@@ -8774,164 +8359,166 @@ public final class PlayerController {
         return out;
     }
 
-    /** Sort-menu entry point: "source" reverts to the server's own grouping.
-     *  Switching into "custom" from anything else seeds it from whatever is on
-     *  screen right now — not a stale arrangement dragged into place in some
-     *  earlier session — so it reads as "start dragging from here" rather than
-     *  "jump back to where I left off". Once already in custom, re-picking it
-     *  is a no-op that leaves an in-progress drag alone. */
+    /**
+     * Sort-menu entry point: "source" reverts to the server's own grouping. Switching into "custom"
+     * from anything else seeds it from whatever is on screen right now — not a stale arrangement
+     * dragged into place in some earlier session — so it reads as "start dragging from here" rather
+     * than "jump back to where I left off". Once already in custom, re-picking it is a no-op that
+     * leaves an in-progress drag alone.
+     */
     public void setLibrarySortMode(String mode) {
-        boolean enteringCustom = MyPlaylistOrderStore.MODE_CUSTOM.equals(mode)
-                && !MyPlaylistOrderStore.MODE_CUSTOM.equals(myPlaylistOrderStore.mode());
-        if (enteringCustom) {
-            List<Playlist> current = sourceMyPlaylists.peek();
-            List<String> ids = new ArrayList<>(current != null ? current.size() : 0);
-            if (current != null) for (Playlist playlist : current) ids.add(playlist.id);
-            myPlaylistOrderStore.setOrder(ids);
-        } else {
-            myPlaylistOrderStore.setMode(mode);
-        }
-        librarySortMode.set(myPlaylistOrderStore.mode());
-        publishMyPlaylists();
-        worker.submit(myPlaylistOrderStore::save);
-    }
-
-    /** Drag-to-reorder on 我的's grid/list: {@code from}/{@code to} are positions
-     *  in the currently published {@link #sourceMyPlaylists}. Persists at once —
-     *  the id list is tiny — and switches the sort mode to custom, same as
-     *  picking it from the menu would. */
-    public void moveMyPlaylist(int from, int to) {
-        List<Playlist> current = sourceMyPlaylists.peek();
-        if (current == null || from < 0 || from >= current.size()
-                || to < 0 || to >= current.size() || from == to) {
-            return;
-        }
-        List<Playlist> reordered = new ArrayList<>(current);
-        reordered.add(to, reordered.remove(from));
-        List<String> ids = new ArrayList<>(reordered.size());
-        for (Playlist playlist : reordered) ids.add(playlist.id);
-        myPlaylistOrderStore.setOrder(ids);
-        librarySortMode.set(myPlaylistOrderStore.mode());
-        sourceMyPlaylists.set(Collections.unmodifiableList(reordered));
-        worker.submit(myPlaylistOrderStore::save);
-    }
-
-    /** Drag-to-reorder on 本地歌单's grid/list — always available, since custom is
-     *  the only order a set of local playlists has. */
-    public void moveLocalPlaylistCard(int from, int to) {
-        if (!localPlaylistStore.move(from, to)) return;
-        saveLocalPlaylists();
-        publishLocalPlaylists();
-    }
-
-    /** {@link #loadMyPlaylists} couldn't reach the network (or has no live uid to
-     *  even try with): fall back to whatever {@link #playlistCacheIndex} has from
-     *  previous online sessions, regardless of uid. No-op (leaves whatever 我的
-     *  already showed) when there's nothing cached at all. */
-    private void offlineMyPlaylistsFallback() {
-        List<PlaylistCacheIndex.Cached> cached = playlistCacheIndex.snapshot();
-        if (cached.isEmpty()) return;
-        List<NeteasePlaylist> offline = new ArrayList<>(cached.size());
-        for (PlaylistCacheIndex.Cached e : cached) {
-            // playlistCacheIndex also holds playlists merely opened from 推荐/search/a
-            // shared link — those aren't actually part of 我的 and must not show up
-            // here just because their song list happened to get cached too.
-            if (!e.mine) continue;
-            NeteasePlaylist p = new NeteasePlaylist();
-            p.id = e.id;
-            p.name = e.name;
-            p.coverUrl = e.coverUrl;
-            p.trackCount = e.trackCount;
-            if (e.coverUrl != null && !e.coverUrl.isEmpty()) {
-                String local = diskCache.getThumb64(thumbUrl(e.coverUrl, gridCoverSize()));
-                p.coverThumbPath = local != null ? local : "";
-            }
-            offline.add(p);
-        }
-        post(() -> {
-            myPlaylists.set(offline);
-            playlistCount.set(offline.size());
-            showToast(I18n.tr("toast.offline.playlistsCached"));
-        });
-    }
-
-    /** Create a new (public) playlist named {@code name} on {@code providerId}, then
-     *  refresh 我的. An empty {@code providerId} keeps the old behaviour of targeting
-     *  whichever source is currently primary, so the picker in the create dialog only
-     *  needs to pass something when the user chose a non-primary source. */
-    public void createPlaylist(String name, String providerId) {
-        final String normalized = name != null ? name.trim() : "";
-        if (normalized.isEmpty()) return;
-        final String targetProvider = providerId != null ? providerId.trim() : "";
-        PluginManifest provider;
-        if (!targetProvider.isEmpty()) {
-            provider = providerWithId(targetProvider, ProviderCapability.PLAYLIST_MUTATION);
-            SourceAccountRow account = sourceAccountsBySource.get(targetProvider);
-            if (provider == null || account == null || !account.loggedIn) return;
-        } else {
-            provider = primaryProviderWith(ProviderCapability.PLAYLIST_MUTATION);
-            if (provider != null && !loggedIn.peek()) return;
-        }
-        if (provider != null) {
-            pluginProviders.createPlaylist(provider.id, normalized, false)
-                    .whenComplete((id, error) -> post(() -> {
-                        if (error == null && id != null && !id.isEmpty()) {
-                            showToast(I18n.tr("toast.playlist.created"));
-                            loadMyPlaylists();
-                        } else showToast(I18n.tr("toast.playlist.createFailedReason", safeMessage(error)));
-                    }));
-            return;
-        }
-        if (uid == 0) return;
-        worker.submit(() -> {
-            try {
-                long id = netease.createPlaylist(normalized, false);
-                if (id != 0) {
-                    post(() -> {
-                        showToast(I18n.tr("toast.playlist.created"));
-                        loadMyPlaylists();
-                    });
+        try {
+            synchronized (QmlRuntimeLock.MONITOR) {
+                boolean enteringCustom =
+                        MyPlaylistOrderStore.MODE_CUSTOM.equals(mode)
+                                && !MyPlaylistOrderStore.MODE_CUSTOM.equals(
+                                        myPlaylistOrderStore.mode());
+                if (enteringCustom) {
+                    List<Playlist> current = sourceMyPlaylists.peek();
+                    List<String> ids = new ArrayList<>(current != null ? current.size() : 0);
+                    if (current != null) for (Playlist playlist : current) ids.add(playlist.id);
+                    myPlaylistOrderStore.setOrder(ids);
                 } else {
-                    showToast(I18n.tr("toast.playlist.createFailed"));
+                    myPlaylistOrderStore.setMode(mode);
                 }
-            } catch (Throwable e) {
-                Logger.warn("create playlist failed: {}", e.getMessage());
-                showToast(I18n.tr("toast.playlist.createFailed"));
+                librarySortMode.set(myPlaylistOrderStore.mode());
+                publishMyPlaylists();
+                savePlaylistOrder();
             }
-        });
+
+        } catch (IllegalStateException error) {
+            Logger.warn("playlist mutation failed: {}", safeMessage(error));
+            showToast(I18n.tr("toast.actionFailed", safeMessage(error)));
+        }
     }
 
-    /** Set a playlist's cover to a local image file, then refresh the detail view
-     *  (and 我的, whose cards also show it). {@code playlistKey} is the open
-     *  playlist's canonical media id, or a leftover numeric netease id.
-     *  Owned-playlist enforcement lives in the QML (same as the delete button —
-     *  {@code playlistOwned}), not here. */
+    /**
+     * Drag-to-reorder on 我的's grid/list: {@code from}/{@code to} are positions in the currently
+     * published {@link #sourceMyPlaylists}. Persists at once — the id list is tiny — and switches
+     * the sort mode to custom, same as picking it from the menu would.
+     */
+    public void moveMyPlaylist(int from, int to) {
+        try {
+            synchronized (QmlRuntimeLock.MONITOR) {
+                List<Playlist> current = sourceMyPlaylists.peek();
+                if (current == null
+                        || from < 0
+                        || from >= current.size()
+                        || to < 0
+                        || to >= current.size()
+                        || from == to) {
+                    return;
+                }
+                List<Playlist> reordered = new ArrayList<>(current);
+                reordered.add(to, reordered.remove(from));
+                List<String> ids = new ArrayList<>(reordered.size());
+                for (Playlist playlist : reordered) ids.add(playlist.id);
+                myPlaylistOrderStore.setOrder(ids);
+                librarySortMode.set(myPlaylistOrderStore.mode());
+                sourceMyPlaylists.set(Collections.unmodifiableList(reordered));
+                savePlaylistOrder();
+            }
+
+        } catch (IllegalStateException error) {
+            Logger.warn("playlist mutation failed: {}", safeMessage(error));
+            showToast(I18n.tr("toast.actionFailed", safeMessage(error)));
+        }
+    }
+
+    /**
+     * Drag-to-reorder on 本地歌单's grid/list — always available, since custom is the only order a set
+     * of local playlists has.
+     */
+    public void moveLocalPlaylistCard(int from, int to) {
+        try {
+            synchronized (QmlRuntimeLock.MONITOR) {
+                if (!localPlaylistStore.move(from, to)) return;
+                saveLocalPlaylists();
+                publishLocalPlaylists();
+            }
+
+        } catch (IllegalStateException error) {
+            Logger.warn("playlist mutation failed: {}", safeMessage(error));
+            showToast(I18n.tr("toast.actionFailed", safeMessage(error)));
+        }
+    }
+
+    /**
+     * Create a new (public) playlist named {@code name} on {@code providerId}, then refresh 我的. An
+     * empty {@code providerId} keeps the old behaviour of targeting whichever source is currently
+     * primary, so the picker in the create dialog only needs to pass something when the user chose
+     * a non-primary source.
+     */
+    public void createPlaylist(String name, String providerId) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            String normalized = name != null ? name.trim() : "";
+            if (normalized.isEmpty()) return;
+            String target =
+                    providerId != null && !providerId.trim().isEmpty()
+                            ? providerId.trim()
+                            : pluginRegistry.primaryProvider();
+            if (!providerLoggedIn(target)
+                    || !pluginHasCapability(target, ProviderCapability.PLAYLIST_MUTATION)) return;
+            pluginProviders
+                    .createPlaylist(target, normalized, false)
+                    .whenComplete(
+                            (id, error) ->
+                                    post(
+                                            () -> {
+                                                if (error == null && id != null && !id.isEmpty()) {
+                                                    showToast(I18n.tr("toast.playlist.created"));
+                                                    loadMyPlaylists();
+                                                } else
+                                                    showToast(
+                                                            I18n.tr(
+                                                                    "toast.playlist.createFailedReason",
+                                                                    safeMessage(error)));
+                                            }));
+        }
+    }
+
+    /**
+     * Set a playlist's cover to a local image file, then refresh the detail view (and 我的, whose
+     * cards also show it). {@code playlistKey} is the open playlist's canonical media id, or a
+     * leftover numeric netease id. Owned-playlist enforcement lives in the QML (same as the delete
+     * button — {@code playlistOwned}), not here.
+     */
     public void setPlaylistCover(String playlistKey, String localImagePath) {
-        if (playlistKey == null || localImagePath == null) return;
-        final String key = playlistKey.trim();
-        final String path = localImagePath.trim();
-        if (key.isEmpty() || path.isEmpty()) return;
-        worker.submit(() -> {
-            byte[] data;
-            try {
-                data = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path));
-            } catch (Throwable e) {
-                Logger.warn("read cover file {} failed: {}", path, e.getMessage());
-                showToast(I18n.tr("toast.cover.readFailed"));
-                return;
-            }
-            uploadPlaylistCover(key, data, new java.io.File(path).getName());
-        });
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (playlistKey == null || localImagePath == null) return;
+            final String key = playlistKey.trim();
+            final String path = localImagePath.trim();
+            if (key.isEmpty() || path.isEmpty()) return;
+            worker.submit(
+                    () -> {
+                        byte[] data;
+                        try {
+                            data = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path));
+                        } catch (Throwable e) {
+                            Logger.warn("read cover file {} failed: {}", path, e.getMessage());
+                            showToast(I18n.tr("toast.cover.readFailed"));
+                            return;
+                        }
+                        uploadPlaylistCover(key, data, new java.io.File(path).getName());
+                    });
+        }
     }
 
-    /** Set a playlist's cover from raw image bytes — Android's native gallery picker
-     *  hands over a {@code content://} URI with no filesystem path to read, so the
-     *  host reads it itself and passes the bytes straight through. */
+    /**
+     * Set a playlist's cover from raw image bytes — Android's native gallery picker hands over a
+     * {@code content://} URI with no filesystem path to read, so the host reads it itself and
+     * passes the bytes straight through.
+     */
     public void setPlaylistCoverBytes(String playlistKey, byte[] data, String filename) {
-        if (playlistKey == null || data == null) return;
-        final String key = playlistKey.trim();
-        if (key.isEmpty()) return;
-        worker.submit(() -> uploadPlaylistCover(key, data, filename == null ? "cover.jpg" : filename));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (playlistKey == null || data == null) return;
+            final String key = playlistKey.trim();
+            if (key.isEmpty()) return;
+            worker.submit(
+                    () ->
+                            uploadPlaylistCover(
+                                    key, data, filename == null ? "cover.jpg" : filename));
+        }
     }
 
     private void uploadPlaylistCover(String playlistKey, byte[] data, String filename) {
@@ -8943,40 +8530,12 @@ public final class PlayerController {
             showToast(I18n.tr("toast.cover.tooLarge"));
             return;
         }
-        // A local playlist has no server to upload to: its cover is a file we
-        // keep ourselves. Same entry point either way, so both hosts' pickers
-        // (desktop file chooser, Android gallery bytes) work unchanged.
         if (LocalPlaylist.isLocalPlaylistId(playlistKey)) {
             storeLocalPlaylistCover(playlistKey, data, filename);
-            return;
-        }
-        if (playlistKey.indexOf(':') >= 0) {
-            uploadPluginPlaylistCover(playlistKey, data, filename);
-            return;
-        }
-        long playlistId;
-        try {
-            playlistId = Long.parseLong(playlistKey);
-        } catch (NumberFormatException ignored) {
-            showToast(I18n.tr("toast.id.playlist"));
-            return;
-        }
-        if (uid == 0 || playlistId == 0) return;
-        try {
-            long imgId = netease.uploadImage(data, filename);
-            boolean ok = imgId != 0 && netease.updatePlaylistCover(playlistId, imgId);
-            post(() -> {
-                if (ok) {
-                    showToast(I18n.tr("toast.cover.updated"));
-                    if (currentPlaylistId == playlistId) openPlaylist(playlistId);
-                    loadMyPlaylists();
-                } else {
-                    showToast(I18n.tr("toast.cover.updateFailed"));
-                }
-            });
-        } catch (Throwable e) {
-            Logger.warn("set playlist cover {} failed: {}", playlistId, e.getMessage());
-            showToast(I18n.tr("toast.cover.updateFailed"));
+        } else {
+            String canonical =
+                    playlistKey.indexOf(':') >= 0 ? playlistKey : "netease:playlist:" + playlistKey;
+            onMain(() -> uploadPluginPlaylistCover(canonical, data, filename));
         }
     }
 
@@ -8988,29 +8547,43 @@ public final class PlayerController {
             showToast(I18n.tr("toast.id.playlist"));
             return;
         }
+        if (!providerLoggedIn(id.provider())) return;
         if (!pluginHasCapability(id.provider(), ProviderCapability.PLAYLIST_COVER)) {
             showToast(I18n.tr("toast.cover.unsupported"));
             return;
         }
-        pluginProviders.setPlaylistCover(id, data, filename, mimeFromFilename(filename))
-                .whenComplete((success, error) -> post(() -> {
-                    if (error == null && Boolean.TRUE.equals(success)) {
-                        showToast(I18n.tr("toast.cover.updated"));
-                        // refreshPlaylist(), not openMediaPlaylist(): the user is
-                        // looking at this playlist right now, and a full open clears
-                        // the rows and the in-playlist filter text before refetching,
-                        // so the list blinks out and their filter is lost just to
-                        // pick up one new artwork url.
-                        if (id.toString().equals(openSourcePlaylistId.peek())) {
-                            refreshPlaylist();
-                        }
-                        loadMyPlaylists();
-                    } else {
-                        showToast(I18n.tr("toast.cover.updateFailedReason",
-                                error != null ? safeMessage(error)
-                                        : I18n.tr("toast.cover.updateFailed")));
-                    }
-                }));
+        pluginProviders
+                .setPlaylistCover(id, data, filename, mimeFromFilename(filename))
+                .whenComplete(
+                        (success, error) ->
+                                post(
+                                        () -> {
+                                            if (error == null && Boolean.TRUE.equals(success)) {
+                                                showToast(I18n.tr("toast.cover.updated"));
+                                                // refreshPlaylist(), not openMediaPlaylist(): the
+                                                // user is
+                                                // looking at this playlist right now, and a full
+                                                // open clears
+                                                // the rows and the in-playlist filter text before
+                                                // refetching,
+                                                // so the list blinks out and their filter is lost
+                                                // just to
+                                                // pick up one new artwork url.
+                                                if (id.toString()
+                                                        .equals(openSourcePlaylistId.peek())) {
+                                                    refreshPlaylist();
+                                                }
+                                                loadMyPlaylists();
+                                            } else {
+                                                showToast(
+                                                        I18n.tr(
+                                                                "toast.cover.updateFailedReason",
+                                                                error != null
+                                                                        ? safeMessage(error)
+                                                                        : I18n.tr(
+                                                                                "toast.cover.updateFailed")));
+                                            }
+                                        }));
     }
 
     private static String mimeFromFilename(String filename) {
@@ -9034,189 +8607,182 @@ public final class PlayerController {
     private volatile CoverPicker coverPicker;
 
     public void setCoverPicker(CoverPicker p) {
-        this.coverPicker = p;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            this.coverPicker = p;
+        }
     }
 
-    /** QML calls this to launch the platform picker for the currently open playlist.
-     *  Android reads the picked image's bytes and calls {@link #setPlaylistCoverBytes};
-     *  desktop passes the selected local path to {@link #setPlaylistCover}. */
+    /**
+     * QML calls this to launch the platform picker for the currently open playlist. Android reads
+     * the picked image's bytes and calls {@link #setPlaylistCoverBytes}; desktop passes the
+     * selected local path to {@link #setPlaylistCover}.
+     */
     public void pickPlaylistCover() {
-        String sourceId = openSourcePlaylistId.peek();
-        if (sourceId != null && !sourceId.isEmpty()) {
-            pickPlaylistCover(sourceId);
-            return;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            String sourceId = openSourcePlaylistId.peek();
+            if (sourceId != null && !sourceId.isEmpty()) {
+                pickPlaylistCover(sourceId);
+                return;
+            }
+            if (currentPlaylistId != 0L) pickPlaylistCover(Long.toString(currentPlaylistId));
         }
-        if (currentPlaylistId != 0L) pickPlaylistCover(Long.toString(currentPlaylistId));
     }
 
     public void pickPlaylistCover(String playlistKey) {
-        if (playlistKey == null || playlistKey.trim().isEmpty()) return;
-        final String key = playlistKey.trim();
-        CoverPicker p = coverPicker;
-        if (p != null) onMain(() -> p.pick(key));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (playlistKey == null || playlistKey.trim().isEmpty()) return;
+            final String key = playlistKey.trim();
+            CoverPicker p = coverPicker;
+            if (p != null) onHost(() -> p.pick(key));
+        }
     }
 
     /** Delete a playlist owned by the user, then refresh 我的. */
     public void deletePlaylist(long playlistId) {
-        if (uid == 0 || playlistId == 0) return;
-        worker.submit(() -> {
-            try {
-                if (netease.deletePlaylist(playlistId)) {
-                    post(() -> {
-                        showToast(I18n.tr("toast.playlist.deleted"));
-                        loadMyPlaylists();
-                    });
-                } else {
-                    showToast(I18n.tr("toast.playlist.deleteFailed"));
-                }
-            } catch (Throwable e) {
-                Logger.warn("delete playlist {} failed: {}", playlistId, e.getMessage());
-                showToast(I18n.tr("toast.playlist.deleteFailed"));
-            }
-        });
+        deleteMediaPlaylist("netease:playlist:" + playlistId);
     }
 
     public void deleteMediaPlaylist(String playlistMediaId) {
-        final MediaId id;
-        try { id = MediaId.parse(playlistMediaId).requireKind(dev.t1m3.qplayer.media.MediaKind.PLAYLIST); }
-        catch (IllegalArgumentException error) { showToast(I18n.tr("toast.id.playlist")); return; }
-        pluginProviders.mutatePlaylist(id, "delete", Collections.<MediaId>emptyList(), null)
-                .whenComplete((success, error) -> post(() -> {
-                    if (error == null && Boolean.TRUE.equals(success)) {
-                        showToast(I18n.tr("toast.playlist.deleted"));
-                        loadMyPlaylists();
-                    } else showToast(I18n.tr("toast.playlist.deleteFailedReason", safeMessage(error)));
-                }));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            final MediaId id;
+            try {
+                id =
+                        MediaId.parse(playlistMediaId)
+                                .requireKind(dev.t1m3.qplayer.media.MediaKind.PLAYLIST);
+            } catch (IllegalArgumentException error) {
+                showToast(I18n.tr("toast.id.playlist"));
+                return;
+            }
+            if (!canMutateMediaPlaylist(id.toString())) return;
+            pluginProviders
+                    .mutatePlaylist(id, "delete", Collections.<MediaId>emptyList(), null)
+                    .whenComplete(
+                            (success, error) ->
+                                    post(
+                                            () -> {
+                                                if (error == null && Boolean.TRUE.equals(success)) {
+                                                    showToast(I18n.tr("toast.playlist.deleted"));
+                                                    loadMyPlaylists();
+                                                } else
+                                                    showToast(
+                                                            I18n.tr(
+                                                                    "toast.playlist.deleteFailedReason",
+                                                                    safeMessage(error)));
+                                            }));
+        }
     }
 
     /** Add a track to one of the user's playlists (from a song's long-press menu). */
     public void addToPlaylist(long playlistId, long songId) {
-        if (uid == 0 || playlistId == 0 || songId == 0) return;
-        worker.submit(() -> {
-            try {
-                boolean ok = netease.manipulatePlaylistTracks(playlistId, songId, true);
-                showToast(I18n.tr(ok ? "toast.playlist.songAdded" : "toast.playlist.addFailed"));
-            } catch (Throwable e) {
-                Logger.warn("add track {} -> playlist {} failed: {}", songId, playlistId, e.getMessage());
-                showToast(I18n.tr("toast.playlist.addFailed"));
-            }
-        });
+        addMediaToPlaylist("netease:playlist:" + playlistId, neteaseMediaId(songId));
     }
 
     public void addMediaToPlaylist(String playlistMediaId, String songMediaId) {
-        mutateMediaPlaylist(playlistMediaId, songMediaId, true, false);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            mutateMediaPlaylist(playlistMediaId, songMediaId, true, false);
+        }
     }
 
     public void removeMediaFromCurrentPlaylist(String songMediaId) {
-        mutateMediaPlaylist(openSourcePlaylistId.peek(), songMediaId, false, true);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            mutateMediaPlaylist(openSourcePlaylistId.peek(), songMediaId, false, true);
+        }
     }
 
     public void removeMediaManyFromCurrentPlaylist(String idsText) {
-        List<String> ids = splitIds(idsText);
-        if (ids.isEmpty()) return;
-        String sourceId = openSourcePlaylistId.peek();
-        if (sourceId != null && !sourceId.isEmpty()) {
-            removeManyPluginPlaylistTracks(sourceId, ids);
-            return;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            List<String> ids = splitIds(idsText);
+            String source = openSourcePlaylistId.peek();
+            if (!ids.isEmpty() && canMutateMediaPlaylist(source))
+                removeManyPluginPlaylistTracks(source, ids);
         }
-        if (currentPlaylistId == 0L || uid == 0) return;
-        final long playlistId = currentPlaylistId;
-        worker.submit(() -> {
-            int removed = 0;
-            for (String raw : ids) {
-                long songId;
-                try { songId = Long.parseLong(raw.contains(":") ? MediaId.parse(raw).nativeId() : raw); }
-                catch (Exception ignored) { continue; }
-                try {
-                    if (netease.manipulatePlaylistTracks(playlistId, songId, false)) removed++;
-                } catch (Throwable e) {
-                    Logger.warn("batch remove {} from playlist {} failed: {}", songId, playlistId, e.getMessage());
-                }
-            }
-            final int count = removed;
-            post(() -> {
-                if (count > 0 && currentPlaylistId == playlistId) {
-                    Set<Long> gone = new HashSet<>();
-                    for (String raw : ids) {
-                        try { gone.add(Long.parseLong(raw.contains(":") ? MediaId.parse(raw).nativeId() : raw)); }
-                        catch (Exception ignored) {}
-                    }
-                    dropOpenPlaylistTracks(gone);
-                }
-                showToast(count > 0
-                        ? I18n.tr("toast.playlist.songsRemoved", count)
-                        : I18n.tr("toast.playlist.removeFailed"));
-            });
-        });
     }
 
     private void removeManyPluginPlaylistTracks(String playlistMediaId, List<String> songMediaIds) {
         final MediaId playlistId;
         try {
-            playlistId = MediaId.parse(playlistMediaId).requireKind(
-                    dev.t1m3.qplayer.media.MediaKind.PLAYLIST);
+            playlistId =
+                    MediaId.parse(playlistMediaId)
+                            .requireKind(dev.t1m3.qplayer.media.MediaKind.PLAYLIST);
         } catch (IllegalArgumentException error) {
             showToast(I18n.tr("toast.id.media"));
             return;
         }
+        if (!canMutateMediaPlaylist(playlistId.toString())) return;
         List<MediaId> songs = new ArrayList<>();
         for (String raw : songMediaIds) {
             try {
                 songs.add(MediaId.parse(raw).requireKind(dev.t1m3.qplayer.media.MediaKind.SONG));
-            } catch (IllegalArgumentException ignored) {}
+            } catch (IllegalArgumentException ignored) {
+            }
         }
         if (songs.isEmpty()) return;
-        pluginProviders.mutatePlaylist(playlistId, "remove", songs, null)
-                .whenComplete((success, error) -> post(() -> {
-                    if (error == null && Boolean.TRUE.equals(success)) {
-                        Set<String> gone = new HashSet<>();
-                        for (MediaId song : songs) gone.add(song.toString());
-                        if (playlistId.toString().equals(openSourcePlaylistId.peek())) {
-                            dropOpenSourcePlaylistTracks(gone);
-                        }
-                        showToast(I18n.tr("toast.playlist.songsRemoved", gone.size()));
-                    } else {
-                        showToast(I18n.tr("toast.playlist.removeFailedReason", safeMessage(error)));
-                    }
-                }));
+        pluginProviders
+                .mutatePlaylist(playlistId, "remove", songs, null)
+                .whenComplete(
+                        (success, error) ->
+                                post(
+                                        () -> {
+                                            if (error == null && Boolean.TRUE.equals(success)) {
+                                                Set<String> gone = new HashSet<>();
+                                                for (MediaId song : songs)
+                                                    gone.add(song.toString());
+                                                if (playlistId
+                                                        .toString()
+                                                        .equals(openSourcePlaylistId.peek())) {
+                                                    dropOpenSourcePlaylistTracks(gone);
+                                                }
+                                                showToast(
+                                                        I18n.tr(
+                                                                "toast.playlist.songsRemoved",
+                                                                gone.size()));
+                                            } else {
+                                                showToast(
+                                                        I18n.tr(
+                                                                "toast.playlist.removeFailedReason",
+                                                                safeMessage(error)));
+                                            }
+                                        }));
     }
 
     public void unlikeMediaMany(String idsText) {
-        List<String> ids = splitIds(idsText);
-        if (ids.isEmpty()) return;
-        worker.submit(() -> {
-            int count = 0;
-            for (String raw : ids) {
-                if (unlikeOne(raw)) count++;
-            }
-            final int removed = count;
-            post(() -> {
-                showToast(removed > 0
-                        ? I18n.tr("toast.playlist.songsUnliked", removed)
-                        : I18n.tr("toast.unlike.failed"));
-                // Same staleness as the single-song toggle: refresh once for the
-                // whole batch rather than once per song.
-                if (removed > 0) loadMyPlaylists();
-            });
-        });
+        synchronized (QmlRuntimeLock.MONITOR) {
+            List<String> ids = splitIds(idsText);
+            if (ids.isEmpty()) return;
+            worker.submit(
+                    () -> {
+                        int count = 0;
+                        for (String raw : ids) {
+                            if (unlikeOne(raw)) count++;
+                        }
+                        final int removed = count;
+                        post(
+                                () -> {
+                                    showToast(
+                                            removed > 0
+                                                    ? I18n.tr(
+                                                            "toast.playlist.songsUnliked", removed)
+                                                    : I18n.tr("toast.unlike.failed"));
+                                    // Same staleness as the single-song toggle: refresh once for
+                                    // the
+                                    // whole batch rather than once per song.
+                                    if (removed > 0) loadMyPlaylists();
+                                });
+                    });
+        }
     }
 
     private boolean unlikeOne(String raw) {
         try {
             MediaId id = MediaId.parse(raw).requireKind(dev.t1m3.qplayer.media.MediaKind.SONG);
-            if ("netease".equals(id.provider()) && !pluginHasCapability("netease", ProviderCapability.LIKE)) {
-                long songId = Long.parseLong(id.nativeId());
-                boolean ok = netease.like(songId, false) || netease.setFavorite(uid, songId, false);
-                if (ok) post(() -> applyNeteaseLiked(songId, false));
-                return ok;
-            }
-            if (!pluginHasCapability(id.provider(), ProviderCapability.LIKE)) return false;
+            if (!providerLoggedIn(id.provider())
+                    || !pluginHasCapability(id.provider(), ProviderCapability.LIKE)) return false;
             Boolean success = pluginProviders.setLiked(id, false).get();
             if (!Boolean.TRUE.equals(success)) return false;
             post(() -> applyPluginLiked(id, false));
             return true;
         } catch (Exception error) {
-            Logger.warn("unlike {} failed: {}", raw, error.getMessage());
+            Logger.warn("unlike {} failed: {}", raw, safeMessage(error));
             return false;
         }
     }
@@ -9228,86 +8794,68 @@ public final class PlayerController {
     // netease-legacy-vs-plugin routing as unlikeOne, generalized to toggle
     // either direction instead of only unliking.
 
-    /** Whether {@code canonicalId} (a song media id) can be liked at all — the
-     *  row's heart button binds its visibility to this. */
+    /**
+     * Whether {@code canonicalId} (a song media id) can be liked at all — the row's heart button
+     * binds its visibility to this.
+     */
     public boolean isMediaLikeable(String canonicalId) {
-        if (canonicalId == null || canonicalId.isEmpty()) return false;
-        try {
-            MediaId id = MediaId.parse(canonicalId).requireKind(dev.t1m3.qplayer.media.MediaKind.SONG);
-            if ("netease".equals(id.provider()) && !pluginHasCapability("netease", ProviderCapability.LIKE)) {
-                return uid != 0;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            try {
+                MediaId id =
+                        MediaId.parse(canonicalId)
+                                .requireKind(dev.t1m3.qplayer.media.MediaKind.SONG);
+                return pluginHasCapability(id.provider(), ProviderCapability.LIKE);
+            } catch (IllegalArgumentException error) {
+                return false;
             }
-            return pluginHasCapability(id.provider(), ProviderCapability.LIKE);
-        } catch (IllegalArgumentException ignored) {
-            return false;
         }
     }
 
     /** Current liked state, for the heart's filled/outline glyph. */
     public boolean isMediaLiked(String canonicalId) {
-        if (canonicalId == null || canonicalId.isEmpty()) return false;
-        try {
-            MediaId id = MediaId.parse(canonicalId).requireKind(dev.t1m3.qplayer.media.MediaKind.SONG);
-            if ("netease".equals(id.provider()) && !pluginHasCapability("netease", ProviderCapability.LIKE)) {
-                return likedSet.contains(Long.parseLong(id.nativeId()));
-            }
-            return pluginLikedSet.contains(id.toString());
-        } catch (IllegalArgumentException ignored) {
-            return false;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            return pluginLikedSet.contains(canonicalId);
         }
     }
 
     public void toggleLikeMedia(String canonicalId) {
-        if (canonicalId == null || canonicalId.isEmpty()) return;
-        final MediaId id;
-        try {
-            id = MediaId.parse(canonicalId).requireKind(dev.t1m3.qplayer.media.MediaKind.SONG);
-        } catch (IllegalArgumentException error) {
-            return;
-        }
-        if ("netease".equals(id.provider()) && !pluginHasCapability("netease", ProviderCapability.LIKE)) {
-            final long songId;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (canonicalId == null || canonicalId.isEmpty()) return;
+            final MediaId id;
             try {
-                songId = Long.parseLong(id.nativeId());
-            } catch (NumberFormatException error) {
+                id = MediaId.parse(canonicalId).requireKind(dev.t1m3.qplayer.media.MediaKind.SONG);
+            } catch (IllegalArgumentException error) {
                 return;
             }
-            final boolean target = !likedSet.contains(songId);
-            applyNeteaseLiked(songId, target);
-            worker.submit(() -> {
-                try {
-                    boolean ok = netease.like(songId, target);
-                    if (!ok) ok = netease.setFavorite(uid, songId, target);
-                    if (ok) {
-                        post(() -> loadMyPlaylists());
-                    } else {
-                        post(() -> applyNeteaseLiked(songId, !target));
-                        showToast(netease.isLoggedIn()
-                                ? I18n.tr(target ? "toast.like.failed" : "toast.unlike.failed")
-                                : I18n.tr("toast.signInRequired"));
-                    }
-                } catch (Throwable e) {
-                    Logger.warn("like toggle failed: {}", e.getMessage());
-                    post(() -> {
-                        applyNeteaseLiked(songId, !target);
-                        toast.set(I18n.tr("toast.like.failedReason", e.getMessage()));
-                    });
-                }
-            });
-            return;
-        }
-        if (!pluginHasCapability(id.provider(), ProviderCapability.LIKE)) return;
-        final boolean target = !pluginLikedSet.contains(id.toString());
-        applyPluginLiked(id, target);
-        pluginProviders.setLiked(id, target).whenComplete((success, error) -> post(() -> {
-            if (error == null && Boolean.TRUE.equals(success)) {
-                applyPluginLiked(id, target);
-                loadMyPlaylists();
-            } else {
-                applyPluginLiked(id, !target);
-                showToast(I18n.tr(target ? "toast.like.failed" : "toast.unlike.failed"));
+            if (!pluginHasCapability(id.provider(), ProviderCapability.LIKE)) {
+                showToast(I18n.tr("toast.play.missingPlugin"));
+                return;
             }
-        }));
+            if (!providerLoggedIn(id.provider())) {
+                showToast(I18n.tr("toast.signInRequired"));
+                return;
+            }
+            final boolean target = !pluginLikedSet.contains(id.toString());
+            applyPluginLiked(id, target);
+            pluginProviders
+                    .setLiked(id, target)
+                    .whenComplete(
+                            (success, error) ->
+                                    post(
+                                            () -> {
+                                                if (error == null && Boolean.TRUE.equals(success)) {
+                                                    applyPluginLiked(id, target);
+                                                    loadMyPlaylists();
+                                                } else {
+                                                    applyPluginLiked(id, !target);
+                                                    showToast(
+                                                            I18n.tr(
+                                                                    target
+                                                                            ? "toast.like.failed"
+                                                                            : "toast.unlike.failed"));
+                                                }
+                                            }));
+        }
     }
 
     private static List<String> splitIds(String raw) {
@@ -9320,29 +8868,50 @@ public final class PlayerController {
         return out;
     }
 
-    private void mutateMediaPlaylist(String playlistMediaId, String songMediaId,
-                                     boolean add, boolean refreshDetail) {
+    private void mutateMediaPlaylist(
+            String playlistMediaId, String songMediaId, boolean add, boolean refreshDetail) {
         final MediaId playlistId;
         final MediaId songId;
         try {
-            playlistId = MediaId.parse(playlistMediaId).requireKind(
-                    dev.t1m3.qplayer.media.MediaKind.PLAYLIST);
-            songId = MediaId.parse(songMediaId).requireKind(
-                    dev.t1m3.qplayer.media.MediaKind.SONG);
+            playlistId =
+                    MediaId.parse(playlistMediaId)
+                            .requireKind(dev.t1m3.qplayer.media.MediaKind.PLAYLIST);
+            songId = MediaId.parse(songMediaId).requireKind(dev.t1m3.qplayer.media.MediaKind.SONG);
         } catch (IllegalArgumentException error) {
             showToast(I18n.tr("toast.id.media"));
             return;
         }
-        pluginProviders.mutatePlaylist(playlistId, add ? "add" : "remove",
-                        Collections.singletonList(songId), null)
-                .whenComplete((success, error) -> post(() -> {
-                    if (error == null && Boolean.TRUE.equals(success)) {
-                        showToast(I18n.tr(add ? "toast.playlist.songAdded" : "toast.playlist.songRemoved"));
-                        if (refreshDetail && playlistId.toString().equals(openSourcePlaylistId.peek())) {
-                            dropOpenSourcePlaylistTrack(songId.toString());
-                        }
-                    } else showToast(I18n.tr(add ? "toast.playlist.addFailedReason" : "toast.playlist.removeFailedReason", safeMessage(error)));
-                }));
+        if (!canMutateMediaPlaylist(playlistId.toString())
+                || !playlistId.provider().equals(songId.provider())) return;
+        pluginProviders
+                .mutatePlaylist(
+                        playlistId, add ? "add" : "remove", Collections.singletonList(songId), null)
+                .whenComplete(
+                        (success, error) ->
+                                post(
+                                        () -> {
+                                            if (error == null && Boolean.TRUE.equals(success)) {
+                                                showToast(
+                                                        I18n.tr(
+                                                                add
+                                                                        ? "toast.playlist.songAdded"
+                                                                        : "toast.playlist.songRemoved"));
+                                                if (refreshDetail
+                                                        && playlistId
+                                                                .toString()
+                                                                .equals(
+                                                                        openSourcePlaylistId
+                                                                                .peek())) {
+                                                    dropOpenSourcePlaylistTrack(songId.toString());
+                                                }
+                                            } else
+                                                showToast(
+                                                        I18n.tr(
+                                                                add
+                                                                        ? "toast.playlist.addFailedReason"
+                                                                        : "toast.playlist.removeFailedReason",
+                                                                safeMessage(error)));
+                                        }));
     }
 
     /**
@@ -9381,42 +8950,32 @@ public final class PlayerController {
         });
     }
 
-    /** Remove a track from the currently open playlist (the "从此歌单移除" menu
-     *  entry only appears there). Reads the open id internally so QML needn't
-     *  round-trip a 64-bit playlist id back through a numeric property. Drops the
-     *  row locally rather than re-fetching, for the reason in
-     *  {@link #dropOpenSourcePlaylistTrack}. */
+    /**
+     * Remove a track from the currently open playlist (the "从此歌单移除" menu entry only appears there).
+     * Reads the open id internally so QML needn't round-trip a 64-bit playlist id back through a
+     * numeric property. Drops the row locally rather than re-fetching, for the reason in {@link
+     * #dropOpenSourcePlaylistTrack}.
+     */
     public void removeFromCurrentPlaylist(long songId) {
-        final long playlistId = currentPlaylistId;
-        if (uid == 0 || playlistId == 0 || songId == 0) return;
-        worker.submit(() -> {
-            try {
-                boolean ok = netease.manipulatePlaylistTracks(playlistId, songId, false);
-                post(() -> {
-                    showToast(I18n.tr(ok ? "toast.playlist.songRemoved" : "toast.playlist.removeFailed"));
-                    if (ok && currentPlaylistId == playlistId) dropOpenPlaylistTrack(songId);
-                });
-            } catch (Throwable e) {
-                Logger.warn("remove track {} <- playlist {} failed: {}", songId, playlistId, e.getMessage());
-                showToast(I18n.tr("toast.playlist.removeFailed"));
-            }
-        });
+        removeMediaFromCurrentPlaylist(neteaseMediaId(songId));
     }
 
     /**
-     * Move a row in the open source playlist while a drag is being applied. Local
-     * only: {@link #commitSourcePlaylistOrder} is what reaches the provider, so the
-     * whole gesture costs one network call rather than one per row crossed.
+     * Move a row in the open source playlist while a drag is being applied. Local only: {@link
+     * #commitSourcePlaylistOrder} is what reaches the provider, so the whole gesture costs one
+     * network call rather than one per row crossed.
      */
     public void moveSourcePlaylistTrack(int from, int to) {
-        if (!Boolean.TRUE.equals(sourcePlaylistReorderable.peek())) return;
-        List<Song> current = sourcePlaylistTracks.peek();
-        if (current == null) return;
-        if (from < 0 || from >= current.size() || to < 0 || to >= current.size()) return;
-        if (from == to) return;
-        List<Song> reordered = new ArrayList<>(current);
-        reordered.add(to, reordered.remove(from));
-        sourcePlaylistTracks.set(Collections.unmodifiableList(reordered));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (!Boolean.TRUE.equals(sourcePlaylistReorderable.peek())) return;
+            List<Song> current = sourcePlaylistTracks.peek();
+            if (current == null) return;
+            if (from < 0 || from >= current.size() || to < 0 || to >= current.size()) return;
+            if (from == to) return;
+            List<Song> reordered = new ArrayList<>(current);
+            reordered.add(to, reordered.remove(from));
+            sourcePlaylistTracks.set(Collections.unmodifiableList(reordered));
+        }
     }
 
     /** True while a reorder is on its way to the provider. */
@@ -9427,111 +8986,105 @@ public final class PlayerController {
 
     /** Send the open source playlist's current arrangement to its provider. */
     public void commitSourcePlaylistOrder() {
-        if (!Boolean.TRUE.equals(sourcePlaylistReorderable.peek())) return;
-        if (sourceOrderSaving) { sourceOrderPending = true; return; }
-        final String playlistMediaId = openSourcePlaylistId.peek();
-        if (playlistMediaId == null || playlistMediaId.isEmpty()) return;
-        List<Song> rows = sourcePlaylistTracks.peek();
-        if (rows == null || rows.isEmpty()) return;
-        final MediaId playlistId;
-        final List<MediaId> ordered = new ArrayList<>(rows.size());
-        try {
-            playlistId = MediaId.parse(playlistMediaId)
-                    .requireKind(dev.t1m3.qplayer.media.MediaKind.PLAYLIST);
-            for (Song song : rows) {
-                ordered.add(MediaId.parse(song.id)
-                        .requireKind(dev.t1m3.qplayer.media.MediaKind.SONG));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (!Boolean.TRUE.equals(sourcePlaylistReorderable.peek())) return;
+            if (sourceOrderSaving) {
+                sourceOrderPending = true;
+                return;
             }
-        } catch (IllegalArgumentException error) {
-            showToast(I18n.tr("toast.id.media"));
-            return;
+            final String playlistMediaId = openSourcePlaylistId.peek();
+            if (playlistMediaId == null || playlistMediaId.isEmpty()) return;
+            List<Song> rows = sourcePlaylistTracks.peek();
+            if (rows == null || rows.isEmpty()) return;
+            final MediaId playlistId;
+            final List<MediaId> ordered = new ArrayList<>(rows.size());
+            try {
+                playlistId =
+                        MediaId.parse(playlistMediaId)
+                                .requireKind(dev.t1m3.qplayer.media.MediaKind.PLAYLIST);
+                for (Song song : rows) {
+                    ordered.add(
+                            MediaId.parse(song.id)
+                                    .requireKind(dev.t1m3.qplayer.media.MediaKind.SONG));
+                }
+            } catch (IllegalArgumentException error) {
+                showToast(I18n.tr("toast.id.media"));
+                return;
+            }
+            if (!providerLoggedIn(playlistId.provider())
+                    || !pluginHasCapability(
+                            playlistId.provider(), ProviderCapability.PLAYLIST_REORDER)) return;
+            sourceOrderSaving = true;
+            pluginProviders
+                    .reorderPlaylist(playlistId, ordered)
+                    .whenComplete(
+                            (success, error) ->
+                                    post(
+                                            () -> {
+                                                sourceOrderSaving = false;
+                                                boolean stillOpen =
+                                                        playlistId
+                                                                .toString()
+                                                                .equals(
+                                                                        openSourcePlaylistId
+                                                                                .peek());
+                                                if (error == null && Boolean.TRUE.equals(success)) {
+                                                    if (sourceOrderPending && stillOpen) {
+                                                        sourceOrderPending = false;
+                                                        commitSourcePlaylistOrder();
+                                                    } else {
+                                                        sourceOrderPending = false;
+                                                    }
+                                                    return;
+                                                }
+                                                sourceOrderPending = false;
+                                                Logger.warn(
+                                                        "playlist {} reorder failed: {}",
+                                                        playlistId,
+                                                        safeMessage(error));
+                                                showToast(
+                                                        I18n.tr(
+                                                                "toast.playlist.orderFailedReason",
+                                                                safeMessage(error)));
+                                                // The rows on screen no longer match the server.
+                                                // Re-read rather
+                                                // than leave the user looking at an order that did
+                                                // not save.
+                                                if (stillOpen)
+                                                    loadMediaPlaylist(playlistId.toString(), true);
+                                            }));
         }
-        sourceOrderSaving = true;
-        pluginProviders.reorderPlaylist(playlistId, ordered)
-                .whenComplete((success, error) -> post(() -> {
-                    sourceOrderSaving = false;
-                    boolean stillOpen = playlistId.toString().equals(openSourcePlaylistId.peek());
-                    if (error == null && Boolean.TRUE.equals(success)) {
-                        if (sourceOrderPending && stillOpen) {
-                            sourceOrderPending = false;
-                            commitSourcePlaylistOrder();
-                        } else {
-                            sourceOrderPending = false;
-                        }
-                        return;
-                    }
-                    sourceOrderPending = false;
-                    Logger.warn("playlist {} reorder failed: {}", playlistId, safeMessage(error));
-                    showToast(I18n.tr("toast.playlist.orderFailedReason", safeMessage(error)));
-                    // The rows on screen no longer match the server. Re-read rather
-                    // than leave the user looking at an order that did not save.
-                    if (stillOpen) loadMediaPlaylist(playlistId.toString(), true);
-                }));
-    }
-
-    /** {@link #dropOpenSourcePlaylistTrack} for the built-in netease playlist view. */
-    private void dropOpenPlaylistTrack(long songId) {
-        dropOpenPlaylistTracks(Collections.singleton(songId));
-    }
-
-    private void dropOpenPlaylistTracks(Set<Long> songIds) {
-        if (songIds == null || songIds.isEmpty()) return;
-        List<NeteaseSong> current = playlistTracks.peek();
-        if (current == null || current.isEmpty()) return;
-        List<NeteaseSong> remaining = new ArrayList<>(current.size());
-        for (NeteaseSong song : current) {
-            if (!songIds.contains(song.id)) remaining.add(song);
-        }
-        if (remaining.size() == current.size()) return;
-        playlistTracks.set(Collections.unmodifiableList(remaining));
     }
 
     /** Recently played (netease listen history). */
     public void loadRecent() {
-        PluginManifest provider = primaryProviderWith(ProviderCapability.RECENT);
-        if (provider != null) {
-            pluginProviders.recent(provider.id, 100).whenComplete((songs, error) -> post(() -> {
-                if (!provider.id.equals(pluginRegistry.primaryProvider())) return;
-                if (error != null) {
-                    Logger.warn("plugin {} recent failed: {}", provider.id, safeMessage(error));
-                    return;
-                }
-                sourceRecentSongs.set(songs);
-            }));
-            return;
-        }
-        if (onlineSourcesArePluginOnly()) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            PluginManifest provider = primaryProviderWith(ProviderCapability.RECENT);
+            if (provider != null) {
+                pluginProviders
+                        .recent(provider.id, 100)
+                        .whenComplete(
+                                (songs, error) ->
+                                        post(
+                                                () -> {
+                                                    if (!provider.id.equals(
+                                                            pluginRegistry.primaryProvider()))
+                                                        return;
+                                                    if (error != null) {
+                                                        Logger.warn(
+                                                                "plugin {} recent failed: {}",
+                                                                provider.id,
+                                                                safeMessage(error));
+                                                        return;
+                                                    }
+                                                    sourceRecentSongs.set(songs);
+                                                }));
+                return;
+            }
+
             recentSongs.set(Collections.<NeteaseSong>emptyList());
             return;
         }
-        if (uid == 0) return;
-        worker.submit(() -> {
-            try {
-                List<NeteaseSong> rec = netease.recentPlayed(100);
-                post(() -> recentSongs.set(rec));
-            } catch (Throwable e) {
-                Logger.warn("recent failed: {}", e.getMessage());
-            }
-        });
-    }
-
-    private void refreshLiked() {
-        if (uid == 0) return;
-        worker.submit(() -> {
-            try {
-                Set<Long> ids = netease.likedSongIds(uid);
-                post(() -> {
-                    likedSet.clear();
-                    likedSet.addAll(ids);
-                    likedCount.set(likedSet.size());
-                    likedRevision.set(likedRevision.peek() + 1);
-                    Track cur = currentTrack();
-                    currentLiked.set(cur != null && likedSet.contains(cur.neteaseId));
-                });
-            } catch (Throwable e) {
-                Logger.warn("liked ids failed: {}", e.getMessage());
-            }
-        });
     }
 
     /** Load the liked set of every signed-in source, not just the primary one: the
@@ -9592,158 +9145,174 @@ public final class PlayerController {
         if (current != null && key.equals(current.canonicalId())) currentLiked.set(liked);
     }
 
-    private void applyNeteaseLiked(long songId, boolean liked) {
-        if (liked) likedSet.add(songId);
-        else likedSet.remove(songId);
-        likedCount.set(likedSet.size());
-        likedRevision.set(likedRevision.peek() + 1);
-        Track current = currentTrack();
-        if (current != null && current.neteaseId == songId) currentLiked.set(liked);
-    }
-
     /** Like / unlike the current netease track. */
     public void toggleLike() {
-        Track cur = currentTrack();
-        if (cur != null && cur.source == Track.Source.PLUGIN) {
-            final MediaId id;
-            try { id = MediaId.parse(cur.canonicalId()).requireKind(
-                    dev.t1m3.qplayer.media.MediaKind.SONG); }
-            catch (IllegalArgumentException error) { return; }
-            if (!pluginHasCapability(id.provider(), ProviderCapability.LIKE)) return;
-            final boolean target = !pluginLikedSet.contains(id.toString());
-            applyPluginLiked(id, target);
-            pluginProviders.setLiked(id, target).whenComplete((success, error) -> post(() -> {
-                if (error == null && Boolean.TRUE.equals(success)) {
-                    applyPluginLiked(id, target);
-                    // The server's own "我喜欢" playlist gained/lost a song; its card
-                    // on 我的 shows a trackCount snapshot from the last full load, so
-                    // it needs a refresh to stop reading stale.
-                    loadMyPlaylists();
-                } else {
-                    applyPluginLiked(id, !target);
-                    showToast(I18n.tr(target ? "toast.like.failed" : "toast.unlike.failed"));
-                }
-            }));
-            return;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            Track track = playbackSession.current();
+            if (track != null) toggleLikeMedia(track.canonicalId());
         }
-        if (cur == null || cur.neteaseId == 0) return;
-        long id = cur.neteaseId;
-        boolean target = !likedSet.contains(id);
-        applyNeteaseLiked(id, target);
-        worker.submit(() -> {
-            try {
-                boolean ok = netease.like(id, target);
-                if (!ok) {
-                    // song/like hit risk control (code 524 "当前环境异常") for this track;
-                    // fall back to adding/removing it via the "我喜欢的音乐" playlist.
-                    ok = netease.setFavorite(uid, id, target);
-                }
-                if (ok) {
-                    post(() -> {
-                        applyNeteaseLiked(id, target);
-                        // Same as the plugin branch above: "我喜欢的音乐" changed size.
-                        loadMyPlaylists();
-                    });
-                } else {
-                    post(() -> applyNeteaseLiked(id, !target));
-                    showToast(netease.isLoggedIn()
-                            ? (I18n.tr(target ? "toast.like.failed" : "toast.unlike.failed")) : I18n.tr("toast.signInRequired"));
-                }
-            } catch (Throwable e) {
-                Logger.warn("like toggle failed: {}", e.getMessage());
-                post(() -> {
-                    applyNeteaseLiked(id, !target);
-                    toast.set(I18n.tr("toast.like.failedReason", e.getMessage()));
-                });
-            }
-        });
     }
 
-    /** Current queue track (the playback source of truth) or null. Safe off the
-     *  render thread — reads the plain playIndex, not the lagging Property. Used by
-     *  the host media service to build the notification / session metadata. */
+    /** Current state-owned track. Hosts needing multiple fields use {@link #playbackSnapshot()}. */
     public Track currentTrack() {
-        int i = playIndex;
-        return i >= 0 && i < queue.size() ? queue.get(i) : null;
-    }
-
-    /** Best local artwork path for the current track, including a downloaded
-     * network cover in DiskCache. Safe while the render pump is suspended. */
-    public String currentCoverPath() {
-        Track track = currentTrack();
-        return track != null ? coverDiskPath(track) : "";
-    }
-
-    /** Intended play state for the media session — true from play/resume until pause,
-     *  unaffected by the backend's brief async-prepare gap. */
-    public boolean isPlaying() {
-        return playingIntent;
-    }
-
-    /** Pause playback immediately — intended for MediaSession callbacks that may
-     *  arrive on a binder thread on some OEM ROMs (MIUI/HyperOS, HarmonyOS)
-     *  where main-thread message delivery is throttled in the background. */
-    public void mediaPause() {
-        if (!playingIntent) return;
-        playingIntent = false;
-        post(() -> playing.set(false));
-        // playingIntent flips immediately (MediaSession state must be immediate by
-        // contract); the actual backend.pause() rides the same fade-out toggle()
-        // uses, deferred until silence, so lock-screen/notification/dynamic-island
-        // pause ramps down instead of cutting audio hard.
-        if (fadeEnabled && (playbackStarted || backend.isPlaying())) {
-            startFadeOut(FADE_OUT_MS, () -> { if (!playingIntent) backend.pause(); });
-        } else {
-            cancelFadeAtGain(1f);
-            backend.pause();
+        synchronized (QmlRuntimeLock.MONITOR) {
+            return playbackSession.current();
         }
-        notifyPlayback();
+    }
+
+    public PlaybackSnapshot playbackSnapshot() {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            Track track = playbackSession.current();
+            PlaybackSnapshot.TrackMetadata metadata = null;
+            if (track != null) {
+                byte[] data = track.coverBytes;
+                if (data != snapshotArtworkSource) {
+                    snapshotArtworkSource = data;
+                    snapshotArtwork = data != null ? new PlaybackSnapshot.Artwork(data) : null;
+                }
+                metadata =
+                        new PlaybackSnapshot.TrackMetadata(
+                                track.canonicalId(),
+                                orEmpty(track.title),
+                                orEmpty(track.artist),
+                                orEmpty(track.album),
+                                orEmpty(track.filePath),
+                                orEmpty(track.coverUrl),
+                                orEmpty(coverPath.peek()),
+                                track.durationMs,
+                                snapshotArtwork);
+            }
+            if (track == null) {
+                snapshotArtworkSource = null;
+                snapshotArtwork = null;
+            }
+            return new PlaybackSnapshot(
+                    metadata,
+                    playbackSession.playing,
+                    mediaSessionPosition(),
+                    duration(),
+                    playbackRevision.get(),
+                    seekRevision.get());
+        }
+    }
+
+    public boolean seekIfCurrent(String expectedCanonicalId, long ms) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            Track track = playbackSession.current();
+            if (track == null || !Objects.equals(track.canonicalId(), expectedCanonicalId))
+                return false;
+            mediaSeek(ms);
+            return true;
+        }
     }
 
     /**
-     * Restart the decoder if we still intend to play but the backend went silent
-     * (OEM screen-off stall, a focus loss that never sent GAIN). Safe no-op when
-     * the user actually paused.
+     * Best local artwork path for the current track, including a downloaded network cover in
+     * DiskCache. Safe while the render pump is suspended.
      */
-    public void ensurePlaying() {
-        if (!playingIntent) return;
-        if (!backend.isPlaying()) backend.resume();
+    public String currentCoverPath() {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            return orEmpty(coverPath.peek());
+        }
     }
 
-    /** Resume playback immediately — counterpart to {@link #mediaPause()} for
-     *  MediaSession callbacks that may run off the main thread. */
-    public void mediaResume() {
-        if (playingIntent) return;
-        if (needsReplay && playIndex >= 0) {
-            needsReplay = false;
-            onMain(() -> playAt(playIndex));
-            return;
+    /**
+     * Intended play state for the media session — true from play/resume until pause, unaffected by
+     * the backend's brief async-prepare gap.
+     */
+    public boolean isPlaying() {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            return playbackSession.playing;
         }
-        // Mirrors toggle()'s resume branch: pick the fade back up mid-ramp if a
-        // pause's fade-out is still in flight, otherwise fade in from silence.
-        if (isFadeRunning() && backend.isPlaying()) {
-            if (fadeEnabled) {
-                startVolumeFade(currentFadeGain(), 1f, FADE_IN_MS, null);
+    }
+
+    /**
+     * Pause playback immediately — intended for MediaSession callbacks that may arrive on a binder
+     * thread on some OEM ROMs (MIUI/HyperOS, HarmonyOS) where main-thread message delivery is
+     * throttled in the background.
+     */
+    public void mediaPause() {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (!playbackSession.playing) return;
+            playbackSession.playing = false;
+            playing.set(false);
+            // playingIntent flips immediately (MediaSession state must be immediate by
+            // contract); the actual backend.pause() rides the same fade-out toggle()
+            // uses, deferred until silence, so lock-screen/notification/dynamic-island
+            // pause ramps down instead of cutting audio hard.
+            if (fadeEnabled && (playbackStarted || backend.isPlaying())) {
+                startFadeOut(
+                        FADE_OUT_MS,
+                        () -> {
+                            if (!playbackSession.playing) backend.pause();
+                        });
             } else {
                 cancelFadeAtGain(1f);
+                backend.pause();
             }
-        } else {
-            if (fadeEnabled) {
-                startVolumeFade(0f, 1f, FADE_IN_MS, null);
-            } else {
-                cancelFadeAtGain(1f);
-            }
+            notifyPlayback();
+        }
+    }
+
+    /**
+     * Restart the decoder if we still intend to play but the backend went silent (OEM screen-off
+     * stall, a focus loss that never sent GAIN). Safe no-op when the user actually paused.
+     */
+    public void ensurePlaying() {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (!playbackSession.playing || playbackSession.resolving) return;
             if (!backend.isPlaying()) backend.resume();
         }
-        playingIntent = true;
-        post(() -> playing.set(true));
-        notifyPlayback();
+    }
+
+    /**
+     * Resume playback immediately — counterpart to {@link #mediaPause()} for MediaSession callbacks
+     * that may run off the main thread.
+     */
+    public void mediaResume() {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (playbackSession.playing) return;
+            playbackSession.playing = true;
+            if (playbackSession.resolving) {
+                playbackSession.playing = true;
+                playing.set(true);
+                notifyPlayback();
+                return;
+            }
+            if (needsReplay && playbackSession.index >= 0) {
+                needsReplay = false;
+                onMain(() -> playAt(playbackSession.index));
+                return;
+            }
+            // Mirrors toggle()'s resume branch: pick the fade back up mid-ramp if a
+            // pause's fade-out is still in flight, otherwise fade in from silence.
+            if (isFadeRunning() && backend.isPlaying()) {
+                if (fadeEnabled) {
+                    startVolumeFade(currentFadeGain(), 1f, FADE_IN_MS, null);
+                } else {
+                    cancelFadeAtGain(1f);
+                }
+            } else {
+                if (fadeEnabled) {
+                    startVolumeFade(0f, 1f, FADE_IN_MS, null);
+                } else {
+                    cancelFadeAtGain(1f);
+                }
+                if (!backend.isPlaying()) backend.resume();
+            }
+            playbackSession.playing = true;
+            playing.set(true);
+            notifyPlayback();
+        }
     }
 
     /** Current source duration in ms (0 if unknown). */
     public long duration() {
-        long d = backend.duration();
-        return d > 0 ? d : 0L;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            Track track = playbackSession.current();
+            long actual = playbackStarted ? backend.duration() : 0L;
+            return actual > 0L ? actual : track != null ? Math.max(0L, track.durationMs) : 0L;
+        }
     }
 
     /** Message for a toast/dialog. Async failures arrive wrapped in a
@@ -9807,211 +9376,232 @@ public final class PlayerController {
 
     /** Open the shell-owned official-site login window. */
     public void startWebLogin() {
-        WebLoginLauncher launcher = webLoginLauncher;
-        if (launcher == null) {
-            webLoginError.set(I18n.tr("login.error.noWebView"));
-            return;
-        }
-        if (Boolean.TRUE.equals(webLoginBusy.peek())) return;
-        webLoginError.set("");
-        webLoginBusy.set(true);
-        try {
-            LoginMethod method = activeWebLoginMethod;
-            if (!pendingPluginLoginProvider.isEmpty() && method != null) {
-                launcher.launch(method.webUrl, method.cookieUrl,
-                        method.credentialCookieName, loginProviderName.peek());
-            } else {
+        final WebLoginLauncher launcher;
+        final LoginMethod method;
+        final String providerName;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            launcher = webLoginLauncher;
+            if (launcher == null) {
+                webLoginError.set(I18n.tr("login.error.noWebView"));
+                return;
+            }
+            if (Boolean.TRUE.equals(webLoginBusy.peek())) return;
+            method = activeWebLoginMethod;
+            if (pendingPluginLoginProvider.isEmpty() || method == null) {
                 webLoginBusy.set(false);
                 webLoginError.set(I18n.tr("login.error.noPlugin"));
+                return;
             }
-        } catch (Throwable e) {
-            Logger.warn("web login launcher failed: {}", safeMessage(e));
-            webLoginBusy.set(false);
-            webLoginError.set(I18n.tr("login.error.openFailed"));
+            providerName = loginProviderName.peek();
+            webLoginError.set("");
+            webLoginBusy.set(true);
         }
+        onHost(
+                () -> {
+                    try {
+                        launcher.launch(
+                                method.webUrl,
+                                method.cookieUrl,
+                                method.credentialCookieName,
+                                providerName);
+                    } catch (RuntimeException error) {
+                        Logger.warn("web login launcher failed: {}", safeMessage(error));
+                        onMain(
+                                () -> {
+                                    webLoginBusy.set(false);
+                                    webLoginError.set(I18n.tr("login.error.openFailed"));
+                                });
+                    }
+                });
     }
 
     /** Called by a shell after reading the official WebView cookie store. */
     public void completeWebLogin(String cookieHeader) {
-        importLoginCookie(cookieHeader, pluginWebMethodId);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            importLoginCookie(cookieHeader, pluginWebMethodId);
+        }
     }
 
     /** Paste-login fallback invoked directly by QML. */
     public void submitCookieLogin(String cookieHeader) {
-        if (Boolean.TRUE.equals(webLoginBusy.peek())) return;
-        webLoginBusy.set(true);
-        webLoginError.set("");
-        importLoginCookie(cookieHeader, pluginCredentialMethodId);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (Boolean.TRUE.equals(webLoginBusy.peek())) return;
+            webLoginBusy.set(true);
+            webLoginError.set("");
+            importLoginCookie(cookieHeader, pluginCredentialMethodId);
+        }
     }
 
     /** Shell callback when its browser window is closed before obtaining MUSIC_U. */
     public void cancelWebLogin() {
-        stopLoginPoll();
-        pendingPluginLoginChallenge = "";
-        pendingUnikey = null;
-        post(() -> webLoginBusy.set(false));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            stopLoginPoll();
+            pendingPluginLoginChallenge = "";
+            pendingUnikey = null;
+            post(() -> webLoginBusy.set(false));
+        }
     }
 
     /** Shell callback for browser creation/native-engine failures. */
     public void failWebLogin(String message) {
-        final String safe = message == null || message.trim().isEmpty()
-                ? I18n.tr("login.error.openSourceFailed") : message.trim();
-        post(() -> {
-            webLoginBusy.set(false);
-            webLoginError.set(safe);
-        });
+        synchronized (QmlRuntimeLock.MONITOR) {
+            final String safe =
+                    message == null || message.trim().isEmpty()
+                            ? I18n.tr("login.error.openSourceFailed")
+                            : message.trim();
+            post(
+                    () -> {
+                        webLoginBusy.set(false);
+                        webLoginError.set(safe);
+                    });
+        }
     }
 
     public void clearWebLoginError() {
-        webLoginError.set("");
+        synchronized (QmlRuntimeLock.MONITOR) {
+            webLoginError.set("");
+        }
     }
 
     private void importLoginCookie(String cookieHeader, String pluginMethodId) {
         final String candidate = cookieHeader == null ? "" : cookieHeader;
         if (!pendingPluginLoginProvider.isEmpty()
-                && pluginMethodId != null && !pluginMethodId.isEmpty()) {
-            pluginAccounts.submit(pendingPluginLoginProvider, pluginMethodId, candidate)
-                    .whenComplete((challenge, error) -> post(() -> {
-                        if (error != null) {
-                            webLoginBusy.set(false);
-                            webLoginError.set(safeMessage(error));
-                            return;
-                        }
-                        applyPluginLoginChallenge(challenge, true);
-                    }));
+                && pluginMethodId != null
+                && !pluginMethodId.isEmpty()) {
+            pluginAccounts
+                    .submit(pendingPluginLoginProvider, pluginMethodId, candidate)
+                    .whenComplete(
+                            (challenge, error) ->
+                                    post(
+                                            () -> {
+                                                if (error != null) {
+                                                    webLoginBusy.set(false);
+                                                    webLoginError.set(safeMessage(error));
+                                                    return;
+                                                }
+                                                applyPluginLoginChallenge(challenge, true);
+                                            }));
             return;
         }
-        if (onlineSourcesArePluginOnly()) {
-            post(() -> {
-                webLoginBusy.set(false);
-                webLoginError.set(I18n.tr("login.error.noLoginPlugin"));
-            });
-            return;
-        }
-        worker.submit(() -> {
-            try {
-                long accountId = netease.importLoginCookies(candidate);
-                uid = accountId;
-                post(() -> {
+
+        post(
+                () -> {
                     webLoginBusy.set(false);
-                    webLoginError.set("");
-                    webLoginSuccessRevision.set(webLoginSuccessRevision.peek() + 1L);
-                    showToast(I18n.tr("toast.login.success"));
+                    webLoginError.set(I18n.tr("login.error.noLoginPlugin"));
                 });
-                refreshLogin();
-            } catch (Throwable e) {
-                // Never log the candidate header. Parser/network errors have safe,
-                // credential-free messages by contract.
-                String reason = safeMessage(e);
-                Logger.warn("cookie login failed: {}", reason);
-                post(() -> {
-                    webLoginBusy.set(false);
-                    webLoginError.set(reason == null || reason.trim().isEmpty()
-                            ? I18n.tr("login.error.cookieFailed") : reason);
-                });
-            }
-        });
+        return;
     }
 
     /** Mint a login key + matrix off-thread; publishes to {@link #qrImage}/{@link #qrStatus}. */
     public void startQrLogin() {
-        pendingLoginIsApp = false;
-        post(() -> {
-            qrStatus.set(0);
-            qrImagePath.set("");
-            publishAppLink("", loginAppButtonLabel.peek());
-        });
-        if (!pendingPluginLoginProvider.isEmpty() && !pluginQrMethodId.isEmpty()) {
-            final String provider = pendingPluginLoginProvider;
-            pluginAccounts.begin(provider, pluginQrMethodId).whenComplete((challenge, error) -> post(() -> {
-                if (!provider.equals(pendingPluginLoginProvider) || pendingLoginIsApp) return;
-                if (error != null) {
-                    Logger.warn("plugin {} QR login start failed: {}", provider, safeMessage(error));
-                    qrStatus.set(800);
-                    webLoginError.set(safeMessage(error));
-                    return;
-                }
-                pendingPluginLoginChallenge = challenge.id;
-                applyPluginLoginChallenge(challenge, false);
-                startLoginPoll();
-            }));
-            return;
-        }
-        if (onlineSourcesArePluginOnly()) {
-            post(() -> {
-                qrStatus.set(800);
-                webLoginError.set(I18n.tr("login.error.noLoginPlugin"));
-            });
-            return;
-        }
-        worker.submit(() -> {
-            try {
-                String key = netease.qrLoginKey();
-                pendingUnikey = key;
-                List<List<Boolean>> m = toMatrix(netease.qrMatrix(key));
-                post(() -> {
-                    qrImage.set(m);
-                    qrStatus.set(801);
-                });
-                startLoginPoll();
-            } catch (Throwable e) {
-                Logger.warn("startQrLogin failed: {}", e.getMessage());
-                post(() -> {
-                    qrStatus.set(800);
-                    webLoginError.set(safeMessage(e));
-                });
+        synchronized (QmlRuntimeLock.MONITOR) {
+            pendingLoginIsApp = false;
+            post(
+                    () -> {
+                        qrStatus.set(0);
+                        qrImagePath.set("");
+                        publishAppLink("", loginAppButtonLabel.peek());
+                    });
+            if (!pendingPluginLoginProvider.isEmpty() && !pluginQrMethodId.isEmpty()) {
+                final String provider = pendingPluginLoginProvider;
+                pluginAccounts
+                        .begin(provider, pluginQrMethodId)
+                        .whenComplete(
+                                (challenge, error) ->
+                                        post(
+                                                () -> {
+                                                    if (!provider.equals(pendingPluginLoginProvider)
+                                                            || pendingLoginIsApp) return;
+                                                    if (error != null) {
+                                                        Logger.warn(
+                                                                "plugin {} QR login start failed:"
+                                                                        + " {}",
+                                                                provider,
+                                                                safeMessage(error));
+                                                        qrStatus.set(800);
+                                                        webLoginError.set(safeMessage(error));
+                                                        return;
+                                                    }
+                                                    pendingPluginLoginChallenge = challenge.id;
+                                                    applyPluginLoginChallenge(challenge, false);
+                                                    startLoginPoll();
+                                                }));
+                return;
             }
-        });
+
+            post(
+                    () -> {
+                        qrStatus.set(800);
+                        webLoginError.set(I18n.tr("login.error.noLoginPlugin"));
+                    });
+            return;
+        }
     }
 
     /** Begin an {@code app} login challenge. The OS jump happens on {@link #openLoginApp()}. */
     public void startAppLogin() {
-        if (pluginAppMethodId.isEmpty() || pendingPluginLoginProvider.isEmpty()) {
-            webLoginError.set(I18n.tr("login.error.noApp"));
-            return;
-        }
-        pendingLoginIsApp = true;
-        post(() -> {
-            qrStatus.set(0);
-            publishAppLink("", loginAppButtonLabel.peek());
-        });
-        final String provider = pendingPluginLoginProvider;
-        final String methodId = pluginAppMethodId;
-        pluginAccounts.begin(provider, methodId).whenComplete((challenge, error) -> post(() -> {
-            if (!provider.equals(pendingPluginLoginProvider) || !pendingLoginIsApp) return;
-            if (error != null) {
-                Logger.warn("plugin {} app login start failed: {}", provider, safeMessage(error));
-                qrStatus.set(800);
-                webLoginError.set(safeMessage(error));
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (pluginAppMethodId.isEmpty() || pendingPluginLoginProvider.isEmpty()) {
+                webLoginError.set(I18n.tr("login.error.noApp"));
                 return;
             }
-            pendingPluginLoginChallenge = challenge.id;
-            applyPluginLoginChallenge(challenge, false);
-            if (loginAppUrl.peek().isEmpty()) {
-                qrStatus.set(800);
-                webLoginError.set(I18n.tr("login.error.noApp"));
-            } else {
-                startLoginPoll();
-            }
-        }));
+            pendingLoginIsApp = true;
+            post(
+                    () -> {
+                        qrStatus.set(0);
+                        publishAppLink("", loginAppButtonLabel.peek());
+                    });
+            final String provider = pendingPluginLoginProvider;
+            final String methodId = pluginAppMethodId;
+            pluginAccounts
+                    .begin(provider, methodId)
+                    .whenComplete(
+                            (challenge, error) ->
+                                    post(
+                                            () -> {
+                                                if (!provider.equals(pendingPluginLoginProvider)
+                                                        || !pendingLoginIsApp) return;
+                                                if (error != null) {
+                                                    Logger.warn(
+                                                            "plugin {} app login start failed: {}",
+                                                            provider,
+                                                            safeMessage(error));
+                                                    qrStatus.set(800);
+                                                    webLoginError.set(safeMessage(error));
+                                                    return;
+                                                }
+                                                pendingPluginLoginChallenge = challenge.id;
+                                                applyPluginLoginChallenge(challenge, false);
+                                                if (loginAppUrl.peek().isEmpty()) {
+                                                    qrStatus.set(800);
+                                                    webLoginError.set(I18n.tr("login.error.noApp"));
+                                                } else {
+                                                    startLoginPoll();
+                                                }
+                                            }));
+        }
     }
 
     /** Open the current challenge's deep link in the matching official app. */
     public void openLoginApp() {
-        final String url = loginAppUrl.peek();
-        if (url == null || url.isEmpty()) {
-            webLoginError.set(I18n.tr("login.error.noApp"));
-            return;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            final String url = loginAppUrl.peek();
+            if (url == null || url.isEmpty()) {
+                webLoginError.set(I18n.tr("login.error.noApp"));
+                return;
+            }
+            AppLinkLauncher launcher = appLinkLauncher;
+            if (launcher == null) {
+                webLoginError.set(I18n.tr("login.error.appMissing"));
+                return;
+            }
+            webLoginError.set("");
+            onHost(
+                    () -> {
+                        if (!launcher.open(url))
+                            onMain(() -> webLoginError.set(I18n.tr("login.error.appMissing")));
+                    });
         }
-        AppLinkLauncher launcher = appLinkLauncher;
-        if (launcher == null) {
-            webLoginError.set(I18n.tr("login.error.appMissing"));
-            return;
-        }
-        webLoginError.set("");
-        onMain(() -> {
-            if (!launcher.open(url)) webLoginError.set(I18n.tr("login.error.appMissing"));
-        });
     }
 
     private void publishAppLink(String url, String label) {
@@ -10022,46 +9612,35 @@ public final class PlayerController {
 
     /** Poll the scan status off-thread; updates {@link #qrStatus}. */
     public void pollQrLogin() {
-        if (!loginPollInFlight.compareAndSet(false, true)) return;
-        if (!pendingPluginLoginProvider.isEmpty() && !pendingPluginLoginChallenge.isEmpty()) {
-            final String provider = pendingPluginLoginProvider;
-            final String challenge = pendingPluginLoginChallenge;
-            pluginAccounts.poll(provider, challenge).whenComplete((result, error) -> {
-                try {
-                    post(() -> {
-                        if (!provider.equals(pendingPluginLoginProvider)
-                                || !challenge.equals(pendingPluginLoginChallenge)) return;
-                        if (error == null) applyPluginLoginChallenge(result, false);
-                    });
-                } finally {
-                    loginPollInFlight.set(false);
-                }
-            });
-            return;
-        }
-        if (onlineSourcesArePluginOnly()) {
-            loginPollInFlight.set(false);
-            return;
-        }
-        String key = pendingUnikey;
-        if (key == null) {
-            loginPollInFlight.set(false);
-            return;
-        }
-        worker.submit(() -> {
-            try {
-                int code = netease.qrLoginCheck(key);
-                post(() -> qrStatus.set(code));
-                if (code == 803) {
-                    stopLoginPoll();
-                    refreshLogin();
-                } else if (code == 800) startQrLogin();
-            } catch (Throwable e) {
-                // transient network blip — keep waiting
-            } finally {
-                loginPollInFlight.set(false);
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (!loginPollInFlight.compareAndSet(false, true)) return;
+            if (!pendingPluginLoginProvider.isEmpty() && !pendingPluginLoginChallenge.isEmpty()) {
+                final String provider = pendingPluginLoginProvider;
+                final String challenge = pendingPluginLoginChallenge;
+                pluginAccounts
+                        .poll(provider, challenge)
+                        .whenComplete(
+                                (result, error) -> {
+                                    try {
+                                        post(
+                                                () -> {
+                                                    if (!provider.equals(pendingPluginLoginProvider)
+                                                            || !challenge.equals(
+                                                                    pendingPluginLoginChallenge))
+                                                        return;
+                                                    if (error == null)
+                                                        applyPluginLoginChallenge(result, false);
+                                                });
+                                    } finally {
+                                        loginPollInFlight.set(false);
+                                    }
+                                });
+                return;
             }
-        });
+
+            loginPollInFlight.set(false);
+            return;
+        }
     }
 
     private void startLoginPoll() {
@@ -10174,7 +9753,25 @@ public final class PlayerController {
     }
 
     private void publishPluginAccount(String provider, AccountProfile account) {
-        if (account == null || !provider.equals(pluginRegistry.primaryProvider())) return;
+        if (account == null) return;
+        SourceAccountRow row = new SourceAccountRow();
+        row.providerId = provider;
+        row.sourceName = providerDisplayName(provider);
+        row.primary = provider.equals(pluginRegistry.primaryProvider());
+        row.loggedIn = account.loggedIn;
+        row.canCreatePlaylist = pluginHasCapability(provider, ProviderCapability.PLAYLIST_MUTATION);
+        row.displayName = orEmpty(account.displayName);
+        row.avatarUrl = orEmpty(account.avatarUrl);
+        row.membershipTier = account.membershipTier;
+        row.level = account.level;
+        row.signature = orEmpty(account.signature);
+        sourceAccountsBySource.put(provider, row);
+        publishSourceAccounts();
+        if (!row.primary) {
+            refreshPluginLiked();
+            loadMyPlaylists();
+            return;
+        }
         loggedIn.set(account.loggedIn);
         userName.set(orEmpty(account.displayName));
         userAvatar.set(orEmpty(account.avatarUrl));
@@ -10202,105 +9799,44 @@ public final class PlayerController {
         }
     }
 
-    private static List<List<Boolean>> toMatrix(boolean[][] m) {
-        if (m == null) return Collections.emptyList();
-        List<List<Boolean>> out = new ArrayList<>(m.length);
-        for (boolean[] row : m) {
-            List<Boolean> r = new ArrayList<>(row.length);
-            for (boolean b : row) r.add(b);
-            out.add(r);
-        }
-        return out;
-    }
-
-    private void refreshLogin() {
-        // Cheap, local (cookie presence only, no network) -- read before the network
-        // attempt below so the catch block still knows "was logged in last session"
-        // even when loginUid()'s actual API call is what throws.
-        final boolean cookieLoggedIn = netease.isLoggedIn();
-        worker.submit(() -> {
-            try {
-                long id = netease.loginUid();
-                NeteaseUser u = id > 0 ? netease.userDetail(id) : null;
-                boolean in = netease.isLoggedIn();
-                String name = u != null ? u.nickname : "";
-                String avatar = u != null && u.avatarUrl != null ? u.avatarUrl : "";
-                int vip = u != null ? u.vipType : 0;
-                int lvl = u != null ? u.level : 0;
-                String sig = u != null && u.signature != null ? u.signature : "";
-                // uid is a plain volatile field (not a Property), so set it here on
-                // the worker thread -- refreshLiked() runs synchronously right below
-                // and reads uid; deferring it via post() left uid == 0 there, so the
-                // liked set never loaded and the like button never lit.
-                uid = id;
-                post(() -> {
-                    loggedIn.set(in);
-                    userName.set(name == null ? "" : name);
-                    userAvatar.set(avatar);
-                    userVipType.set(vip);
-                    userLevel.set(lvl);
-                    userSignature.set(sig);
-                    if (in) publishPendingCredentialEncryptedNotice();
-                    else pendingCredentialEncryptedNotice = false;
-                });
-                if (in) {
-                    if (id > 0 && netease.consumeCredentialUnlock()) {
-                        showToast(I18n.tr("toast.keystore.restored"));
-                    }
-                    loadHome();
-                    loadMyPlaylists();
-                    refreshLiked();
-                }
-            } catch (Throwable e) {
-                Logger.warn("refreshLogin failed: {}", e.toString());
-                // Offline (or the API's just down) but cookies say we were logged in
-                // last session: don't fall back to a logged-out UI just because the
-                // live refresh couldn't reach the network -- still surface it as
-                // logged in and let loadHome/loadMyPlaylists fall back to their own
-                // cached data (uid stays 0 this session; loadMyPlaylists() no longer
-                // requires it to at least try the offline path).
-                if (cookieLoggedIn) {
-                    post(() -> loggedIn.set(true));
-                    loadHome();
-                    loadMyPlaylists();
-                }
-            }
-        });
-    }
-
     public void logout() {
-        pendingCredentialEncryptedNotice = false;
-        String provider = pendingPluginLoginProvider;
-        if (!provider.isEmpty()) {
-            legacyCredentialMigrationGeneration.incrementAndGet();
-            pluginAccounts.logout(provider).whenComplete((ignored, error) -> post(() -> {
-                if (error != null) {
-                    showToast(I18n.tr("toast.logout.failed", safeMessage(error)));
-                    return;
-                }
-                legacyCredentialMigrationAttempted = true;
-                netease.logout();
-                clearPublishedAccount();
-                dropSourceUserData(provider);
-                showToast(I18n.tr("toast.logout.done"));
-            }));
-            return;
-        }
-        if (onlineSourcesArePluginOnly()) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            pendingCredentialEncryptedNotice = false;
+            String provider = pendingPluginLoginProvider;
+            if (!provider.isEmpty()) {
+                legacyCredentialMigrationGeneration.incrementAndGet();
+                pluginAccounts
+                        .logout(provider)
+                        .whenComplete(
+                                (ignored, error) ->
+                                        post(
+                                                () -> {
+                                                    if (error != null) {
+                                                        showToast(
+                                                                I18n.tr(
+                                                                        "toast.logout.failed",
+                                                                        safeMessage(error)));
+                                                        return;
+                                                    }
+                                                    legacyCredentialMigrationAttempted = true;
+                                                    netease.logout();
+                                                    clearPublishedAccount();
+                                                    dropSourceUserData(provider);
+                                                    showToast(I18n.tr("toast.logout.done"));
+                                                }));
+                return;
+            }
+
             legacyCredentialMigrationGeneration.incrementAndGet();
             legacyCredentialMigrationAttempted = true;
             netease.logout();
             clearPublishedAccount();
             return;
         }
-        netease.logout();
-        clearPublishedAccount();
-        showToast(I18n.tr("toast.logout.done"));
     }
 
     private void clearPublishedAccount() {
-        uid = 0;
-        likedSet.clear();
+
         myPlaylists.set(Collections.<NeteasePlaylist>emptyList());
         recommendations.set(Collections.<NeteaseSong>emptyList());
         recentSongs.set(Collections.<NeteaseSong>emptyList());
@@ -10319,67 +9855,184 @@ public final class PlayerController {
         publishPluginLiked();
     }
 
-    /** Persist the queue + live playback position + play mode right now. The only
-     *  other {@link #saveQueue()} call site is a track change, which is long past
-     *  by the time the app actually exits mid-song — callers that own an app-is-
-     *  really-going-away moment (desktop's {@link #shutdown()}; Android's
-     *  PlaybackService.onTaskRemoved/onDestroy, since QPlayerActivity.onDestroy()
-     *  deliberately skips shutdown() while playing so the service can keep going
-     *  in the background) should call this so "resume where I left off" actually
-     *  reflects where playback was, not wherever the last track switch left it. */
-    public void saveSessionState() {
-        saveQueue();
+    /** Capture a coherent in-memory session now; its IO owner commits it asynchronously. */
+    public CompletableFuture<Void> saveSessionStateAsync() {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (appShuttingDown) return sessionSave;
+            long position = playbackSession.index >= 0 ? mediaSessionPosition() : 0L;
+            sessionSave =
+                    queuePersistence.save(
+                            new QueuePersistence.Snapshot(
+                                    playbackSession.queue,
+                                    playbackSession.index,
+                                    position,
+                                    playMode.peek()));
+            sessionSave.whenComplete(
+                    (ignored, error) -> {
+                        if (error != null) Logger.warn("saveQueue failed: {}", safeMessage(error));
+                    });
+            return sessionSave;
+        }
     }
 
-    public void shutdown() {
-        appShuttingDown = true;
-        // Capture the final position before release() tears down the backend (a
-        // released MediaPlayer's position() is undefined/0).
-        saveSessionState();
-        // A just-clicked lyric adjustment may still be queued behind network work;
-        // persist the current in-memory map synchronously before stopping the worker.
-        saveLyricOffsets();
-        // Same reason: every local-playlist edit persists through the worker, and
-        // shutdownNow() below discards whatever is still queued. A song added or a
-        // row dragged immediately before quitting would be lost.
-        localPlaylistStore.save();
-        synchronized (fadeLock) {
-            fadeGeneration++;
-            fadeRunning = false;
-            fadeCompleteAction = null;
+    public CompletableFuture<Void> shutdownAsync() {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (shutdownFuture != null) return shutdownFuture;
+            CompletableFuture<Void> saved = saveSessionStateAsync();
+            appShuttingDown = true;
+            completeDownloadChoice(CompletableFuture.completedFuture(Boolean.FALSE));
+            playbackSession.invalidate();
+            playbackSession.playing = false;
+            synchronized (fadeLock) {
+                fadeGeneration++;
+                fadeRunning = false;
+                fadeCompleteAction = null;
+            }
+            stopLoginPoll();
+            worker.shutdownNow();
+            fadeWorker.shutdownNow();
+            monetFetchWorker.shutdownNow();
+            monetWorker.shutdownNow();
+            backend.release();
+            CompletableFuture<Void> admissionStopped = audioCacheCoordinator.stopAdmission();
+            shutdownFuture =
+                    CompletableFuture.runAsync(() -> retireResources(saved, admissionStopped));
+            return shutdownFuture;
         }
-        stopLoginPoll();
-        fadeWorker.shutdownNow();
-        backend.release();
-        worker.shutdownNow();
-        searchWorker.shutdownNow();
-        cacheWorker.shutdownNow();
-        lyricWorker.shutdownNow();
-        retryWorker.shutdownNow();
-        monetFetchWorker.shutdownNow();
-        monetWorker.shutdownNow();
-        pluginManager.close();
-        pluginHostApi.close();
+    }
+
+    private void retireResources(
+            CompletableFuture<Void> saved, CompletableFuture<Void> admissionStopped) {
+        Throwable failure = null;
+        // Start real network cancellation before waiting for IO/worker barriers.
+        // A future cancelled in isolation is not proof that its writer has stopped.
+        releaseUpdateChecker.cancelPendingRequests();
+        CompletableFuture<Void> catalogStopped = pluginCatalog.cancelPendingOperations();
+        CompletableFuture<Void> hostStopped = pluginHostApi.cancelPendingOperations();
+        try {
+            admissionStopped.join();
+        } catch (Throwable error) {
+            failure = collectRetirementFailure(failure, error);
+        }
+        awaitStopped(worker);
+        awaitStopped(fadeWorker);
+        awaitStopped(monetFetchWorker);
+        awaitStopped(monetWorker);
+        // No worker can re-enable a runtime after this point. Closing actors also
+        // stops source resolutions whose derived CompletableFuture never settled.
+        try {
+            pluginManager.close();
+        } catch (Throwable error) {
+            failure = collectRetirementFailure(failure, error);
+        }
+        try {
+            audioCacheCoordinator
+                    .finishCancellation(CompletableFuture.allOf(catalogStopped, hostStopped))
+                    .join();
+        } catch (Throwable error) {
+            failure = collectRetirementFailure(failure, error);
+        }
+        try {
+            saved.join();
+        } catch (Throwable error) {
+            failure = collectRetirementFailure(failure, error);
+        }
+        try {
+            CompletableFuture.runAsync(
+                            () -> {
+                                saveLyricOffsets();
+                                boolean playlistsSaved = localPlaylistStore.save();
+                                boolean orderSaved = myPlaylistOrderStore.save();
+                                if (!playlistsSaved || !orderSaved)
+                                    throw new IllegalStateException("playlist state save failed");
+                            },
+                            ioWorker)
+                    .join();
+        } catch (Throwable error) {
+            failure = collectRetirementFailure(failure, error);
+        }
+        try {
+            pluginCatalog.close();
+        } catch (Throwable error) {
+            failure = collectRetirementFailure(failure, error);
+        }
+        try {
+            pluginHostApi.close();
+        } catch (Throwable error) {
+            failure = collectRetirementFailure(failure, error);
+        } finally {
+            ioWorker.shutdown();
+            awaitStopped(ioWorker);
+        }
+        if (failure != null) throw new java.util.concurrent.CompletionException(failure);
+    }
+
+    private static Throwable collectRetirementFailure(Throwable primary, Throwable error) {
+        Throwable cause =
+                error instanceof java.util.concurrent.CompletionException
+                                && error.getCause() != null
+                        ? error.getCause()
+                        : error;
+        if (primary == null) return cause;
+        if (primary != cause) primary.addSuppressed(cause);
+        return primary;
+    }
+
+    private static void awaitStopped(ExecutorService executor) {
+        boolean interrupted = false;
+        for (; ; ) {
+            try {
+                if (executor.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS)) break;
+            } catch (InterruptedException error) {
+                interrupted = true;
+            }
+        }
+        if (interrupted) Thread.currentThread().interrupt();
     }
 
     // --- Disk cache management (called from QML settings page) -------------
 
     /** Update the {@link #cacheSizeMB} property from the actual disk usage. */
     public void refreshCacheSize() {
-        long bytes = diskCache.totalSize();
-        cacheSizeMB.set(bytes / (1024 * 1024));
+        ioWorker.submit(
+                () -> {
+                    long bytes = diskCache.totalSize();
+                    post(() -> cacheSizeMB.set(bytes / (1024 * 1024)));
+                });
     }
 
-    /** Change the max cache size and trigger eviction if needed. */
+    /** Coalesce slider changes; directory eviction never runs on a control thread. */
     public void setCacheMaxSizeMB(long mb) {
-        diskCache.setMaxSizeMB(mb);
-        refreshCacheSize();
+        synchronized (QmlRuntimeLock.MONITOR) {
+            long revision = cacheResizeRevision.incrementAndGet();
+            if (cacheResizeTask != null) cacheResizeTask.cancel(false);
+            cacheResizeTask =
+                    fadeWorker.schedule(
+                            () ->
+                                    ioWorker.submit(
+                                            () -> {
+                                                if (revision != cacheResizeRevision.get()) return;
+                                                diskCache.setMaxSizeMB(mb);
+                                                long bytes = diskCache.totalSize();
+                                                post(
+                                                        () -> {
+                                                            if (revision
+                                                                    == cacheResizeRevision.get())
+                                                                cacheSizeMB.set(
+                                                                        bytes / (1024 * 1024));
+                                                        });
+                                            }),
+                            150,
+                            TimeUnit.MILLISECONDS);
+        }
     }
 
-    /** Clear all disk cache (audio + lyrics + images). */
     public void clearDiskCache() {
-        diskCache.clearAll();
-        refreshCacheSize();
-        showToast(I18n.tr("toast.cache.cleared"));
+        ioWorker.submit(
+                () -> {
+                    diskCache.clearAll();
+                    refreshCacheSize();
+                    showToast(I18n.tr("toast.cache.cleared"));
+                });
     }
 }

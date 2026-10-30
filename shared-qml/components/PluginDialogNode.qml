@@ -40,10 +40,35 @@ Item {
         return rowCount > 0 ? (hostWidth - rowSpacing * (rowCount - 1)) / rowCount : 0
     }
 
-    // Seed the field from the description only when this slot starts showing a
-    // different input. A periodic refresh must never overwrite what the user is
-    // typing.
+    // An identity is scoped to one dialog session. Description refreshes keep
+    // edits; a new session explicitly resets even a reused slot/id.
     property string appliedInputId: ""
+    property string appliedNodeType: ""
+    property bool controlsReady: false
+    function resetSession() {
+        slot.appliedInputId = ""
+        slot.appliedNodeType = ""
+    }
+    function seedNode() {
+        var current = slot.node
+        var type = current ? (current.type || "") : ""
+        var id = current ? (current.id || "") : ""
+        if ((type === "switch" || type === "input")
+                && (slot.appliedNodeType !== type || slot.appliedInputId !== id)) {
+            slot.appliedNodeType = type
+            slot.appliedInputId = id
+            if (type === "switch") {
+                slot.switchValue = current.checked === true
+                toggle.checked = slot.switchValue
+            } else {
+                field.text = current.value || ""
+                slot.inputValue = field.text
+            }
+        } else if (type !== "switch" && type !== "input") {
+            slot.appliedNodeType = ""
+            slot.appliedInputId = ""
+        }
+    }
 
     implicitWidth: 280
     implicitHeight: {
@@ -62,17 +87,10 @@ Item {
         return 0
     }
     visible: node !== null
-    onNodeChanged: {
-        if (slot.nodeType === "switch") {
-            toggle.checked = slot.node.checked === true;
-            slot.switchValue = slot.node.checked === true;
-        }
-        if (slot.nodeType === "input" && slot.node.id !== slot.appliedInputId) {
-            slot.appliedInputId = slot.node.id;
-            field.text = slot.node.value || "";
-            slot.inputValue = field.text;
-        }
-
+    onNodeChanged: if (slot.controlsReady) slot.seedNode()
+    Component.onCompleted: {
+        slot.controlsReady = true
+        slot.seedNode()
     }
 
     Text {
@@ -117,11 +135,11 @@ Item {
         visible: slot.nodeType === "switch"
         title: slot.node ? slot.node.label : ""
         summary: slot.node && slot.node.desc ? slot.node.desc : ""
-        checked: slot.node && slot.node.checked === true
+        checked: slot.switchValue
         enabled: slot.node ? slot.node.enabled !== false && !slot.busy : false
         onClicked: {
             slot.switchValue = toggle.checked;
-            if (slot.host)
+            if (slot.host && slot.node && slot.node.type === "switch")
                 slot.host.submit(slot.node.id)
         }
     }
@@ -137,7 +155,7 @@ Item {
         type: slot.node ? slot.node.style : "filled"
         enabled: slot.node && slot.node.enabled === true && !slot.busy
         onClicked: {
-            if (slot.host)
+            if (slot.host && slot.node && slot.node.type === "button")
                 slot.host.submit(slot.node.id)
         }
     }
@@ -159,7 +177,7 @@ Item {
             type: slot.rowCount > 0 ? slot.node.items[0].style : "filled"
             enabled: slot.rowCount > 0 && slot.node.items[0].enabled && !slot.busy
             onClicked: {
-                if (slot.host)
+                if (slot.host && slot.node && slot.node.type === "row" && slot.node.items && slot.node.items.length > 0)
                     slot.host.submit(slot.node.items[0].id)
             }
         }
@@ -173,7 +191,7 @@ Item {
             type: slot.rowCount > 1 ? slot.node.items[1].style : "filled"
             enabled: slot.rowCount > 1 && slot.node.items[1].enabled && !slot.busy
             onClicked: {
-                if (slot.host)
+                if (slot.host && slot.node && slot.node.type === "row" && slot.node.items && slot.node.items.length > 1)
                     slot.host.submit(slot.node.items[1].id)
             }
         }
@@ -187,7 +205,7 @@ Item {
             type: slot.rowCount > 2 ? slot.node.items[2].style : "filled"
             enabled: slot.rowCount > 2 && slot.node.items[2].enabled && !slot.busy
             onClicked: {
-                if (slot.host)
+                if (slot.host && slot.node && slot.node.type === "row" && slot.node.items && slot.node.items.length > 2)
                     slot.host.submit(slot.node.items[2].id)
             }
         }

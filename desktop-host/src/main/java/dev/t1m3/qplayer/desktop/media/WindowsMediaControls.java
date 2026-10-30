@@ -17,7 +17,8 @@ import com.sun.jna.ptr.PointerByReference;
 import com.sun.jna.win32.StdCallLibrary;
 
 import dev.t1m3.qplayer.bridge.PlayerController;
-import dev.t1m3.qplayer.model.Track;
+import dev.t1m3.qplayer.bridge.PlaybackSnapshot;
+import dev.t1m3.qplayer.bridge.PlaybackSnapshot.TrackMetadata;
 import dev.t1m3.qplayer.util.Logger;
 
 import org.lwjgl.glfw.GLFWNativeWin32;
@@ -87,7 +88,6 @@ public final class WindowsMediaControls implements DesktopMediaControls {
     private Pointer smtc2;
     private Pointer timeline;
     private volatile boolean running;
-    private volatile long pausedPositionMs;
     private Thread timelineThread;
     private String publishedMetadataKey;
     private com.sun.net.httpserver.HttpServer coverServer;
@@ -124,7 +124,6 @@ public final class WindowsMediaControls implements DesktopMediaControls {
             check(call(smtc, 11, (byte) 1), "SetIsEnabled");
             timeline = activate(
                     "Windows.Media.SystemMediaTransportControlsTimelineProperties");
-            pausedPositionMs = pausedControllerPosition();
             running = true;
             startCoverServer();
             publish();
@@ -166,7 +165,6 @@ public final class WindowsMediaControls implements DesktopMediaControls {
 
     @Override
     public void onPlaybackChanged() {
-        if (!controller.isPlaying()) pausedPositionMs = pausedControllerPosition();
         publish();
     }
 
@@ -208,7 +206,6 @@ public final class WindowsMediaControls implements DesktopMediaControls {
             long ms = Math.max(0L, ticks.getValue() / 10_000L);
             window.postMainTask(() -> {
                 controller.seek(ms);
-                pausedPositionMs = ms;
                 publish();
             });
         });
@@ -302,7 +299,8 @@ public final class WindowsMediaControls implements DesktopMediaControls {
     private void publish() {
         if (!running || smtc == null) return;
         try {
-            Track track = controller.currentTrack();
+            PlaybackSnapshot snapshot = controller.playbackSnapshot();
+            TrackMetadata track = snapshot.track();
             if (track == null) {
                 // Closed is terminal for a SMTC session. At startup there is no
                 // current track yet, but the session must remain available for a
@@ -316,7 +314,7 @@ public final class WindowsMediaControls implements DesktopMediaControls {
                 updateMetadata(track);
                 publishedMetadataKey = metadataKey;
             }
-            call(smtc, 7, controller.isPlaying() ? 3 : 4);
+            call(smtc, 7, snapshot.playing() ? 3 : 4);
 
             if (smtc2 != null) {
                 int mode = playMode();
@@ -325,14 +323,14 @@ public final class WindowsMediaControls implements DesktopMediaControls {
                 // A non-zero playback rate tells SMTC consumers to extrapolate
                 // Position continuously between our periodic timeline syncs.
                 check(call(smtc2, 11, 1.0d), "SetPlaybackRate");
-                updateTimeline(track);
+                updateTimeline(snapshot);
             }
         } catch (Throwable t) {
             Logger.warn("Windows SMTC update failed: {}", t);
         }
     }
 
-    private void updateMetadata(Track track) {
+    private void updateMetadata(TrackMetadata track) {
         PointerByReference updaterOut = new PointerByReference();
         check(call(smtc, 8, updaterOut), "DisplayUpdater");
         Pointer updater = updaterOut.getValue();
@@ -343,13 +341,13 @@ public final class WindowsMediaControls implements DesktopMediaControls {
             check(call(updater, 12, musicOut), "MusicProperties");
             Pointer music = musicOut.getValue();
             try {
-                setHString(music, 7, track.title);
-                setHString(music, 11, track.artist);
+                setHString(music, 7, track.title());
+                setHString(music, 11, track.artist());
                 Pointer music2 = query(music,
                         guid("00368462-97d3-44b9-b00f-008afcefaf18"));
                 if (music2 != null) {
                     try {
-                        setHString(music2, 7, track.album);
+                        setHString(music2, 7, track.album());
                     } finally {
                         release(music2);
                     }
@@ -377,16 +375,12 @@ public final class WindowsMediaControls implements DesktopMediaControls {
      *  already on disk, no network needed. WinRT's Uri.CreateUri accepts a plain
      *  file:/... URI same as http(s), so this reuses the same CreateFromUri call
      *  below rather than a separate StorageFile path. */
-    private String localCoverPath(Track track) {
-        String cached = controller.currentCoverPath();
-        if (cached != null && !cached.isEmpty() && new java.io.File(cached).isFile()) return cached;
-        for (String path : new String[]{track.coverLocalPath, track.coverThumbPath}) {
-            if (path != null && !path.startsWith("http") && new java.io.File(path).isFile()) return path;
-        }
-        return null;
+    private String localCoverPath(TrackMetadata track) {
+        String cached = track.coverPath();
+        return cached != null && !cached.isEmpty() && new java.io.File(cached).isFile() ? cached : null;
     }
 
-    private Pointer resolveThumbnail(Track track) {
+    private Pointer resolveThumbnail(TrackMetadata track) {
         // Prefer the local cover file (already-cached netease cover, or a local
         // track's own art), falling back to the remote http(s) URL.
         String local = localCoverPath(track);
@@ -394,7 +388,7 @@ public final class WindowsMediaControls implements DesktopMediaControls {
             String url = localCoverUrl(local);
             if (url != null) return thumbnailFromUri(url);
         }
-        String url = track.coverUrl;
+        String url = track.coverUrl();
         if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
             return thumbnailFromUri(url);
         }
@@ -516,11 +510,10 @@ public final class WindowsMediaControls implements DesktopMediaControls {
         }
     }
 
-    private void updateTimeline(Track track) {
+    private void updateTimeline(PlaybackSnapshot snapshot) {
         if (timeline == null) return;
-        long durationMs = track.durationMs > 0 ? track.durationMs : controller.duration();
-        long durationTicks = durationMs * 10_000L;
-        long positionTicks = positionMs() * 10_000L;
+        long durationTicks = snapshot.durationMs() * 10_000L;
+        long positionTicks = Math.max(0L, snapshot.positionMs()) * 10_000L;
         call(timeline, 7, 0L);                // StartTime
         call(timeline, 9, durationTicks);     // EndTime
         call(timeline, 11, 0L);               // MinSeekTime
@@ -529,24 +522,13 @@ public final class WindowsMediaControls implements DesktopMediaControls {
         check(call(smtc2, 12, timeline), "UpdateTimelineProperties");
     }
 
-    private long positionMs() {
-        return controller.isPlaying() ? Math.max(0L, controller.position()) : pausedPositionMs;
-    }
 
-    /**
-     * Before the restored track is played, the audio backend clock is still zero
-     * while PlayerController.positionMs already contains the saved resume point.
-     */
-    private long pausedControllerPosition() {
-        return controller.mediaSessionPosition();
-    }
-
-    private String metadataKey(Track track) {
-        return String.valueOf(track.title) + '\0'
-                + String.valueOf(track.artist) + '\0'
-                + String.valueOf(track.album) + '\0'
-                + String.valueOf(track.coverUrl) + '\0'
-                + controller.currentCoverPath();
+    private String metadataKey(TrackMetadata track) {
+        return track.canonicalId() + '\0' + String.valueOf(track.title()) + '\0'
+                + String.valueOf(track.artist()) + '\0'
+                + String.valueOf(track.album()) + '\0'
+                + String.valueOf(track.coverUrl()) + '\0'
+                + track.coverPath();
     }
 
     private void startTimelineUpdates() {
@@ -562,10 +544,10 @@ public final class WindowsMediaControls implements DesktopMediaControls {
                 }
                 if (!running) return;
                 window.postMainTask(() -> {
-                    Track track = controller.currentTrack();
-                    if (running && track != null) {
+                    PlaybackSnapshot snapshot = controller.playbackSnapshot();
+                    if (running && snapshot.track() != null) {
                         try {
-                            updateTimeline(track);
+                            updateTimeline(snapshot);
                         } catch (Throwable t) {
                             Logger.warn("Windows SMTC timeline update failed: {}", t);
                         }

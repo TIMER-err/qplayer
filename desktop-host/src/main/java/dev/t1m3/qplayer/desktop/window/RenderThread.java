@@ -59,9 +59,6 @@ final class RenderThread extends Thread {
         LockSupport.unpark(this);
     }
 
-    GraphicsBackend.Kind kind() {
-        return backend.kind();
-    }
 
     @Override
     public void run() {

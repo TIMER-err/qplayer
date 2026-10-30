@@ -30,6 +30,14 @@
             <version>1.9.1</version>
         </dependency>
 
+        <!-- JVM artifact is required for Maven; Android selects the platform
+             variant from okhttp's Gradle module metadata instead. -->
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp-jvm</artifactId>
+            <version>${okhttp.version}</version>
+        </dependency>
+
         <!-- Skija (platform-neutral classes) for the fluid lyric backdrop + the
              per-syllable renderer. The native lib is provided by each shell
              (skija-android-arm64 / skija-linux-x64 / …). -->

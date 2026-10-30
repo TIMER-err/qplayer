@@ -38,15 +38,20 @@ Item {
         // interrupts qml4j's active gesture as soon as the thumb moves one step.
         if (offsetPanelOpen) offsetSlider.value = player.lyricOffsetMs
     }
-    // The page can also close via Esc / Android back, which bypasses this QML
-    // entirely (PlayerController.pressBack), so mirror the other direction too. A
-    // plain binding + local onChanged, not Connections { target: player }: player is
+    // Host actions can also close the lyric page, so clear the local panel when
+    // the authoritative page state changes. Mirror it with a plain binding, not
+    // Connections { target: player }: player is
     // a PlayerController, not a QObject, and qml4j's Connections codegen requires a
     // QObject target (a non-QObject target crashes with a ClassCastException at
     // Property.fireListeners on load).
     property bool lyricsOpenMirror: player.lyricsOpen
     onLyricsOpenMirrorChanged: if (!lyricsOpenMirror) overlay.offsetPanelOpen = false
 
+    function handleBack() {
+        if (!overlay.offsetPanelOpen && offsetPanel.opacity <= 0.01) return false
+        overlay.offsetPanelOpen = false
+        return true
+    }
 
     function fmt(ms) {
         if (ms <= 0) return "0:00";
@@ -66,6 +71,7 @@ Item {
     // morph, title/artist stay put. Landscape has its own cover in the left chrome.
     PlaybackCoverImage {
         id: pCover
+        animationActive: player.lyricSlide > 0.001 && !overlay.landscape && pCover.visible
         // Big centred art for no-lyric / instrumental tracks. On the lyrics↔cover switch
         // it ZOOMS + FADES (SPlayer's zoom transition) — no big/small morph. Kept
         // rendering while fading out so the zoom-out plays over the appearing lyrics.
@@ -402,7 +408,7 @@ Item {
             anchors.top: parent.top
             anchors.topMargin: 18
             wavy: settings.value("lyricProgressStyle") === 0
-            visible: player.lyricSlide > 0.001
+            visible: player.lyricSlide > 0.001 && !overlay.landscape
             // While the next track loads, sweep instead of showing a frozen position.
             indeterminate: player.loading
             value: player.lyricProgress
@@ -484,6 +490,7 @@ Item {
 
             PlaybackCoverImage {
                 id: lCover
+                animationActive: player.lyricSlide > 0.001 && overlay.landscape && overlay.fullWidthK < 0.995
                 anchors.top: parent.top
                 anchors.horizontalCenter: parent.horizontalCenter
                 width: landscapeChrome.coverSize
@@ -555,7 +562,7 @@ Item {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 wavy: settings.value("lyricProgressStyle") === 0
-                visible: player.lyricSlide > 0.001
+                visible: player.lyricSlide > 0.001 && overlay.landscape && overlay.fullWidthK < 0.995
                 indeterminate: player.loading
                 value: player.lyricProgress
             }
@@ -678,7 +685,7 @@ Item {
             anchors.bottom: parent.bottom
             anchors.bottomMargin: 30
             wavy: settings.value("lyricProgressStyle") === 0
-            visible: player.lyricSlide > 0.001
+            visible: player.lyricSlide > 0.001 && overlay.landscape && overlay.fullWidthK > 0.005
             indeterminate: player.loading
             value: player.lyricProgress
         }
