@@ -3,6 +3,7 @@ package dev.t1m3.qplayer.desktop.window;
 import dev.t1m3.qplayer.bridge.PlayerController;
 import dev.t1m3.qplayer.bridge.WindowChromeStub;
 import dev.t1m3.qplayer.desktop.audio.DesktopAudioBackend;
+import dev.t1m3.qplayer.desktop.library.DesktopMetadataReader;
 import dev.t1m3.qplayer.desktop.resources.ClasspathResourceLoader;
 import dev.t1m3.qplayer.desktop.settings.JsonSettingsStore;
 import dev.t1m3.qplayer.i18n.I18n;
@@ -16,9 +17,15 @@ import io.github.timer_err.qml4j.render.QmlView;
 import io.github.timer_err.qml4j.render.items.core.Item;
 import io.github.timer_err.qml4j.render.items.core.Rectangle;
 import io.github.humbleui.skija.Image;
+import org.jaudiotagger.audio.AudioFileIO;
+import org.jaudiotagger.tag.FieldKey;
+import org.jaudiotagger.tag.Tag;
+import org.jaudiotagger.tag.images.Artwork;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -50,8 +57,10 @@ public final class BundledQmlSmoke {
             settings.load(new JsonSettingsStore(), SettingsCatalog.DESKTOP);
             ClasspathResourceLoader resources = new ClasspathResourceLoader();
             // Decode a real packaged image through Skija's native path.
-            try (Image icon = Image.makeFromEncoded(resources.load("app-icon.png"))) {
+            byte[] iconBytes = resources.load("app-icon.png");
+            try (Image icon = Image.makeFromEncoded(iconBytes)) {
                 require(icon.getWidth() > 0 && icon.getHeight() > 0, "Packaged application icon did not decode");
+                savedFlacArtwork(profile, iconBytes, icon.getWidth(), icon.getHeight());
             }
             scene("Main.qml", player, settings, null, resources);
             // A reopened scene uses a new settings owner. Mutating the old owner
@@ -75,6 +84,30 @@ public final class BundledQmlSmoke {
                 }
             }
         }
+    }
+
+    private static void savedFlacArtwork(Path profile, byte[] cover, int width, int height) throws Exception {
+        Path file = profile.resolve("saved.flac");
+        // A real one-second mono FLAC, generated and decoded with FFmpeg.
+        Files.write(file, Base64.getDecoder().decode(
+                "ZkxhQwAAACIEAAQAAAALAAANAfQA8AAAH0Ae4Bk2cWCcfWPP6JuSCtMThAAADgYAAABmZm1wZWcAAAAA//ikCADBAAAA2nb/+KQIAcYAAAC2Dv/4pAgCzwAAAAKG//ikCAPIAAAAbv7/+KQIBN0AAADrk//4pAgF2gAAAIfr//ikCAbTAAAAM2P/+HQIBwM/AQAAAPqg"));
+        String title = "保存回归";
+        String artist = "Native smoke";
+        String album = "Bundled artwork";
+        String lyrics = "[00:00.00]保存后的本地歌词";
+        new DesktopMetadataReader().writeTags(file.toString(), title, artist, album, cover, lyrics);
+        Tag saved = AudioFileIO.read(file.toFile()).getTag();
+        require(saved != null && title.equals(saved.getFirst(FieldKey.TITLE))
+                        && artist.equals(saved.getFirst(FieldKey.ARTIST))
+                        && album.equals(saved.getFirst(FieldKey.ALBUM))
+                        && lyrics.equals(saved.getFirst(FieldKey.LYRICS)),
+                "Saved FLAC text metadata did not survive the file round-trip");
+        Artwork artwork = saved.getFirstArtwork();
+        require(artwork != null && Arrays.equals(cover, artwork.getBinaryData())
+                        && width == artwork.getWidth() && height == artwork.getHeight()
+                        && "image/png".equals(artwork.getMimeType()),
+                "Saved FLAC artwork bytes, dimensions or MIME did not survive the file round-trip");
+        System.out.println("Saved FLAC metadata/artwork round-trip passed");
     }
 
     private static void scene(String entry, PlayerController player, SettingsCore settings,

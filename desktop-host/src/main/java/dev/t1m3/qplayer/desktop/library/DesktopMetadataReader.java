@@ -3,15 +3,24 @@ package dev.t1m3.qplayer.desktop.library;
 import dev.t1m3.qplayer.audio.MetadataReader;
 import dev.t1m3.qplayer.model.Track;
 import dev.t1m3.qplayer.util.Logger;
+import io.github.humbleui.skija.Image;
 import org.jaudiotagger.audio.AudioFile;
 import org.jaudiotagger.audio.AudioFileIO;
 import org.jaudiotagger.audio.AudioHeader;
+import org.jaudiotagger.audio.flac.metadatablock.MetadataBlockDataPicture;
+import org.jaudiotagger.tag.FieldDataInvalidException;
 import org.jaudiotagger.tag.FieldKey;
 import org.jaudiotagger.tag.Tag;
+import org.jaudiotagger.tag.TagField;
+import org.jaudiotagger.tag.flac.FlacTag;
 import org.jaudiotagger.tag.images.Artwork;
 import org.jaudiotagger.tag.images.ArtworkFactory;
+import org.jaudiotagger.tag.reference.PictureTypes;
+import org.jaudiotagger.tag.vorbiscomment.VorbisCommentFieldKey;
+import org.jaudiotagger.tag.vorbiscomment.VorbisCommentTag;
 
 import java.io.File;
+import java.util.Base64;
 import java.util.logging.Level;
 import java.util.logging.LogManager;
 
@@ -68,11 +77,9 @@ public final class DesktopMetadataReader implements MetadataReader {
             if (lyrics != null && !lyrics.isEmpty()) setTag(tag, FieldKey.LYRICS, lyrics);
             if (cover != null && cover.length > 0) {
                 try {
+                    TagField artwork = createArtworkField(tag, cover);
                     tag.deleteArtworkField();
-                    Artwork art = ArtworkFactory.getNew();
-                    art.setBinaryData(cover);
-                    art.setMimeType(coverMime(cover));
-                    tag.setField(art);
+                    tag.setField(artwork);
                 } catch (Throwable error) {
                     Logger.warn("DesktopMetadataReader cover write: {} — {}", path, error.getMessage());
                 }
@@ -81,6 +88,29 @@ public final class DesktopMetadataReader implements MetadataReader {
         } catch (Throwable e) {
             Logger.warn("DesktopMetadataReader write: {} — {}", path, e.getMessage());
         }
+    }
+
+    private static TagField createArtworkField(Tag tag, byte[] cover) throws FieldDataInvalidException {
+        String mime = coverMime(cover);
+        int pictureType = PictureTypes.DEFAULT_ID;
+        if (tag instanceof FlacTag || tag instanceof VorbisCommentTag) {
+            // Both Artwork overloads call StandardArtwork.setImageFromData(), even
+            // when dimensions are already set, which initializes AWT/ImageIO.
+            // Skija reads the encoded header without decoding/re-encoding pixels.
+            try (Image image = Image.makeFromEncoded(cover)) {
+                MetadataBlockDataPicture picture = new MetadataBlockDataPicture(
+                        cover, pictureType, mime, "", image.getWidth(), image.getHeight(), 0, 0);
+                if (tag instanceof FlacTag) return picture;
+                return ((VorbisCommentTag) tag).createField(
+                        VorbisCommentFieldKey.METADATA_BLOCK_PICTURE,
+                        Base64.getEncoder().encodeToString(picture.getBytes().array()));
+            }
+        }
+        Artwork artwork = ArtworkFactory.getNew();
+        artwork.setBinaryData(cover);
+        artwork.setMimeType(mime);
+        artwork.setPictureType(pictureType);
+        return tag.createField(artwork);
     }
 
     private static void setTag(Tag tag, FieldKey key, String value) {
