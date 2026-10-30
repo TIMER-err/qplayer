@@ -13,6 +13,7 @@ import io.github.humbleui.skija.ImageInfo;
 import io.github.humbleui.skija.Surface;
 import io.github.humbleui.skija.SurfaceOrigin;
 import org.junit.Assume;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.opengl.GL;
@@ -27,6 +28,11 @@ import static org.junit.Assert.assertTrue;
 public class TemperaGpuTextTest {
     private static final int WIDTH = 320;
     private static final int HEIGHT = 160;
+
+    @BeforeClass
+    public static void initializeFonts() {
+        TemperaTestFonts.initialize();
+    }
 
     @Test
     public void glFramebufferKeepsInvertedHanLyricsVisible() {

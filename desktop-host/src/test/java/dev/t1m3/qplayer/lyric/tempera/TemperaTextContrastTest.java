@@ -4,6 +4,7 @@ import io.github.humbleui.skija.Canvas;
 import io.github.humbleui.skija.Data;
 import io.github.humbleui.skija.Image;
 import io.github.humbleui.skija.Surface;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.nio.ByteBuffer;
@@ -17,6 +18,11 @@ import static org.junit.Assert.assertTrue;
 public class TemperaTextContrastTest {
     private static final int WIDTH = 320;
     private static final int HEIGHT = 160;
+
+    @BeforeClass
+    public static void initializeFonts() {
+        TemperaTestFonts.initialize();
+    }
 
     @Test
     public void invertedHanLyricRemainsVisible() throws Exception {

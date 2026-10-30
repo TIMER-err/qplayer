@@ -6,6 +6,7 @@ import io.github.humbleui.skija.Surface;
 import io.github.humbleui.skija.Data;
 import io.github.humbleui.skija.Image;
 import io.github.humbleui.skija.Paint;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.util.Arrays;
@@ -15,6 +16,11 @@ import java.util.List;
 import static org.junit.Assert.*;
 
 public class TemperaResourceTest {
+    @BeforeClass
+    public static void initializeFonts() {
+        TemperaTestFonts.initialize();
+    }
+
     @Test public void fontEvictionAndDisposalPreserveRenderedGlyphsAndBorrowedFonts() {
         Font borrowed = Fonts.get(Fonts.Weight.MEDIUM, 64f);
         TemperaLayout.GlyphPlacement placement = new TemperaLayout.GlyphPlacement();
