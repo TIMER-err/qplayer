@@ -136,8 +136,9 @@ jobs:
             package: powershell -ExecutionPolicy Bypass -File desktop-host/dist/package-windows.ps1
             artifact: desktop-host/target/QPlayer-windows-x64.zip
           # Native Image targets the host architecture. Intel Mac users build
-          # locally; the hosted release remains Apple Silicon.
-          - os: macos-14            # apple silicon
+          # locally; the hosted release remains Apple Silicon. macos-14 is retired
+          # on 2026-11-02; MACOSX_DEPLOYMENT_TARGET keeps macOS 13 compatibility.
+          - os: macos-15            # apple silicon
             name: macos-arm64
             package: bash desktop-host/dist/package-macos.sh
             artifact: desktop-host/target/QPlayer.dmg
