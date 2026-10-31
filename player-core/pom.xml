@@ -14,6 +14,12 @@
     <name>Player Core</name>
     <description>Platform-neutral player logic and packaged-QML scene runtime. Must stay Android-dexable: bundled UI classes are produced by qml-aot-tool before either host compiles/packages, never ASM/D8-compiled at runtime. Native Skija libraries are supplied by each shell.</description>
 
+    <properties>
+        <!-- Skija native used only by this module's own tests. Defaults to Linux x64;
+             the os-activated profiles below select the build host's platform. -->
+        <qplayer.skija.platform>linux-x64</qplayer.skija.platform>
+    </properties>
+
     <dependencies>
         <!-- QML engine: the reactive Property bridge to QML + Renderer/QmlView used
              by the host-drawn lyric compositor. -->
@@ -73,5 +79,34 @@
             <version>4.13.2</version>
             <scope>test</scope>
         </dependency>
+
+        <!-- Image decoding, fonts and other Skija paths need the native library.
+             Without it, tests exercising them only saw a linkage error in a
+             background thread and passed without testing anything. Test scope:
+             each shell still supplies its own native at runtime. -->
+        <dependency>
+            <groupId>io.github.humbleui</groupId>
+            <artifactId>skija-${qplayer.skija.platform}</artifactId>
+            <version>${skija.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
+
+    <profiles>
+        <profile>
+            <id>os-windows</id>
+            <activation><os><family>windows</family></os></activation>
+            <properties><qplayer.skija.platform>windows-x64</qplayer.skija.platform></properties>
+        </profile>
+        <profile>
+            <id>os-macos-x64</id>
+            <activation><os><family>mac</family><arch>x86_64</arch></os></activation>
+            <properties><qplayer.skija.platform>macos-x64</qplayer.skija.platform></properties>
+        </profile>
+        <profile>
+            <id>os-macos-arm64</id>
+            <activation><os><family>mac</family><arch>aarch64</arch></os></activation>
+            <properties><qplayer.skija.platform>macos-arm64</qplayer.skija.platform></properties>
+        </profile>
+    </profiles>
 </project>

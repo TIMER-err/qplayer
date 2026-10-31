@@ -1,0 +1,16 @@
+diff --git a/internal/xhttp/http.go b/internal/xhttp/http.go
+index a0cb1bf..40dd86d 100644
+--- a/internal/xhttp/http.go
++++ b/internal/xhttp/http.go
+@@ -23,6 +23,11 @@ type Transport struct {
+ }
+ 
+ func (transport *Transport) RoundTrip(request *http.Request) (*http.Response, error) {
++	// Afdian's gateway rejects Go's default User-Agent with HTTP 403.
++	if request.Header.Get("User-Agent") == "" {
++		request = request.Clone(request.Context())
++		request.Header.Set("User-Agent", "afdian-sponsor (+https://github.com/Sn0wo2/afdian-sponsor)")
++	}
+ 	base := transport.Base
+ 	if base == nil {
+ 		base = http.DefaultTransport

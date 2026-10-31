@@ -35,12 +35,32 @@ jobs:
       - name: Create output directory
         run: mkdir -p dist
 
-      - name: Generate sponsor image
-        # afdian-sponsor v1, pinned to the commit behind its v1 tag.
-        uses: Sn0wo2/afdian-sponsor@3ea3ccf0735a56c6b82036c8a13676690532f25d
+      # afdian-sponsor v1.12.3 sends Go's default User-Agent, which Afdian's gateway
+      # has rejected with HTTP 403 since late October 2026. Build the same pinned
+      # release from source with a one-line User-Agent patch until upstream fixes it.
+      - name: Check out afdian-sponsor v1.12.3
+        # actions/checkout v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          version: latest
-          cache: true
+          repository: Sn0wo2/afdian-sponsor
+          ref: 3ea3ccf0735a56c6b82036c8a13676690532f25d
+          path: afdian-sponsor
+
+      - name: Set up Go
+        # actions/setup-go v7.0.0
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: afdian-sponsor/go.mod
+          cache-dependency-path: afdian-sponsor/go.sum
+
+      - name: Build patched afdian-sponsor
+        working-directory: afdian-sponsor
+        run: |
+          git apply "$GITHUB_WORKSPACE/.github/sponsor/afdian-user-agent.patch"
+          go build -o "$RUNNER_TEMP/afdian-sponsor" .
+
+      - name: Generate sponsor image
+        run: '"$RUNNER_TEMP/afdian-sponsor"'
         env:
           AFDIAN_USER_ID: ${{ secrets.AFDIAN_USER_ID }}
           AFDIAN_API_TOKEN: ${{ secrets.AFDIAN_API_TOKEN }}

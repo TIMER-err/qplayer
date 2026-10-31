@@ -15,8 +15,8 @@ jobs:
     env:
       ALSOFT_DRIVERS: "null"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
@@ -40,7 +40,7 @@ jobs:
             -Dqplayer.test.mp3="$RUNNER_TEMP/qplayer-codecs/seeking.mp3" verify
       - name: Upload test reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: project-test-reports
           path: |
