@@ -1,17 +1,24 @@
 name: Release
 
-# One unified release pipeline. It builds, in parallel:
+# One unified release pipeline. The behavior tests and every build run in
+# parallel:
+#   • tests    — core + desktop behavior suite (gates publication only)
 #   • android  — the signed release APK
 #   • desktop  — GraalVM native bundles on Linux / Windows / macOS; each
 #                platform builds on its own runner with its native toolchain.
-# Every job attaches its artifact(s) to the GitHub Release for the tag
-# (action-gh-release creates the release on first upload and appends after).
+# Builds only upload workflow artifacts. A single `publish` job runs after
+# tests and every build succeeded and attaches all files at once, so a stable
+# tag never becomes "latest" with some platforms missing, and concurrent
+# uploads cannot overwrite each other.
 #
 # Triggers on BOTH ways of cutting a release, so either works:
 #   • `git push` of a `v*` tag           → push event
 #   • "Publish release" in the GitHub UI → release:published event
 # (a UI-created release does not reliably emit a tag push event, so we need both).
-# A manual `workflow_dispatch` run skips the release and uploads artifacts only.
+# A manual `workflow_dispatch` run uploads artifacts only, unless `release_tag` is
+# given: it then creates that tag at the run's commit and publishes there. Its
+# tag is created with GITHUB_TOKEN, so it does not trigger a second full run.
+# `android_only` + `release_tag` publishes an Android-only prerelease.
 
 on:
   push:
@@ -30,6 +37,18 @@ on:
         required: false
         default: false
         type: boolean
+      android_only:
+        description: Build the Android APK only (skip desktop)
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        description: >-
+          Publish the built artifacts as this release tag (created at the run's
+          commit), e.g. an Android-only prerelease. Empty uploads artifacts only.
+        required: false
+        default: ''
+        type: string
 
 # Push-a-tag and publish-a-release can both fire for the same version; collapse
 # them into one run per ref instead of building everything twice.
@@ -45,7 +64,6 @@ jobs:
     uses: ./.github/workflows/tests.yml
 
   android:
-    needs: tests
     if: github.event_name != 'workflow_dispatch' || !inputs.desktop_only
     runs-on: ubuntu-latest
     env:
@@ -62,12 +80,14 @@ jobs:
 
       # Explicit Maven cache (the qml4j source build + player-core install + their
       # deps land in ~/.m2). setup-gradle below handles the Gradle caches itself.
+      # Keyed per job: jobs sharing one key race to save it, and the loser's
+      # dependencies would never be cached.
       - name: Cache Maven repository
         uses: actions/cache@v4
         with:
           path: ~/.m2/repository
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2-
+          key: ${{ runner.os }}-m2-android-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2-android-
 
       - uses: gradle/actions/setup-gradle@v4
 
@@ -110,19 +130,8 @@ jobs:
           name: QPlayer-android
           path: out/*
 
-      - name: Attach to release
-        # github.ref is unreliable for release:published when the tag is auto-created
-        # from the UI (lands as refs/heads/master instead of refs/tags/<tag>), so check
-        # the event name and pass the release tag explicitly.
-        if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: out/*
-          tag_name: ${{ github.event.release.tag_name || github.ref_name }}
-          prerelease: ${{ contains(github.event.release.tag_name || github.ref_name, '-') }}
-
   desktop:
-    needs: tests
+    if: github.event_name != 'workflow_dispatch' || !inputs.android_only
     strategy:
       fail-fast: false
       matrix:
@@ -199,8 +208,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.m2/repository
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2-
+          key: ${{ runner.os }}-m2-desktop-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2-desktop-
 
       - uses: ./.github/actions/build-engine
 
@@ -268,13 +277,47 @@ jobs:
           name: QPlayer-${{ matrix.name }}
           path: out/*
 
+  publish:
+    needs: [tests, android, desktop]
+    # github.ref is unreliable for release:published when the tag is auto-created
+    # from the UI (lands as refs/heads/master instead of refs/tags/<tag>), so check
+    # the event name and pass the release tag explicitly. A manual run publishes
+    # only when given a release_tag; an android_only run then ships just the APK.
+    if: >-
+      !cancelled()
+      && needs.tests.result == 'success'
+      && needs.android.result == 'success'
+      && (needs.desktop.result == 'success'
+          || (github.event_name == 'workflow_dispatch' && inputs.android_only))
+      && (github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
+          || (github.event_name == 'workflow_dispatch' && inputs.release_tag != ''))
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag || github.event.release.tag_name || github.ref_name }}
+      ANDROID_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.android_only }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: QPlayer-*
+          path: out
+          merge-multiple: true
+
+      - name: Check every expected artifact is present
+        run: |
+          expected="QPlayer-android.apk"
+          if [ "$ANDROID_ONLY" != true ]; then
+            expected="$expected QPlayer-linux-x64.AppImage QPlayer-macos-arm64.dmg
+                      QPlayer-windows-x64.zip QPlayer-windows-x64-setup.exe"
+          fi
+          for f in $expected; do
+            [ -s "out/$f" ] || { echo "::error::missing $f"; exit 1; }
+          done
+          ls -l out
+
       - name: Attach to release
-        # github.ref is unreliable for release:published when the tag is auto-created
-        # from the UI (lands as refs/heads/master instead of refs/tags/<tag>), so check
-        # the event name and pass the release tag explicitly.
-        if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: out/*
-          tag_name: ${{ github.event.release.tag_name || github.ref_name }}
-          prerelease: ${{ contains(github.event.release.tag_name || github.ref_name, '-') }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
+          prerelease: ${{ contains(env.RELEASE_TAG, '-') }}

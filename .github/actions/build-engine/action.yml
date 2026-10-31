@@ -9,6 +9,13 @@ runs:
         set -euo pipefail
         QV=$(mvn -q -B -N help:evaluate -Dexpression=qml4j.version -DforceStdout)
         echo "qml4j-core version: $QV"
+        # Engine tags are immutable, so a restored Maven cache that already holds
+        # this exact version needs no rebuild.
+        INSTALLED="$HOME/.m2/repository/io/github/timer-err/qml4j-core/$QV/qml4j-core-$QV.jar"
+        if [ -s "$INSTALLED" ]; then
+          echo "qml4j-core $QV restored from the Maven cache; skipping the source build"
+          exit 0
+        fi
         ENGINE="$RUNNER_TEMP/qml4j"
         git clone --depth 1 --branch "v$QV" https://github.com/TIMER-err/qml4j.git "$ENGINE"
         # Engine tags retain the previous POM version until publication. Pin the
