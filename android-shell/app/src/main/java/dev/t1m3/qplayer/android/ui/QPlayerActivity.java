@@ -631,7 +631,6 @@ public final class QPlayerActivity extends Activity {
     }
 
     private android.view.View splashView;
-    private android.widget.TextView splashStatus;
 
     private android.view.View buildSplash() {
         android.widget.LinearLayout box = new android.widget.LinearLayout(this);
@@ -655,18 +654,6 @@ public final class QPlayerActivity extends Activity {
         blp.topMargin = Math.round(getResources().getDisplayMetrics().density * 24);
         bar.setLayoutParams(blp);
         box.addView(bar);
-
-        splashStatus = new android.widget.TextView(this);
-        splashStatus.setText(I18n.tr("common.loading"));
-        splashStatus.setTextColor(0xFF9A9499);
-        splashStatus.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13);
-        splashStatus.setGravity(android.view.Gravity.CENTER);
-        android.widget.LinearLayout.LayoutParams slp = new android.widget.LinearLayout.LayoutParams(
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-        slp.topMargin = Math.round(getResources().getDisplayMetrics().density * 12);
-        splashStatus.setLayoutParams(slp);
-        box.addView(splashStatus);
 
         return box;
     }
