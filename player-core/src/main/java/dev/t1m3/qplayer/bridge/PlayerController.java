@@ -9232,6 +9232,19 @@ public final class PlayerController {
      * throttled in the background.
      */
     public void mediaPause() {
+        pauseIntent(true);
+    }
+
+    /**
+     * The audio output went away (Bluetooth / wired headphones disconnected). Stop at
+     * once instead of fading out: the system has already rerouted to the speaker, so a
+     * fade would play the tail of the song out loud.
+     */
+    public void pauseForOutputLoss() {
+        pauseIntent(false);
+    }
+
+    private void pauseIntent(boolean allowFade) {
         synchronized (QmlRuntimeLock.MONITOR) {
             if (!playbackSession.playing) return;
             playbackSession.playing = false;
@@ -9240,7 +9253,7 @@ public final class PlayerController {
             // contract); the actual backend.pause() rides the same fade-out toggle()
             // uses, deferred until silence, so lock-screen/notification/dynamic-island
             // pause ramps down instead of cutting audio hard.
-            if (fadeEnabled && (playbackStarted || backend.isPlaying())) {
+            if (allowFade && fadeEnabled && (playbackStarted || backend.isPlaying())) {
                 startFadeOut(
                         FADE_OUT_MS,
                         () -> {

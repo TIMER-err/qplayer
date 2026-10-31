@@ -380,13 +380,17 @@ Rectangle {
 
     // Tap only the actually-painted artist text. The separate probe measures the
     // unelided glyph run; min() clips the target to the visible/elided width.
+    // Desktop only: on a phone the artist line fills much of a 64px row and a tap
+    // meant to play the song kept opening the artist page. Touch users reach the
+    // artist through the long-press menu ("查看歌手") instead.
     MouseArea {
         id: artistArea
         anchors.left: artistText.left
         anchors.verticalCenter: artistText.verticalCenter
         width: Math.min(artistText.width, artistProbe.implicitWidth)
         height: 20
-        enabled: row.rowArtistIdsCsv !== "" || (row.rowArtistId !== 0 && row.rowArtistId !== "")
+        enabled: settings.has("desktopLyricEnabled")
+                 && (row.rowArtistIdsCsv !== "" || (row.rowArtistId !== 0 && row.rowArtistId !== ""))
         hoverEnabled: enabled
         cursorShape: Qt.PointingHandCursor
         onClicked: {

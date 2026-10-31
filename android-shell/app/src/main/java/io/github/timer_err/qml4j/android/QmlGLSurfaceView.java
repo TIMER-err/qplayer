@@ -95,6 +95,12 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     private float lyDownY;
     // Movement (logical px) past which a lyric-body touch is a scroll rather than a tap.
     private static final float LYRIC_TAP_SLOP = 12f;
+    // True while the current touch stream started inside the bottom system-gesture
+    // zone (the gesture-navigation handle). Such a stream belongs to the system's
+    // home / recents swipe: the system takes it over mid-gesture and the app only
+    // sees a DOWN followed by a CANCEL, which used to reach QML as a tap and play
+    // the song row lying under the handle.
+    private boolean systemGestureStream;
 
     /** Notified (with a full stack trace) when QML load/render throws, so the
      *  host can surface the error instead of the GL thread crashing the app. */
@@ -236,6 +242,22 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         }
     }
 
+    /**
+     * Every task queued to the GL thread touches the QML scene (pointer/key/IME
+     * dispatch, insets, theme, cleanup). Run it under the same lock as the frame and
+     * the controller: unlocked, a QML handler on this thread and a controller write on
+     * the main thread could re-subscribe the same property's listener list at once,
+     * leaving a null slot that a later frame crashed on in Property.fireListeners.
+     */
+    @Override
+    public void queueEvent(Runnable r) {
+        super.queueEvent(() -> {
+            synchronized (QmlRuntimeLock.MONITOR) {
+                r.run();
+            }
+        });
+    }
+
     private static void invalidateCanvasCaches(io.github.timer_err.qml4j.render.items.core.Item item) {
         if (item == null) return;
         if (item instanceof io.github.timer_err.qml4j.render.items.core.Canvas) {
@@ -264,6 +286,13 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         // lyric layer, so touches dispatch to the QML scene as usual -- the LyricOverlay
         // handles seek, transport and close.
         final int action = ev.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) systemGestureStream = inBottomSystemGestureZone(ev);
+        if (systemGestureStream) {
+            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                systemGestureStream = false;
+            }
+            return true;
+        }
         final float x = ev.getX() / uiScale;
         final float y = ev.getY() / uiScale;
         switch (action) {
@@ -348,6 +377,17 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
             default:
                 return false;
         }
+    }
+
+    /** Whether a touch-down lies in the bottom mandatory system-gesture inset. With
+     *  three-button navigation that inset is the navigation bar itself, which never
+     *  delivers touches here, so only gesture navigation is affected. */
+    private boolean inBottomSystemGestureZone(MotionEvent ev) {
+        if (android.os.Build.VERSION.SDK_INT < 29) return false;
+        android.view.WindowInsets insets = getRootWindowInsets();
+        if (insets == null) return false;
+        int bottom = insets.getMandatorySystemGestureInsets().bottom;
+        return bottom > 0 && ev.getY() >= getHeight() - bottom;
     }
 
     /** Pointer dispatch runs on the GL thread via queueEvent and does not go
@@ -564,6 +604,13 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
 
         @Override
         public void onSurfaceChanged(GL10 gl, int width, int height) {
+            // Builds the scene on first use and resizes its root: same lock as frames.
+            synchronized (QmlRuntimeLock.MONITOR) {
+                surfaceChanged(width, height);
+            }
+        }
+
+        private void surfaceChanged(int width, int height) {
             if (failed || disposed || surface == null) return;
             surface.resize(width, height);
             try {

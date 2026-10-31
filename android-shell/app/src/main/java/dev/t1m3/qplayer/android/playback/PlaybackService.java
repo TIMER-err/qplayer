@@ -75,6 +75,16 @@ public final class PlaybackService extends Service {
     private int artworkSize;
     private Bitmap artwork;
     private long artworkGeneration;
+    // Headphones / Bluetooth output disconnected: the system has already moved audio
+    // to the speaker, so pause instead of continuing out loud.
+    private final android.content.BroadcastReceiver noisyReceiver = new android.content.BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (!android.media.AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(intent.getAction())) return;
+            PlayerController c = controller;
+            if (c != null) c.pauseForOutputLoss();
+        }
+    };
+    private boolean noisyRegistered;
 
     @Override
     public void onCreate() {
@@ -146,6 +156,10 @@ public final class PlaybackService extends Service {
             c.setPlaybackListener(selfListener);
             lyricon.bind(c);
         }
+        androidx.core.content.ContextCompat.registerReceiver(this, noisyReceiver,
+                new android.content.IntentFilter(android.media.AudioManager.ACTION_AUDIO_BECOMING_NOISY),
+                androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
+        noisyRegistered = true;
     }
 
     private void onControllerChanged() {
@@ -196,6 +210,10 @@ public final class PlaybackService extends Service {
         artworkVersion = null;
         artworkData = null;
         artwork = null;
+        if (noisyRegistered) {
+            noisyRegistered = false;
+            try { unregisterReceiver(noisyReceiver); } catch (Throwable ignored) {}
+        }
         if (checkpointWorker != null) {
             checkpointWorker.shutdownNow();
             checkpointWorker = null;
