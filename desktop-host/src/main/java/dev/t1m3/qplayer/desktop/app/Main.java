@@ -350,6 +350,11 @@ public final class Main {
 
         window.runEventLoop(); // blocks on the main thread until quit
 
+        // From here the process must end: a hung cleanup step or a leftover
+        // non-daemon thread would otherwise keep a windowless process alive that
+        // still holds the single-instance lock, so every later launch only pings
+        // it and exits.
+        armExitWatchdog();
         themeMonitor.close();
         libraryScanGeneration.incrementAndGet();
         synchronized (watcher) {
@@ -369,7 +374,40 @@ public final class Main {
         }
         window.shutdown();
         Logger.info("QPlayer desktop exited");
-        window.throwIfRenderingFailed();
+        int status = 0;
+        try {
+            window.throwIfRenderingFailed();
+        } catch (IllegalStateException renderingFailed) {
+            renderingFailed.printStackTrace();
+            status = 1;
+        }
+        System.exit(status);
+    }
+
+    /** Longest a normal shutdown (queue/state persistence, render retirement) may take. */
+    private static final long EXIT_GRACE_MS = 15_000L;
+
+    /** Ends the process if cleanup after quit does not finish within {@link #EXIT_GRACE_MS}. */
+    private static void armExitWatchdog() {
+        Thread watchdog = new Thread(() -> {
+            try {
+                Thread.sleep(EXIT_GRACE_MS);
+            } catch (InterruptedException e) {
+                return;
+            }
+            StringBuilder stuck = new StringBuilder();
+            for (Thread thread : Thread.getAllStackTraces().keySet()) {
+                if (thread.isAlive() && !thread.isDaemon()) {
+                    if (stuck.length() > 0) stuck.append(", ");
+                    stuck.append(thread.getName());
+                }
+            }
+            Logger.error("shutdown did not finish within {} ms; forcing exit (non-daemon threads: {})",
+                    EXIT_GRACE_MS, stuck);
+            Runtime.getRuntime().halt(2);
+        }, "qplayer-exit-watchdog");
+        watchdog.setDaemon(true);
+        watchdog.start();
     }
 
     static CompletableFuture<Boolean> saveAudio(String suggested,
