@@ -1,47 +1,341 @@
 name: Release
 
-# Temporary recovery of v1.9.5 using the completed builds, without rebuilding.
+# One unified release pipeline. The behavior tests and every build run in
+# parallel:
+#   • tests    — core + desktop behavior suite (gates publication only)
+#   • android  — the signed release APK
+#   • desktop  — GraalVM native bundles on Linux / Windows / macOS; each
+#                platform builds on its own runner with its native toolchain.
+# Builds only upload workflow artifacts. A single `publish` job runs after
+# tests and every build succeeded and attaches all files at once, so a stable
+# tag never becomes "latest" with some platforms missing, and concurrent
+# uploads cannot overwrite each other.
+#
+# Triggers on BOTH ways of cutting a release, so either works:
+#   • `git push` of a `v*` tag           → push event
+#   • "Publish release" in the GitHub UI → release:published event
+# (a UI-created release does not reliably emit a tag push event, so we need both).
+# A manual `workflow_dispatch` run uploads artifacts only, unless `release_tag` is
+# given: it then creates that tag at the run's commit and publishes there. Its
+# tag is created with GITHUB_TOKEN, so it does not trigger a second full run.
+# `android_only` + `release_tag` publishes an Android-only prerelease.
+
 on:
+  push:
+    tags: ['v*']
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      version:
+        description: Version embedded in manually built desktop artifacts
+        required: false
+        default: '0.0.0'
+        type: string
+      desktop_only:
+        description: Build desktop artifacts only, keeping a successful Android preflight
+        required: false
+        default: false
+        type: boolean
+      android_only:
+        description: Build the Android APK only (skip desktop)
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        description: >-
+          Publish the built artifacts as this release tag (created at the run's
+          commit), e.g. an Android-only prerelease. Empty uploads artifacts only.
+        required: false
+        default: ''
+        type: string
 
-permissions:
-  actions: read
-  contents: write
-
+# Push-a-tag and publish-a-release can both fire for the same version; collapse
+# them into one run per ref instead of building everything twice.
 concurrency:
-  group: release-refs/tags/v1.9.5
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
+permissions:
+  contents: write
+
 jobs:
-  publish:
+  tests:
+    uses: ./.github/workflows/tests.yml
+
+  android:
+    if: github.event_name != 'workflow_dispatch' || !inputs.desktop_only
     runs-on: ubuntu-latest
     env:
+      QPLAYER_STORE_PASSWORD: ${{ secrets.QPLAYER_STORE_PASSWORD }}
+      QPLAYER_KEY_ALIAS: ${{ secrets.QPLAYER_KEY_ALIAS }}
+      QPLAYER_KEY_PASSWORD: ${{ secrets.QPLAYER_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # Explicit Maven cache (the qml4j source build + player-core install + their
+      # deps land in ~/.m2). setup-gradle below handles the Gradle caches itself.
+      # Keyed per job: jobs sharing one key race to save it, and the loser's
+      # dependencies would never be cached.
+      - name: Cache Maven repository
+        uses: actions/cache@v5
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-m2-android-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2-android-
+
+      - uses: gradle/actions/setup-gradle@v5
+
+      - uses: ./.github/actions/build-engine
+
+      # player-core now carries the host-drawn lyric classes (shared-lyric was
+      # merged in), so installing it is enough for the gradle build to resolve.
+      - name: Install player-core
+        run: |
+          mvn -q -B -N install
+          mvn -q -B -DskipTests install -f player-core/pom.xml
+
+      - name: Decode keystore
+        env:
+          QPLAYER_KEYSTORE_BASE64: ${{ secrets.QPLAYER_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$QPLAYER_KEYSTORE_BASE64" ]; then
+            echo "$QPLAYER_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/qplayer.jks"
+            echo "QPLAYER_KEYSTORE=$RUNNER_TEMP/qplayer.jks" >> "$GITHUB_ENV"
+            echo "Keystore decoded; release will be signed."
+          else
+            echo "::warning::QPLAYER_KEYSTORE_BASE64 not set — release will be UNSIGNED."
+          fi
+
+      - name: Build release APK
+        run: |
+          chmod +x android-shell/gradlew
+          cd android-shell && ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleRelease
+
+      - name: Stage APK
+        run: |
+          mkdir -p out
+          dir=android-shell/app/build/outputs/apk/release
+          apk="$dir/app-release.apk"
+          [ -f "$apk" ] || apk="$dir/app-release-unsigned.apk"
+          cp "$apk" "out/QPlayer-android.apk"
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: QPlayer-android
+          path: out/*
+
+  desktop:
+    if: github.event_name != 'workflow_dispatch' || !inputs.android_only
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            name: linux-x64
+            package: bash desktop-host/dist/package-linux.sh
+            artifact: desktop-host/target/QPlayer-x86_64.AppImage
+          - os: windows-latest
+            name: windows-x64
+            package: powershell -ExecutionPolicy Bypass -File desktop-host/dist/package-windows.ps1
+            artifact: desktop-host/target/QPlayer-windows-x64.zip
+          # Native Image targets the host architecture. Intel Mac users build
+          # locally; the hosted release remains Apple Silicon. macos-14 is retired
+          # on 2026-11-02; MACOSX_DEPLOYMENT_TARGET keeps macOS 13 compatibility.
+          - os: macos-15            # apple silicon
+            name: macos-arm64
+            package: bash desktop-host/dist/package-macos.sh
+            artifact: desktop-host/target/QPlayer.dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up verified GraalVM 25 Innovation 4
+        uses: graalvm/setup-graalvm@v1
+        with:
+          distribution: graalvm-community
+          # Match the compiler used for local native runtime verification.
+          # LTS 25.0.2 cannot parse the logical callback bulk-query metadata.
+          version: '25.4.4.1.1'
+          java-version: '25'
+          check-for-updates: 'false'
+          native-image-job-reports: 'false'
+
+      - name: Install Linux WebView build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          # The Azure mirror can take many minutes per package. Use Ubuntu's
+          # HTTPS archives without changing the runner's system source files.
+          sources="$RUNNER_TEMP/qplayer-ubuntu.list"
+          printf '%s\n' \
+            'deb https://archive.ubuntu.com/ubuntu jammy main universe' \
+            'deb https://archive.ubuntu.com/ubuntu jammy-updates main universe' \
+            'deb https://security.ubuntu.com/ubuntu jammy-security main universe' > "$sources"
+          apt_options=(-o "Dir::Etc::sourcelist=$sources" -o 'Dir::Etc::sourceparts=-')
+          sudo apt-get "${apt_options[@]}" update
+          sudo apt-get "${apt_options[@]}" install -y --no-install-recommends cmake pkg-config build-essential zlib1g-dev libgtk-3-dev libwebkit2gtk-4.1-dev libx11-dev
+
+      - name: Set up Windows C++ toolchain
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install WebView2 build SDK
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $sdkRoot = "$env:RUNNER_TEMP\webview2-sdk"
+          nuget install Microsoft.Web.WebView2 -Version 1.0.2592.51 -OutputDirectory $sdkRoot -NonInteractive -Source https://api.nuget.org/v3/index.json
+          if ($LASTEXITCODE -ne 0) { throw "WebView2 SDK download failed" }
+          "WEBVIEW2_SDK=$sdkRoot\Microsoft.Web.WebView2.1.0.2592.51" >> $env:GITHUB_ENV
+          # Use the active MSVC environment, not Visual Studio autodiscovery.
+          "CMAKE_GENERATOR=Ninja" >> $env:GITHUB_ENV
+          "CXX=cl.exe" >> $env:GITHUB_ENV
+
+      - name: Set macOS deployment target
+        if: runner.os == 'macOS'
+        run: echo "MACOSX_DEPLOYMENT_TARGET=13.0" >> "$GITHUB_ENV"
+
+      # Explicit Maven cache (per-OS — GitHub caches don't cross OS): the LWJGL +
+      # Skija jars are large, and restore/save show up plainly in the log.
+      - name: Cache Maven repository
+        uses: actions/cache@v5
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-m2-desktop-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2-desktop-
+
+      - uses: ./.github/actions/build-engine
+
+      - name: Install player-core to local Maven repo
+        run: mvn -B -DskipTests -pl player-core -am install
+
+      - name: Compile native app and bundled QML
+        # bash on every runner (git-bash on Windows) so the same command line works
+        # everywhere. Bakes the release tag (sans leading v) into version.properties
+        # so the in-app update check reports the real version, matching the tag.
+        shell: bash
+        env:
+          QPLAYER_VERSION: ${{ github.event.release.tag_name || (github.ref_type == 'tag' && github.ref_name) || inputs.version || '0.0.0' }}
+        run: |
+          VER="${QPLAYER_VERSION#v}"
+          mvn -B -DskipTests -Dqplayer.app.version="${VER:-0.0.0}" \
+            -pl desktop-host -am -Pdist package
+
+      - name: Smoke native AOT factories and reachability
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then
+            desktop-host/target/qplayer.exe --build-smoke
+          else
+            desktop-host/target/qplayer --build-smoke
+          fi
+
+      - name: Package
+        # Wrap the native executable and license notices as AppImage / zip / DMG.
+        env:
+          QPLAYER_VERSION: ${{ github.event.release.tag_name || (github.ref_type == 'tag' && github.ref_name) || inputs.version || '0.0.0' }}
+        run: ${{ matrix.package }}
+
+      - name: Rename artifact
+        shell: bash
+        run: |
+          mkdir -p out
+          ext="${{ matrix.artifact }}"; ext="${ext##*.}"
+          cp "${{ matrix.artifact }}" "out/QPlayer-${{ matrix.name }}.${ext}"
+
+      # Windows: also build an Inno Setup installer over the packaged QPlayer/ folder
+      # (Program Files install + Start-Menu/desktop shortcut + uninstaller), so users
+      # get a single setup.exe instead of a folder of loose DLLs. The portable zip is
+      # still attached alongside.
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          QPLAYER_VERSION: ${{ github.event.release.tag_name || (github.ref_type == 'tag' && github.ref_name) || inputs.version || '0.0.0' }}
+        run: |
+          choco install innosetup -y --no-progress
+          $ver = $env:QPLAYER_VERSION -replace '^v',''
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & "$iscc" /DAppVersion=$ver `
+            /DSourceFolder="$PWD\desktop-host\target\QPlayer" `
+            /DIconFile="$PWD\desktop-host\src\main\resources\app-icon.ico" `
+            "desktop-host\dist\qplayer.iss"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup compiler failed ($LASTEXITCODE)"
+          }
+          Copy-Item "desktop-host\dist\QPlayer-windows-x64-setup.exe" "out\"
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: QPlayer-${{ matrix.name }}
+          path: out/*
+
+  publish:
+    needs: [tests, android, desktop]
+    # github.ref is unreliable for release:published when the tag is auto-created
+    # from the UI (lands as refs/heads/master instead of refs/tags/<tag>), so check
+    # the event name and pass the release tag explicitly. A manual run publishes
+    # only when given a release_tag; an android_only run then ships just the APK.
+    if: >-
+      !cancelled()
+      && needs.tests.result == 'success'
+      && needs.android.result == 'success'
+      && (needs.desktop.result == 'success'
+          || (github.event_name == 'workflow_dispatch' && inputs.android_only))
+      && (github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
+          || (github.event_name == 'workflow_dispatch' && inputs.release_tag != ''))
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag || github.event.release.tag_name || github.ref_name }}
+      ANDROID_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.android_only }}
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      RELEASE_TAG: v1.9.5
     steps:
-      - name: Verify the existing release tag
-        run: |
-          sha=$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)
-          [ "$sha" = b98e71657e3a92ba8c172c0f29ffbe513ff96657 ]
-
       - uses: actions/download-artifact@v7
         with:
-          run-id: 41211082897
-          github-token: ${{ github.token }}
           pattern: QPlayer-*
           path: out
           merge-multiple: true
 
       - name: Check every expected artifact is present
         run: |
-          for f in QPlayer-android.apk QPlayer-linux-x64.AppImage QPlayer-macos-arm64.dmg QPlayer-windows-x64.zip QPlayer-windows-x64-setup.exe; do
+          expected="QPlayer-android.apk"
+          if [ "$ANDROID_ONLY" != true ]; then
+            expected="$expected QPlayer-linux-x64.AppImage QPlayer-macos-arm64.dmg
+                      QPlayer-windows-x64.zip QPlayer-windows-x64-setup.exe"
+          fi
+          for f in $expected; do
             [ -s "out/$f" ] || { echo "::error::missing $f"; exit 1; }
           done
           ls -l out
 
       - name: Publish complete release
+        env:
+          MANUAL_BUILD: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
-          gh release view "$RELEASE_TAG" --json tagName
+          refs=$(gh api "repos/$GH_REPO/git/matching-refs/tags/$RELEASE_TAG")
+          if ! jq -e --arg ref "refs/tags/$RELEASE_TAG" 'any(.[]; .ref == $ref)' <<< "$refs"; then
+            [ "$MANUAL_BUILD" = true ] || { echo "::error::Release tag does not exist"; exit 1; }
+            gh api --method POST "repos/$GH_REPO/git/refs" \
+              -f ref="refs/tags/$RELEASE_TAG" -f sha="$GITHUB_SHA"
+          fi
+          # The tag already identifies the build. Sending its old commit as
+          # target_commitish can require workflow-write permissions after master
+          # changes .github/workflows; GITHUB_TOKEN cannot grant those permissions.
+          if ! gh release view "$RELEASE_TAG" --json tagName; then
+            gh release create "$RELEASE_TAG" --verify-tag --draft \
+              --title "$RELEASE_TAG" --notes ""
+          fi
           gh release upload "$RELEASE_TAG" out/* --clobber
-          gh release edit "$RELEASE_TAG" --draft=false --prerelease=false --latest
+          prerelease=false
+          [[ "$RELEASE_TAG" != *-* ]] || prerelease=true
+          latest=true
+          [ "$prerelease" = false ] || latest=false
+          gh release edit "$RELEASE_TAG" --draft=false --prerelease="$prerelease" --latest="$latest"

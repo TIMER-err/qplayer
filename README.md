@@ -248,6 +248,10 @@ chmod +x ~/.local/bin/qplayer.AppImage
 并附到 Release。CI 会按 `build.gradle.kts` 中声明的 `qml4j-core` 版本，从源码 clone 对应
 `v*` tag 构建引擎。
 
+构建产物先保存到 workflow artifacts。测试和全部构建成功后，`publish` 统一上传附件，
+上传成功后才将 Release 转为正式版或预发布版。发布已有 tag 时不传 `target_commitish`，
+避免旧提交与当前 `master` 的工作流文件不同而触发额外权限检查；此操作不移动 tag。
+
 ## 致谢
 
 - [qml4j](https://github.com/TIMER-err/qml4j) —— 运行整个界面的纯 Java QML 引擎。
