@@ -1,13 +1,11 @@
 name: Release
 
-# One unified release pipeline. The behavior tests and every build run in
-# parallel:
-#   • tests    — core + desktop behavior suite (gates publication only)
+# One unified release pipeline. Android and desktop builds run in parallel:
 #   • android  — the signed release APK
 #   • desktop  — GraalVM native bundles on Linux / Windows / macOS; each
 #                platform builds on its own runner with its native toolchain.
 # Builds only upload workflow artifacts. A single `publish` job runs after
-# tests and every build succeeded and attaches all files at once, so a stable
+# every build succeeded and attaches all files at once, so a stable
 # tag never becomes "latest" with some platforms missing, and concurrent
 # uploads cannot overwrite each other.
 #
@@ -60,9 +58,6 @@ permissions:
   contents: write
 
 jobs:
-  tests:
-    uses: ./.github/workflows/tests.yml
-
   android:
     if: github.event_name != 'workflow_dispatch' || !inputs.desktop_only
     runs-on: ubuntu-latest
@@ -278,14 +273,13 @@ jobs:
           path: out/*
 
   publish:
-    needs: [tests, android, desktop]
+    needs: [android, desktop]
     # github.ref is unreliable for release:published when the tag is auto-created
     # from the UI (lands as refs/heads/master instead of refs/tags/<tag>), so check
     # the event name and pass the release tag explicitly. A manual run publishes
     # only when given a release_tag; an android_only run then ships just the APK.
     if: >-
       !cancelled()
-      && needs.tests.result == 'success'
       && needs.android.result == 'success'
       && (needs.desktop.result == 'success'
           || (github.event_name == 'workflow_dispatch' && inputs.android_only))

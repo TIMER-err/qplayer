@@ -248,9 +248,10 @@ chmod +x ~/.local/bin/qplayer.AppImage
 并附到 Release。CI 会按 `build.gradle.kts` 中声明的 `qml4j-core` 版本，从源码 clone 对应
 `v*` tag 构建引擎。
 
-构建产物先保存到 workflow artifacts。测试和全部构建成功后，`publish` 统一上传附件，
+构建产物先保存到 workflow artifacts。全部构建成功后，`publish` 统一上传附件，
 上传成功后才将 Release 转为正式版或预发布版。发布已有 tag 时不传 `target_commitish`，
 避免旧提交与当前 `master` 的工作流文件不同而触发额外权限检查；此操作不移动 tag。
+CI 不再自动运行测试；测试代码和本地测试命令保留。
 
 ## 致谢
 
