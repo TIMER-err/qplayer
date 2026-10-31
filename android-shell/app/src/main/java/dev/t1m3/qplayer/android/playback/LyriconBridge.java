@@ -7,6 +7,7 @@ import dev.t1m3.qplayer.lyric.LyricLine;
 import dev.t1m3.qplayer.lyric.Syllable;
 import dev.t1m3.qplayer.lyric.skia.LyricConfig;
 import dev.t1m3.qplayer.model.Track;
+import dev.t1m3.qplayer.qml.QmlRuntimeLock;
 import dev.t1m3.qplayer.util.Logger;
 
 import io.github.proify.lyricon.lyric.model.LyricWord;
@@ -28,15 +29,19 @@ import java.util.function.Consumer;
  * so the status-bar overlay can render QPlayer's syllable-timed lyrics natively.
  *
  * <p>Lives with {@link PlaybackService}: register while the session is up,
- * destroy when it goes away. {@link #push()} and {@link #pushPosition()} are
- * synchronized because playback callbacks run on the main thread, lyric
- * Property listeners on lyric-loading threads, and the position ticker on
- * the checkpoint worker.
+ * destroy when it goes away. Callers arrive from the main thread, the lyric
+ * Property listener (which runs while the writer holds the QML runtime lock) and
+ * the position ticker on the checkpoint worker.
+ *
+ * <p>Lock order is always QML runtime lock, then this bridge: controller state is
+ * read into a {@link Snapshot} first, and only then is the bridge locked for the
+ * Lyricon calls. Reading the controller while holding the bridge lock deadlocked
+ * against a lyric update that already held the runtime lock (ANR on track switch).
  */
 final class LyriconBridge {
 
-    private LyriconProvider provider;
-    private PlayerController bound;
+    private volatile LyriconProvider provider;
+    private volatile PlayerController bound;
     private final Consumer<List<LyricLine>> lyricsListener = ignored -> push();
 
     private String lastSongId;
@@ -80,26 +85,58 @@ final class LyriconBridge {
         }
     }
 
-    synchronized void bind(PlayerController controller) {
-        if (controller == bound) return;
-        unbind();
-        bound = controller;
-        if (bound != null) bound.lyrics.addListener(lyricsListener);
-        lastSongId = null;
-        lastTrack = null;
-        lastLyrics = null;
-        lastPlaying = null;
-        lastPosition = Long.MIN_VALUE;
+    void bind(PlayerController controller) {
+        // Listener lists belong to the QML runtime: mutate them under its lock.
+        synchronized (QmlRuntimeLock.MONITOR) {
+            synchronized (this) {
+                if (controller == bound) return;
+                unbind();
+                bound = controller;
+                if (bound != null) bound.lyrics.addListener(lyricsListener);
+                lastSongId = null;
+                lastTrack = null;
+                lastLyrics = null;
+                lastPlaying = null;
+                lastPosition = Long.MIN_VALUE;
+            }
+        }
         push();
     }
 
-    synchronized void push() {
-        LyriconProvider p = provider;
+    /** Controller state read before the bridge lock is taken. */
+    private static final class Snapshot {
+        final Track track;
+        final List<LyricLine> lyrics;
+        final boolean playing;
+        final long position;
+        final long durationMs;
+
+        Snapshot(PlayerController c) {
+            synchronized (QmlRuntimeLock.MONITOR) {
+                track = c.currentTrack();
+                lyrics = c.lyrics.peek();
+                playing = c.isPlaying();
+                position = lyricPosition(c);
+                durationMs = c.duration();
+            }
+        }
+    }
+
+    void push() {
         PlayerController c = bound;
-        if (p == null || c == null) return;
+        if (c == null) return;
+        Snapshot s = new Snapshot(c);
+        synchronized (this) {
+            if (c == bound) pushLocked(s);
+        }
+    }
+
+    private void pushLocked(Snapshot s) {
+        LyriconProvider p = provider;
+        if (p == null) return;
         try {
             RemotePlayer player = p.getPlayer();
-            Track t = c.currentTrack();
+            Track t = s.track;
             if (t == null) {
                 lastTrack = null;
                 if (lastSongId != null) {
@@ -115,69 +152,73 @@ final class LyriconBridge {
                 return;
             }
 
-            List<LyricLine> lyrics = c.lyrics.peek();
             String id = songId(t);
-            boolean songChanged = !id.equals(lastSongId) || lyrics != lastLyrics;
+            boolean songChanged = !id.equals(lastSongId) || s.lyrics != lastLyrics;
             if (songChanged) {
-                player.setSong(toSong(t, c, lyrics));
+                player.setSong(toSong(t, s.durationMs, s.lyrics));
                 lastSongId = id;
-                lastLyrics = lyrics;
+                lastLyrics = s.lyrics;
             }
 
-            boolean playing = c.isPlaying();
-            if (lastPlaying == null || lastPlaying != playing) {
-                player.setPlaybackState(playing);
-                lastPlaying = playing;
+            if (lastPlaying == null || lastPlaying != s.playing) {
+                player.setPlaybackState(s.playing);
+                lastPlaying = s.playing;
             }
 
             player.setDisplayTranslation(Boolean.TRUE.equals(LyricConfig.instance.showTranslation.getValue()));
             player.setDisplayRoma(Boolean.TRUE.equals(LyricConfig.instance.showRomaji.getValue()));
 
-            long pos = lyricPosition(c);
-            if (songChanged) player.seekTo(pos);
-            else if (pos != lastPosition) player.setPosition(pos);
-            lastPosition = pos;
+            if (songChanged) player.seekTo(s.position);
+            else if (s.position != lastPosition) player.setPosition(s.position);
+            lastPosition = s.position;
             lastTrack = t;
         } catch (Throwable e) {
             Logger.error("lyricon: push failed: {}", e.toString());
         }
     }
 
-    synchronized void pushPosition() {
-        LyriconProvider p = provider;
+    void pushPosition() {
         PlayerController c = bound;
-        if (p == null || c == null) return;
-        try {
-            Track track = c.currentTrack();
-            if (track == null) {
-                if (lastTrack != null || lastSongId != null || lastPlaying != Boolean.FALSE) push();
-                return;
+        if (c == null) return;
+        Snapshot s = new Snapshot(c);
+        synchronized (this) {
+            LyriconProvider p = provider;
+            if (p == null || c != bound) return;
+            try {
+                if (s.track == null) {
+                    if (lastTrack != null || lastSongId != null || lastPlaying != Boolean.FALSE) pushLocked(s);
+                    return;
+                }
+                // Track and play state can change without a lyric Property update.
+                // The service ticker keeps those changes visible while backgrounded.
+                if (s.track != lastTrack || s.lyrics != lastLyrics
+                        || lastPlaying == null || lastPlaying != s.playing) {
+                    pushLocked(s);
+                    return;
+                }
+                if (s.position == lastPosition) return;
+                p.getPlayer().setPosition(s.position);
+                lastPosition = s.position;
+            } catch (Throwable e) {
+                Logger.error("lyricon: position failed: {}", e.toString());
             }
-            // Track and play state can change without a lyric Property update.
-            // The service ticker keeps those changes visible while backgrounded.
-            if (track != lastTrack || c.lyrics.peek() != lastLyrics
-                    || lastPlaying == null || lastPlaying != c.isPlaying()) {
-                push();
-                return;
-            }
-            long pos = lyricPosition(c);
-            if (pos == lastPosition) return;
-            p.getPlayer().setPosition(pos);
-            lastPosition = pos;
-        } catch (Throwable e) {
-            Logger.error("lyricon: position failed: {}", e.toString());
         }
     }
 
-    synchronized void destroy() {
-        unbind();
-        LyriconProvider p = provider;
-        provider = null;
-        lastSongId = null;
-        lastTrack = null;
-        lastLyrics = null;
-        lastPlaying = null;
-        lastPosition = Long.MIN_VALUE;
+    void destroy() {
+        LyriconProvider p;
+        synchronized (QmlRuntimeLock.MONITOR) {
+            synchronized (this) {
+                unbind();
+                p = provider;
+                provider = null;
+                lastSongId = null;
+                lastTrack = null;
+                lastLyrics = null;
+                lastPlaying = null;
+                lastPosition = Long.MIN_VALUE;
+            }
+        }
         if (p == null) return;
         try {
             p.unregister();
@@ -206,8 +247,8 @@ final class LyriconBridge {
         return String.valueOf(t.title) + '\0' + t.artist;
     }
 
-    private static Song toSong(Track t, PlayerController c, List<LyricLine> lyrics) {
-        long duration = t.durationMs > 0 ? t.durationMs : c.duration();
+    private static Song toSong(Track t, long controllerDurationMs, List<LyricLine> lyrics) {
+        long duration = t.durationMs > 0 ? t.durationMs : controllerDurationMs;
         return new Song(
                 songId(t),
                 nz(t.title),

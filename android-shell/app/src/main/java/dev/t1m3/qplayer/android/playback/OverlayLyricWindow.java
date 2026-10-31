@@ -619,16 +619,23 @@ public final class OverlayLyricWindow {
         scheduleFrame();
     }
 
+    // Listener lists belong to the QML runtime, which fires them from the render
+    // thread: add/remove under its lock so the list is never mutated mid-fire.
     private void bindController(PlayerController next) {
         if (controller == next) return;
-        unbindLyrics();
-        controller = next;
-        if (controller != null) controller.lyrics.addListener(lyricsListener);
+        synchronized (dev.t1m3.qplayer.qml.QmlRuntimeLock.MONITOR) {
+            unbindLyrics();
+            controller = next;
+            if (controller != null) controller.lyrics.addListener(lyricsListener);
+        }
     }
 
     private void unbindLyrics() {
         PlayerController previous = controller;
-        if (previous != null) previous.lyrics.removeListener(lyricsListener);
+        if (previous == null) return;
+        synchronized (dev.t1m3.qplayer.qml.QmlRuntimeLock.MONITOR) {
+            previous.lyrics.removeListener(lyricsListener);
+        }
     }
 
     private void invalidateView() {
