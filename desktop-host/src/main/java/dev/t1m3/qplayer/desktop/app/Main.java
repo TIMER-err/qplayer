@@ -105,6 +105,9 @@ public final class Main {
         // file, config in log4j2.xml). Early in main so every later line lands in
         // the configured format.
         Logger.setSink(new Log4j2Sink());
+        // Finish Skija's JNI class initialization before queue restoration can
+        // start a cover decoder concurrently with font initialization.
+        io.github.humbleui.skija.impl.Library.load();
         configureWindowsAppIdentity();
         DesktopCredentialProtection.install();
 
