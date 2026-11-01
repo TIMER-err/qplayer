@@ -394,6 +394,7 @@ public final class DesktopNativeMetadata {
         Class<?> anchor = type("org.jaudiotagger.tag.id3.framebody.FrameBodyAPIC");
         URI location = anchor.getProtectionDomain().getCodeSource().getLocation().toURI();
         Class<?> chunkReader = type("org.jaudiotagger.audio.asf.io.ChunkReader");
+        Class<?> frameBodyBase = type("org.jaudiotagger.tag.id3.framebody.AbstractID3v2FrameBody");
         try (JarFile jar = new JarFile(Paths.get(location).toFile())) {
             Enumeration<JarEntry> entries = jar.entries();
             while (entries.hasMoreElements()) {
@@ -408,11 +409,15 @@ public final class DesktopNativeMetadata {
                     Class<?>[] parameters = constructor.getParameterTypes();
                     // ID3Tags.copyObject uses a same-type constructor for frames AND datatypes.
                     boolean copy = tagType && parameters.length == 1 && parameters[0] == type;
+                    // AbstractID3v2Frame.readBody reflects over cross-version conversions,
+                    // e.g. TDRC(TYER), TDRC(TDAT), APIC(PIC) and TIPL(IPLS).
+                    boolean conversion = frameBody && Modifier.isPublic(constructor.getModifiers())
+                            && parameters.length == 1 && frameBodyBase.isAssignableFrom(parameters[0]);
                     // ChunkContainerReader registers concrete readers through Class.newInstance().
                     boolean asf = asfType && chunkReader.isAssignableFrom(type) && parameters.length == 0;
                     boolean frame = frameBody && (parameters.length == 0
                             || (parameters.length == 2 && parameters[0] == java.nio.ByteBuffer.class && parameters[1] == int.class));
-                    if (copy || asf || frame) method(reflect, type.getName(), "<init>", parameters);
+                    if (copy || conversion || asf || frame) method(reflect, type.getName(), "<init>", parameters);
                 }
             }
         }

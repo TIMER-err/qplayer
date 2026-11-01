@@ -5,6 +5,8 @@ import dev.t1m3.qplayer.bridge.WindowChromeStub;
 import dev.t1m3.qplayer.desktop.audio.DesktopAudioBackend;
 import dev.t1m3.qplayer.desktop.library.DesktopMetadataReader;
 import dev.t1m3.qplayer.desktop.resources.ClasspathResourceLoader;
+import dev.t1m3.qplayer.library.LibraryScanner;
+import dev.t1m3.qplayer.model.Track;
 import dev.t1m3.qplayer.desktop.settings.JsonSettingsStore;
 import dev.t1m3.qplayer.i18n.I18n;
 import dev.t1m3.qplayer.qml.BundledQml;
@@ -18,15 +20,21 @@ import io.github.timer_err.qml4j.render.items.core.Item;
 import io.github.timer_err.qml4j.render.items.core.Rectangle;
 import io.github.humbleui.skija.Image;
 import org.jaudiotagger.audio.AudioFileIO;
+import org.jaudiotagger.audio.mp3.MP3File;
 import org.jaudiotagger.tag.FieldKey;
 import org.jaudiotagger.tag.Tag;
 import org.jaudiotagger.tag.images.Artwork;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Comparator;
+import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -62,6 +70,7 @@ public final class BundledQmlSmoke {
                 require(icon.getWidth() > 0 && icon.getHeight() > 0, "Packaged application icon did not decode");
                 savedFlacArtwork(profile, iconBytes, icon.getWidth(), icon.getHeight());
             }
+            legacyMp3Metadata(profile);
             scene("Main.qml", player, settings, null, resources);
             // A reopened scene uses a new settings owner. Mutating the old owner
             // must not override the visible theme of the new scene.
@@ -108,6 +117,78 @@ public final class BundledQmlSmoke {
                         && "image/png".equals(artwork.getMimeType()),
                 "Saved FLAC artwork bytes, dimensions or MIME did not survive the file round-trip");
         System.out.println("Saved FLAC metadata/artwork round-trip passed");
+    }
+
+    private static void legacyMp3Metadata(Path profile) throws Exception {
+        Path directory = Files.createDirectory(profile.resolve("legacy-id3"));
+        // 0.1 seconds of silence, encoded with FFmpeg/libmp3lame at 44.1 kHz,
+        // 32 kbit/s, with -write_xing 0 -id3v2_version 0 -flags:a +bitexact.
+        byte[] audio = Base64.getDecoder().decode(
+                "//sQxAADwAABpAAAACAAADSAAAAETEFNRTQuMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV" +
+                "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+xLEKYPAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV" +
+                "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+xDEU4PAAAGkAAAAIAAA" +
+                "NIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV" +
+                "VVVVVVVVVVVVVVVVVf/7EsR9A8AAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV" +
+                "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7EMSnA8AAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVV" +
+                "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV");
+        for (int version : new int[]{2, 3}) {
+            Path file = directory.resolve("legacy-v2" + version + ".mp3");
+            writeLegacyMp3(file, version, audio);
+            MP3File saved = (MP3File) AudioFileIO.read(file.toFile());
+            Tag converted = saved.getID3v2TagAsv24();
+            require("2024-06-15T09:30".equals(converted.getFirst(FieldKey.YEAR)),
+                    "ID3v2." + version + " recording date did not convert to TDRC");
+            require("2001".equals(converted.getFirst(FieldKey.ORIGINAL_YEAR)),
+                    "Legacy original-release year did not convert to TDOR");
+        }
+        List<Track> tracks = new LibraryScanner(new DesktopMetadataReader()).scan(directory.toString());
+        require(tracks.size() == 2, "Library scan did not return both legacy MP3 files");
+        for (Track track : tracks) {
+            require("Legacy MP3 title".equals(track.title)
+                            && "Legacy artist".equals(track.artist)
+                            && "Legacy album".equals(track.album),
+                    "Library scan lost legacy MP3 title, artist or album metadata");
+        }
+        System.out.println("Legacy ID3v2.2/v2.3 MP3 conversion and library scan passed");
+    }
+
+    private static void writeLegacyMp3(Path file, int version, byte[] audio) throws Exception {
+        String[][] fields = {
+                {"TT2", "TIT2", "Legacy MP3 title"},
+                {"TP1", "TPE1", "Legacy artist"},
+                {"TAL", "TALB", "Legacy album"},
+                {"TYE", "TYER", "2024"},
+                {"TDA", "TDAT", "1506"},
+                {"TIM", "TIME", "0930"},
+                {"TOR", "TORY", "2001"},
+                {"IPL", "IPLS", "producer\0Fixture producer"}
+        };
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        try (DataOutputStream frames = new DataOutputStream(body)) {
+            for (String[] field : fields) {
+                frames.write(field[version == 2 ? 0 : 1].getBytes(StandardCharsets.US_ASCII));
+                byte[] value = field[2].getBytes(StandardCharsets.ISO_8859_1);
+                int size = value.length + 1; // ISO-8859-1 encoding byte, followed by text.
+                if (version == 2) {
+                    frames.writeByte(size >>> 16);
+                    frames.writeByte(size >>> 8);
+                    frames.writeByte(size);
+                } else {
+                    frames.writeInt(size);
+                    frames.writeShort(0); // Frame flags.
+                }
+                frames.writeByte(0);
+                frames.write(value);
+            }
+        }
+        try (OutputStream output = Files.newOutputStream(file)) {
+            int size = body.size();
+            output.write(new byte[]{'I', 'D', '3', (byte) version, 0, 0,
+                    (byte) ((size >>> 21) & 0x7f), (byte) ((size >>> 14) & 0x7f),
+                    (byte) ((size >>> 7) & 0x7f), (byte) (size & 0x7f)});
+            body.writeTo(output);
+            output.write(audio);
+        }
     }
 
     private static void scene(String entry, PlayerController player, SettingsCore settings,

@@ -60,6 +60,11 @@ integration step loads both real scene manifests through `BundledQml`, without
 QML source access. It checks visible theme changes, theme ownership after scene
 reopening, a reactive lyric lock control, and native image decoding. Scene layout
 also uses the production font-loading path.
+It also reads synthetic ID3v2.2 and ID3v2.3 MP3 files, checks their converted
+recording dates and original-release years, and scans them through the production
+`LibraryScanner` and `DesktopMetadataReader`. This covers legacy
+`TYER`/`TDAT`/`TIME` → `TDRC` and `TORY` → `TDOR` conversion, alongside the existing
+saved-FLAC metadata and artwork round-trip.
 
 After building the native executable, run the same smoke under strict native
 metadata checking:
@@ -73,6 +78,13 @@ The smoke uses a temporary empty profile and does not create a window or start
 audio playback. It is not a substitute for platform WebView, tray, file-dialog,
 or audio integration tests. Release CI runs it on each native target before
 packaging. Run the behavior gate above locally before publishing changes.
+
+`DesktopNativeMetadata.audioFactories()` derives audio constructor registrations
+from the pinned jaudiotagger JAR. Besides default, parsing and same-type copy
+constructors, it includes public frame-body conversion constructors such as
+`FrameBodyTDRC(FrameBodyTYER)`. Registering only the class or its default constructor
+does not permit these reflective calls. Change the generator, not generated files
+under `target`; keep exact reachability checks and exit-on-missing-registration enabled.
 
 For a nonstandard SDK layout, pass its native library directories explicitly:
 
