@@ -14,16 +14,13 @@ import java.util.Set;
  * One dialog, as described by a plugin and rendered by QPlayer's own components.
  *
  * <p>A plugin contributes no QML. It returns this description from its
- * {@code ui.<contribution>} handler, and QPlayer draws it with md3.Core, so a
- * plugin dialog matches the app's theme automatically and no third-party
- * document, engine or realm ever enters the QML scene.
+ * {@code ui.<contribution>} handler, and QPlayer renders it with its own themed
+ * components. No third-party document, engine or realm enters the QML scene.
  *
- * <p>Everything here is validated before it reaches QML: node types, ids,
- * enums, counts and text lengths. Anything off-schema fails the whole
- * description rather than being silently dropped, so a plugin cannot probe for
- * which malformed shapes survive. Colors, images, raw markup and free-form
- * geometry are deliberately absent — a plugin describes a dialog, it does not
- * paint one, and it cannot imitate host chrome it was not given.
+ * <p>The normalizer copies only supported fields. Unknown fields are ignored;
+ * invalid known fields, unsupported node types and exceeded limits reject the
+ * description. Colors, images, raw markup and free-form geometry are not part of
+ * the schema.
  */
 public final class PluginUiDescription {
     /** Bounded so one description can never become an unrenderable wall. */
@@ -54,7 +51,7 @@ public final class PluginUiDescription {
      * Validates a plugin-returned description and re-emits it as canonical JSON
      * for QML. The output only ever contains keys this method wrote.
      *
-     * @throws IllegalArgumentException when the description is off-schema
+     * @throws IllegalArgumentException when a known field, node type or limit is invalid
      */
     public static String normalize(Object returned) {
         if (!(returned instanceof Map)) {
