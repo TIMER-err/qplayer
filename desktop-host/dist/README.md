@@ -79,6 +79,16 @@ audio playback. It is not a substitute for platform WebView, tray, file-dialog,
 or audio integration tests. Release CI runs it on each native target before
 packaging. Run the behavior gate above locally before publishing changes.
 
+Desktop startup completes Skija's `Library.load()` on the main thread before
+constructing `PlayerController`. Queue restoration can immediately decode cached
+artwork on a worker while settings initialize fonts. Concurrent first-use class
+initialization can deadlock before a window or tray icon appears.
+
+For startup changes, run the Windows native executable with an isolated copy of
+the saved queue and image cache. Check the first frame, tray initialization, and
+normal quit/reopen without deleting cached artwork. The empty-profile
+`--build-smoke` does not exercise this startup race.
+
 For viewport and input changes, also exercise a real window:
 
 - Check 420×820, 700×820, and 1100×720 with liquid glass off and on; include a
