@@ -42,6 +42,7 @@ Rectangle {
         var bounded = Math.max(contentStart, Math.min(value, maximumContentPosition))
         if (orientation === Qt.Vertical) target.contentY = bounded
         else target.contentX = bounded
+        target.syncTarget()
     }
 
     // Internal state
@@ -68,11 +69,9 @@ Rectangle {
     Behavior on implicitWidth { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
     Behavior on implicitHeight { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
 
-    // qml4j currently does not honor preventStealing when deciding whether an
-    // underlying Flickable may take over a MouseArea drag. Giving the MouseArea
-    // an inert Drag.target selects the engine's captured drag path (the same
-    // workaround used by Slider.qml), so pointer tracking continues outside the
-    // narrow visual thumb.
+    // Drag displacement uses scene coordinates, independent of the viewport's
+    // compensating content translation. Local mouse coordinates can be stale
+    // between historical samples within one binding batch.
     Item {
         id: dragProxy
         visible: false
@@ -104,7 +103,7 @@ Rectangle {
         function calculateSize() {
             if (!target) return 40
             var availableContent = Math.max(viewportSize, contentSize - contentStart)
-            var ratio = viewportSize / availableContent
+            var ratio = availableContent > 0 ? viewportSize / availableContent : 1
             var trackSize = orientation === Qt.Vertical
                 ? scrollBarTrack.height : scrollBarTrack.width
             return Math.max(40, ratio * trackSize) + (isPressed ? 10 : 0)
@@ -136,11 +135,14 @@ Rectangle {
         drag.minimumY: -100000
         drag.maximumY: 100000
         
-        property real pressedPos: 0
         property real initialContentPos: 0
+        // Freeze the conversion while the pressed thumb animates its length.
+        property real grabbedThumbTravel: 0
+        property real grabbedScrollRange: 0
         
         onPressed: (mouse) => {
             if (!target) return
+            target.stopScroll()
             dragProxy.x = 0
             dragProxy.y = 0
 
@@ -149,38 +151,31 @@ Rectangle {
                 ? scrollBarThumb.y : scrollBarThumb.x
             var thumbSize = orientation === Qt.Vertical
                 ? scrollBarThumb.height : scrollBarThumb.width
+            var trackSize = orientation === Qt.Vertical
+                ? scrollBarTrack.height : scrollBarTrack.width
+            grabbedThumbTravel = Math.max(0, trackSize - thumbSize)
+            grabbedScrollRange = scrollBarTrack.scrollRange
 
             if (mousePos < thumbPos || mousePos > thumbPos + thumbSize) {
-                var trackSize = orientation === Qt.Vertical
-                    ? scrollBarTrack.height : scrollBarTrack.width
-                var maxThumbPosition = trackSize - thumbSize
-                if (maxThumbPosition > 0) {
+                if (grabbedThumbTravel > 0) {
                     var clickRatio = Math.max(0,
-                        Math.min((mousePos - thumbSize / 2) / maxThumbPosition, 1))
+                        Math.min((mousePos - thumbSize / 2) / grabbedThumbTravel, 1))
                     scrollBarTrack.setContentPosition(
                         scrollBarTrack.contentStart
                         + clickRatio * scrollBarTrack.scrollRange)
                 }
             }
-            // Continue dragging from either the original or jumped position.
-            pressedPos = mousePos
-            initialContentPos = scrollBarTrack.contentPosition
+            // Derived contentPosition is stale until the next DirtyQueue flush.
+            initialContentPos = orientation === Qt.Vertical ? target.contentY : target.contentX
         }
         
         onPositionChanged: (mouse) => {
             if (!pressed || !target) return
 
-            var mousePos = orientation === Qt.Vertical ? mouse.y : mouse.x
-            var delta = mousePos - pressedPos
-            var trackSize = orientation === Qt.Vertical
-                ? scrollBarTrack.height : scrollBarTrack.width
-            var thumbSize = orientation === Qt.Vertical
-                ? scrollBarThumb.height : scrollBarThumb.width
-            var maxThumbPosition = trackSize - thumbSize
-
-            if (maxThumbPosition > 0) {
+            var delta = orientation === Qt.Vertical ? dragProxy.y : dragProxy.x
+            if (grabbedThumbTravel > 0) {
                 scrollBarTrack.setContentPosition(initialContentPos
-                    + delta / maxThumbPosition * scrollBarTrack.scrollRange)
+                    + delta / grabbedThumbTravel * grabbedScrollRange)
             }
         }
     }

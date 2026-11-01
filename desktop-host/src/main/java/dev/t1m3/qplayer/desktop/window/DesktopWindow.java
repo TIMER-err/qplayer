@@ -1131,7 +1131,10 @@ public final class DesktopWindow {
         });
         GLFW.glfwSetWindowFocusCallback(window, (win, foc) -> {
             if (windowChrome != null) postRenderTask(() -> windowChrome.focused.set(foc));
-            if (!foc && input != null) input.cancelFullscreenExitHold();
+            if (!foc && input != null) {
+                input.cancelFullscreenExitHold();
+                postRenderTask(input::cancelPointerGesture);
+            }
         });
         GLFW.glfwSetWindowIconifyCallback(window, (win, iconified) -> {
             windowIconified = iconified;

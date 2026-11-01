@@ -176,10 +176,9 @@ Rectangle {
     property bool expanded: app.width >= 840
     readonly property bool liquidGlassEffects: settings.value("liquidGlassNavigation") === true
     readonly property bool floatingBottomChrome: !app.wide && app.liquidGlassEffects
-    // Scroll padding, not a smaller viewport: rows can pass behind both capsules,
-    // while the final row can still be brought above the player.
-    readonly property real bottomContentInset: floatingBottomChrome
-        ? Math.max(0, app.height - mini.y + 8) : 0
+    // Every page extends behind the player; scroll padding keeps its last item
+    // above the transport, including compact navigation and system insets.
+    readonly property real bottomContentInset: Math.max(0, app.height - mini.y + 8)
     // Java has no window-layout awareness of its own -- mirror this over so
     // playlist covers fetch/cache at a resolution matching how big they're
     // actually shown (512 compact, 1024 once wide). Decided once per playlist
@@ -614,7 +613,7 @@ Rectangle {
         anchors.left: rail.right
         anchors.right: parent.right
         anchors.rightMargin: settings.rightInset
-        anchors.bottom: app.floatingBottomChrome ? parent.bottom : mini.top
+        anchors.bottom: parent.bottom
         clip: true
 
         Item {

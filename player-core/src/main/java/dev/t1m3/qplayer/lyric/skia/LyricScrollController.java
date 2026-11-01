@@ -1,6 +1,7 @@
 package dev.t1m3.qplayer.lyric.skia;
 
 import dev.t1m3.qplayer.lyric.LyricLine;
+import io.github.timer_err.qml4j.render.PointerVelocityTracker;
 
 import java.util.List;
 
@@ -13,11 +14,10 @@ import java.util.List;
  */
 final class LyricScrollController {
 
-    private static final float DECELERATION = 2400f;
+    private static final double FRICTION = 4.2;
+    private static final float STOP_VELOCITY = 5f;
     private static final float MIN_FLING_VELOCITY = 60f;
     private static final long IDLE_RETURN_NS = 4_000_000_000L;
-    private static final int VELOCITY_SAMPLES = 8;
-    private static final float VELOCITY_WINDOW_SECONDS = 0.09f;
     private static final float WHEEL_STEP_PX = 48f;
 
     private boolean active;
@@ -27,6 +27,8 @@ final class LyricScrollController {
     private float offset;
     private float flingVelocity;
     private long lastStepNs;
+    private boolean clockStarted;
+    private boolean interactionPending;
     private long lastInteractionNs;
     private int holdAnchor = Integer.MIN_VALUE;
     private int previousAnchor = Integer.MIN_VALUE;
@@ -34,9 +36,8 @@ final class LyricScrollController {
     private float centerY;
     private float minimum;
     private float maximum;
-    private final long[] sampleTimes = new long[VELOCITY_SAMPLES];
-    private final float[] samplePositions = new float[VELOCITY_SAMPLES];
-    private int sampleCount;
+    private final PointerVelocityTracker velocity = new PointerVelocityTracker();
+    private float lastPointerY;
 
     boolean isActive() {
         return active;
@@ -81,37 +82,53 @@ final class LyricScrollController {
         flinging = false;
         returning = false;
         flingVelocity = 0f;
-        sampleCount = 0;
+        velocity.clear();
+        clockStarted = false;
+        interactionPending = false;
         holdAnchor = Integer.MIN_VALUE;
     }
 
-    void pointerDown(float y) {
+    void pointerDown(float y, long eventTimeNanos) {
         active = true;
         dragging = true;
         flinging = false;
         returning = false;
         offset = clamp(lastRenderedOffset);
         flingVelocity = 0f;
-        sampleCount = 0;
-        addSample(y);
-        lastInteractionNs = System.nanoTime();
+        velocity.reset(0f, y, eventTimeNanos);
+        lastPointerY = y;
+        clockStarted = false;
+        interactionPending = true;
     }
 
-    void pointerMove(float y) {
-        if (!dragging || sampleCount == 0) return;
-        float previousY = samplePositions[sampleCount - 1];
-        offset = clamp(offset - (y - previousY));
-        addSample(y);
-        lastInteractionNs = System.nanoTime();
-    }
-
-    void pointerUp() {
+    void pointerMove(float y, long eventTimeNanos) {
         if (!dragging) return;
+        offset = clamp(offset - (y - lastPointerY));
+        lastPointerY = y;
+        velocity.add(0f, y, eventTimeNanos);
+        interactionPending = true;
+    }
+
+    void pointerUp(long eventTimeNanos) {
+        if (!dragging) return;
+        velocity.release(eventTimeNanos);
         dragging = false;
-        flingVelocity = computeFlingVelocity();
+        flingVelocity = -velocity.velocityY();
         flinging = Math.abs(flingVelocity) > MIN_FLING_VELOCITY;
-        lastStepNs = System.nanoTime();
-        lastInteractionNs = lastStepNs;
+        clockStarted = false;
+        interactionPending = true;
+    }
+
+    /** Cancel the gesture without flinging or discarding the user's held position. */
+    void pointerCancel() {
+        if (returning) offset = clamp(lastRenderedOffset);
+        returning = false;
+        dragging = false;
+        flinging = false;
+        flingVelocity = 0f;
+        velocity.clear();
+        clockStarted = false;
+        interactionPending = true;
     }
 
     void wheel(float notches) {
@@ -121,10 +138,16 @@ final class LyricScrollController {
         flinging = false;
         returning = false;
         offset = clamp(offset - notches * WHEEL_STEP_PX);
-        lastInteractionNs = System.nanoTime();
+        velocity.clear();
+        clockStarted = false;
+        interactionPending = true;
     }
 
     float step(float targetOffset, long nowNs, int anchorIndex, SpringAnim returnSpring) {
+        if (interactionPending) {
+            lastInteractionNs = nowNs;
+            interactionPending = false;
+        }
         if (dragging) {
             holdAnchor = anchorIndex;
             lastStepNs = nowNs;
@@ -132,16 +155,24 @@ final class LyricScrollController {
         }
         if (flinging) {
             holdAnchor = anchorIndex;
-            float dt = (nowNs - lastStepNs) / 1_000_000_000f;
-            lastStepNs = nowNs;
-            if (dt > 0.05f) dt = 0.05f;
-            if (dt > 0f) {
-                float next = offset + flingVelocity * dt;
-                offset = clamp(next);
-                if (offset != next) flingVelocity = 0f;
-                else flingVelocity = decayVelocity(flingVelocity, dt);
-                if (Math.abs(flingVelocity) < MIN_FLING_VELOCITY) flinging = false;
+            if (!clockStarted) {
+                lastStepNs = nowNs;
+                clockStarted = true;
+                return offset;
             }
+            if (nowNs <= lastStepNs) return offset;
+            double dt = (nowNs - lastStepNs) / 1_000_000_000d;
+            lastStepNs = nowNs;
+            double decay = Math.exp(-FRICTION * dt);
+            float nextVelocity = (float) (flingVelocity * decay);
+            if (Math.abs(nextVelocity) <= STOP_VELOCITY) {
+                nextVelocity = Math.copySign(STOP_VELOCITY, flingVelocity);
+                flinging = false;
+            }
+            float next = offset + (float) ((flingVelocity - nextVelocity) / FRICTION);
+            offset = clamp(next);
+            if (offset != next) flinging = false;
+            flingVelocity = flinging ? nextVelocity : 0f;
             return offset;
         }
         if (returning) {
@@ -194,33 +225,4 @@ final class LyricScrollController {
         return result;
     }
 
-    private void addSample(float y) {
-        if (sampleCount == VELOCITY_SAMPLES) {
-            System.arraycopy(sampleTimes, 1, sampleTimes, 0, VELOCITY_SAMPLES - 1);
-            System.arraycopy(samplePositions, 1, samplePositions, 0, VELOCITY_SAMPLES - 1);
-            sampleCount--;
-        }
-        sampleTimes[sampleCount] = System.nanoTime();
-        samplePositions[sampleCount] = y;
-        sampleCount++;
-    }
-
-    private float computeFlingVelocity() {
-        if (sampleCount < 2) return 0f;
-        long newest = sampleTimes[sampleCount - 1];
-        int oldest = sampleCount - 1;
-        for (int i = sampleCount - 1; i >= 0; i--) {
-            if ((newest - sampleTimes[i]) / 1_000_000_000f > VELOCITY_WINDOW_SECONDS) break;
-            oldest = i;
-        }
-        float dt = (newest - sampleTimes[oldest]) / 1_000_000_000f;
-        if (dt < 0.001f) return 0f;
-        return -(samplePositions[sampleCount - 1] - samplePositions[oldest]) / dt;
-    }
-
-    private static float decayVelocity(float value, float dt) {
-        float delta = DECELERATION * dt;
-        if (value > 0f) return Math.max(0f, value - delta);
-        return Math.min(0f, value + delta);
-    }
 }

@@ -29,9 +29,9 @@ Set `JAVA_HOME` to that installation and put its `bin` directory on `PATH`.
 
 The engine version has one source: `qml4j.version` in the root POM. Android reads
 that property too. Both hosts consume
-`com.github.TIMER-err.qml4j:qml4j-core:0.2.35` from `https://jitpack.io`.
-The Maven artifact version is `0.2.35`; the Git release tag is `v0.2.35`. Maven enables only releases for
-this repository. Gradle routes only the exact `com.github.TIMER-err.qml4j` group
+`com.github.TIMER-err.qml4j:qml4j-core:v0.2.38` from `https://jitpack.io`.
+The dependency version matches the exact Git tag, including `v`. Maven enables
+only releases for this repository. Gradle routes only the exact `com.github.TIMER-err.qml4j` group
 to JitPack through `exclusiveContent`; other dependencies keep their existing
 repositories, including Maven Central. `qml-aot-tool` gets the same engine
 transitively through `player-core`. CI resolves the published artifacts directly;
@@ -78,6 +78,29 @@ The smoke uses a temporary empty profile and does not create a window or start
 audio playback. It is not a substitute for platform WebView, tray, file-dialog,
 or audio integration tests. Release CI runs it on each native target before
 packaging. Run the behavior gate above locally before publishing changes.
+
+For viewport and input changes, also exercise a real window:
+
+- Check 420×820, 700×820, and 1100×720 with liquid glass off and on; include a
+  nonzero bottom system inset. Content extends behind the MiniPlayer in every
+  mode. Trailing padding keeps content above it with an 8-logical-pixel shared
+  gap and any page-specific footer spacing; scrollbar tracks also end above
+  this area. Ordinary MiniPlayer styling remains opaque, with page content
+  filling its rounded-corner gaps.
+- Grab the scrollbar during touch or wheel inertia, hold it still, then drag
+  outside the track. Position must stay fixed while held and follow one stable
+  drag scale through thumb animations, without resuming old momentum on release.
+- Flick a song list and the lyric body quickly, reverse direction, pause before
+  release, and cancel by losing focus. Android adapters retain original event
+  timestamps and historical moves, batching binding evaluation per MotionEvent.
+  Scrollbar drags use scene displacement across those batched moves, not local
+  coordinates that change with the content translation.
+  UP ends velocity sampling without moving the list or lyric body; an older
+  lift-off coordinate must not erase the last MOVE velocity. Desktop press/focus
+  cancellation also discards the host's pending wheel tail.
+- On Android, repeat fast song-list flicks without playback or another animation.
+  Inertia must keep producing frames after the touch wake-up period ends; natural
+  completion and cancellation must still allow the surface to enter idle mode.
 
 `DesktopNativeMetadata.audioFactories()` derives audio constructor registrations
 from the pinned jaudiotagger JAR. Besides default, parsing and same-type copy

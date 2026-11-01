@@ -14,6 +14,7 @@ import io.github.timer_err.qml4j.engine.QmlEngine;
 import io.github.timer_err.qml4j.engine.binding.DirtyQueue;
 import io.github.timer_err.qml4j.engine.binding.Property;
 import io.github.timer_err.qml4j.render.QmlView;
+import io.github.timer_err.qml4j.render.items.core.Flickable;
 import io.github.timer_err.qml4j.render.items.core.Item;
 import org.junit.Rule;
 import org.junit.Test;
@@ -348,6 +349,134 @@ public class QmlReviewRegressionTest {
             scene.set("testAction", 3);
             assertEquals("next.png", property(image, "source").peek());
         }
+    }
+
+    @Test
+    public void viewportScrollbarTrackJumpDragsFromNewPositionAndHonorsContentStart() throws Exception {
+        for (boolean horizontal : new boolean[]{false, true}) {
+            try (Scene scene = new Scene(temporary.newFolder().toPath())) {
+                scene.load("""
+                        import QtQuick
+                        import miuix.Core
+                        Item { width: 480; height: 806
+                            Flickable { id: target; objectName: "scrollTarget"
+                                width: 400; height: 400
+                                contentWidth: %d; contentHeight: %d
+                                contentX: %d; contentY: %d
+                                ViewportScrollBar {
+                                    target: parent
+                                    orientation: Qt.%s
+                                    contentStart: 64
+                                }
+                            }
+                        }
+                        """.formatted(horizontal ? 2000 : 400, horizontal ? 400 : 2000,
+                        horizontal ? 64 : 0, horizontal ? 0 : 64,
+                        horizontal ? "Horizontal" : "Vertical"));
+                Flickable target = (Flickable) scene.view.findByObjectName("scrollTarget");
+                scene.frames(20);
+                long time = scene.clock;
+                float x = horizontal ? 260 : 396;
+                float y = horizontal ? 396 : 260;
+                scene.view.dispatchPointerDown(x, y, time);
+                double jumped = scrollPosition(target, horizontal);
+                assertTrue("track press must jump beyond the original position", jumped > 1000);
+
+                // The same onPressed handler jumped and captured the drag. Its
+                // baseline must read contentX/Y, not the pre-flush derived binding.
+                scene.view.dispatchPointerMove(horizontal ? x + 10 : 450,
+                        horizontal ? 450 : y + 10, time + 10_000_000L);
+                double dragged = scrollPosition(target, horizontal);
+                assertTrue("drag starts at the newly jumped position", dragged > jumped);
+                assertTrue("one short drag does not jump to a boundary", dragged < 1600);
+                scene.frames(30);
+                assertEquals("holding a track grab stays still", dragged,
+                        scrollPosition(target, horizontal), 0.01);
+                scene.view.dispatchPointerMove(horizontal ? x + 10 : 450,
+                        horizontal ? 450 : y + 10, scene.clock);
+                assertEquals("thumb growth must not change an unchanged pointer position", dragged,
+                        scrollPosition(target, horizontal), 0.01);
+
+                scene.view.dispatchPointerMove(horizontal ? -1000 : 450,
+                        horizontal ? 450 : -1000, scene.clock + 10_000_000L);
+                assertEquals("PullToRefresh's resting position is the logical start", 64,
+                        scrollPosition(target, horizontal), 0.01);
+                scene.view.dispatchPointerUp(horizontal ? -1000 : 450,
+                        horizontal ? 450 : -1000, scene.clock + 20_000_000L);
+                scene.frames(30);
+                assertEquals("release must not return to a stale target", 64,
+                        scrollPosition(target, horizontal), 0.01);
+
+                // Track-end clicks use the other bound, without losing capture.
+                scene.view.dispatchPointerDown(horizontal ? 399 : 398,
+                        horizontal ? 398 : 399, scene.clock);
+                assertEquals(1600, scrollPosition(target, horizontal), 0.01);
+                scene.view.dispatchPointerUp(horizontal ? 399 : 398,
+                        horizontal ? 398 : 399, scene.clock + 10_000_000L);
+                scene.frames(30);
+                assertEquals(1600, scrollPosition(target, horizontal), 0.01);
+            }
+        }
+    }
+
+    @Test
+    public void viewportScrollbarDragKeepsSceneDisplacementAcrossCoalescedMoves() throws Exception {
+        for (boolean horizontal : new boolean[]{false, true}) {
+            try (Scene scene = new Scene(temporary.newFolder().toPath())) {
+                scene.load("""
+                        import QtQuick
+                        import miuix.Core
+                        Item { width: 480; height: 806
+                            Flickable { id: target; objectName: "scrollTarget"
+                                width: 400; height: 400
+                                contentWidth: %d; contentHeight: %d
+                                contentX: %d; contentY: %d
+                                ViewportScrollBar {
+                                    target: parent
+                                    orientation: Qt.%s
+                                }
+                            }
+                        }
+                        """.formatted(horizontal ? 6000 : 400, horizontal ? 400 : 6000,
+                        horizontal ? 800 : 0, horizontal ? 0 : 800,
+                        horizontal ? "Horizontal" : "Vertical"));
+                Flickable target = (Flickable) scene.view.findByObjectName("scrollTarget");
+                scene.frames(20);
+                float x = horizontal ? 70 : 396;
+                float y = horizontal ? 396 : 70;
+                scene.view.dispatchPointerDown(x, y, scene.clock);
+
+                DirtyQueue queue = scene.view.dirtyQueue();
+                queue.install();
+                try {
+                    for (int sample = 1; sample <= 4; sample++) {
+                        scene.view.dispatchPointerMove(horizontal ? x + sample * 5 : x,
+                                horizontal ? y : y + sample * 5,
+                                scene.clock + sample * 4_000_000L);
+                    }
+                    queue.flush();
+                } finally {
+                    queue.uninstall();
+                }
+                double expected = 800 + 20d / 360d * 5600d;
+                assertEquals("batched history must not feed the content translation back into the drag",
+                        expected, scrollPosition(target, horizontal), 0.02);
+                scene.frames(30);
+                scene.view.dispatchPointerMove(horizontal ? x + 25 : x,
+                        horizontal ? y : y + 25, scene.clock);
+                expected = 800 + 25d / 360d * 5600d;
+                assertEquals("the next input batch must continue from the same scene origin",
+                        expected, scrollPosition(target, horizontal), 0.02);
+                scene.view.dispatchPointerUp(horizontal ? x + 25 : x,
+                        horizontal ? y : y + 25, scene.clock + 1_000_000L);
+                scene.frames(30);
+                assertEquals(expected, scrollPosition(target, horizontal), 0.02);
+            }
+        }
+    }
+
+    private static double scrollPosition(Flickable target, boolean horizontal) {
+        return horizontal ? target.contentX.peekFloat() : target.contentY.peekFloat();
     }
 
     @SuppressWarnings("unchecked")

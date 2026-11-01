@@ -1,7 +1,9 @@
 package io.github.timer_err.qml4j.android;
 
+import io.github.timer_err.qml4j.engine.binding.Property;
 import io.github.timer_err.qml4j.render.items.animation.NumberAnimation;
 import io.github.timer_err.qml4j.render.items.animation.Timer;
+import io.github.timer_err.qml4j.render.items.core.Flickable;
 import io.github.timer_err.qml4j.render.items.core.Image;
 import io.github.timer_err.qml4j.render.items.core.Item;
 import org.junit.Test;
@@ -29,6 +31,41 @@ public class AndroidRenderPolicyTest {
         timer.running.set(true);
 
         assertTrue(AndroidRenderPolicy.hasActiveQmlWork(root));
+    }
+
+    @Test
+    public void paintOnlyScrollingStaysAwakeUntilItsClockStops() {
+        for (boolean fling : new boolean[] {false, true}) {
+            Item root = new Item();
+            Flickable viewport = new Flickable();
+            root.children.add(viewport);
+            viewport.height.set(400);
+            viewport.contentHeight.set(6000);
+            viewport.contentY.set(800);
+            viewport.syncTarget();
+            if (fling) viewport.startFling(0f, 1000f);
+            else viewport.setScrollTarget(0f, 1800f);
+            long start = 1_000_000_000L;
+            viewport.tick(start);
+
+            for (int frame = 1; frame <= 10; frame++) {
+                long version = Property.changeVersion();
+                viewport.tick(start + frame * 16_000_000L);
+                boolean changedThisFrame = version != Property.changeVersion();
+                assertTrue("scroll must keep rendering after wake-settle frames expire",
+                        AndroidRenderPolicy.shouldRenderContinuously(
+                                false, changedThisFrame, false, root));
+            }
+
+            viewport.tick(start + 3_000_000_000L);
+            assertFalse("finished scrolling must allow idle mode",
+                    AndroidRenderPolicy.shouldRenderContinuously(false, false, false, root));
+
+            viewport.startFling(0f, 1000f);
+            viewport.stopScroll();
+            assertFalse("canceled scrolling must allow idle mode",
+                    AndroidRenderPolicy.shouldRenderContinuously(false, false, false, root));
+        }
     }
 
     @Test

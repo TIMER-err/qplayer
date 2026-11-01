@@ -459,6 +459,7 @@ Item {
 
                 ViewportScrollBar {
                     target: hotScroller
+                    bottomInset: page.bottomContentInset
                 }
             }
         }
@@ -543,6 +544,7 @@ Item {
 
                 ViewportScrollBar {
                     target: albumGrid
+                    bottomInset: page.bottomContentInset
                 }
             }
 
@@ -587,6 +589,7 @@ Item {
 
                 ViewportScrollBar {
                     target: artistGrid
+                    bottomInset: page.bottomContentInset
                 }
             }
 
@@ -659,6 +662,7 @@ Item {
 
                 ViewportScrollBar {
                     target: playlistGrid
+                    bottomInset: page.bottomContentInset
                 }
             }
         }

@@ -33,9 +33,9 @@ final class InputBridge {
 
     private final DesktopWindow win;
 
-    // Match qml4j Flickable's own glide so wheel scrolling on desktop feels exactly
-    // like the mobile fling: ease the shown position toward the target at the same
-    // frame-rate-independent rate a = 1 - exp(-EASE*dt). (Flickable.EASE = 18.)
+    // Ease discrete wheel notches into frame-rate-independent deltas. This host
+    // wheel tail is separate from Flickable's touch fling and must not survive a
+    // direct pointer gesture.
     private static final float EASE = 18f;
     // The lyric column gets its own, gentler decay -- a separate constant (not a
     // scrollByWheel-side fling injected after the fact: an earlier attempt at that
@@ -61,6 +61,7 @@ final class InputBridge {
     private double pendingScrollX;
     private double pendingScrollY;
     private long lastScrollNanos;
+    private boolean primaryPressed;
     // GLFW key callbacks run on the main thread; the per-frame progress update
     // runs on the renderer, so the hold state is deliberately volatile.
     private volatile boolean escapeHeld;
@@ -71,6 +72,7 @@ final class InputBridge {
     private boolean lyGrab;
     private boolean lyMoved;
     private float lyDownY;
+    private long lyDownTimeNanos;
 
     InputBridge(DesktopWindow win) {
         this.win = win;
@@ -81,13 +83,15 @@ final class InputBridge {
             cursorX = x;
             cursorY = y;
             final float fx = (float) x, fy = (float) y;
-            win.postRenderTask(() -> onMove(fx, fy));
+            final long eventTimeNanos = System.nanoTime();
+            win.postRenderTask(() -> onMove(fx, fy, eventTimeNanos));
         });
         GLFW.glfwSetMouseButtonCallback(window, (w, button, action, mods) -> {
             final float fx = (float) cursorX, fy = (float) cursorY;
+            final long eventTimeNanos = System.nanoTime();
             if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-                if (action == GLFW.GLFW_PRESS) win.postRenderTask(() -> onPress(fx, fy));
-                else if (action == GLFW.GLFW_RELEASE) win.postRenderTask(() -> onRelease(fx, fy));
+                if (action == GLFW.GLFW_PRESS) win.postRenderTask(() -> onPress(fx, fy, eventTimeNanos));
+                else if (action == GLFW.GLFW_RELEASE) win.postRenderTask(() -> onRelease(fx, fy, eventTimeNanos));
                 return;
             }
             // Right-click: forward straight to QML on press, bypassing the left-button-
@@ -95,13 +99,14 @@ final class InputBridge {
             // press/hold tracking -- SongRow's Ripple opens its menu the instant it sees
             // a right button-down, same as it does for a left-button long-press).
             if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT && action == GLFW.GLFW_PRESS) {
-                win.postRenderTask(() -> onRightClick(fx, fy));
+                win.postRenderTask(() -> onRightClick(fx, fy, eventTimeNanos));
             }
         });
         GLFW.glfwSetScrollCallback(window, (w, dx, dy) -> {
             final double adx = dx * WHEEL_GAIN, ady = dy * WHEEL_GAIN;
             // Accumulate notches on the render thread; tickScroll() eases them out.
             win.postRenderTask(() -> {
+                if (primaryPressed) return;
                 pendingScrollX += adx;
                 pendingScrollY += ady;
             });
@@ -283,6 +288,10 @@ final class InputBridge {
      *  differs by target (see LYRIC_EASE), but it's decided once per frame before
      *  easing, not switched mid-glide, so there's no discontinuity to introduce. */
     void tickScroll() {
+        if (primaryPressed) {
+            clearWheelTail();
+            return;
+        }
         if (Math.abs(pendingScrollX) < 0.001 && Math.abs(pendingScrollY) < 0.001) {
             pendingScrollX = pendingScrollY = 0;
             lastScrollNanos = 0L;
@@ -376,7 +385,9 @@ final class InputBridge {
 
     // --- render-thread handlers ----------------------------------------------
 
-    private void onPress(float x, float y) {
+    private void onPress(float x, float y, long eventTimeNanos) {
+        primaryPressed = true;
+        clearWheelTail();
         QmlView v = win.view();
         if (v == null) return;
         // Windows/X11 cursor coordinates follow framebuffer pixels and need DPI
@@ -398,16 +409,18 @@ final class InputBridge {
         // before engaging the scroll so a tap stays a tap. Suppressed while the
         // offset-adjust panel (real QML) is open over that same region.
         if (!win.temperaPageVisible() && !offsetPanelOpen && c.lyricsScrollable(lx, ly, surfaceWLogical, surfaceHLogical, topInset)) {
+            c.lyricRenderer().scrollCancel();
             lyGrab = true;
             lyDownY = ly;
+            lyDownTimeNanos = eventTimeNanos;
             lyMoved = false;
             return;
         }
         lyGrab = false;
-        v.dispatchPointerDown(lx, ly);
+        v.dispatchPointerDown(lx, ly, eventTimeNanos);
     }
 
-    private void onMove(float x, float y) {
+    private void onMove(float x, float y, long eventTimeNanos) {
         float scale = pointerScale();
         float lx = x / scale, ly = y / scale;
         if (lyGrab) {
@@ -415,19 +428,21 @@ final class InputBridge {
             if (!lyMoved) {
                 if (Math.abs(ly - lyDownY) > LYRIC_TAP_SLOP) {
                     lyMoved = true;
-                    c.lyricRenderer().scrollDown(lyDownY);
-                    c.lyricRenderer().scrollMove(ly);
+                    c.lyricRenderer().scrollDown(lyDownY, lyDownTimeNanos);
+                    c.lyricRenderer().scrollMove(ly, eventTimeNanos);
                 }
             } else {
-                c.lyricRenderer().scrollMove(ly);
+                c.lyricRenderer().scrollMove(ly, eventTimeNanos);
             }
             return;
         }
         QmlView v = win.view();
-        if (v != null) v.dispatchPointerMove(lx, ly);
+        if (v != null) v.dispatchPointerMove(lx, ly, eventTimeNanos);
     }
 
-    private void onRelease(float x, float y) {
+    private void onRelease(float x, float y, long eventTimeNanos) {
+        if (!primaryPressed) return;
+        primaryPressed = false;
         float scale = pointerScale();
         float lx = x / scale, ly = y / scale;
         if (lyGrab) {
@@ -435,14 +450,13 @@ final class InputBridge {
             LyricCompositor c = win.compositor();
             PlayerController controller = win.controller();
             if (lyMoved) {
-                c.lyricRenderer().scrollUp();
+                c.lyricRenderer().scrollUp(eventTimeNanos);
             } else {
                 long t = c.lyricRenderer().timeAtScreenY(lyDownY);
                 if (t >= 0L && controller != null) {
                     // A pending eased wheel tail would otherwise call scrollByWheel()
                     // next frame and re-enter manual-scroll mode after this seek.
-                    pendingScrollX = pendingScrollY = 0.0;
-                    lastScrollNanos = 0L;
+                    clearWheelTail();
                     c.lyricRenderer().cancelUserScrollForSeek();
                     controller.seek(t + LyricConfig.instance.offsetMs.getValue());
                 }
@@ -450,16 +464,32 @@ final class InputBridge {
             return;
         }
         QmlView v = win.view();
-        if (v != null) v.dispatchPointerUp(lx, ly);
+        if (v != null) v.dispatchPointerUp(lx, ly, eventTimeNanos);
     }
 
-    private void onRightClick(float x, float y) {
+    private void onRightClick(float x, float y, long eventTimeNanos) {
         QmlView v = win.view();
         if (v == null) return;
         float scale = pointerScale();
         float lx = x / scale, ly = y / scale;
-        v.dispatchPointerDown(lx, ly, MouseEvent.RIGHT_BUTTON);
-        v.dispatchPointerUp(lx, ly, MouseEvent.RIGHT_BUTTON);
+        v.dispatchPointerDown(lx, ly, MouseEvent.RIGHT_BUTTON, eventTimeNanos);
+        v.dispatchPointerUp(lx, ly, MouseEvent.RIGHT_BUTTON, eventTimeNanos);
+    }
+
+    private void clearWheelTail() {
+        pendingScrollX = pendingScrollY = 0.0;
+        lastScrollNanos = 0L;
+    }
+
+    /** Render-thread only: end capture without a synthetic release/click/fling. */
+    void cancelPointerGesture() {
+        primaryPressed = false;
+        clearWheelTail();
+        lyGrab = false;
+        lyMoved = false;
+        win.compositor().lyricRenderer().scrollCancel();
+        QmlView v = win.view();
+        if (v != null) v.dispatchPointerCancel();
     }
 
     private float pointerScale() {

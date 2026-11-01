@@ -385,6 +385,7 @@ Rectangle {
 
             ViewportScrollBar {
                 target: accountScroller
+                bottomInset: page.bottomContentInset
             }
         }
     }

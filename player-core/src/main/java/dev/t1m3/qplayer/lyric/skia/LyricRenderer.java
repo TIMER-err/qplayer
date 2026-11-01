@@ -1641,20 +1641,20 @@ public class LyricRenderer {
 
     // ---- Manual scroll API (host input delegates to the reusable controller) ----
 
-    public void scrollDown(float y) {
-        userScroll.pointerDown(y);
+    public void scrollDown(float y, long eventTimeNanos) {
+        userScroll.pointerDown(y, eventTimeNanos);
     }
 
-    public void scrollMove(float y) {
-        userScroll.pointerMove(y);
+    public void scrollMove(float y, long eventTimeNanos) {
+        userScroll.pointerMove(y, eventTimeNanos);
     }
 
-    public void scrollUp() {
-        userScroll.pointerUp();
+    public void scrollUp(long eventTimeNanos) {
+        userScroll.pointerUp(eventTimeNanos);
     }
 
     public void scrollCancel() {
-        userScroll.pointerUp();
+        userScroll.pointerCancel();
     }
 
     public void scrollByWheel(float notches) {

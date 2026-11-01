@@ -279,6 +279,7 @@ Rectangle {
 
             ViewportScrollBar {
                 target: settingsFlickable
+                bottomInset: page.bottomContentInset
             }
         }
     }

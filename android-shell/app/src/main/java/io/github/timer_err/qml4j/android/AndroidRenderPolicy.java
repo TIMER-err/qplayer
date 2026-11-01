@@ -2,6 +2,7 @@ package io.github.timer_err.qml4j.android;
 
 import io.github.timer_err.qml4j.render.items.animation.AbstractAnimation;
 import io.github.timer_err.qml4j.render.items.animation.Timer;
+import io.github.timer_err.qml4j.render.items.core.Flickable;
 import io.github.timer_err.qml4j.render.items.core.Image;
 import io.github.timer_err.qml4j.render.items.core.Item;
 
@@ -36,6 +37,12 @@ final class AndroidRenderPolicy {
         }
         if (item instanceof Timer
                 && Boolean.TRUE.equals(((Timer) item).running.peek())) {
+            return true;
+        }
+        // Scroll clocks update paint-only positions, so an unchanged layout
+        // version does not mean that the surface can stop producing frames.
+        if (item instanceof Flickable
+                && Boolean.TRUE.equals(((Flickable) item).moving.peek())) {
             return true;
         }
         for (int i = 0; i < item.children.size(); i++) {

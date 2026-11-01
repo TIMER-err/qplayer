@@ -101,8 +101,6 @@ public final class PlaceholderResizeTest {
         assertNotNull(stateName, state);
         Item content = findIn(state, "emptyStateContent");
         assertNotNull(stateName + " content", content);
-        Item mini = view.findByObjectName("miniPlayer");
-        assertNotNull("miniPlayer", mini);
         Item badge = findIn(state, "emptyStateBadge");
         assertNotNull(stateName + " badge", badge);
         float panelLeft = absoluteX(state);
@@ -112,8 +110,6 @@ public final class PlaceholderResizeTest {
         assertEquals(label + " panel must reach the current window right edge",
                 windowWidth, panelLeft + state.width.peekFloat(), 0.5f);
         float panelTop = absoluteY(state);
-        assertEquals(label + " panel must stop at the current mini player",
-                absoluteY(mini), panelTop + state.height.peekFloat(), 0.5f);
         float panelCentre = panelLeft + state.width.peekFloat() / 2f;
         float contentCentre = absoluteX(content) + content.width.peekFloat() / 2f;
         assertEquals(label + " placeholder must follow width " + windowWidth,

@@ -265,6 +265,7 @@ Rectangle {
 
                 ViewportScrollBar {
                     target: scroller
+                    bottomInset: page.bottomContentInset
                 }
             }
 

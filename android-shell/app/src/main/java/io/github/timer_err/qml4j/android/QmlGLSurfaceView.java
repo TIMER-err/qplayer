@@ -93,6 +93,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     private boolean lyGrab;
     private boolean lyMoved;
     private float lyDownY;
+    private long lyDownTimeNanos;
     // Movement (logical px) past which a lyric-body touch is a scroll rather than a tap.
     private static final float LYRIC_TAP_SLOP = 12f;
     // True while the current touch stream started inside the bottom system-gesture
@@ -101,6 +102,9 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     // sees a DOWN followed by a CANCEL, which used to reach QML as a tap and play
     // the song row lying under the handle.
     private boolean systemGestureStream;
+    // UI-thread state: keep the first finger for the whole stream, never adopt a
+    // second finger after the original pointer leaves.
+    private int activeTouchPointerId = MotionEvent.INVALID_POINTER_ID;
 
     /** Notified (with a full stack trace) when QML load/render throws, so the
      *  host can surface the error instead of the GL thread crashing the app. */
@@ -282,100 +286,141 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
 
     @Override
     public boolean onTouchEvent(MotionEvent ev) {
-        // The lyric page chrome (title / progress / buttons) is QML on top of the host
-        // lyric layer, so touches dispatch to the QML scene as usual -- the LyricOverlay
-        // handles seek, transport and close.
-        final int action = ev.getActionMasked();
-        if (action == MotionEvent.ACTION_DOWN) systemGestureStream = inBottomSystemGestureZone(ev);
+        int action = ev.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) {
+            systemGestureStream = inBottomSystemGestureZone(ev);
+            activeTouchPointerId = MotionEvent.INVALID_POINTER_ID;
+        }
         if (systemGestureStream) {
             if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
                 systemGestureStream = false;
             }
             return true;
         }
-        final float x = ev.getX() / uiScale;
-        final float y = ev.getY() / uiScale;
-        switch (action) {
-            case MotionEvent.ACTION_DOWN:
-                requestFocus();
-                queueEvent(new Runnable() {
-                    @Override public void run() {
-                        if (view == null) return;
-                        // pauseGlThread() disposes the surface but deliberately keeps the
-                        // scene alive, so the `view` check above does not imply a surface:
-                        // a press already queued for this thread runs after the pause and
-                        // finds it gone. Backgrounding mid-touch (Home, app switch, lock)
-                        // hits this. Skip only the gesture that needs surface dimensions
-                        // and let the press dispatch to QML as usual.
-                        SkijaGlSurface gl = surface;
-                        // The lyric body (between the QML title and transport bands) is
-                        // host-drawn with no QML controls under it, so a touch there is
-                        // ours: a drag scrolls the column, a tap seeks to that line. Don't
-                        // engage the scroll yet -- wait for movement so a tap stays a tap.
-                        // Suppressed while the offset-adjust panel (real QML) is open over
-                        // that same region.
-                        boolean offsetPanelOpen = controller != null
-                                && Boolean.TRUE.equals(controller.lyricOffsetPanelOpen.peek());
-                        if (gl != null && !compositor.temperaVisible(controller) && !offsetPanelOpen
-                                && compositor.lyricsScrollable(x, y, gl.width() / uiScale,
-                                        gl.height() / uiScale, insetTop())) {
-                            lyGrab = true;
-                            lyDownY = y;
-                            lyMoved = false;
-                            return;
-                        }
-                        lyGrab = false;
-                        boolean hitTextEditable = view.pickTextEditable(x, y) != null;
-                        view.dispatchPointerDown(x, y);
-                        if (hitTextEditable) showImeOnUiThread();
+        if (action == MotionEvent.ACTION_DOWN) {
+            activeTouchPointerId = ev.getPointerId(ev.getActionIndex());
+            requestFocus();
+        } else if (action == MotionEvent.ACTION_POINTER_DOWN) {
+            return true;
+        } else if (action == MotionEvent.ACTION_POINTER_UP) {
+            if (ev.getPointerId(ev.getActionIndex()) != activeTouchPointerId) return true;
+            action = MotionEvent.ACTION_UP;
+        } else if (action != MotionEvent.ACTION_MOVE && action != MotionEvent.ACTION_UP
+                && action != MotionEvent.ACTION_CANCEL) {
+            return false;
+        }
+        if (activeTouchPointerId == MotionEvent.INVALID_POINTER_ID) return true;
+        final int pointerIndex = ev.findPointerIndex(activeTouchPointerId);
+        if (pointerIndex < 0) action = MotionEvent.ACTION_CANCEL;
+        final int dispatchedAction = action;
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            activeTouchPointerId = MotionEvent.INVALID_POINTER_ID;
+        }
+        // The framework recycles ev on return. One owned copy preserves all
+        // coalesced samples and their uptime timestamps until the GL task finishes.
+        final MotionEvent event = MotionEvent.obtain(ev);
+        queueEvent(new Runnable() {
+            @Override public void run() {
+                try {
+                    if (view == null) {
+                        dispatchTouchEvent(event, pointerIndex, dispatchedAction);
+                        return;
                     }
-                });
-                wakeRenderer();
-                return true;
-            case MotionEvent.ACTION_MOVE:
-                queueEvent(new Runnable() {
-                    @Override public void run() {
-                        if (lyGrab) {
-                            if (!lyMoved) {
-                                if (Math.abs(y - lyDownY) > LYRIC_TAP_SLOP) {
-                                    lyMoved = true;
-                                    compositor.lyricRenderer().scrollDown(lyDownY);
-                                    compositor.lyricRenderer().scrollMove(y);
-                                }
-                            } else {
-                                compositor.lyricRenderer().scrollMove(y);
-                            }
-                            return;
+                    DirtyQueue dq = view.dirtyQueue();
+                    boolean ownBatch = DirtyQueue.current() != dq;
+                    if (ownBatch) dq.install();
+                    try {
+                        // Keep velocity history, but evaluate dependent bindings
+                        // once for the coalesced MotionEvent rather than per sample.
+                        dispatchTouchEvent(event, pointerIndex, dispatchedAction);
+                    } finally {
+                        if (ownBatch) {
+                            try { dq.flush(); }
+                            finally { dq.uninstall(); }
                         }
-                        if (view != null) view.dispatchPointerMove(x, y);
                     }
-                });
-                wakeRenderer();
-                return true;
-            case MotionEvent.ACTION_UP:
-            case MotionEvent.ACTION_CANCEL:
-                queueEvent(new Runnable() {
-                    @Override public void run() {
-                        if (lyGrab) {
-                            lyGrab = false;
-                            if (lyMoved) {
-                                compositor.lyricRenderer().scrollUp();
-                            } else if (action == MotionEvent.ACTION_UP) {
-                                long t = compositor.lyricRenderer().timeAtScreenY(lyDownY);
-                                if (t >= 0L && controller != null) {
-                                    compositor.lyricRenderer().cancelUserScrollForSeek();
-                                    controller.seek(t + LyricConfig.instance.offsetMs.getValue());
-                                }
-                            }
-                            return;
-                        }
-                        if (view != null) view.dispatchPointerUp(x, y);
+                } finally {
+                    event.recycle();
+                }
+            }
+        });
+        wakeRenderer();
+        return true;
+    }
+
+    private void dispatchTouchEvent(MotionEvent event, int pointerIndex, int action) {
+        if (action == MotionEvent.ACTION_CANCEL) {
+            if (lyGrab) {
+                lyGrab = false;
+                if (lyMoved) compositor.lyricRenderer().scrollCancel();
+            }
+            if (view != null) view.dispatchPointerCancel();
+            return;
+        }
+        if (view == null) return;
+        final float x = event.getX(pointerIndex) / uiScale;
+        final float y = event.getY(pointerIndex) / uiScale;
+        final long eventTimeNanos = event.getEventTime() * 1_000_000L;
+        if (action == MotionEvent.ACTION_DOWN) {
+            // The QML scene can survive a disposed surface while backgrounding.
+            // Only host-drawn lyric hit testing requires surface dimensions.
+            SkijaGlSurface gl = surface;
+            boolean offsetPanelOpen = controller != null
+                    && Boolean.TRUE.equals(controller.lyricOffsetPanelOpen.peek());
+            if (gl != null && !compositor.temperaVisible(controller) && !offsetPanelOpen
+                    && compositor.lyricsScrollable(x, y, gl.width() / uiScale,
+                            gl.height() / uiScale, insetTop())) {
+                compositor.lyricRenderer().scrollCancel();
+                lyGrab = true;
+                lyDownY = y;
+                lyDownTimeNanos = eventTimeNanos;
+                lyMoved = false;
+                return;
+            }
+            lyGrab = false;
+            boolean hitTextEditable = view.pickTextEditable(x, y) != null;
+            view.dispatchPointerDown(x, y, eventTimeNanos);
+            if (hitTextEditable) showImeOnUiThread();
+            return;
+        }
+        for (int i = 0; i < event.getHistorySize(); i++) {
+            dispatchTouchMove(event.getHistoricalX(pointerIndex, i) / uiScale,
+                    event.getHistoricalY(pointerIndex, i) / uiScale,
+                    event.getHistoricalEventTime(i) * 1_000_000L);
+        }
+        if (action == MotionEvent.ACTION_MOVE) {
+            dispatchTouchMove(x, y, eventTimeNanos);
+        } else if (action == MotionEvent.ACTION_UP) {
+            if (lyGrab) {
+                lyGrab = false;
+                if (lyMoved) {
+                    compositor.lyricRenderer().scrollUp(eventTimeNanos);
+                } else {
+                    long t = compositor.lyricRenderer().timeAtScreenY(lyDownY);
+                    if (t >= 0L && controller != null) {
+                        compositor.lyricRenderer().cancelUserScrollForSeek();
+                        controller.seek(t + LyricConfig.instance.offsetMs.getValue());
                     }
-                });
-                wakeRenderer();
-                return true;
-            default:
-                return false;
+                }
+            } else {
+                view.dispatchPointerUp(x, y, eventTimeNanos);
+            }
+        }
+    }
+
+    private void dispatchTouchMove(float x, float y, long eventTimeNanos) {
+        if (lyGrab) {
+            if (!lyMoved) {
+                if (Math.abs(y - lyDownY) > LYRIC_TAP_SLOP) {
+                    lyMoved = true;
+                    compositor.lyricRenderer().scrollDown(lyDownY, lyDownTimeNanos);
+                    compositor.lyricRenderer().scrollMove(y, eventTimeNanos);
+                }
+            } else {
+                compositor.lyricRenderer().scrollMove(y, eventTimeNanos);
+            }
+        } else {
+            view.dispatchPointerMove(x, y, eventTimeNanos);
         }
     }
 

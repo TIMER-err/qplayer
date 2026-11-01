@@ -477,5 +477,6 @@ Flickable {
 
     ViewportScrollBar {
         target: view
+        bottomInset: view.bottomContentInset
     }
 }

@@ -119,9 +119,9 @@ public class LyricNotificationInputTest {
     }
 
     private static void pointer(InputBridge input, String name, float x, float y) throws Exception {
-        Method method = InputBridge.class.getDeclaredMethod(name, float.class, float.class);
+        Method method = InputBridge.class.getDeclaredMethod(name, float.class, float.class, long.class);
         method.setAccessible(true);
-        method.invoke(input, x, y);
+        method.invoke(input, x, y, System.nanoTime());
     }
 
     private static void settle(QmlView view) {

@@ -282,6 +282,7 @@ Rectangle {
 
             ViewportScrollBar {
                 target: pluginSettingsScroller
+                bottomInset: page.bottomContentInset
             }
         }
     }
