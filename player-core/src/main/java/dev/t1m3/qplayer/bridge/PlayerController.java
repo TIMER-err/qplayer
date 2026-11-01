@@ -393,6 +393,10 @@ public final class PlayerController {
         t.setDaemon(true);
         return t;
     });
+    // Guarded by QmlRuntimeLock.MONITOR; independent of the render pump.
+    private ScheduledFuture<?> sleepTimerTask;
+    private long sleepTimerGeneration;
+    private long sleepTimerDeadlineNs;
     private final Object fadeLock = new Object();
     // Guarded by fadeLock. Every start/cancel increments generation, so a queued tick
     // or completion belonging to an old track becomes a harmless no-op.
@@ -472,6 +476,8 @@ public final class PlayerController {
      *  unrelated rows in any other list. */
     public final Property<String> currentMediaId = new Property<>("");
     public final Property<Float> volume = new Property<>(0.8f);
+    /** Zero disables the session-only sleep timer. Rounded up for its UI label. */
+    public final Property<Integer> sleepTimerRemainingMinutes = new Property<>(0);
     public final Property<Boolean> currentLiked = new Property<>(false);
     /** Whether the current track can be liked — netease only; local files have no
      *  server-side "我喜欢的音乐", so the player's like button binds enabled to this. */
@@ -1144,6 +1150,7 @@ public final class PlayerController {
      * source; without this list a second signed-in source has nowhere to appear.
      */
     private void refreshSourceAccounts() {
+        final long generation = sourceAccountsGeneration.incrementAndGet();
         List<PluginManifest> providers = new ArrayList<>();
         String primary = pluginRegistry.primaryProvider();
         for (PluginManifest manifest : pluginManager.enabledProviders()) {
@@ -1152,15 +1159,17 @@ public final class PlayerController {
             else providers.add(manifest);
         }
         if (providers.isEmpty()) {
-            sourceAccounts.set(Collections.<SourceAccountRow>emptyList());
+            sourceAccountOrder = Collections.emptyList();
+            sourceAccountsBySource.clear();
+            publishSourceAccounts();
             return;
         }
-        final long generation = sourceAccountsGeneration.incrementAndGet();
         // Seed the order straight away so the page can render the source names
         // while the individual account calls are still in flight.
         final List<String> order = new ArrayList<>();
         for (PluginManifest manifest : providers) order.add(manifest.id);
         post(() -> {
+            if (generation != sourceAccountsGeneration.get()) return;
             sourceAccountOrder = order;
             sourceAccountsBySource.keySet().retainAll(order);
             publishSourceAccounts();
@@ -1172,25 +1181,24 @@ public final class PlayerController {
                     .contains(ProviderCapability.PLAYLIST_MUTATION);
             pluginAccounts.account(providerId).whenComplete((account, error) -> post(() -> {
                 if (generation != sourceAccountsGeneration.get()) return;
+                if (error != null) {
+                    publishAccountError(providerId, error);
+                    return;
+                }
                 SourceAccountRow row = new SourceAccountRow();
                 row.providerId = providerId;
                 row.sourceName = providerName;
                 row.canCreatePlaylist = canCreatePlaylist;
                 row.primary = providerId.equals(pluginRegistry.primaryProvider());
-                if (error == null && account != null) {
+                if (account != null) {
                     row.loggedIn = account.loggedIn;
-                    row.displayName = orEmpty(account.displayName);
-                    row.avatarUrl = orEmpty(account.avatarUrl);
                     if (account.loggedIn) {
+                        row.displayName = orEmpty(account.displayName);
+                        row.avatarUrl = orEmpty(account.avatarUrl);
                         row.membershipTier = account.membershipTier;
                         row.level = account.level;
                         row.signature = orEmpty(account.signature);
                     }
-                } else if (error != null) {
-                    // A signed-out source usually just fails the call; show it as
-                    // signed out rather than dropping the row, so the user can still
-                    // see that the source exists and sign in from here.
-                    Logger.warn("plugin {} account failed: {}", providerId, safeMessage(error));
                 }
                 sourceAccountsBySource.put(providerId, row);
                 publishSourceAccounts();
@@ -1247,6 +1255,7 @@ public final class PlayerController {
                                                         netease.logout();
                                                     clearPublishedAccount();
                                                 }
+                                                else clearSourceAccount(provider);
                                                 dropSourceUserData(provider);
                                                 refreshSourceAccounts();
                                                 showToast(I18n.tr("toast.logout.done"));
@@ -1256,11 +1265,65 @@ public final class PlayerController {
 
     private void publishSourceAccounts() {
         List<SourceAccountRow> rows = new ArrayList<>();
+        String primary = pluginRegistry.primaryProvider();
+        SourceAccountRow primaryAccount = null;
         for (String providerId : sourceAccountOrder) {
             SourceAccountRow row = sourceAccountsBySource.get(providerId);
-            if (row != null) rows.add(row);
+            if (row == null) continue;
+            row.primary = providerId.equals(primary);
+            if (row.primary) primaryAccount = row;
+            rows.add(row);
         }
         sourceAccounts.set(rows);
+        // The header and the primary row are two views of the same snapshot,
+        // never the results of two independently published account requests.
+        publishAccountHeader(primaryAccount);
+    }
+
+    private void publishAccountHeader(SourceAccountRow account) {
+        boolean signedIn = account != null && account.loggedIn;
+        loggedIn.set(signedIn);
+        userName.set(signedIn ? account.displayName : "");
+        userAvatar.set(signedIn ? account.avatarUrl : "");
+        userVipType.set(signedIn ? account.membershipTier : 0);
+        userLevel.set(signedIn ? account.level : 0);
+        userSignature.set(signedIn ? account.signature : "");
+    }
+
+    private void publishAccountError(String providerId, Throwable error) {
+        // A failed check says nothing about the session. Keep the last confirmed
+        // profile, but distinguish it from an explicit loggedIn=false response.
+        SourceAccountRow row = new SourceAccountRow();
+        row.providerId = providerId;
+        row.sourceName = providerDisplayName(providerId);
+        row.canCreatePlaylist = pluginHasCapability(providerId, ProviderCapability.PLAYLIST_MUTATION);
+        row.accountError = true;
+        SourceAccountRow previous = sourceAccountsBySource.get(providerId);
+        if (previous != null) {
+            row.loggedIn = previous.loggedIn;
+            row.displayName = previous.displayName;
+            row.avatarUrl = previous.avatarUrl;
+            row.membershipTier = previous.membershipTier;
+            row.level = previous.level;
+            row.signature = previous.signature;
+        }
+        sourceAccountsBySource.put(providerId, row);
+        publishSourceAccounts();
+        Logger.warn("plugin {} account failed: {}", providerId, safeMessage(error));
+    }
+
+    /** A successful logout is authoritative even when its following account check fails. */
+    private void clearSourceAccount(String providerId) {
+        sourceAccountsGeneration.incrementAndGet();
+        SourceAccountRow previous = sourceAccountsBySource.get(providerId);
+        if (previous != null) {
+            SourceAccountRow row = new SourceAccountRow();
+            row.providerId = providerId;
+            row.sourceName = previous.sourceName;
+            row.canCreatePlaylist = previous.canCreatePlaylist;
+            sourceAccountsBySource.put(providerId, row);
+        }
+        publishSourceAccounts();
     }
 
     /** Reset everything published on behalf of the source that is no longer primary. */
@@ -1277,12 +1340,7 @@ public final class PlayerController {
     private void clearPublishedPluginAccount() {
         accountGeneration.incrementAndGet();
         pendingCredentialEncryptedNotice = false;
-        loggedIn.set(false);
-        userName.set("");
-        userAvatar.set("");
-        userVipType.set(0);
-        userLevel.set(0);
-        userSignature.set("");
+        publishAccountHeader(null);
     }
 
     /** Open the app-wide source setup flow from Home or any future empty state. */
@@ -2833,12 +2891,8 @@ public final class PlayerController {
 
     private void clearAccountStateAfterCredentialReset() {
 
-        loggedIn.set(false);
-        userName.set("");
-        userAvatar.set("");
-        userVipType.set(0);
-        userLevel.set(0);
-        userSignature.set("");
+        clearPublishedPluginAccount();
+        clearSourceAccount(pluginRegistry.primaryProvider());
 
         likedCount.set(0);
         likedRevision.set(likedRevision.peek() + 1);
@@ -6010,6 +6064,43 @@ public final class PlayerController {
                     if (playbackSession.playing) mediaPause();
                     else mediaResume();
                 });
+    }
+
+    /** Replace the sleep deadline, or cancel it with zero. Never persists across restarts. */
+    public void setSleepTimer(int minutes) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (appShuttingDown) return;
+            if (minutes < 0 || minutes > 120)
+                throw new IllegalArgumentException("Sleep timer must be between 0 and 120 minutes");
+            long generation = ++sleepTimerGeneration;
+            if (sleepTimerTask != null) sleepTimerTask.cancel(false);
+            sleepTimerTask = null;
+            sleepTimerRemainingMinutes.set(minutes);
+            if (minutes == 0) return;
+            sleepTimerDeadlineNs = System.nanoTime() + TimeUnit.MINUTES.toNanos(minutes);
+            scheduleSleepTimerTick(generation, TimeUnit.MINUTES.toNanos(1));
+        }
+    }
+
+    private void scheduleSleepTimerTick(long generation, long delayNs) {
+        sleepTimerTask = fadeWorker.schedule(
+                () -> tickSleepTimer(generation), delayNs, TimeUnit.NANOSECONDS);
+    }
+
+    private void tickSleepTimer(long generation) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (appShuttingDown || generation != sleepTimerGeneration) return;
+            long remainingNs = sleepTimerDeadlineNs - System.nanoTime();
+            if (remainingNs <= 0) {
+                sleepTimerTask = null;
+                sleepTimerRemainingMinutes.set(0);
+                mediaPause();
+                return;
+            }
+            long minuteNs = TimeUnit.MINUTES.toNanos(1);
+            sleepTimerRemainingMinutes.set((int) ((remainingNs + minuteNs - 1) / minuteNs));
+            scheduleSleepTimerTick(generation, Math.min(remainingNs, minuteNs));
+        }
     }
 
     /** Cycle list-loop -> shuffle -> repeat-one -> list-loop. */
@@ -9749,6 +9840,7 @@ public final class PlayerController {
     private void refreshPluginAccount(String provider, AccountProfile supplied) {
         if (provider == null || provider.isEmpty()) return;
         if (supplied != null) {
+            accountGeneration.incrementAndGet();
             publishPluginAccount(provider, supplied);
             return;
         }
@@ -9759,7 +9851,10 @@ public final class PlayerController {
             // already bumped the generation: publishing now would restore the
             // account header of a source the user has left.
             if (generation != accountGeneration.get()) return;
-            if (error == null && provider.equals(pluginRegistry.primaryProvider())) {
+            if (!provider.equals(pluginRegistry.primaryProvider())) return;
+            if (error != null) {
+                publishAccountError(provider, error);
+            } else {
                 publishPluginAccount(provider, account);
             }
         }));
@@ -9773,29 +9868,19 @@ public final class PlayerController {
         row.primary = provider.equals(pluginRegistry.primaryProvider());
         row.loggedIn = account.loggedIn;
         row.canCreatePlaylist = pluginHasCapability(provider, ProviderCapability.PLAYLIST_MUTATION);
-        row.displayName = orEmpty(account.displayName);
-        row.avatarUrl = orEmpty(account.avatarUrl);
-        row.membershipTier = account.membershipTier;
-        row.level = account.level;
-        row.signature = orEmpty(account.signature);
+        if (account.loggedIn) {
+            row.displayName = orEmpty(account.displayName);
+            row.avatarUrl = orEmpty(account.avatarUrl);
+            row.membershipTier = account.membershipTier;
+            row.level = account.level;
+            row.signature = orEmpty(account.signature);
+        }
         sourceAccountsBySource.put(provider, row);
         publishSourceAccounts();
         if (!row.primary) {
             refreshPluginLiked();
             loadMyPlaylists();
             return;
-        }
-        loggedIn.set(account.loggedIn);
-        userName.set(orEmpty(account.displayName));
-        userAvatar.set(orEmpty(account.avatarUrl));
-        if (!account.loggedIn) {
-            userVipType.set(0);
-            userLevel.set(0);
-            userSignature.set("");
-        } else {
-            userVipType.set(account.membershipTier);
-            userLevel.set(account.level);
-            userSignature.set(orEmpty(account.signature));
         }
         if (account.loggedIn) {
             publishPendingCredentialEncryptedNotice();
@@ -9855,6 +9940,7 @@ public final class PlayerController {
         recentSongs.set(Collections.<NeteaseSong>emptyList());
         sourceRecentSongs.set(Collections.<Song>emptyList());
         clearPublishedPluginAccount();
+        clearSourceAccount(pluginRegistry.primaryProvider());
         publishMyPlaylists();
         publishPluginLiked();
     }
@@ -9893,6 +9979,10 @@ public final class PlayerController {
             if (shutdownFuture != null) return shutdownFuture;
             CompletableFuture<Void> saved = saveSessionStateAsync();
             appShuttingDown = true;
+            ++sleepTimerGeneration;
+            if (sleepTimerTask != null) sleepTimerTask.cancel(false);
+            sleepTimerTask = null;
+            sleepTimerRemainingMinutes.set(0);
             completeDownloadChoice(CompletableFuture.completedFuture(Boolean.FALSE));
             playbackSession.invalidate();
             playbackSession.playing = false;

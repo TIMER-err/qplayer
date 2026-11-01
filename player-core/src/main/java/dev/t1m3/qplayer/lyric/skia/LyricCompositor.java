@@ -20,6 +20,7 @@ import dev.t1m3.qplayer.lyric.tempera.TemperaCompositor;
 import dev.t1m3.qplayer.lyric.tempera.TemperaHostPage;
 import dev.t1m3.qplayer.lyric.tempera.TemperaTuning;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -115,6 +116,7 @@ public final class LyricCompositor {
     // The QML lyric-chrome subtree (objectName "lyricChrome"), rendered on top of
     // the host fluid; looked up once after the scene loads.
     private Item lyricChrome;
+    private final List<Item> lyricNotificationCards = new ArrayList<>(3);
     // Sibling of lyricChrome in Main.qml. Immersive host-drawn pages cover the
     // normal root render, so this subtree is replayed once more as the final layer.
     private Item fullscreenExitIndicator;
@@ -257,6 +259,9 @@ public final class LyricCompositor {
     public boolean lyricsScrollable(float x, float y, float surfaceWLogical,
                                     float surfaceHeightLogical, float topInset) {
         if (lyricSlide < 0.99f || !lyricRenderer.hasLines()) return false;
+        for (int i = 0; i < lyricNotificationCards.size(); i++) {
+            if (notificationContains(lyricNotificationCards.get(i), x, y)) return false;
+        }
         if (surfaceWLogical > surfaceHeightLogical) {
             if (coverOnlyCached) return false;
             if (x >= surfaceWLogical - OFFSET_BTN_CORNER_W && y <= topInset + OFFSET_BTN_CORNER_H) {
@@ -323,6 +328,8 @@ public final class LyricCompositor {
     private void prepareChrome(QmlView view, Renderer renderer) {
         if (chromeLookupDone) return;
         chromeLookupDone = true;
+        lyricChrome = view.findByObjectName("lyricChrome");
+        collectNotificationCards(lyricChrome);
         Item miniPlayer = view.findByObjectName("miniPlayer");
         if (miniPlayer != null) {
             MiniPlayerLoadingAnimation clock = new MiniPlayerLoadingAnimation(miniPlayer);
@@ -344,6 +351,36 @@ public final class LyricCompositor {
             }
             liquidGlassBoundary[i] = boundary;
         }
+    }
+
+    private void collectNotificationCards(Item item) {
+        if (item == null) return;
+        if ("notificationCard".equals(item.objectName.peek())) {
+            lyricNotificationCards.add(item);
+            return;
+        }
+        for (int i = 0; i < item.children.size(); i++) {
+            collectNotificationCards(item.children.get(i));
+        }
+    }
+
+    /** Toast cards use translations and uniform scaling, with no rotation or clipping. */
+    private static boolean notificationContains(Item card, float x, float y) {
+        float left = 0f, top = 0f;
+        float right = card.width.peekFloat(), bottom = card.height.peekFloat();
+        for (Item item = card; item != null; item = item.parent.peek()) {
+            if (!Boolean.TRUE.equals(item.visible.peek()) || item.opacity.peekFloat() <= 0.001f)
+                return false;
+            float scale = item.scale.peekFloat();
+            // All scaled nodes in the toast's ancestry use Item.Center.
+            float dx = item.x.peekFloat() + item.width.peekFloat() * (1f - scale) * 0.5f;
+            float dy = item.y.peekFloat() + item.height.peekFloat() * (1f - scale) * 0.5f;
+            left = dx + left * scale;
+            right = dx + right * scale;
+            top = dy + top * scale;
+            bottom = dy + bottom * scale;
+        }
+        return x >= left && x < right && y >= top && y < bottom;
     }
 
     private boolean anyLiquidGlassActive() {

@@ -61,201 +61,74 @@ running in two host shells.
   <a href="https://ifdian.net/a/TIMER_err"><img src="https://raw.githubusercontent.com/TIMER-err/qplayer/out/sponsor/afdian-sponsor.svg" width="180" alt="Afdian sponsors"></a>
 </p>
 
-## Structure
-
-QPlayer is a player shell plus a plugin system.
-
-QPlayer itself contains no online music source and distributes no source code for
-one. Installing a JavaScript source plugin adds recommendations, aggregate search,
-playlists, login, likes, recent plays and heart mode; pages appear according to the
-capabilities a plugin declares, and match the native pages. Without a plugin, it is a
-local player.
-
-That boundary shapes the rest of the design. Plugins run in an isolated Rhino realm;
-only permissions declared in the manifest and confirmed by the user take effect;
-every field a plugin returns is validated before it reaches the UI; and a plugin
-contributes no QML, only a description of a dialog's contents, which QPlayer renders
-with its own components.
-
 ## Features
 
-**Playback**　A local library, a shared queue, and three play modes (list loop,
-shuffle, repeat one). Online entities use collision-free `provider:kind:id`
-identifiers. A foreground `MediaSession` service drives the lockscreen, notification
-and bluetooth transport, with auto-advance, position sync, pause-on-call and ducking
-on transient focus loss.
+- Local library, playback queue, repeat, shuffle and sleep timer.
+- Syllable-synced lyrics, translations, romanization and fluid backgrounds; [Lyricon](https://github.com/tomakino/lyricon) support on Android.
+- Responsive Miuix interface for phones, tablets and desktops, with light/dark themes, dynamic color and optional liquid glass.
+- Desktop tray and system media controls; Android lockscreen, notification and Bluetooth controls.
+- Plugins for online sources, search, playlists and accounts.
 
-**Lyric page**　Drawn by the host directly through Skija rather than QML:
-per-syllable scrolling, a fluid backdrop tinted from the cover, romanization and
-translation, and a Material wavy progress bar. Lyrics come from the active source
-plugin or from local files. On Android they are also published natively to
-[Lyricon](https://github.com/tomakino/lyricon) for the status bar.
+QPlayer includes no online music source. Without a source plugin, it is a local player. Plugin permissions require user approval at installation.
 
-**Interface**　The whole UI is QML (`md3.Core`) running on the qml4j engine. The
-theme can be reseeded from the current cover (Monet dynamic color, optional), with
-dark, light and follow-system modes, in Simplified Chinese or English. Layout is
-width-driven (MD3 breakpoints 600 / 840): a bottom bar when narrow, a left
-`NavigationRail` when wide, and a playlist grid whose column count follows the width,
-so Android landscape and tablets require no separate work.
+## Download
 
-**Desktop**　The same QML and `player-core` on LWJGL3 + GLFW, rendered with Skija.
-The OpenGL and Vulkan backends are switchable at startup. A taskbar icon and a system
-tray whose menu mirrors the transport are provided, and minimizing to the tray
-destroys the render thread and GPU resources and rebuilds them on restore, while
-playback and UI state are preserved.
+Get the Android APK or a desktop package from [Releases](https://github.com/TIMER-err/qplayer/releases). Desktop packages require no Java installation.
 
-**Plugin safety**　Signed `.qplug` packages, built-in source repositories pinned to a
-publisher key, a permission sheet at install time, one isolated Rhino realm per
-plugin, network-domain grants and a namespaced credential vault. Plugin dialogs are
-declared by the plugin and rendered by QPlayer, so they follow the app's theme and
-cannot imitate host chrome they were not given.
+See the [desktop guide](desktop-host/dist/README.md) for Linux runtime dependencies and platform packaging requirements.
 
-## Credential storage and the security boundary
+## Development
 
-QPlayer encrypts each plugin's login credentials with authenticated AES-GCM in a
-plugin-specific namespace, and protects the random data key with Android Keystore,
-macOS Keychain, Windows DPAPI or Linux Secret Service/KWallet whenever one is
-available. If the system store is unavailable, the user may explicitly fall back to
-a local key readable only by the current user.
-
-This feature provides **data-at-rest protection**, not protection against malware
-already running locally. It reduces the risk of restoring a login from copied
-credential files, configuration directories, backups or old drives, and prevents
-other unprivileged operating-system accounts from reading the credentials directly.
-
-> [!IMPORTANT]
-> Windows DPAPI and Linux Secret Service/KWallet draw their boundary around the
-> current user or login session; they do not guarantee exclusive access for QPlayer.
-> Another process running as the same user may call the same system interfaces,
-> especially while the store is unlocked. On desktop the owner-only fallback mainly
-> relies on file permissions and likewise cannot stop same-user processes. Android's
-> app sandbox and macOS Keychain access controls give stronger app-level isolation,
-> but root/administrator access, process injection, debugging and reading QPlayer's
-> live memory all stay outside the boundary.
-
-## Layout
-
-| Module | What's in it |
+| Module | Purpose |
 |---|---|
-| `player-core/` | Platform-neutral core (Maven, `dev.t1m3.qplayer`): the QML-facing `PlayerController`, the plugin ABI and sandbox, lyric parsers (LRC / YRC / TTML), audio and metadata abstractions, and the host-drawn lyric page. **No online-source endpoints or protocol code.** |
-| `shared-qml/` | Shared QML: `Main.qml`, pages, components, the vendored `miuix.Core` library, and bundled fonts. Both hosts load compiled classes generated from these sources. |
-| `qml-aot-tool/` | Build-only QML compiler and Native Image metadata generator. Produces component classes, scene manifests, and reflection metadata; excluded from application runtimes. |
-| `android-shell/` | The Android app (Gradle, `applicationId dev.t1m3.qplayer`, minSdk 26). Host integration lives in `…/android/`; UI and lyrics come from the two modules above. |
-| `desktop-host/` | The desktop host (Maven): LWJGL3 + GLFW, Skija rendering, a switchable `GraphicsBackend`, disposable render threads, a system tray, OpenAL Soft audio output, and PCM decoders. Distributions use GraalVM Native Image. |
-| [qml4j](https://github.com/TIMER-err/qml4j) | The QML engine. A published dependency, **not** part of this repo. |
+| `player-core/` | Shared playback logic, plugins and lyrics |
+| `shared-qml/` | Shared interface, components and fonts |
+| `qml-aot-tool/` | Build-time QML compilation and native metadata |
+| `android-shell/` | Android host |
+| `desktop-host/` | Desktop host and native packaging |
 
-`qml4j-core` resolves from Maven Central; `player-core` and `desktop-host` are built
-locally.
+The [qml4j](https://github.com/TIMER-err/qml4j) engine comes from JitPack as `com.github.TIMER-err.qml4j:qml4j-core`, with its version set by `qml4j.version` in the root POM. It is not part of this repository.
 
-For plugin development, the ABI, permission model, media IDs, package signing and
-migration rules are documented in the [plugin guide](docs/plugins.md) and the
-[security model](docs/plugin-security.md). A
-[template repository](https://github.com/TIMER-err/qplayer-plugin-template) is
-available as a starting point.
+### Build and run
 
-## Build
-
-Android and JVM development require JDK 21 and Maven. Android also requires the Android SDK. Native desktop distributions require GraalVM Community 25 Innovation 4, matching CI.
+Requires JDK 21 and Maven, plus the Android SDK for Android builds.
 
 **Android**
 
 ```sh
-# install the shared modules to Maven Local (the Android shell consumes them via mavenLocal)
 mvn -q -pl player-core -am install
-
-# build the APK (qml4j-core resolves from Maven Central)
-cd android-shell && ./gradlew :app:assembleDebug
-# → app/build/outputs/apk/debug/app-debug.apk
+cd android-shell
+./gradlew :app:assembleDebug
 ```
 
-Gradle compiles bundled QML on the build host. The regular Android build converts the generated classes to DEX. The application contains no runtime D8 compiler or dynamic-compilation fallback.
+The APK is under `android-shell/app/build/outputs/apk/debug/`.
 
 **Desktop**
 
-Both source runs and the released AppImage depend on native libraries supplied by
-the Linux system. The AppImage contains a native executable, not a JVM. It does
-not bundle the host graphics and WebView stack:
-
-- OpenGL/EGL, the Vulkan loader, Fontconfig and the C++ runtime for Skija/LWJGL rendering;
-- PipeWire, PulseAudio or ALSA client libraries for OpenAL Soft audio output;
-- GLib/GIO, GTK 3, Cairo and X11 for MPRIS, the system tray and WebView;
-- WebKitGTK 4.1 and `glib-networking` for the login WebView and its HTTPS/TLS
-  backend;
-- `secret-tool` from `libsecret` for protecting credentials with Secret
-  Service/KWallet. QPlayer still runs without it, but falls back to an
-  owner-readable local key.
-
-Package names vary by distribution. Common Debian/Ubuntu names are `libgl1`,
-`libegl1`, `libvulkan1`, `libfontconfig1`, `libpipewire-0.3-0`, `libpulse0`,
-`libasound2`, `libgtk-3-0`, `libcairo2`, `libx11-6`, `libwebkit2gtk-4.1-0`,
-`glib-networking`, `libstdc++6` and `libsecret-tools` (newer releases may use
-`t64` suffixes).
-
-NixOS does not expose these libraries through a global dynamic-linker search path.
-When launching Maven/Java, add the `lib` directories from `libglvnd`,
-`vulkan-loader`, `pipewire`, `libpulseaudio`, `alsa-lib`, `fontconfig`, `glib`,
-`gtk3`, `cairo`, `libx11`, `webkitgtk_4_1` and `stdenv.cc.cc.lib` to
-`LD_LIBRARY_PATH`. **Append** `${glib-networking}/lib/gio/modules` to
-`GIO_EXTRA_MODULES` so existing modules such as dconf remain available, and put
-`libsecret` on `PATH` so QPlayer can find `secret-tool`.
-
 ```sh
-# build once (player-core / desktop-host)
-mvn -q -pl player-core,desktop-host -am install
-
-# run (OpenGL by default)
+mvn -q -pl desktop-host -am install
 mvn -pl desktop-host exec:exec
-
-# switch to Vulkan / set the initial window size (try the breakpoints)
-mvn -pl desktop-host exec:exec -Dgfx=vulkan
-mvn -pl desktop-host exec:exec -Dwin.w=480 -Dwin.h=800   # narrow (bottom bar)
 ```
 
-> The close button minimizes to the tray (the render thread is destroyed, audio keeps
-> playing); only "Quit" from the tray exits. On macOS, JVM development runs require
-> `-XstartOnFirstThread`; native executables do not use that launcher option.
+JVM runs on macOS require `-XstartOnFirstThread`. Native packages use GraalVM; see the [desktop release guide](desktop-host/dist/README.md).
 
-**Native desktop distribution (GraalVM Native Image)**
+### Documentation
 
-Use **GraalVM Community 25 Innovation 4**, a C/C++ toolchain, and CMake. Linux also requires `pkg-config` and development packages for zlib, GTK 3, WebKitGTK 4.1, and X11. Windows requires MSVC and the WebView2 SDK. macOS requires Xcode Command Line Tools. See the [desktop release guide](desktop-host/dist/README.md) for the pinned compiler version.
+- [Plugin development](docs/plugins.md) · [Plugin template](https://github.com/TIMER-err/qplayer-plugin-template)
+- [Plugin permissions and security](docs/plugin-security.md)
+- [Miuix interface](docs/miuix-ui.md)
 
-Users do not install Java. Native Image does not cross-compile: **build each platform and architecture on its target system**.
+Login credentials are encrypted, preferably using the system credential store, with an explicit local-key fallback when unavailable. This protects files at rest, not against same-user malware, root/administrator access or live-memory reads. See the security model for details.
 
-```sh
-# 1) install the shared module
-mvn -DskipTests -pl player-core -am install
+### Releasing
 
-# 2) compile QML and build target/qplayer (qplayer.exe on Windows)
-mvn -DskipTests -pl desktop-host -am -Pdist package
-
-# 3) package the native executable and licenses
-bash       desktop-host/dist/package-linux.sh      # Linux   → target/QPlayer-x86_64.AppImage (single file)
-pwsh -File desktop-host/dist/package-windows.ps1   # Windows → target/QPlayer-windows-x64.zip
-bash       desktop-host/dist/package-macos.sh      # macOS   → target/QPlayer.dmg (host arch)
-```
-
-> `qml-aot-tool` and the native WebView build generate reflection, JNI, and resource metadata. Exercise new dynamic entry points in the native executable. File dialogs use native OS APIs. WebView retains the original system engines through standalone JNI, without the Swing layer.
-> Public macOS distribution requires Developer ID signing and notarization.
-> On a `v*` tag, `.github/workflows/release.yml` runs all of the above across the
-> three-platform CI and attaches the artifacts to the GitHub Release.
-
-## Releasing
-
-The version lives in **two** places and both must be kept in sync:
-
-- `android-shell/app/build.gradle.kts` — `versionCode` (integer, +1 each time) and
-  `versionName`
-- `desktop-host/pom.xml` — `<qplayer.app.version>` (desktop bundle version)
-
-Commit, then tag and push `v<versionName>` to trigger `release.yml`: the signed APK
-and three desktop bundles build and attach to the Release. CI reads the `qml4j-core`
-version from `build.gradle.kts` and builds that engine from its matching `v*` tag.
+Keep `versionName` in `android-shell/app/build.gradle.kts` and `qplayer.app.version` in `desktop-host/pom.xml` in sync, and increment Android `versionCode`. Pushing a `v<versionName>` tag builds and publishes Android and all three desktop platforms.
 
 ## Credits
 
 - [qml4j](https://github.com/TIMER-err/qml4j) — the pure-Java QML engine that runs the UI.
 - [Skija](https://github.com/HumbleUI/Skija) — Skia bindings for the JVM; the renderer and the host-drawn lyric page both draw through it.
-- [material-components-qml](https://github.com/sudoevolve/material-components-qml) — the Material 3 QML component library (`md3.Core`) the UI is built from, vendored and engine-adapted.
+- [miuix-qml](https://github.com/TIMER-err/miuix-qml) — the Miuix QML component library, based on [compose-miuix-ui/miuix](https://github.com/compose-miuix-ui/miuix).
 - [SPlayer](https://github.com/imsyy/SPlayer) — visual and implementation reference for the fluid lyrics backdrop.
 - [AMLL](https://github.com/amll-dev/amll-player) — design reference for Apple Music-style lyrics and fluid backdrops.
 - [swingwebview](https://github.com/webliteca/swingwebview) — its native system WebView backends, hosted through standalone JNI without the Swing layer.

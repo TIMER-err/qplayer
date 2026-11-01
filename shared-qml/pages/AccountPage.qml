@@ -66,7 +66,7 @@ Rectangle {
                 spacing: 16
 
                 // --- profile header ------------------------------------
-                // The primary source's signed-in user. Hidden when there is no
+                // The primary source's last confirmed signed-in user. Hidden when there is no
                 // session to describe -- an empty avatar over "匿名 / Lv.0" says
                 // nothing the signed-out row below doesn't already say better.
                 Rectangle {
@@ -253,10 +253,12 @@ Rectangle {
                             anchors.top: parent.top
                             anchors.topMargin: 16
                             elide: Text.ElideRight
-                            text: modelData.loggedIn
-                                  ? (modelData.displayName.length > 0
-                                     ? modelData.displayName : i18n.t("account.anonymous"))
-                                  : i18n.t("account.source.signedOut")
+                            text: modelData.accountError
+                                  ? i18n.t("account.source.unavailable")
+                                  : (modelData.loggedIn
+                                     ? (modelData.displayName.length > 0
+                                        ? modelData.displayName : i18n.t("account.anonymous"))
+                                     : i18n.t("account.source.signedOut"))
                             color: modelData.loggedIn ? Theme.color.onSurfaceColor
                                                       : Theme.color.onSurfaceVariantColor
                             font.family: Theme.typography.titleSmall.family
@@ -310,8 +312,8 @@ Rectangle {
                 }
 
                 // --- stats ---------------------------------------------
-                // Counts belong to the primary source's session, so they hide
-                // with the header rather than reading a confident "0 / 0".
+                // Counts aggregate the sources' playlists and liked songs. They
+                // hide with the profile rather than reading a confident "0 / 0".
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.leftMargin: 12

@@ -235,8 +235,8 @@ public class LyricRenderer {
     /** HarfBuzz output for every final visual row. TextBlob and caret positions are
      * immutable and reused until a layout input changes; playback never reshapes. */
     private ShapedRow[][] cachedShapedRows;
-    /** Renderer-owned timing fragments used only when an oversized source token
-     * must be split at a Unicode/grapheme boundary to make wrapping possible. */
+    /** Renderer-owned timing fragments for oversized source tokens or explicit
+     * inner line breaks; the original source syllables and timings stay intact. */
     private List<List<Syllable>> cachedLayoutSyllables;
     // Per-syllable advances obtained from the full-line HarfBuzz result. These are
     // used only to choose wrap boundaries; actual drawing uses each row's TextBlob.

@@ -7,6 +7,8 @@ public final class SourceAccountRow {
     public String sourceName = "";
     public boolean primary;
     public boolean loggedIn;
+    /** The last account check failed; loggedIn/profile retain the last confirmed session. */
+    public boolean accountError;
     /** True when this source can create playlists (PLAYLIST_MUTATION), so the
      *  new-playlist dialog can offer it as a target. */
     public boolean canCreatePlaylist;

@@ -28,9 +28,14 @@ Set `JAVA_HOME` to that installation and put its `bin` directory on `PATH`.
 - **macOS:** Install Xcode Command Line Tools. The build targets macOS 13 or newer.
 
 The engine version has one source: `qml4j.version` in the root POM. Android reads
-that property too. All CI builds use `.github/actions/build-engine` to clone the
-matching tag and pin its POM versions before installation. This pin is required:
-an engine tag can still contain the previous release's Maven version.
+that property too. Both hosts consume
+`com.github.TIMER-err.qml4j:qml4j-core:0.2.35` from `https://jitpack.io`.
+The Maven artifact version is `0.2.35`; the Git release tag is `v0.2.35`. Maven enables only releases for
+this repository. Gradle routes only the exact `com.github.TIMER-err.qml4j` group
+to JitPack through `exclusiveContent`; other dependencies keep their existing
+repositories, including Maven Central. `qml-aot-tool` gets the same engine
+transitively through `player-core`. CI resolves the published artifacts directly;
+it does not clone or install engine sources, and there is no source-build fallback.
 
 ```sh
 # Install player-core for consumers outside this Maven reactor, including Android.
@@ -67,8 +72,7 @@ desktop-host/target/qplayer --build-smoke
 The smoke uses a temporary empty profile and does not create a window or start
 audio playback. It is not a substitute for platform WebView, tray, file-dialog,
 or audio integration tests. Release CI runs it on each native target before
-packaging. Debug and release jobs also depend on the shared project behavior
-workflow; Android jobs run `:app:testDebugUnitTest` before assembly.
+packaging. Run the behavior gate above locally before publishing changes.
 
 For a nonstandard SDK layout, pass its native library directories explicitly:
 
@@ -78,8 +82,29 @@ mvn -DskipTests -pl desktop-host -am -Pdist package \
 ```
 
 Multiple library directories use a comma separator. On NixOS, also expose the
-native development packages through `PKG_CONFIG_PATH`. Runtime library and TLS
-module requirements are listed in the root README.
+native development packages through `PKG_CONFIG_PATH`.
+
+## Linux runtime dependencies
+
+Source runs and AppImages use the host graphics, audio, and WebView libraries:
+
+- OpenGL/EGL, Vulkan loader, Fontconfig, and the C++ runtime;
+- PipeWire, PulseAudio, or ALSA client libraries for audio output;
+- GLib/GIO, GTK 3, Cairo, and X11 for desktop integration;
+- WebKitGTK 4.1 and `glib-networking` for the login WebView and HTTPS;
+- `secret-tool` from `libsecret` for Secret Service/KWallet credential storage.
+  Without it, users can explicitly accept an owner-readable local key.
+
+Debian/Ubuntu package names include `libgl1`, `libegl1`, `libvulkan1`,
+`libfontconfig1`, `libpipewire-0.3-0`, `libpulse0`, `libasound2`, `libgtk-3-0`,
+`libcairo2`, `libx11-6`, `libwebkit2gtk-4.1-0`, `glib-networking`, `libstdc++6`,
+and `libsecret-tools`. Newer distributions may use `t64` suffixes.
+
+On NixOS, add the `lib` directories from `libglvnd`, `vulkan-loader`, `pipewire`,
+`libpulseaudio`, `alsa-lib`, `fontconfig`, `glib`, `gtk3`, `cairo`, `libx11`,
+`webkitgtk_4_1`, and `stdenv.cc.cc.lib` to `LD_LIBRARY_PATH`.
+Append `${glib-networking}/lib/gio/modules` to `GIO_EXTRA_MODULES`, preserving
+existing modules such as dconf. Put `libsecret` on `PATH` to expose `secret-tool`.
 
 ## Package
 

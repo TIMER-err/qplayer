@@ -2,7 +2,7 @@ plugins {
     id("com.android.application")
 }
 
-// One version source for Maven, Android, and the source-build CI recipe.
+// One engine version source for Maven, Android, and CI.
 val qplayerPom = javax.xml.parsers.DocumentBuilderFactory.newInstance()
     .newDocumentBuilder().parse(file("${rootDir}/../pom.xml"))
 val qml4jVersion = qplayerPom.getElementsByTagName("qml4j.version").item(0).textContent.trim()
@@ -16,8 +16,8 @@ android {
         applicationId = "dev.t1m3.qplayer"
         minSdk = 26
         targetSdk = 34
-        versionCode = 104
-        versionName = "1.9.5"
+        versionCode = 105
+        versionName = "1.9.6"
         manifestPlaceholders["appLabel"] = "QPlayer"
     }
 
@@ -167,7 +167,7 @@ dependencies {
         .builtBy(generateBundledQml))
 
     // The RECODE refactor merged parser/engine/compiler/render into one module.
-    implementation("io.github.timer-err:qml4j-core:$qml4jVersion")
+    implementation("com.github.TIMER-err.qml4j:qml4j-core:$qml4jVersion")
 
     // Our platform-neutral player core (netease + lyrics + audio abstraction +
     // QML bridge). Pulls gson + zxing-core transitively; all Android-dexable.

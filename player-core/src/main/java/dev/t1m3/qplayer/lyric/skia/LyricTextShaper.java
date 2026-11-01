@@ -9,8 +9,10 @@ import io.github.humbleui.skija.Shader;
 import io.github.humbleui.skija.TextBlob;
 import io.github.humbleui.skija.TextLine;
 import io.github.humbleui.skija.shaper.Shaper;
+import io.github.timer_err.qml4j.render.text.UnicodeBreaks;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -34,10 +36,18 @@ final class LyricTextShaper implements AutoCloseable {
     List<Syllable> splitOversizedSyllables(List<Syllable> source, Font font,
                                            float maxWidth) {
         if (source == null || source.isEmpty() || maxWidth <= 0f) return source;
+        StringBuilder text = new StringBuilder();
+        for (Syllable syllable : source) {
+            if (syllable.text != null) text.append(syllable.text);
+        }
+        UnicodeBreaks.Analysis breaks = UnicodeBreaks.analyze(text.toString());
         ArrayList<Syllable> result = null;
+        int offset = 0;
         for (int sourceIndex = 0; sourceIndex < source.size(); sourceIndex++) {
             Syllable syllable = source.get(sourceIndex);
-            List<Syllable> fragments = splitOversizedSyllable(syllable, font, maxWidth);
+            List<Syllable> fragments = splitOversizedSyllable(
+                    syllable, font, maxWidth, breaks, offset);
+            if (syllable.text != null) offset += syllable.text.length();
             if (fragments == null) {
                 if (result != null) result.add(syllable);
                 continue;
@@ -51,72 +61,71 @@ final class LyricTextShaper implements AutoCloseable {
         return result == null ? source : result;
     }
 
-    /** Returns null when no split is necessary. */
+    /** Returns null when neither an oversized token nor an inner hard break needs splitting. */
     private List<Syllable> splitOversizedSyllable(Syllable syllable, Font font,
-                                                  float maxWidth) {
+                                                  float maxWidth,
+                                                  UnicodeBreaks.Analysis breaks,
+                                                  int sourceOffset) {
         String text = syllable.text == null ? "" : syllable.text;
         if (text.isEmpty()) return null;
-        try (TextLine line = shapeLine(text, font)) {
-            if (line.getWidth() <= maxWidth + 0.5f) return null;
-
-            boolean[] preferred = LyricTextLayout.unicodeLineBreakOffsets(text);
-            int[] graphemes = LyricTextLayout.graphemeBoundaries(text);
-            boolean usableCaretWidths = false;
-            float origin = line.getCoordAtOffset(0);
-            for (int i = 1; i + 1 < graphemes.length; i++) {
-                if (Math.abs(line.getCoordAtOffset(graphemes[i]) - origin) > 0.01f) {
-                    usableCaretWidths = true;
-                    break;
-                }
+        boolean hardBreakInside = false;
+        for (int i = sourceOffset + 1; i < sourceOffset + text.length(); i++) {
+            if (breaks.mandatory[i]) {
+                hardBreakInside = true;
+                break;
             }
-            ArrayList<Syllable> out = new ArrayList<>();
-            int start = 0;
-            while (start < text.length()) {
-                int bestPreferred = -1;
-                int bestGrapheme = -1;
-                for (int boundary : graphemes) {
-                    if (boundary <= start) continue;
-                    float width;
-                    if (usableCaretWidths) {
-                        width = Math.abs(line.getCoordAtOffset(boundary)
-                                - line.getCoordAtOffset(start));
-                    } else {
-                        try (TextLine fragment = shapeLine(text.substring(start, boundary), font)) {
-                            width = fragment.getWidth();
-                        }
-                    }
-                    if (width <= maxWidth + 0.5f || bestGrapheme < 0) {
-                        bestGrapheme = boundary;
-                        if (preferred[boundary]) bestPreferred = boundary;
-                    } else {
-                        break;
-                    }
-                }
-                int end = bestPreferred > start ? bestPreferred : bestGrapheme;
-                if (end <= start) {
-                    int codePoint = text.codePointAt(start);
-                    end = start + Character.charCount(codePoint);
-                }
-
-                double startProgress = start / (double) text.length();
-                double endProgress = end / (double) text.length();
-                long fragmentStart = syllable.startMs
-                        + Math.round(syllable.durationMs * startProgress);
-                long fragmentEnd = end == text.length()
-                        ? syllable.startMs + syllable.durationMs
-                        : syllable.startMs + Math.round(syllable.durationMs * endProgress);
-                out.add(new Syllable(text.substring(start, end), fragmentStart,
-                        Math.max(0L, fragmentEnd - fragmentStart)));
-                start = end;
-            }
-            return out.size() <= 1 ? null : out;
         }
+        try (TextLine line = shapeLine(text, font)) {
+            if (!hardBreakInside && line.getWidth() <= maxWidth + 0.5f) return null;
+            // Use the complete source's boundaries: a source syllable may end in
+            // the middle of a grapheme or next to a non-breaking joiner.
+            int first = Arrays.binarySearch(breaks.graphemes, sourceOffset);
+            first = first >= 0 ? first + 1 : -first - 1;
+            int last = first;
+            int sourceEnd = sourceOffset + text.length();
+            while (last < breaks.graphemes.length && breaks.graphemes[last] < sourceEnd) last++;
+            int[] offsets = new int[last - first + 2];
+            offsets[0] = sourceOffset;
+            System.arraycopy(breaks.graphemes, first, offsets, 1, last - first);
+            offsets[offsets.length - 1] = sourceEnd;
+            float[] widths = measureAdvances(text, font, line, offsets, sourceOffset);
+            int[] starts = LyricTextLayout.wrapStarts(breaks, offsets, widths, maxWidth);
+            if (starts.length <= 2) return null;
+            int[] fragments = new int[starts.length];
+            for (int i = 0; i < starts.length; i++) fragments[i] = offsets[starts[i]] - sourceOffset;
+            return LyricTextLayout.splitTimedSyllable(syllable, fragments);
+        }
+    }
+
+    /** Reuses one HarfBuzz result; collapsed carets are measured once per unit. */
+    private float[] measureAdvances(String text, Font font, TextLine line,
+                                    int[] offsets, int origin) {
+        float[] widths = new float[offsets.length - 1];
+        float measuredTotal = 0f;
+        int nonZeroAdvances = 0;
+        for (int i = 0; i < widths.length; i++) {
+            widths[i] = Math.abs(line.getCoordAtOffset(offsets[i + 1] - origin)
+                    - line.getCoordAtOffset(offsets[i] - origin));
+            measuredTotal += widths[i];
+            if (widths[i] > 0.01f) nonZeroAdvances++;
+        }
+        float tolerance = Math.max(1f, line.getWidth() * 0.02f);
+        boolean collapsedCarets = widths.length > 1 && nonZeroAdvances <= 1 && line.getWidth() > 0.01f;
+        if (collapsedCarets || Math.abs(measuredTotal - line.getWidth()) > tolerance) {
+            for (int i = 0; i < widths.length; i++) {
+                int start = offsets[i] - origin;
+                int end = LyricTextLayout.visibleRowEnd(text, start, offsets[i + 1] - origin);
+                try (TextLine unit = shapeLine(text.substring(start, end), font)) {
+                    widths[i] = unit.getWidth();
+                }
+            }
+        }
+        return widths;
     }
 
     float[] shapeSyllableAdvances(List<Syllable> syllables, Font font) {
         int count = syllables.size();
-        float[] widths = new float[count];
-        if (count == 0) return widths;
+        if (count == 0) return new float[0];
         StringBuilder text = new StringBuilder();
         int[] offsets = new int[count + 1];
         for (int i = 0; i < count; i++) {
@@ -125,27 +134,10 @@ final class LyricTextShaper implements AutoCloseable {
             if (value != null) text.append(value);
         }
         offsets[count] = text.length();
-        try (TextLine line = shapeLine(text.toString(), font)) {
-            float measuredTotal = 0f;
-            int nonZeroAdvances = 0;
-            for (int i = 0; i < count; i++) {
-                widths[i] = Math.abs(
-                        line.getCoordAtOffset(offsets[i + 1]) - line.getCoordAtOffset(offsets[i]));
-                measuredTotal += widths[i];
-                if (widths[i] > 0.01f) nonZeroAdvances++;
-            }
-            float tolerance = Math.max(1f, line.getWidth() * 0.02f);
-            boolean collapsedCarets = count > 1 && nonZeroAdvances <= 1 && line.getWidth() > 0.01f;
-            if (collapsedCarets || Math.abs(measuredTotal - line.getWidth()) > tolerance) {
-                for (int i = 0; i < count; i++) {
-                    String value = syllables.get(i).text;
-                    try (TextLine segment = shapeLine(value == null ? "" : value, font)) {
-                        widths[i] = segment.getWidth();
-                    }
-                }
-            }
+        String sourceText = text.toString();
+        try (TextLine line = shapeLine(sourceText, font)) {
+            return measureAdvances(sourceText, font, line, offsets, 0);
         }
-        return widths;
     }
 
     ShapedRow shapeMainRow(List<Syllable> syllables, int from, int to, Font font) {
@@ -159,16 +151,21 @@ final class LyricTextShaper implements AutoCloseable {
         }
         offsets[count] = text.length();
 
-        try (TextLine line = shapeLine(text.toString(), font)) {
+        String sourceText = text.toString();
+        int visibleEnd = LyricTextLayout.visibleRowEnd(sourceText, 0, sourceText.length());
+        String rowText = sourceText.substring(0, visibleEnd);
+        try (TextLine line = shapeLine(rowText, font)) {
             float[] x = new float[count + 1];
-            for (int i = 0; i <= count; i++) x[i] = line.getCoordAtOffset(offsets[i]);
+            for (int i = 0; i <= count; i++) {
+                x[i] = line.getCoordAtOffset(Math.min(offsets[i], visibleEnd));
+            }
             int visibleOffset = 0;
-            while (visibleOffset < text.length()) {
-                int codePoint = text.codePointAt(visibleOffset);
+            while (visibleOffset < rowText.length()) {
+                int codePoint = rowText.codePointAt(visibleOffset);
                 if (!Character.isWhitespace(codePoint)) break;
                 visibleOffset += Character.charCount(codePoint);
             }
-            WordSpan[] words = buildWordSpans(text.toString(), offsets, line);
+            WordSpan[] words = buildWordSpans(rowText, offsets, line);
             return new ShapedRow(from, to, line.getTextBlob(), line.getWidth(),
                     line.getCoordAtOffset(visibleOffset), x, words);
         }
@@ -176,37 +173,16 @@ final class LyricTextShaper implements AutoCloseable {
 
     ShapedText[] shapeWrappedText(String text, Font font, float maxWidth) {
         if (text == null || text.isEmpty()) return new ShapedText[]{shapeText("", font)};
+        UnicodeBreaks.Analysis breaks = UnicodeBreaks.analyze(text);
+        int[] offsets = breaks.graphemes;
         ArrayList<ShapedText> rows = new ArrayList<>();
         try (TextLine full = shapeLine(text, font)) {
-            int start = 0;
-            while (start < text.length()) {
-                float startX = full.getCoordAtOffset(start);
-                int best = start;
-                int bestBreak = -1;
-                int cursor = start;
-                while (cursor < text.length()) {
-                    int codePoint = text.codePointAt(cursor);
-                    int next = cursor + Character.charCount(codePoint);
-                    if (Character.isWhitespace(codePoint)) bestBreak = cursor;
-                    if (full.getCoordAtOffset(next) - startX > maxWidth && cursor > start) break;
-                    best = next;
-                    cursor = next;
-                }
-                int end = best;
-                int nextStart = best;
-                if (cursor < text.length() && bestBreak > start) {
-                    end = bestBreak;
-                    nextStart = bestBreak;
-                    while (nextStart < text.length()
-                            && Character.isWhitespace(text.codePointAt(nextStart))) {
-                        nextStart += Character.charCount(text.codePointAt(nextStart));
-                    }
-                }
-                if (end <= start) {
-                    end = Math.min(text.length(), start + Character.charCount(text.codePointAt(start)));
-                }
+            float[] widths = measureAdvances(text, font, full, offsets, 0);
+            int[] starts = LyricTextLayout.wrapTextStarts(breaks, widths, maxWidth);
+            for (int i = 0; i + 1 < starts.length; i++) {
+                int start = starts[i];
+                int end = LyricTextLayout.visibleRowEnd(text, start, starts[i + 1]);
                 rows.add(shapeText(text.substring(start, end), font));
-                start = Math.max(end, nextStart);
             }
         }
         return rows.toArray(new ShapedText[0]);

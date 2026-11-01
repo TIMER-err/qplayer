@@ -145,6 +145,12 @@ public final class TemperaMeasure {
         /** 源偏移，用于区分真正的空格与单纯的分词边界。 */
         public int startOffset;
         public int endOffset;
+        /** 当前字素切片之后的共享 Unicode 断行机会，仅在布局构建时读取。 */
+        public boolean lineBreakAfter;
+        public boolean emergencyBreakAfter;
+        public boolean mandatoryBreakAfter;
+        /** 在原词里的字素下标，拆行后仍使用同一套入场随机数。 */
+        public int glyphStart;
         /** 该词之前要插入的水平空隙，单位像素。 */
         public float leadingGap;
         public float scale;

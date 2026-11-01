@@ -24,7 +24,7 @@
         <!-- QML engine: the reactive Property bridge to QML + Renderer/QmlView used
              by the host-drawn lyric compositor. -->
         <dependency>
-            <groupId>io.github.timer-err</groupId>
+            <groupId>com.github.TIMER-err.qml4j</groupId>
             <artifactId>qml4j-core</artifactId>
         </dependency>
 

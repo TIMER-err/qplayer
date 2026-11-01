@@ -19,6 +19,7 @@ Rectangle {
     property bool loginOpen: false
     property bool showLog: false
     property bool volumeOpen: false
+    property bool sleepTimerOpen: false
     // Full-screen destinations share one navigation stack. Each drill-in keeps
     // its source underneath, so queue -> artist -> back restores the queue. Artist
     // and album routes also retain their ids, allowing deeper navigation to restore
@@ -83,6 +84,7 @@ Rectangle {
             out.push({ action: "plugin", icon: item.icon, text: item.label,
                        pluginId: item.pluginId, contributionId: item.id })
         }
+        out.push({ action: "sleepTimer", icon: "bedtime", text: i18n.t("sleepTimer.title") })
         out.push({ action: "account", icon: player.loggedIn ? "account_circle" : "login",
                    text: i18n.t(player.loggedIn ? "account.title" : "nav.signIn") })
         out.push({ action: "settings", icon: "settings", text: i18n.t("nav.settings") })
@@ -588,6 +590,7 @@ Rectangle {
             var items = [
                 {text: i18n.t("nav.downloaded"), icon: "download", action: function() { player.refreshCachedSongs(); app.replacePage("cachedSongs", 0) }},
                 {text: i18n.t("nav.account"), icon: "account_circle", action: function() { app.replacePage("account", 0) }},
+                {text: i18n.t("sleepTimer.title"), icon: "bedtime", action: function() { app.sleepTimerOpen = true }},
                 {text: i18n.t("nav.settings"), icon: "settings", action: function() { app.replacePage("settings", 0) }}
             ]
             if (settings.has("desktopLyricEnabled")) items.push({text: i18n.t("settings.desktopLyric.title"), icon: "subtitles", action: function() { settings.setValue("desktopLyricEnabled", !settings.value("desktopLyricEnabled")) }})
@@ -903,6 +906,11 @@ Rectangle {
         onClosed: app.volumeOpen = false
     }
 
+    SleepTimerDialog {
+        active: app.sleepTimerOpen
+        onClosed: app.sleepTimerOpen = false
+    }
+
     SongArtistsDialog {
         id: songArtistsDialog
         active: player.songArtistPickerOpen && player.lyricSlide <= 0.001
@@ -946,6 +954,7 @@ Rectangle {
 
     ToastStack {
         id: snack
+        visible: player.lyricSlide <= 0.001
         anchors.left: rail.right
         anchors.right: parent.right
         anchors.leftMargin: 16

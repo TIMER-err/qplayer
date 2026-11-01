@@ -159,6 +159,8 @@ Item {
                         } else if (modelData.action === "plugin") {
                             player.requestPluginUi(modelData.pluginId,
                                                    modelData.contributionId)
+                        } else if (modelData.action === "sleepTimer") {
+                            rail.pageManager.sleepTimerOpen = true
                         } else if (modelData.action === "account") {
                             // Also when signed out: the account page lists one
                             // row per installed source and signing in lives

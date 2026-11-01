@@ -20,7 +20,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>8</maven.compiler.release>
 
-        <qml4j.version>0.2.33</qml4j.version>
+        <qml4j.version>0.2.35</qml4j.version>
         <skija.version>0.143.17</skija.version>
         <gson.version>2.10.1</gson.version>
         <jaudiotagger.version>3.0.1</jaudiotagger.version>
@@ -28,10 +28,30 @@
         <okhttp.version>5.5.1</okhttp.version>
     </properties>
 
+    <repositories>
+        <repository>
+            <id>central</id>
+            <url>https://repo.maven.apache.org/maven2</url>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </repository>
+        <repository>
+            <id>jitpack</id>
+            <url>https://jitpack.io</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </repository>
+    </repositories>
+
     <dependencyManagement>
         <dependencies>
             <dependency>
-                <groupId>io.github.timer-err</groupId>
+                <groupId>com.github.TIMER-err.qml4j</groupId>
                 <artifactId>qml4j-core</artifactId>
                 <version>${qml4j.version}</version>
             </dependency>

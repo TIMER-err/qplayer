@@ -105,6 +105,7 @@ Item {
 
     Item {
         id: card
+        objectName: "notificationCard"
         x: (row.width - width) / 2
         y: row._offsetY
         width: Math.max(0, Math.min(520, row.width))
@@ -155,6 +156,7 @@ Item {
 
         Item {
             id: dismiss
+            objectName: "notificationDismiss"
             x: parent.width - width - 10
             y: (parent.height - height) / 2
             width: 36

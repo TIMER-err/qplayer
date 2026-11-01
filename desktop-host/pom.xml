@@ -28,11 +28,9 @@
         <log4j.version>2.25.5</log4j.version>
         <jna.version>5.14.0</jna.version>
         <native.buildtools.version>1.1.17</native.buildtools.version>
-        <!-- App version baked into version.properties (read by Main → the update
-             check). Local dev default; the release workflow overrides it with the
-             git tag (-Dqplayer.app.version=…) so release binaries match the tag
-             without a committed bump, like the macOS/Windows packagers. -->
-        <qplayer.app.version>1.9.5</qplayer.app.version>
+        <!-- Keep this version aligned with Android versionName. The release workflow
+             also passes the tag version explicitly when compiling native packages. -->
+        <qplayer.app.version>1.9.6</qplayer.app.version>
         <!-- exec:exec run knobs. Empty gfx means use the persisted in-app setting;
              pass -Dgfx=gl|vulkan only when an explicit development override is
              wanted. -->
@@ -248,7 +246,7 @@
 
         <!-- QML engine + desktop-native Skija (provided by engine as `provided`) -->
         <dependency>
-            <groupId>io.github.timer-err</groupId>
+            <groupId>com.github.TIMER-err.qml4j</groupId>
             <artifactId>qml4j-core</artifactId>
         </dependency>
         <dependency>

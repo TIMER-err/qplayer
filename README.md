@@ -59,199 +59,69 @@
   <a href="https://ifdian.net/a/TIMER_err"><img src="https://raw.githubusercontent.com/TIMER-err/qplayer/out/sponsor/afdian-sponsor.svg" width="180" alt="爱发电赞助者"></a>
 </p>
 
-## 结构
+## 功能
 
-QPlayer 由一个播放器外壳和一套插件系统组成。
+- 本地音乐库、播放队列、循环与随机播放、睡眠定时。
+- 逐字歌词、翻译与罗马音、流体背景；Android 支持[词幕](https://github.com/tomakino/lyricon)。
+- 自适应手机、平板与桌面的 Miuix 界面，支持深浅主题、动态配色和可选的液态玻璃。
+- 桌面托盘、系统媒体控制；Android 锁屏、通知栏与蓝牙控制。
+- 通过插件扩展在线音源、搜索、歌单与账号功能。
 
-QPlayer 本体不包含在线音源，也不分发音源代码。安装 JavaScript 音源插件后，推荐、
-聚合搜索、歌单、登录、喜欢、最近播放、心动模式等页面才会出现；界面按插件声明的能力
-自动显隐，与原生页面一致。未安装插件时，它是一个本地播放器。
+QPlayer 不内置在线音源。未安装音源插件时，它是本地播放器；插件权限在安装时由用户确认。
 
-这条边界决定了后续设计：插件运行在隔离的 Rhino Realm 中，只有清单声明并经用户确认的
-权限才生效；插件返回的每个字段都要通过宿主校验；插件不提供 QML，只能声明对话框的
-内容，具体渲染由 QPlayer 用自身组件完成。
+## 下载
 
-## 特性
+从 [Releases](https://github.com/TIMER-err/qplayer/releases) 下载 Android APK 或对应平台的桌面包。桌面版无需安装 Java。
 
-**播放**　本地媒体库、播放队列、三种播放模式（列表循环 / 随机 / 单曲循环）。在线内容
-统一使用 `provider:kind:id` 标识，避免多平台 ID 冲突。前台 `MediaSession` 服务接管
-锁屏、通知栏与蓝牙控制，处理自动续播、进度同步、来电暂停与失焦降音。
-歌曲信息和歌词在后台同步更新，返回前台后保留当前曲目状态。
-Android 在线播放的后台缓存完成后不会重新起播。缓冲或停滞时，才从完整缓存恢复，
-并在跳转完成后从原进度继续播放。
+Linux 运行依赖及各平台打包要求见[桌面说明](desktop-host/dist/README.md)。
 
-**歌词页**　由宿主通过 Skija 直接绘制，不经 QML：逐字滚动、基于封面取色的流体背景、
-罗马音与翻译、Material 波浪进度条。歌词内容来自当前音源插件或本地文件。安卓端原生对接
-[词幕](https://github.com/tomakino/lyricon)，把逐字歌词、翻译和罗马音推到状态栏。
-词幕的歌曲、歌词与进度由播放服务同步；退到后台、后台切歌或歌词延迟加载后仍会更新，不依赖界面渲染线程。
+## 开发
 
-**界面**　整套 UI 使用 Miuix QML（`miuix.Core`），运行在 qml4j 引擎上，通过内置 `StyleManager` 将封面颜色映射到 Miuix 莫奈配色（可关闭），
-支持深色 / 浅色 / 跟随系统，以及简体中文与英文。布局由宽度
-驱动（断点 600 / 840）：窄屏使用底部导航，宽屏切换为左侧 `NavigationRail`，歌单
-栅格列数随宽度增减，因此安卓横屏与平板无需单独适配。设置页始终使用单列分组，相关设置共用一个卡片；歌曲、歌单、搜索结果和选择器采用窗口化虚拟列表。随包 QML 组件在构建期编译，两端运行时只装载预编译类。Android 启动画面与原生加载层覆盖首次界面装载，不暴露尚未绘制的 GL 黑帧。
-
-界面迁移说明见 [Miuix 界面](docs/miuix-ui.md)。
-
-**桌面端**　同一套 QML 与 `player-core` 运行在 LWJGL3 + GLFW 上，由 Skija 渲染。
-OpenGL 与 Vulkan 后端可在启动时切换。MiniPlayer 仅显示音量按钮，点击后在上方弹出层调节 QPlayer 音量，不改变系统音量；移动端入口位于页面顶部。
-任务栏图标与系统托盘菜单镜像播放控制；
-最小化到托盘时销毁渲染线程与 GPU 资源、恢复时重建，播放与界面状态保留。`F11` 在当前显示器切换独占全屏，进入后会短暂提示“按住 Esc 退出全屏”；持续按住 `Esc` 1.2 秒会显示进度并退出，提前松开只取消操作。
-退出全屏会恢复原窗口尺寸或最大化状态；DPI 变化即使未触发窗口尺寸回调，也会同步更新逻辑布局与渲染比例，避免界面裁切或留白。
-桌面音频由 OpenAL Soft 输出，跟随系统默认输出设备；设备断连时保留当前曲目和进度，恢复后从原位置继续，暂停状态不变。
-带有前置 ID3v2 标签的 FLAC 可正常播放、跳转及结束，不会误入 MP3 解码。
-
-**插件安全**　签名 `.qplug` 包，内置源仓库与发布者公钥固定在程序内，安装时列出权限
-供用户确认，按插件隔离的 Rhino Realm、域名白名单与命名空间凭据库。插件对话框由插件
-声明、QPlayer 渲染，因此跟随应用主题，且无法模仿未被授予的宿主界面。
-
-## 凭据存储与安全边界
-
-QPlayer 用带完整性验证的 AES-GCM 加密各插件的登录凭据，并按插件命名空间隔离；随机数据
-密钥尽可能交给 Android Keystore、macOS Keychain、Windows DPAPI 或 Linux Secret
-Service/KWallet 保管。系统密码库不可用时，用户可以明确选择回退到仅当前用户可读的本地密钥。
-
-这项功能的目标是**静态文件保护**，而不是本机恶意软件防护。它可以降低凭据文件、配置
-目录、备份或旧硬盘被单独复制后直接恢复登录状态的风险，也可阻止其他未提权系统账户直接
-读取凭据。
-
-> [!IMPORTANT]
-> Windows DPAPI 和 Linux Secret Service/KWallet 的安全边界主要是当前用户/登录会话，
-> 并不保证 QPlayer 独占访问——以同一用户身份运行的其他程序可能调用同样的系统接口，密码库
-> 已解锁时尤其如此。桌面端的普通加密回退模式主要依赖文件权限，同样防不住同用户的程序。
-> Android 应用沙箱和 macOS Keychain 的应用访问控制提供了更强的应用级隔离，但 root/管理员
-> 权限、进程注入、调试和读取 QPlayer 运行时内存，都不在保护范围内。
-
-## 仓库结构
-
-| 模块 | 说明 |
+| 模块 | 用途 |
 |---|---|
-| `player-core/` | 跨平台核心（Maven，`dev.t1m3.qplayer`）：面向 QML 的 `PlayerController`、插件 ABI 与沙箱、歌词解析（LRC / YRC / TTML）、音频与元数据抽象，以及宿主绘制的歌词页。**不含任何在线音源端点或协议实现**。 |
-| `shared-qml/` | 共享 QML：`Main.qml` + 各页面 + 组件、vendored 的 `miuix.Core` 组件库、内置字体（PingFang / Material Symbols）。放在仓库根目录，两端加载同一份，响应式布局因此天然通用。 |
-| `qml-aot-tool/` | 仅构建期使用的 QML 编译器与 Native Image 元数据生成器。生成组件类、场景清单和反射配置，不进入 APK 或桌面运行时。 |
-| `android-shell/` | 安卓应用（Gradle，`applicationId dev.t1m3.qplayer`，minSdk 26）。宿主集成在 `…/android/`，界面与歌词都来自上面两个模块。 |
-| `desktop-host/` | 桌面宿主（Maven）：LWJGL3 + GLFW 开窗、Skija 渲染、可切换的 `GraphicsBackend`、可销毁重建的渲染线程、系统托盘，以及桌面音频（OpenAL Soft 输出 + PCM 解码）。 |
-| [qml4j](https://github.com/TIMER-err/qml4j) | QML 引擎。是一个已发布的依赖，**不在**本仓库内。 |
+| `player-core/` | 共享播放逻辑、插件系统与歌词 |
+| `shared-qml/` | 共享界面、组件与字体 |
+| `qml-aot-tool/` | 构建期 QML 编译与原生元数据生成 |
+| `android-shell/` | Android 宿主 |
+| `desktop-host/` | 桌面宿主与原生打包 |
 
-`qml4j-core` 从 Maven Central 解析，`player-core` / `desktop-host` 本地构建。
+界面引擎 [qml4j](https://github.com/TIMER-err/qml4j) 通过 JitPack 依赖 `com.github.TIMER-err.qml4j:qml4j-core` 使用，版本统一读取根 POM 的 `qml4j.version`，不包含在本仓库中。
 
-插件开发相关的 ABI、权限模型、媒体 ID、打包签名与迁移约定见
-[插件开发文档](docs/plugins.md) 和 [安全模型](docs/plugin-security.md)；
-另有可直接克隆的[插件模板仓库](https://github.com/TIMER-err/qplayer-plugin-template)。
+### 构建与运行
 
-## 构建
+需要 JDK 21、Maven；Android 构建还需 Android SDK。
 
-Android 与 JVM 开发需要 JDK 21、Maven；Android 还需 Android SDK。桌面原生分发包使用 GraalVM Community 25 Innovation 4，版本与 CI 保持一致。
-
-**安卓**
+**Android**
 
 ```sh
-# 把共享模块装进 Maven Local(安卓壳通过 mavenLocal 消费)
 mvn -q -pl player-core -am install
-
-# 构建 APK(qml4j-core 从 Maven Central 解析)
-cd android-shell && ./gradlew :app:assembleDebug
-# → app/build/outputs/apk/debug/app-debug.apk
-
-# 性能排查使用独立的 perf 包，复用 release 构建配置
-./gradlew :app:assemblePerf
-# → app/build/outputs/apk/perf/app-perf.apk
+cd android-shell
+./gradlew :app:assembleDebug
 ```
 
-只有 `perf` 变体允许 shell 性能采集，正式发布包不因此开启 profiling。首次安装或更新后，等待 `qplayer.lifecycle` 输出 `ready activity=...`，确认权限和插件提示已关闭，再比较相同页面与滚动操作，避免把首次界面装载或弹窗当成滚动耗时。Gradle 在构建主机编译全部随包 QML，再由常规 D8 步骤生成 DEX；应用内不再运行 D8，也没有动态编译回退。
-
-Android 测试包拥有独立沙箱。复制正式版的本地库缓存时，必须先将索引中的封面路径重定位到测试包目录，再以测试包 UID 写入对应缓存文件；直接保留 `/data/user/0/<正式包名>/…` 会因权限隔离而无法显示封面，测试包内未被正确引用的封面还可能被缓存清理。此操作只针对测试副本，不修改正式版数据。
+APK 位于 `android-shell/app/build/outputs/apk/debug/`。
 
 **桌面**
 
-Linux 从源码运行和发布版 AppImage 都依赖系统提供的原生库。AppImage 包含原生可执行文件，
-不包含 JVM，也不捆绑宿主的图形与 WebView 栈：
-
-- OpenGL/EGL、Vulkan Loader、Fontconfig 与 C++ 运行库：Skija/LWJGL 渲染；
-- GLib/GIO、GTK 3、Cairo 与 X11：MPRIS、系统托盘和 WebView；
-- WebKitGTK 4.1 与 `glib-networking`：登录 WebView 及其 HTTPS/TLS 后端；
-- `libsecret` 提供的 `secret-tool`：使用 Secret Service/KWallet 保护登录凭据。
-  没有它时播放器仍可运行，但只使用当前用户可读的本地密钥。
-
-不同发行版的包名可能不同；Debian/Ubuntu 常见名称为 `libgl1`、`libegl1`、
-`libvulkan1`、`libfontconfig1`、`libgtk-3-0`、`libcairo2`、`libx11-6`、
-`libwebkit2gtk-4.1-0`、`glib-networking`、`libstdc++6` 和
-`libsecret-tools`（新版本可能带 `t64` 后缀）。
-
-NixOS 不会把这些库放进全局动态链接器搜索路径。启动 Maven/Java 时需将
-`libglvnd`、`vulkan-loader`、`pipewire`、`libpulseaudio`、`alsa-lib`、
-`fontconfig`、`glib`、`gtk3`、`cairo`、`libx11`、`webkitgtk_4_1` 和
-`stdenv.cc.cc.lib` 的 `lib` 目录加入 `LD_LIBRARY_PATH`，并把
-`${glib-networking}/lib/gio/modules` **追加**到 `GIO_EXTRA_MODULES`（保留
-dconf 等已有模块）；`libsecret` 还需位于 `PATH`，使 QPlayer 能找到
-`secret-tool`。
-
 ```sh
-# 构建一次(player-core / desktop-host)
-mvn -q -pl player-core,desktop-host -am install
-
-# 运行(默认 OpenGL)
+mvn -q -pl desktop-host -am install
 mvn -pl desktop-host exec:exec
-
-# 切 Vulkan 后端 / 指定初始窗口大小(试响应式断点)
-mvn -pl desktop-host exec:exec -Dgfx=vulkan
-mvn -pl desktop-host exec:exec -Dwin.w=480 -Dwin.h=800   # 窄屏(底部导航)
 ```
 
-> 关闭按钮为最小化到托盘（渲染线程销毁，音频继续播放），从托盘「退出」才会真正退出。
-> macOS 的 JVM 开发运行需加 `-XstartOnFirstThread`；原生可执行文件不使用此参数。
+macOS 的 JVM 运行需要 `-XstartOnFirstThread`。原生包使用 GraalVM，构建步骤见[桌面打包说明](desktop-host/dist/README.md)。
 
-**桌面原生分发包（GraalVM Native Image）**
+### 文档
 
-使用 **GraalVM Community 25 Innovation 4**、C/C++ 工具链和 CMake。Linux 还需 `pkg-config`、zlib、GTK 3、WebKitGTK 4.1 与 X11 的开发包。Windows 需要 MSVC 与 WebView2 SDK；macOS 需要 Xcode Command Line Tools。编译器具体版本见[桌面打包说明](desktop-host/dist/README.md)。
+- [插件开发](docs/plugins.md) · [插件模板](https://github.com/TIMER-err/qplayer-plugin-template)
+- [插件权限与安全模型](docs/plugin-security.md)
+- [Miuix 界面](docs/miuix-ui.md)
 
-用户无需安装 Java。原生镜像不能跨平台编译，**每个平台与架构需在对应机器上构建**。
+登录凭据加密存储，优先使用系统密码库；不可用时可明确选择本地密钥回退。这只提供静态文件保护，不防同用户恶意程序、root/管理员权限或运行时内存读取，详见安全模型。
 
-```sh
-# 1) 安装共享模块
-mvn -DskipTests -pl player-core -am install
+### 发版
 
-# 2) 预编译 QML，并生成 target/qplayer（Windows 为 qplayer.exe）
-mvn -DskipTests -pl desktop-host -am -Pdist package
+保持 `android-shell/app/build.gradle.kts` 的 `versionName` 与 `desktop-host/pom.xml` 的 `qplayer.app.version` 一致，并递增 Android `versionCode`。推送 `v<versionName>` tag 后，CI 构建并发布 Android 与三平台桌面包。
 
-# 3) 将原生程序与许可证打成各平台分发包
-bash       desktop-host/dist/package-linux.sh      # Linux   → target/QPlayer-x86_64.AppImage(单文件)
-pwsh -File desktop-host/dist/package-windows.ps1   # Windows → target/QPlayer-windows-x64.zip
-bash       desktop-host/dist/package-macos.sh      # macOS   → target/QPlayer.dmg(随当前架构)
-```
-
-> 反射、JNI 和资源配置由 `qml-aot-tool` 与原生 WebView 构建步骤生成；新增动态入口后须实际运行原生程序验证。文件选择器使用系统原生 API；WebView 保留原系统内核，由独立 JNI 层承载，不加载 Swing。
-> macOS 的 `.dmg` 未经 Developer ID 签名与公证，对外分发需完成这两步，否则 Gatekeeper 会拦截。
-> 打 `v*` tag 时，`.github/workflows/release.yml` 会在三平台 CI 上完成上述构建并附到
-> GitHub Release。
-
-### Linux
-
-**AppImage 使用指南**
-
-不论是第一次安装 QPlayer 还是更新 QPlayer 都可使用（注意 AppImage 不便实现自动更新，QPlayer 发布新版本后请手动使用下列命令更新）。
-
-```sh
-# 将您新下载的 AppImage 文件替换到系统路径
-mv ~/下载/QPlayer*.AppImage ~/.local/bin/qplayer.AppImage
-# 赋予执行权限
-chmod +x ~/.local/bin/qplayer.AppImage
-```
-
-## 发版
-
-版本号位于**两处**，需保持一致：
-
-- `android-shell/app/build.gradle.kts` —— `versionCode`（整数，每次 +1）和 `versionName`
-- `desktop-host/pom.xml` —— `<qplayer.app.version>`（桌面分发包版本）
-
-提交后打并推送 `v<versionName>` tag 触发 `release.yml`：签名 APK 与三平台桌面包自动构建
-并附到 Release。CI 会按 `build.gradle.kts` 中声明的 `qml4j-core` 版本，从源码 clone 对应
-`v*` tag 构建引擎。
-
-构建产物先保存到 workflow artifacts。全部构建成功后，`publish` 统一上传附件，
-上传成功后才将 Release 转为正式版或预发布版。发布已有 tag 时不传 `target_commitish`，
-避免旧提交与当前 `master` 的工作流文件不同而触发额外权限检查；此操作不移动 tag。
-CI 不再自动运行测试；测试代码和本地测试命令保留。
 
 ## 致谢
 
