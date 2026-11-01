@@ -4,6 +4,7 @@ package dev.t1m3.qplayer.plugin;
 public enum ProviderCapability {
     HOT_SEARCH("hotSearch"),
     SEARCH_SONGS("searchSongs"), SEARCH_ALBUMS("searchAlbums"), SEARCH_ARTISTS("searchArtists"),
+    SEARCH_PLAYLISTS("searchPlaylists"),
     SONG_DETAILS("songDetails"), PLAYLIST_DETAILS("playlistDetails"),
     ARTIST_DETAILS("artistDetails"), ALBUM_DETAILS("albumDetails"),
     HOME("home"), ACCOUNT("account"), USER_PLAYLISTS("userPlaylists"), RECENT("recent"),

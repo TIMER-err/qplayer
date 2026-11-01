@@ -1,11 +1,15 @@
 package dev.t1m3.qplayer.plugin;
 
+import dev.t1m3.qplayer.media.MediaId;
+import dev.t1m3.qplayer.media.Page;
 import dev.t1m3.qplayer.media.Playlist;
 import dev.t1m3.qplayer.media.Song;
 import org.junit.Test;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -114,5 +118,95 @@ public final class PluginProviderServiceTest {
         Song parsed = parsePlaylist(playlist).songs.get(0);
 
         assertEquals(parsed.artworkUrl, parsed.coverThumbPath);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Page<Playlist> parsePlaylistPage(Object raw) throws Exception {
+        PluginProviderService service = new PluginProviderService(null, null);
+        Method parse = PluginProviderService.class.getDeclaredMethod(
+                "parsePlaylistPage", String.class, Object.class);
+        parse.setAccessible(true);
+        try {
+            return (Page<Playlist>) parse.invoke(service, "netease", raw);
+        } catch (InvocationTargetException exception) {
+            if (exception.getCause() instanceof RuntimeException) {
+                throw (RuntimeException) exception.getCause();
+            }
+            throw exception;
+        }
+    }
+
+    private static Map<String, Object> playlistPage(List<?> items, String cursor) {
+        Map<String, Object> value = new LinkedHashMap<>();
+        value.put("items", items);
+        value.put("nextCursor", cursor);
+        return value;
+    }
+
+    @Test public void playlistSearchQualifiesIdsAndPreservesSummaryAndCursor() throws Exception {
+        Map<String, Object> playlist = named("9", "歌单");
+        playlist.put("owner", named("42", "创建者"));
+        playlist.put("trackCount", 25);
+        playlist.put("playCount", 1000);
+        playlist.put("description", "简介");
+
+        Page<Playlist> page = parsePlaylistPage(playlistPage(
+                Collections.singletonList(playlist), "opaque:next/2"));
+
+        assertEquals("opaque:next/2", page.nextCursor);
+        assertEquals(1, page.items.size());
+        Playlist parsed = page.items.get(0);
+        assertEquals("netease:playlist:9", parsed.id);
+        assertEquals("netease:user:42", parsed.owner.id);
+        assertEquals("创建者", parsed.owner.name);
+        assertEquals(25L, parsed.trackCount);
+        assertEquals(1000L, parsed.playCount);
+        assertEquals("简介", parsed.description);
+        assertEquals(0, parsed.songs.size());
+    }
+
+    @Test public void playlistSearchKeepsNativeIdsInsideTheRespondingProvider() throws Exception {
+        Map<String, Object> playlist = named("other:song:9", "歌单");
+        playlist.put("owner", named("other:user:42", "创建者"));
+        Playlist parsed = parsePlaylistPage(playlistPage(
+                Collections.singletonList(playlist), "")).items.get(0);
+
+        assertEquals("netease:playlist:other%3Asong%3A9", parsed.id);
+        assertEquals("netease:user:other%3Auser%3A42", parsed.owner.id);
+    }
+
+    @Test public void playlistSearchEnforcesPageAndCursorBounds() throws Exception {
+        Map<String, Object> playlist = named("9", "歌单");
+        String maxCursor = String.join("", Collections.nCopies(8192, "x"));
+        Page<Playlist> page = parsePlaylistPage(playlistPage(
+                Collections.nCopies(200, playlist), maxCursor));
+        assertEquals(200, page.items.size());
+        assertEquals(maxCursor, page.nextCursor);
+
+        assertThrows(PluginExecutionException.class, () -> parsePlaylistPage(
+                playlistPage(Collections.nCopies(201, playlist), "")));
+        assertThrows(PluginExecutionException.class, () -> parsePlaylistPage(
+                playlistPage(Collections.emptyList(), maxCursor + "x")));
+        assertEquals("", parsePlaylistPage(
+                Collections.singletonMap("items", Collections.emptyList())).nextCursor);
+    }
+
+    @Test public void playlistSearchRejectsMalformedSummaries() {
+        assertThrows(PluginExecutionException.class, () -> parsePlaylistPage(
+                playlistPage(Collections.singletonList(named("", "歌单")), "")));
+        assertThrows(PluginExecutionException.class, () -> parsePlaylistPage(
+                playlistPage(Collections.singletonList(named("9", "")), "")));
+        assertThrows(PluginExecutionException.class, () -> parsePlaylistPage(
+                playlistPage(Collections.singletonList("not an object"), "")));
+    }
+
+    @Test public void playlistNavigationRejectsWrongKindsAndForeignSongIds() {
+        PluginProviderService service = new PluginProviderService(null, null);
+        assertThrows(IllegalArgumentException.class,
+                () -> service.playlist(MediaId.parse("netease:song:9")));
+        assertThrows(IllegalArgumentException.class, () -> service.songsByIds(
+                "netease", Collections.singletonList("netease:playlist:9")));
+        assertThrows(IllegalArgumentException.class, () -> service.songsByIds(
+                "netease", Collections.singletonList("other:song:42")));
     }
 }

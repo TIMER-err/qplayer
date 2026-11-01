@@ -351,10 +351,12 @@ public final class PlayerController {
     /** Render-thread-owned provider buckets. Keeping one bucket per manifest order
      * prevents late async results from visually reordering other providers. */
     private final Map<String, List<Song>> pluginSearchByProvider = new LinkedHashMap<>();
+    private final Map<String, List<Playlist>> pluginPlaylistSearchByProvider = new LinkedHashMap<>();
     private final Map<String, String> pluginProviderNames = new LinkedHashMap<>();
     private final Map<String, String> pluginSearchCursors = new LinkedHashMap<>();
     private final AtomicLong pluginSearchGeneration = new AtomicLong();
     private volatile boolean pluginSearchPageInFlight;
+    private boolean pluginPlaylistSearchPageFailed;
     private final Map<String, List<LyricLine>> pluginLyricMem = Collections.synchronizedMap(
             new LinkedHashMap<String, List<LyricLine>>(16, 0.75f, true) {
                 @Override protected boolean removeEldestEntry(Map.Entry<String, List<LyricLine>> e) {
@@ -585,16 +587,9 @@ public final class PlayerController {
     public final Property<Integer> resultCount = new Property<>(0);
     public final Property<Boolean> searchLoading = new Property<>(false);
     public final Property<Boolean> searchHasMore = new Property<>(false);
-    /** Unified view over online plugin results and {@link #localSearchResults} for
-     *  SearchPage.qml's single results list. Rebuilt by {@link #rebuildSearchRows()}
-     *  whenever any of the three source lists changes. In "album"/"artist"
-     *  {@link #searchMode}, rebuilt from {@link #searchAlbumResults}/
-     *  {@link #searchArtistResults} instead (local files have
-     *  no album/artist entities of their own). */
+    /** Unified song results from enabled providers and the local library. */
     public final Property<List<SearchRow>> searchRows = new Property<>(Collections.<SearchRow>emptyList());
-    /** SearchPage's type filter: "song" (default) | "album" | "artist". Selects
-     *  which of {@link #search}/{@link #searchAlbums(String)}/{@link #searchArtists(String)}
-     *  drives {@link #searchRows}. */
+    /** SearchPage's type filter: song, album, artist or playlist. */
     public final Property<String> searchMode = new Property<>("song");
     public final Property<List<NeteaseAlbum>> searchAlbumResults = new Property<>(Collections.<NeteaseAlbum>emptyList());
     public final Property<List<NeteaseArtist>> searchArtistResults = new Property<>(Collections.<NeteaseArtist>emptyList());
@@ -602,6 +597,10 @@ public final class PlayerController {
             new Property<>(Collections.<Album>emptyList());
     public final Property<List<Artist>> sourceSearchArtistResults =
             new Property<>(Collections.<Artist>emptyList());
+    public final Property<List<Playlist>> searchPlaylistResults =
+            new Property<>(Collections.<Playlist>emptyList());
+    /** Successful page batches trigger viewport refill even when deduplication adds no rows. */
+    public final Property<Long> searchPlaylistPageRevision = new Property<>(0L);
     /** Local-library matches for the same query text, shown alongside searchResults. */
     public final Property<List<Track>> localSearchResults = new Property<>(Collections.<Track>emptyList());
     /** Hot search keywords shown when search input is empty. */
@@ -3663,19 +3662,11 @@ public final class PlayerController {
         }
     }
 
-    /**
-     * SearchPage's type dropdown. Only sets the mode + clears the other kinds' stale results -- the
-     * caller (QML) re-issues the actual search itself so this doesn't need to remember the current
-     * query text.
-     */
+    /** Invalidate pending requests before QML starts a search in the new mode. */
     public void setSearchMode(String mode) {
         synchronized (QmlRuntimeLock.MONITOR) {
             searchMode.set(mode);
-            searchAlbumResults.set(Collections.<NeteaseAlbum>emptyList());
-            searchArtistResults.set(Collections.<NeteaseArtist>emptyList());
-            searchResults.set(Collections.<NeteaseSong>emptyList());
-            localSearchResults.set(Collections.<Track>emptyList());
-            rebuildSearchRows();
+            prepareSearch(currentSearchQuery);
         }
     }
 
@@ -7255,10 +7246,91 @@ public final class PlayerController {
             return;
         }
     }
+    /** Search every enabled provider that advertises playlist search. */
+    public void searchPlaylists(String keyword) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (keyword == null || keyword.trim().isEmpty()) return;
+            prepareSearch(keyword);
+            Map<String, String> cursors = new LinkedHashMap<>();
+            for (PluginManifest provider : providersWith(ProviderCapability.SEARCH_PLAYLISTS)) {
+                pluginPlaylistSearchByProvider.put(provider.id, Collections.<Playlist>emptyList());
+                pluginProviderNames.put(provider.id, provider.name);
+                pluginSearchCursors.put(provider.id, "");
+                cursors.put(provider.id, "");
+            }
+            if (!cursors.isEmpty()) searchPlaylistPages(cursors);
+        }
+    }
 
-    /** Fetch the next cloudsearch page when SearchPage's virtual list nears its end. */
+    private void searchPlaylistPages(Map<String, String> cursors) {
+        final long generation = pluginSearchGeneration.get();
+        final String key = currentSearchKey;
+        final String query = currentSearchQuery;
+        pluginSearchPageInFlight = true;
+        pluginPlaylistSearchPageFailed = false;
+        searchLoading.set(true);
+        AtomicInteger pending = new AtomicInteger(cursors.size());
+        for (Map.Entry<String, String> request : cursors.entrySet()) {
+            final String provider = request.getKey();
+            final String cursor = request.getValue();
+            pluginProviders.searchPlaylists(provider, query, cursor, SEARCH_PAGE_SIZE)
+                    .whenComplete((page, error) -> post(() -> {
+                        if (generation != pluginSearchGeneration.get()
+                                || !key.equals(currentSearchKey)) return;
+                        if (error != null) {
+                            pluginPlaylistSearchPageFailed = true;
+                            Logger.warn("plugin {} playlist search failed: {}", provider,
+                                    safeMessage(error));
+                        } else {
+                            List<Playlist> existing = pluginPlaylistSearchByProvider.get(provider);
+                            List<Playlist> merged = new ArrayList<>(existing.size() + page.items.size());
+                            Set<String> ids = new HashSet<>();
+                            for (Playlist playlist : existing) {
+                                if (ids.add(playlist.id)) merged.add(playlist);
+                            }
+                            for (Playlist playlist : page.items) {
+                                if (ids.add(playlist.id)) {
+                                    playlist.sourceName = pluginProviderNames.get(provider);
+                                    merged.add(playlist);
+                                }
+                            }
+                            pluginPlaylistSearchByProvider.put(provider, merged);
+                            // A non-advancing cursor must not repeatedly request the same page.
+                            pluginSearchCursors.put(provider,
+                                    cursor.equals(page.nextCursor) ? "" : page.nextCursor);
+                        }
+                        if (pending.decrementAndGet() != 0) return;
+                        List<Playlist> results = new ArrayList<>();
+                        for (List<Playlist> bucket : pluginPlaylistSearchByProvider.values()) {
+                            results.addAll(bucket);
+                        }
+                        searchPlaylistResults.set(Collections.unmodifiableList(results));
+                        resultCount.set(results.size());
+                        pluginSearchPageInFlight = false;
+                        searchLoading.set(false);
+                        searchHasMore.set(hasMorePluginSearch());
+                        if (!pluginPlaylistSearchPageFailed) {
+                            searchPlaylistPageRevision.set(searchPlaylistPageRevision.peek() + 1L);
+                        }
+                    }));
+        }
+    }
+
+
+    /** Fetch the next page for the active search mode. */
     public void loadMoreSearch() {
         synchronized (QmlRuntimeLock.MONITOR) {
+            if ("playlist".equals(searchMode.peek())) {
+                if (pluginSearchPageInFlight || pluginPlaylistSearchByProvider.isEmpty()) return;
+                Map<String, String> cursors = new LinkedHashMap<>();
+                for (Map.Entry<String, String> cursor : pluginSearchCursors.entrySet()) {
+                    if (cursor.getValue() != null && !cursor.getValue().isEmpty()) {
+                        cursors.put(cursor.getKey(), cursor.getValue());
+                    }
+                }
+                if (!cursors.isEmpty()) searchPlaylistPages(cursors);
+                return;
+            }
             if (!pluginSearchByProvider.isEmpty()) {
                 loadMorePluginSearch();
                 return;
@@ -7356,6 +7428,7 @@ public final class PlayerController {
             String query = keyword == null ? "" : keyword.trim();
             pluginSearchGeneration.incrementAndGet();
             pluginSearchByProvider.clear();
+            pluginPlaylistSearchByProvider.clear();
             pluginProviderNames.clear();
             pluginSearchCursors.clear();
             pluginSearchPageInFlight = false;
@@ -7368,6 +7441,7 @@ public final class PlayerController {
             searchArtistResults.set(Collections.<NeteaseArtist>emptyList());
             sourceSearchAlbumResults.set(Collections.<Album>emptyList());
             sourceSearchArtistResults.set(Collections.<Artist>emptyList());
+            searchPlaylistResults.set(Collections.<Playlist>emptyList());
             resultCount.set(0);
             searchLoading.set(false);
             searchHasMore.set(false);

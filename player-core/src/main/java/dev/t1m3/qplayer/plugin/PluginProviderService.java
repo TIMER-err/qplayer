@@ -93,6 +93,12 @@ public final class PluginProviderService {
                 .thenApply(raw -> parseArtistPage(provider, raw));
     }
 
+    public CompletableFuture<Page<Playlist>> searchPlaylists(String provider, String query,
+                                                              String cursor, int limit) {
+        return searchEntities(provider, ProviderCapability.SEARCH_PLAYLISTS, query, cursor, limit)
+                .thenApply(raw -> parsePlaylistPage(provider, raw));
+    }
+
     public CompletableFuture<Playlist> playlist(MediaId id) {
         id.requireKind(MediaKind.PLAYLIST);
         // A big playlist is the slowest thing a provider is asked for, and "it is
@@ -448,6 +454,17 @@ public final class PluginProviderService {
         }
         page.nextCursor = boundedString(value.get("nextCursor"), MAX_CURSOR_CHARS,
                 "artist search nextCursor", false);
+        return page;
+    }
+
+    private Page<Playlist> parsePlaylistPage(String provider, Object raw) {
+        Map<String, Object> value = map(raw, "playlist search response");
+        Page<Playlist> page = new Page<>();
+        for (Object item : boundedList(value.get("items"), "playlist search items", 200)) {
+            page.items.add(parsePlaylist(provider, map(item, "playlist")));
+        }
+        page.nextCursor = boundedString(value.get("nextCursor"), MAX_CURSOR_CHARS,
+                "playlist search nextCursor", false);
         return page;
     }
 

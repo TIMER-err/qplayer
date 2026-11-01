@@ -653,7 +653,14 @@ Rectangle {
                     active: app.searchLoaded
                     visible: app.page === 1
                     sourceComponent: Component {
-                        SearchPage { bottomContentInset: app.bottomContentInset }
+                        SearchPage {
+                            id: searchPage
+                            bottomContentInset: app.bottomContentInset
+                            onOpenPlaylist: {
+                                player.openMediaPlaylist("" + searchPage.pendingPlaylist.id)
+                                app.pushPage("detail", searchPage.pendingPlaylist.id)
+                            }
+                        }
                     }
                 }
                 Loader {

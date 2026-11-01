@@ -2,8 +2,8 @@
 
 QPlayer core does not contain an online music source. A source is a user-installed
 `.qplug` archive executed by the embedded Rhino engine. This document describes
-the implementation checked against QPlayer **1.9.6**. The ABI remains `1.0`.
-This baseline is not a claim that every interface below first appeared in 1.9.6.
+the implementation for QPlayer **1.9.7**. The ABI remains `1.0`.
+This baseline is not a claim that every interface below first appeared in 1.9.7.
 
 `apiVersion` must have the same major version as the host ABI and a minor version
 no greater than the host's. `minHostVersion`, when set, must not exceed the running
@@ -139,6 +139,7 @@ native IDs, not canonical IDs.
 |---|---|
 | `searchSongs` | `{query,cursor,limit}` → song page |
 | `searchAlbums`, `searchArtists` | `{query,cursor,limit}` → album/artist page |
+| `searchPlaylists` | `{query,cursor,limit}` → playlist page; requires QPlayer 1.9.7 |
 | `hotSearch` | `{}` → array of strings; host keeps at most 50 nonempty trimmed entries |
 | `home` | `{limit}` → `{songs,playlists,sections}` |
 | `songDetails` | `{ids}` (at most 500) → song array (at most 500) |
@@ -198,6 +199,20 @@ Search calls receive a string `query`, a string `cursor` (initially `""`), and
 can contain at most 200 items and an 8,192-character cursor. An empty or missing
 `nextCursor` ends pagination. `hasMore` is not read; returning it cannot request
 another page. The host does not truncate an oversized response to `limit`.
+
+`searchPlaylists` is optional and requires QPlayer **1.9.7** or newer. A plugin
+that advertises it must set `minHostVersion` to at least `1.9.7`; older hosts do
+not recognize this capability. Existing search and detail handlers are unchanged.
+Return the existing Playlist DTO in `items`; summary entries can omit `songs`.
+The host qualifies each native playlist ID as `provider:playlist:nativeId` and
+each nonempty `owner.id` as `provider:user:nativeId` (with native IDs percent-encoded).
+Opening a result uses `playlistDetails` on that provider, not a separate search
+detail handler.
+
+Playlist search queries all enabled providers that declare the capability, with
+the primary provider first. Results are deduplicated by qualified playlist ID.
+Each next-page cursor must advance; repeating the requested cursor ends pagination.
+Successful small or duplicate-only pages can trigger another request to fill the viewport.
 
 The following are the fields read from plugin JSON. Host-side DTO aliases such
 as `coverUrl`, `name` on Song, or `artistIdsCsv` are not extra wire fields.

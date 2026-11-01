@@ -8,12 +8,12 @@ import "../components"
 Item {
     id: page
     property real bottomContentInset: 0
+    property var pendingPlaylist
+    signal openPlaylist()
     // 0 = collapsed (5), 1 = 30, 2 = 70, 3 = everything (100)
     property int historyExpandLevel: 0
 
-    // Album/artist result grid geometry (playlist-card style), shared by both
-    // card grids below -- same responsive-column math as HomePage's playlist
-    // grid / ArtistDetailPage's album grid.
+    // Responsive, windowed card grids shared by catalog search results.
     property real gridPad: 16
     property real gridGap: 12
     property real minCardTile: 130
@@ -45,6 +45,8 @@ Item {
             player.searchAlbums(text)
         } else if (player.searchMode === "artist") {
             player.searchArtists(text)
+        } else if (player.searchMode === "playlist") {
+            player.searchPlaylists(text)
         } else {
             player.search(text)
             player.searchLocal(text)
@@ -75,8 +77,9 @@ Item {
                 x: 16
                 y: 12
                 width: Math.max(0, page.width - 32)
-                label: i18n.t(searchBar.modeIndex === 1 ? "search.hint.albums"
-                    : searchBar.modeIndex === 2 ? "search.hint.artists" : "search.hint.songs")
+                label: i18n.t(player.searchMode === "album" ? "search.hint.albums"
+                    : player.searchMode === "artist" ? "search.hint.artists"
+                    : player.searchMode === "playlist" ? "search.hint.playlists" : "search.hint.songs")
                 leadingIcon: "search"
                 onTextChanged: {
                     player.prepareSearch(text)
@@ -91,14 +94,15 @@ Item {
             TabRowWithContour {
                 equalWidth: false
                 id: searchBar
+                objectName: "searchModeTabs"
                 x: 16
                 y: 80
                 width: Math.max(0, page.width - 32)
                 height: 42
-                property int modeIndex: selectedTabIndex
-                tabs: [i18n.t("search.mode.songs"), i18n.t("search.mode.albums"), i18n.t("search.mode.artists")]
+                tabs: [i18n.t("search.mode.songs"), i18n.t("search.mode.albums"),
+                    i18n.t("search.mode.artists"), i18n.t("search.mode.playlists")]
                 onTabSelected: (index) => {
-                    player.setSearchMode(["song", "album", "artist"][index])
+                    player.setSearchMode(["song", "album", "artist", "playlist"][index])
                     if (query.text.length > 0) page.runSearchNow()
                 }
             }
@@ -461,7 +465,7 @@ Item {
 
         // --- Search results (shown when input is not empty) ---
         // Song mode keeps the unified list (enabled providers + local library);
-        // album/artist mode use their own playlist-cover-style card grids.
+        // Other modes use windowed cover-card grids.
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -583,6 +587,78 @@ Item {
 
                 ViewportScrollBar {
                     target: artistGrid
+                }
+            }
+
+            Flickable {
+                id: playlistGrid
+                objectName: "searchPlaylistGrid"
+                anchors.fill: parent
+                visible: player.searchMode === "playlist"
+                clip: true
+                contentWidth: width
+                property var results: player.searchPlaylistResults
+                property int count: results ? results.length : 0
+                property real stride: page.cardH + page.gridGap
+                property int totalRows: Math.ceil(count / page.gridCols)
+                property int liveRows: Math.min(totalRows, Math.ceil(height / stride) + 3)
+                property int firstRow: Math.max(0, Math.min(totalRows - liveRows, Math.floor(contentY / stride) - 1))
+                contentHeight: totalRows * stride + page.gridGap + page.bottomContentInset
+                property real pageRevision: player.searchPlaylistPageRevision
+                onPageRevisionChanged: refillTimer.restart()
+
+                // Recheck after bindings settle, including pages that add no new rows.
+                Timer {
+                    id: refillTimer
+                    interval: 1
+                    repeat: false
+                    onTriggered: playlistGrid.requestMoreIfNeeded()
+                }
+
+                function requestMoreIfNeeded() {
+                    if (page.visible && player.searchMode === "playlist"
+                            && player.searchHasMore && !player.searchLoading
+                            && contentY + height >= contentHeight - page.bottomContentInset - 2 * stride)
+                        player.loadMoreSearch()
+                }
+                onContentYChanged: requestMoreIfNeeded()
+                onContentHeightChanged: {
+                    contentY = Math.min(contentY, Math.max(0, contentHeight - height))
+                }
+                onHeightChanged: requestMoreIfNeeded()
+
+                Item {
+                    width: playlistGrid.width
+                    height: playlistGrid.contentHeight
+                    cachedLayout: true
+
+                    Repeater {
+                        model: page.visible && player.searchMode === "playlist" ? playlistGrid.results : null
+                        windowStart: playlistGrid.firstRow * page.gridCols
+                        windowCount: playlistGrid.liveRows * page.gridCols
+                        PlaylistCard {
+                            objectName: "searchPlaylistCard" + index
+                            playlistId: modelData.id
+                            tile: page.cardTile
+                            x: page.gridPad + (index % page.gridCols) * (page.cardTile + page.gridGap)
+                            y: page.gridGap + Math.floor(index / page.gridCols) * playlistGrid.stride
+                            name: modelData.name
+                            count: modelData.trackCount
+                            playCount: modelData.playCount
+                            coverUrl: modelData.coverUrl
+                            coverThumbPath: modelData.coverThumbPath || ""
+                            sourceName: modelData.sourceName || ""
+                            onClicked: {
+                                page.pendingPlaylist = modelData
+                                page.recordCurrentSearch()
+                                page.openPlaylist()
+                            }
+                        }
+                    }
+                }
+
+                ViewportScrollBar {
+                    target: playlistGrid
                 }
             }
         }
