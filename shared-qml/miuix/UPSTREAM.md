@@ -17,3 +17,8 @@ queue flushes; the assigned color and colorSelected payload must match.
 Local compatibility patch: Dialog overlays expose consumeBack to the application
 root, so host-dispatched Back/Escape obeys the same closeOnEscape policy as keys
 handled inside the overlay, including page-local dialogs reparented to the root.
+
+Local compatibility patch: SuperDropdown releases its hidden overlay's focus.
+Keyboard selection restores focus only to a visible anchor; hidden anchors cannot
+open a menu. Space is consumed inside the open popup. Its root-reparented overlay
+exposes consumeBack for QPlayer's host-dispatched Back/Escape.

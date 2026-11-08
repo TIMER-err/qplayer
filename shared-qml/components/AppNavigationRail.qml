@@ -156,6 +156,8 @@ Item {
                         if (modelData.action === "download") {
                             player.refreshCachedSongs()
                             rail.pageManager.replacePage("cachedSongs", 0)
+                        } else if (modelData.action === "recent") {
+                            rail.pageManager.replacePage("recent", 0)
                         } else if (modelData.action === "plugin") {
                             player.requestPluginUi(modelData.pluginId,
                                                    modelData.contributionId)

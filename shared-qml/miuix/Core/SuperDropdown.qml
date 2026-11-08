@@ -36,6 +36,16 @@ Item {
     property real _anchorBottom: 0
     property real _progress: 0
     property bool _closing: false
+    property bool _restoreFocusOnClose: false
+
+    function anchorVisible() {
+        var item = superDropdownRoot
+        while (item) {
+            if (item.visible === false) return false
+            item = item.parent
+        }
+        return true
+    }
 
     function itemText(item) { return typeof item === "string" ? item : (item.text || "") }
     function itemSummary(item) { return typeof item === "string" ? "" : (item.summary || "") }
@@ -61,12 +71,13 @@ Item {
         }
     }
     function openMenu() {
-        if (!enabled || items.length === 0 || (menuOpen && !_closing)) return
+        if (!enabled || !anchorVisible() || items.length === 0 || (menuOpen && !_closing)) return
         var host = superDropdownRoot
         while (host.parent) host = host.parent
         _host = host
         exitAnim.stop()
         _closing = false
+        _restoreFocusOnClose = false
         overlayLayer.parent = host
         overlayLayer.anchors.fill = host
         positionPopup()
@@ -113,17 +124,25 @@ Item {
         duration: 150
         easing.type: Easing.OutCubic
         onFinished: {
+            var restoreFocus = superDropdownRoot._restoreFocusOnClose && overlayLayer.activeFocus
+                && superDropdownRoot.anchorVisible()
+            overlayLayer.focus = false
             overlayLayer.visible = false
             overlayLayer.anchors.fill = undefined
             overlayLayer.parent = superDropdownRoot
             superDropdownRoot._closing = false
+            if (restoreFocus) superDropdownRoot.forceActiveFocus()
+            superDropdownRoot._restoreFocusOnClose = false
         }
     }
     Timer {
         interval: 40
         repeat: true
         running: superDropdownRoot.menuOpen
-        onTriggered: superDropdownRoot.positionPopup()
+        onTriggered: {
+            if (!superDropdownRoot.anchorVisible()) superDropdownRoot.closeMenu()
+            else superDropdownRoot.positionPopup()
+        }
     }
     Timer {
         id: selectionTimer
@@ -132,10 +151,16 @@ Item {
     }
     Item {
         id: overlayLayer
-        Keys.onEscapePressed: { superDropdownRoot.closeMenu(); event.accepted = true }
+        objectName: "miuixDropdownOverlay"
+        function consumeBack() {
+            superDropdownRoot._restoreFocusOnClose = true
+            superDropdownRoot.closeMenu()
+        }
+        Keys.onEscapePressed: { consumeBack(); event.accepted = true }
         Keys.onDownPressed: { superDropdownRoot.moveHighlight(1); event.accepted = true }
         Keys.onUpPressed: { superDropdownRoot.moveHighlight(-1); event.accepted = true }
-        Keys.onReturnPressed: { superDropdownRoot.select(superDropdownRoot.highlightedIndex); event.accepted = true }
+        Keys.onReturnPressed: { superDropdownRoot._restoreFocusOnClose = true; superDropdownRoot.select(superDropdownRoot.highlightedIndex); event.accepted = true }
+        Keys.onSpacePressed: { event.accepted = true }
         visible: false
         z: 99999
         MouseArea {

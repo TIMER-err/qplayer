@@ -770,7 +770,7 @@ public final class DesktopWindow {
         if (!GLFW.glfwInit()) throw new IllegalStateException("glfwInit failed");
 
         if (kind == GraphicsBackend.Kind.VULKAN
-                && !org.lwjgl.glfw.GLFWVulkan.glfwVulkanSupported()) {
+                && !isVulkanAvailable()) {
             Logger.warn("Vulkan is unavailable; falling back to OpenGL");
             graphicsFallbackAttempted = true;
             kind = GraphicsBackend.Kind.GL;
@@ -778,6 +778,18 @@ public final class DesktopWindow {
             settings.graphicsFallbackNotice.set(Boolean.TRUE);
         }
         createWindow();
+    }
+
+    private static boolean isVulkanAvailable() {
+        try {
+            return org.lwjgl.glfw.GLFWVulkan.glfwVulkanSupported();
+        } catch (UnsatisfiedLinkError missingLoader) {
+            // GLFW's probe initializes LWJGL's VK loader on some platforms.
+            // A missing native loader fails before the probe can return false.
+            // Select GL without touching the now-erroneous Vulkan classes again.
+            Logger.warn("Vulkan loader is unavailable: {}", missingLoader.getMessage());
+            return false;
+        }
     }
 
     private void createWindow() {

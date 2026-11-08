@@ -89,6 +89,12 @@ the saved queue and image cache. Check the first frame, tray initialization, and
 normal quit/reopen without deleting cached artwork. The empty-profile
 `--build-smoke` does not exercise this startup race.
 
+Vulkan availability probing can initialize LWJGL's native loader before GLFW
+returns a support result. A missing loader raises `UnsatisfiedLinkError`; handle
+that probe failure through the same OpenGL fallback as an unsupported device.
+Persist `graphicsBackend=0` and show the existing fallback notice. Do not retry
+the failed Vulkan classes or catch unrelated VM errors.
+
 For viewport and input changes, also exercise a real window:
 
 - Check 420×820, 700×820, and 1100×720 with liquid glass off and on; include a

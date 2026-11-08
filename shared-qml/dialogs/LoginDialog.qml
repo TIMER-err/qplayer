@@ -2,21 +2,32 @@ import QtQuick
 import QtQuick.Layouts
 import miuix.Core
 
-// Three login paths share the same transactional Cookie importer in
-// PlayerController: QR, the official site in a system WebView, and a manual
-// Cookie-header fallback. Network and credential persistence stay off-render.
+// Only start a login method after the selected source's metadata has arrived.
+// Network and credential persistence stay off-render in PlayerController.
 Item {
     id: dialog
 
     property bool active: false
-    property int loginMode: 0 // 0 QR, 1 official website, 2 pasted Cookie, 3 app
+    property int loginMode: -1 // 0 QR, 1 official website, 2 pasted Cookie, 3 app
     property bool ready: false
     property string cookieText: ""
     property var successRevision: player.webLoginSuccessRevision
+    property var availableModes: {
+        var methods = player.loginMethods;
+        var out = [];
+        if (!player.pluginLoginMethodsReady || methods.length === 0) return out;
+        if (player.pluginAppLoginAvailable) out.push(3);
+        if (player.pluginQrLoginAvailable) out.push(0);
+        if (player.webLoginAvailable) out.push(1);
+        if (player.pluginCredentialLoginAvailable) out.push(2);
+        return out;
+    }
+    onAvailableModesChanged: if (active) modeSelectionTimer.restart()
     signal closed()
 
     function startCurrentMode() {
-        if (!player.pluginLoginActive) return;
+        if (!active || !player.pluginLoginMethodsReady
+                || availableModes.indexOf(loginMode) < 0) return;
         if (loginMode === 0) {
             ready = false;
             player.startQrLogin();
@@ -26,23 +37,39 @@ Item {
         }
     }
 
+    function selectCurrentMode() {
+        if (!active) return;
+        var next = availableModes.length > 0 ? availableModes[0] : -1;
+        if (loginMode === next) dialog.startCurrentMode();
+        else loginMode = next;
+    }
+
+    // Metadata and availability bindings can settle after onActiveChanged.
+    Timer {
+        id: modeSelectionTimer
+        interval: 1
+        onTriggered: dialog.selectCurrentMode()
+    }
+
     onActiveChanged: {
         if (active) {
             player.clearWebLoginError();
-            var next = player.pluginAppLoginAvailable ? 3
-                        : (player.pluginLoginActive && !player.pluginQrLoginAvailable
-                           ? (player.webLoginAvailable ? 1 : 2) : 0);
+            loginMode = -1;
             cookieText = "";
             ready = false;
-            if (loginMode === next) dialog.startCurrentMode();
-            else loginMode = next;
-            revealTimer.restart();
+            modeSelectionTimer.restart();
             loginSheet.open();
-        } else if (loginSheet.opened) loginSheet.close();
+        } else {
+            modeSelectionTimer.stop();
+            if (loginSheet.opened) loginSheet.close();
+        }
     }
     onLoginModeChanged: {
-        player.clearWebLoginError();
-        if (active) dialog.startCurrentMode();
+        if (active) {
+            player.cancelWebLogin();
+            player.clearWebLoginError();
+            dialog.startCurrentMode();
+        }
     }
     onSuccessRevisionChanged: if (active) dialog.closed()
 
@@ -71,7 +98,7 @@ Item {
     Timer {
         interval: 800
         repeat: true
-        running: dialog.active && player.pluginLoginActive
+        running: dialog.active && player.pluginLoginMethodsReady
                  && (dialog.loginMode === 0 || dialog.loginMode === 3)
         onTriggered: player.pollQrLogin()
     }
@@ -100,7 +127,8 @@ Item {
             Text {
                 Layout.fillWidth: true
                 visible: !player.pluginLoginActive
-                text: i18n.t("login.unsupported")
+                         || (!player.pluginLoginMethodsReady && player.webLoginError.length > 0)
+                text: player.pluginLoginActive ? player.webLoginError : i18n.t("login.unsupported")
                 wrapMode: Text.WordWrap
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
@@ -108,19 +136,20 @@ Item {
                 fontSize: 14
             }
 
+            CircularProgress {
+                Layout.alignment: Qt.AlignHCenter
+                width: 48; height: 48
+                indeterminate: true
+                visible: player.pluginLoginActive && !player.pluginLoginMethodsReady
+                         && player.webLoginError.length === 0
+            }
+
             TabRowWithContour {
-                visible: player.pluginLoginActive
+                visible: player.pluginLoginMethodsReady
                 Layout.fillWidth: true
                 equalWidth: false
                 selectOnClick: false
-                property var modes: {
-                    var out = []
-                    if (player.pluginAppLoginAvailable) out.push(3)
-                    if (player.pluginQrLoginAvailable) out.push(0)
-                    if (player.webLoginAvailable) out.push(1)
-                    if (player.pluginCredentialLoginAvailable) out.push(2)
-                    return out
-                }
+                property var modes: dialog.availableModes
                 tabs: {
                     var app = player.loginAppLabel.length > 0
                               ? player.loginAppLabel : i18n.t("login.mode.app")
@@ -136,7 +165,7 @@ Item {
             Column {
                 Layout.fillWidth: true
                 width: parent.width
-                visible: player.pluginLoginActive && dialog.loginMode === 0
+                visible: player.pluginLoginMethodsReady && dialog.loginMode === 0
 
                     spacing: 12
 
@@ -226,7 +255,7 @@ Item {
 
             ColumnLayout {
                 Layout.fillWidth: true
-                visible: player.pluginLoginActive && dialog.loginMode === 3
+                visible: player.pluginLoginMethodsReady && dialog.loginMode === 3
 
                     spacing: 16
                     Text {
@@ -267,7 +296,7 @@ Item {
 
             ColumnLayout {
                 Layout.fillWidth: true
-                visible: player.pluginLoginActive && dialog.loginMode === 1
+                visible: player.pluginLoginMethodsReady && dialog.loginMode === 1
 
                     spacing: 16
                     Text {
@@ -300,7 +329,7 @@ Item {
 
             ColumnLayout {
                 Layout.fillWidth: true
-                visible: player.pluginLoginActive && dialog.loginMode === 2
+                visible: player.pluginLoginMethodsReady && dialog.loginMode === 2
 
                     spacing: 12
                     Text {

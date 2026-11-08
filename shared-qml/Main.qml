@@ -65,6 +65,7 @@ Rectangle {
     property bool artistLoaded: false
     property bool albumLoaded: false
     property bool queueLoaded: false
+    property bool recentLoaded: false
     property bool settingsLoaded: false
     property bool pluginSettingsLoaded: false
     property bool accountLoaded: false
@@ -78,7 +79,10 @@ Rectangle {
         return out
     }
     function footerActions() {
-        var out = [{ action: "download", icon: "download", text: i18n.t("nav.downloaded") }]
+        var out = [
+            { action: "recent", icon: "history", text: i18n.t("nav.recent") },
+            { action: "download", icon: "download", text: i18n.t("nav.downloaded") }
+        ]
         for (var i = 0; i < app.playerPluginActions.length; i++) {
             var item = app.playerPluginActions[i]
             out.push({ action: "plugin", icon: item.icon, text: item.label,
@@ -226,11 +230,12 @@ Rectangle {
     onBackTickChanged: app.handleBack()
 
     function dismissActiveDialog() {
-        // Dialog.open reparents its overlay to this root. Inspect overlays rather
+        // Popups reparent their overlays to this root. Inspect overlays rather
         // than a hand-maintained list of page-local picker/confirmation flags.
         for (var i = app.children.length - 1; i >= 0; i--) {
             var child = app.children[i]
-            if (child.objectName === "miuixDialogOverlay" && child.visible) {
+            if (child.visible && (child.objectName === "miuixDialogOverlay"
+                    || child.objectName === "miuixDropdownOverlay")) {
                 child.consumeBack()
                 return true
             }
@@ -266,6 +271,7 @@ Rectangle {
         if (which === "account") app.accountLoaded = true
         if (which === "cachedSongs") app.cacheListLoaded = true
         if (which === "queue") app.queueLoaded = true
+        if (which === "recent") app.recentLoaded = true
     }
 
     function topRouteValue() {
@@ -587,6 +593,7 @@ Rectangle {
         }
         model: {
             var items = [
+                {text: i18n.t("nav.recent"), icon: "history", action: function() { app.replacePage("recent", 0) }},
                 {text: i18n.t("nav.downloaded"), icon: "download", action: function() { player.refreshCachedSongs(); app.replacePage("cachedSongs", 0) }},
                 {text: i18n.t("nav.account"), icon: "account_circle", action: function() { app.replacePage("account", 0) }},
                 {text: i18n.t("sleepTimer.title"), icon: "bedtime", action: function() { app.sleepTimerOpen = true }},
@@ -760,6 +767,20 @@ Rectangle {
                 active: app.queueLoaded
                 sourceComponent: Component {
                     QueuePage {
+                        bottomContentInset: app.bottomContentInset
+                        onHome: app.goHome()
+                        onBack: app.popPage()
+                    }
+                }
+            }
+
+            ManagedPageLoader {
+                pageManager: app
+                motion: rootPageMotion
+                routeType: "recent"
+                active: app.recentLoaded
+                sourceComponent: Component {
+                    RecentPlaybackPage {
                         bottomContentInset: app.bottomContentInset
                         onHome: app.goHome()
                         onBack: app.popPage()

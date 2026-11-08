@@ -149,6 +149,10 @@ public final class PlayerController {
                     });
     private final QueuePersistence queuePersistence =
             new QueuePersistence(AppDirs.stateFile("queue.json"), ioWorker);
+    private final PlaybackHistoryStore playbackHistoryStore =
+            new PlaybackHistoryStore(AppDirs.stateFile("playback-history.json"), ioWorker);
+    /** Reset only by an actual selection, not a backend reconnect or resume. */
+    private boolean historyRecordedForSelection;
     private final AudioCacheCoordinator audioCacheCoordinator;
     private CompletableFuture<Void> sessionSave = CompletableFuture.completedFuture(null);
     private CompletableFuture<Void> shutdownFuture;
@@ -625,13 +629,13 @@ public final class PlayerController {
      *  it can show a tap-to-retry affordance instead of a permanent spinner. */
     public final Property<Boolean> homeLoading = new Property<>(Boolean.FALSE);
     public final Property<List<NeteasePlaylist>> myPlaylists = new Property<>(Collections.<NeteasePlaylist>emptyList());
-    public final Property<List<NeteaseSong>> recentSongs = new Property<>(Collections.<NeteaseSong>emptyList());
+    /** Latest actual starts across every source, including local files. */
+    public final Property<List<Track>> playbackHistoryTracks =
+            new Property<>(Collections.<Track>emptyList());
     /** 我的 aggregates every enabled source that can list user playlists, so a
      *  second account's playlists stay visible no matter which source is primary. */
     public final Property<List<Playlist>> sourceMyPlaylists =
             new Property<>(Collections.<Playlist>emptyList());
-    public final Property<List<Song>> sourceRecentSongs =
-            new Property<>(Collections.<Song>emptyList());
     /** Whether the primary source can create playlists (drives 我的's new-playlist
      *  action, which necessarily targets one source). */
     public final Property<Boolean> sourcePlaylistMutationAvailable = new Property<>(false);
@@ -980,6 +984,8 @@ public final class PlayerController {
             diskCache.loadActivelyCached();
             pluginManager.startEnabled();
             loadQueue();
+            playbackHistoryStore.setOnChanged(() -> onMain(this::playbackHistoryResourcesChanged));
+            loadPlaybackHistory();
 
             // LocalPlaylistStore owns the old custom-playlist file migration.
             localPlaylistStore.load();
@@ -1330,7 +1336,6 @@ public final class PlayerController {
         clearHomeSections();
         sourceRecommendPlaylists.set(Collections.<Playlist>emptyList());
         sourceRecommendations.set(Collections.<Song>emptyList());
-        sourceRecentSongs.set(Collections.<Song>emptyList());
         clearPublishedPluginAccount();
     }
 
@@ -2402,19 +2407,11 @@ public final class PlayerController {
             }
         }
         if (selected == null) {
+            loginMetadataGeneration.incrementAndGet();
+            clearPluginLoginMethods();
             pendingPluginLoginProvider = "";
-            pluginQrMethodId = "";
-            pluginWebMethodId = "";
-            pluginAppMethodId = "";
-            pluginCredentialMethodId = "";
             loginProviderName.set(I18n.tr("login.defaultProvider"));
             pluginLoginActive.set(false);
-            loginMethods.set(Collections.<LoginMethod>emptyList());
-            pluginQrLoginAvailable.set(false);
-            pluginAppLoginAvailable.set(false);
-            pluginCredentialLoginAvailable.set(false);
-            webLoginAvailable.set(false);
-            publishAppLink("", "");
             // Nothing can own the account header now, so it must not keep showing the
             // previous source's user (the "logged into a source I just switched away
             // from" state that made 我的/首页 disagree with the selected source).
@@ -2437,6 +2434,9 @@ public final class PlayerController {
      */
     private void publishLoginMetadata(PluginManifest provider) {
         final long generation = loginMetadataGeneration.incrementAndGet();
+        // The dialog can open in this same event, before methods() posts back.
+        // Never combine the new provider with the previous provider's method IDs.
+        clearPluginLoginMethods();
         loginProviderName.set(provider.name);
         pluginLoginActive.set(true);
         // Claim the login provider before the metadata round trip: restoring a stored
@@ -2447,6 +2447,7 @@ public final class PlayerController {
             if (generation != loginMetadataGeneration.get()) return;
             if (error != null) {
                 Logger.warn("plugin {} login metadata failed: {}", provider.id, safeMessage(error));
+                webLoginError.set(safeMessage(error));
                 return;
             }
             LoginMethod qr = null, web = null, credential = null, app = null;
@@ -2485,8 +2486,29 @@ public final class PlayerController {
                 loginAppButtonLabel.set(I18n.tr("login.app.open"));
                 loginAppInstructions.set(I18n.tr("login.app.instructions"));
             }
+            pluginLoginMethodsReady.set(true);
             migrateLegacyCredentialsIfAvailable(provider.id);
         }));
+    }
+
+    private void clearPluginLoginMethods() {
+        pluginLoginMethodsReady.set(false);
+        invalidatePluginLoginAttempt();
+        pluginQrMethodId = "";
+        pluginWebMethodId = "";
+        pluginAppMethodId = "";
+        pluginCredentialMethodId = "";
+        activeWebLoginMethod = null;
+        loginMethods.set(Collections.<LoginMethod>emptyList());
+        pluginQrLoginAvailable.set(false);
+        pluginAppLoginAvailable.set(false);
+        pluginCredentialLoginAvailable.set(false);
+        webLoginAvailable.set(false);
+        webLoginError.set("");
+        qrStatus.set(0);
+        qrImage.set(Collections.<List<Boolean>>emptyList());
+        qrImagePath.set("");
+        publishAppLink("", "");
     }
 
     private void migrateLegacyCredentialsIfAvailable(String provider) {
@@ -2898,7 +2920,6 @@ public final class PlayerController {
         playlistCount.set(0);
         myPlaylists.set(Collections.<NeteasePlaylist>emptyList());
         recommendations.set(Collections.<NeteaseSong>emptyList());
-        recentSongs.set(Collections.<NeteaseSong>emptyList());
     }
 
     /** User-triggered migration from owner-only storage back to the system store. */
@@ -3178,6 +3199,12 @@ public final class PlayerController {
 
     private void onPlaybackStarted() {
         if (appShuttingDown || playbackSession.resolving) return;
+        Track started = playbackSession.current();
+        if (!historyRecordedForSelection && started != null) {
+            historyRecordedForSelection = true;
+            playbackHistoryStore.record(started);
+            publishPlaybackHistory();
+        }
         errorRetryMediaId = "";
         consecutivePlaybackFailures = 0;
         stoppedLyricPositionMs = Math.max(0L, backend.position());
@@ -3956,22 +3983,7 @@ public final class PlayerController {
     public void playNextLocalFile(String filePath) {
         synchronized (QmlRuntimeLock.MONITOR) {
             if (filePath == null || filePath.isEmpty()) return;
-            Track found = null;
-            for (Track t : library) {
-                if (filePath.equals(t.filePath) || filePath.equals(t.contentUri)) {
-                    found = t;
-                    break;
-                }
-            }
-            if (found == null) {
-                for (Track t : playbackSession.queue) {
-                    if (filePath.equals(t.filePath) || filePath.equals(t.contentUri)) {
-                        found = t;
-                        break;
-                    }
-                }
-            }
-            Track track = copyForQueue(found);
+            Track track = copyForQueue(findLocalTrackByLocator(filePath));
             if (track == null) {
                 showToast(I18n.tr("toast.playlist.addFailed"));
                 return;
@@ -4201,7 +4213,7 @@ public final class PlayerController {
         @SuppressWarnings("unchecked")
         List<NeteaseSong>[] sources = new List[] {
                 searchResults.peek(), playlistTracks.peek(), recommendations.peek(),
-                recentSongs.peek(), artistSongs.peek(), albumTracks.peek()
+                artistSongs.peek(), albumTracks.peek()
         };
         for (List<NeteaseSong> songs : sources) {
             if (songs == null) continue;
@@ -4466,9 +4478,8 @@ public final class PlayerController {
     /** A local file's id is derived from its locator, exactly as Track does it. */
     private String localFileMediaId(String filePath) {
         if (filePath == null || filePath.isEmpty()) return "";
-        for (Track candidate : library) {
-            if (filePath.equals(candidate.filePath)) return candidate.canonicalId();
-        }
+        Track known = findLocalTrackByLocator(filePath);
+        if (known != null) return known.canonicalId();
         Track probe = new Track();
         probe.source = Track.Source.LOCAL;
         probe.filePath = filePath;
@@ -4524,13 +4535,7 @@ public final class PlayerController {
         try {
             synchronized (QmlRuntimeLock.MONITOR) {
                 if (filePath == null || filePath.isEmpty()) return;
-                Track found = null;
-                for (Track candidate : library) {
-                    if (filePath.equals(candidate.filePath)) {
-                        found = candidate;
-                        break;
-                    }
-                }
+                Track found = findLocalTrackByLocator(filePath);
                 if (found == null) {
                     showToast(I18n.tr("toast.playlist.addFailed"));
                     return;
@@ -5033,11 +5038,29 @@ public final class PlayerController {
                         playbackSession.queue,
                         cachedSongTracks,
                         localPlaylistTracks.peek(),
+                        playbackHistoryTracks.peek(),
                         library);
         for (List<Track> list : lists) {
             if (list == null) continue;
             for (Track track : list) {
                 if (mediaId.equals(track.canonicalId())) return track;
+            }
+        }
+        return null;
+    }
+
+    /** Local row menus must also work for history-only tracks without a library scan. */
+    private Track findLocalTrackByLocator(String locator) {
+        if (locator == null || locator.isEmpty()) return null;
+        List<List<Track>> lists = java.util.Arrays.asList(
+                library, playbackSession.queue, localPlaylistTracks.peek(),
+                playbackHistoryTracks.peek());
+        for (List<Track> list : lists) {
+            if (list == null) continue;
+            for (Track track : list) {
+                if (track.source == Track.Source.LOCAL
+                        && (locator.equals(track.filePath) || locator.equals(track.contentUri)))
+                    return track;
             }
         }
         return null;
@@ -5439,13 +5462,54 @@ public final class PlayerController {
         }
     }
 
-    public void playRecentSong(int i) {
+    /** Refresh the projection on page open without replacing newer in-memory starts. */
+    public void loadPlaybackHistory() {
         synchronized (QmlRuntimeLock.MONITOR) {
-            if (Boolean.TRUE.equals(sourceContentActive.peek())) {
-                playPluginSongList(sourceRecentSongs.peek(), i);
-                return;
+            if (appShuttingDown) return;
+            publishPlaybackHistory();
+            playbackHistoryStore.load().whenComplete((unused, error) -> {
+                if (error != null)
+                    Logger.warn("loadPlaybackHistory failed: {}", safeMessage(error));
+                onMain(this::playbackHistoryResourcesChanged);
+            });
+        }
+    }
+
+    private void publishPlaybackHistory() {
+        playbackHistoryTracks.set(playbackHistoryStore.tracks());
+    }
+
+    private void playbackHistoryResourcesChanged() {
+        if (appShuttingDown) return;
+        publishPlaybackHistory();
+        Track current = playbackSession.current();
+        boolean queueChanged = false;
+        boolean currentChanged = false;
+        for (Track queued : playbackSession.queue) {
+            if (!playbackHistoryStore.restoreResources(queued)) continue;
+            queueChanged = true;
+            if (queued == current) currentChanged = true;
+        }
+        if (!queueChanged) return;
+        queueTracks.set(new ArrayList<>(playbackSession.queue));
+        saveQueue();
+        if (currentChanged) {
+            coverUrl.set(trackCoverUrl(current, "512"));
+            updateCover(current, coverRevision.get());
+            ioWorker.submit(() -> loadLocalLyrics(current));
+        }
+    }
+
+    /** Snapshot rows and locate the identity before playback can reorder the MRU. */
+    public void playHistoryTrack(String canonicalId) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            List<Track> tracks = playbackHistoryStore.tracks();
+            for (int i = 0; i < tracks.size(); i++) {
+                if (tracks.get(i).canonicalId().equals(canonicalId)) {
+                    playQueue(tracks, i);
+                    return;
+                }
             }
-            playSongList(recentSongs.peek(), i);
         }
     }
 
@@ -5735,11 +5799,11 @@ public final class PlayerController {
 
     private void playAt(int i) {
         synchronized (QmlRuntimeLock.MONITOR) {
-            playAtLocked(i);
+            playAtLocked(i, true);
         }
     }
 
-    private void playAtLocked(int requestedIndex) {
+    private void playAtLocked(int requestedIndex, boolean newSelection) {
         if (appShuttingDown || requestedIndex < 0 || requestedIndex >= playbackSession.queue.size())
             return;
         Track track = playbackSession.queue.get(requestedIndex);
@@ -5757,6 +5821,7 @@ public final class PlayerController {
         pendingPluginTargetMediaId = "";
         playbackSession.index = requestedIndex;
         playbackSession.select(desiredPlaying);
+        if (newSelection) historyRecordedForSelection = false;
         needsReplay = false;
         long revision = coverRevision.incrementAndGet();
         long resumeMs = requestedIndex == pendingResumeIndex ? Math.max(0L, pendingResumeMs) : 0L;
@@ -9221,36 +9286,6 @@ public final class PlayerController {
         }
     }
 
-    /** Recently played (netease listen history). */
-    public void loadRecent() {
-        synchronized (QmlRuntimeLock.MONITOR) {
-            PluginManifest provider = primaryProviderWith(ProviderCapability.RECENT);
-            if (provider != null) {
-                pluginProviders
-                        .recent(provider.id, 100)
-                        .whenComplete(
-                                (songs, error) ->
-                                        post(
-                                                () -> {
-                                                    if (!provider.id.equals(
-                                                            pluginRegistry.primaryProvider()))
-                                                        return;
-                                                    if (error != null) {
-                                                        Logger.warn(
-                                                                "plugin {} recent failed: {}",
-                                                                provider.id,
-                                                                safeMessage(error));
-                                                        return;
-                                                    }
-                                                    sourceRecentSongs.set(songs);
-                                                }));
-                return;
-            }
-
-            recentSongs.set(Collections.<NeteaseSong>emptyList());
-            return;
-        }
-    }
 
     /** Load the liked set of every signed-in source, not just the primary one: the
      *  heart on a QQ song has to reflect QQ's own favourites even while NetEase is
@@ -9459,7 +9494,7 @@ public final class PlayerController {
             }
             if (needsReplay && playbackSession.index >= 0) {
                 needsReplay = false;
-                onMain(() -> playAt(playbackSession.index));
+                onMain(() -> playAtLocked(playbackSession.index, false));
                 return;
             }
             // Mirrors toggle()'s resume branch: pick the fade back up mid-ramp if a
@@ -9519,6 +9554,10 @@ public final class PlayerController {
     private volatile String pluginCredentialMethodId = "";
     private volatile boolean pendingLoginIsApp;
     private volatile LoginMethod activeWebLoginMethod;
+    private volatile long loginAttemptGeneration;
+    private String webLoginProvider = "";
+    private String webLoginMethodId = "";
+    private long webLoginAttemptGeneration;
     // QR/app login is polled from QML, but jumping to Douyin/QQ pauses the GL
     // thread and those timers freeze — the confirm happens while we are in the
     // background, so the host has to keep polling itself.
@@ -9543,6 +9582,8 @@ public final class PlayerController {
     private volatile java.nio.file.Path pendingQrImageFile;
     /** 0 loading / 800 expired / 801 waiting / 802 scanned / 803 success. */
     public final Property<Integer> qrStatus = new Property<>(0);
+    /** True only after the selected source's complete method metadata is published. */
+    public final Property<Boolean> pluginLoginMethodsReady = new Property<>(false);
     /** Whether this shell can embed the official website in a system WebView. */
     public final Property<Boolean> webLoginAvailable = new Property<>(false);
     /** True while the browser is open or a pasted/browser Cookie is being checked. */
@@ -9557,6 +9598,7 @@ public final class PlayerController {
         final WebLoginLauncher launcher;
         final LoginMethod method;
         final String providerName;
+        final long generation;
         synchronized (QmlRuntimeLock.MONITOR) {
             launcher = webLoginLauncher;
             if (launcher == null) {
@@ -9564,6 +9606,7 @@ public final class PlayerController {
                 return;
             }
             if (Boolean.TRUE.equals(webLoginBusy.peek())) return;
+            if (!Boolean.TRUE.equals(pluginLoginMethodsReady.peek())) return;
             method = activeWebLoginMethod;
             if (pendingPluginLoginProvider.isEmpty() || method == null) {
                 webLoginBusy.set(false);
@@ -9571,11 +9614,16 @@ public final class PlayerController {
                 return;
             }
             providerName = loginProviderName.peek();
+            generation = invalidatePluginLoginAttempt();
+            webLoginProvider = pendingPluginLoginProvider;
+            webLoginMethodId = method.id;
+            webLoginAttemptGeneration = generation;
             webLoginError.set("");
             webLoginBusy.set(true);
         }
         onHost(
                 () -> {
+                    if (generation != loginAttemptGeneration) return;
                     try {
                         launcher.launch(
                                 method.webUrl,
@@ -9586,6 +9634,7 @@ public final class PlayerController {
                         Logger.warn("web login launcher failed: {}", safeMessage(error));
                         onMain(
                                 () -> {
+                                    if (generation != loginAttemptGeneration) return;
                                     webLoginBusy.set(false);
                                     webLoginError.set(I18n.tr("login.error.openFailed"));
                                 });
@@ -9596,7 +9645,9 @@ public final class PlayerController {
     /** Called by a shell after reading the official WebView cookie store. */
     public void completeWebLogin(String cookieHeader) {
         synchronized (QmlRuntimeLock.MONITOR) {
-            importLoginCookie(cookieHeader, pluginWebMethodId);
+            if (webLoginAttemptGeneration != loginAttemptGeneration) return;
+            importLoginCookie(cookieHeader, webLoginProvider, webLoginMethodId,
+                    webLoginAttemptGeneration);
         }
     }
 
@@ -9604,31 +9655,34 @@ public final class PlayerController {
     public void submitCookieLogin(String cookieHeader) {
         synchronized (QmlRuntimeLock.MONITOR) {
             if (Boolean.TRUE.equals(webLoginBusy.peek())) return;
+            if (!Boolean.TRUE.equals(pluginLoginMethodsReady.peek())) return;
+            final long generation = invalidatePluginLoginAttempt();
             webLoginBusy.set(true);
             webLoginError.set("");
-            importLoginCookie(cookieHeader, pluginCredentialMethodId);
+            importLoginCookie(cookieHeader, pendingPluginLoginProvider,
+                    pluginCredentialMethodId, generation);
         }
     }
 
     /** Shell callback when its browser window is closed before obtaining MUSIC_U. */
     public void cancelWebLogin() {
         synchronized (QmlRuntimeLock.MONITOR) {
-            stopLoginPoll();
-            pendingPluginLoginChallenge = "";
-            pendingUnikey = null;
-            post(() -> webLoginBusy.set(false));
+            invalidatePluginLoginAttempt();
         }
     }
 
     /** Shell callback for browser creation/native-engine failures. */
     public void failWebLogin(String message) {
         synchronized (QmlRuntimeLock.MONITOR) {
+            if (webLoginAttemptGeneration != loginAttemptGeneration) return;
+            final long generation = loginAttemptGeneration;
             final String safe =
                     message == null || message.trim().isEmpty()
                             ? I18n.tr("login.error.openSourceFailed")
                             : message.trim();
             post(
                     () -> {
+                        if (generation != loginAttemptGeneration) return;
                         webLoginBusy.set(false);
                         webLoginError.set(safe);
                     });
@@ -9641,17 +9695,30 @@ public final class PlayerController {
         }
     }
 
-    private void importLoginCookie(String cookieHeader, String pluginMethodId) {
+    private long invalidatePluginLoginAttempt() {
+        ++loginAttemptGeneration;
+        stopLoginPoll();
+        pendingPluginLoginChallenge = "";
+        pendingUnikey = null;
+        pendingLoginIsApp = false;
+        webLoginBusy.set(false);
+        return loginAttemptGeneration;
+    }
+
+    private void importLoginCookie(String cookieHeader, String provider, String pluginMethodId,
+                                   long generation) {
         final String candidate = cookieHeader == null ? "" : cookieHeader;
-        if (!pendingPluginLoginProvider.isEmpty()
+        if (!provider.isEmpty()
                 && pluginMethodId != null
                 && !pluginMethodId.isEmpty()) {
             pluginAccounts
-                    .submit(pendingPluginLoginProvider, pluginMethodId, candidate)
+                    .submit(provider, pluginMethodId, candidate)
                     .whenComplete(
                             (challenge, error) ->
                                     post(
                                             () -> {
+                                                if (generation != loginAttemptGeneration
+                                                        || !provider.equals(pendingPluginLoginProvider)) return;
                                                 if (error != null) {
                                                     webLoginBusy.set(false);
                                                     webLoginError.set(safeMessage(error));
@@ -9662,24 +9729,20 @@ public final class PlayerController {
             return;
         }
 
-        post(
-                () -> {
-                    webLoginBusy.set(false);
-                    webLoginError.set(I18n.tr("login.error.noLoginPlugin"));
-                });
-        return;
+        webLoginBusy.set(false);
+        webLoginError.set(I18n.tr("login.error.noLoginPlugin"));
     }
 
     /** Mint a login key + matrix off-thread; publishes to {@link #qrImage}/{@link #qrStatus}. */
     public void startQrLogin() {
         synchronized (QmlRuntimeLock.MONITOR) {
-            pendingLoginIsApp = false;
-            post(
-                    () -> {
-                        qrStatus.set(0);
-                        qrImagePath.set("");
-                        publishAppLink("", loginAppButtonLabel.peek());
-                    });
+            if (!Boolean.TRUE.equals(pluginLoginMethodsReady.peek())) return;
+            final long generation = invalidatePluginLoginAttempt();
+            qrStatus.set(0);
+            qrImage.set(Collections.<List<Boolean>>emptyList());
+            qrImagePath.set("");
+            publishAppLink("", loginAppButtonLabel.peek());
+            webLoginError.set("");
             if (!pendingPluginLoginProvider.isEmpty() && !pluginQrMethodId.isEmpty()) {
                 final String provider = pendingPluginLoginProvider;
                 pluginAccounts
@@ -9688,8 +9751,8 @@ public final class PlayerController {
                                 (challenge, error) ->
                                         post(
                                                 () -> {
-                                                    if (!provider.equals(pendingPluginLoginProvider)
-                                                            || pendingLoginIsApp) return;
+                                                    if (generation != loginAttemptGeneration
+                                                            || !provider.equals(pendingPluginLoginProvider)) return;
                                                     if (error != null) {
                                                         Logger.warn(
                                                                 "plugin {} QR login start failed:"
@@ -9707,28 +9770,24 @@ public final class PlayerController {
                 return;
             }
 
-            post(
-                    () -> {
-                        qrStatus.set(800);
-                        webLoginError.set(I18n.tr("login.error.noLoginPlugin"));
-                    });
-            return;
+            qrStatus.set(800);
+            webLoginError.set(I18n.tr("login.error.noLoginPlugin"));
         }
     }
 
     /** Begin an {@code app} login challenge. The OS jump happens on {@link #openLoginApp()}. */
     public void startAppLogin() {
         synchronized (QmlRuntimeLock.MONITOR) {
+            if (!Boolean.TRUE.equals(pluginLoginMethodsReady.peek())) return;
             if (pluginAppMethodId.isEmpty() || pendingPluginLoginProvider.isEmpty()) {
                 webLoginError.set(I18n.tr("login.error.noApp"));
                 return;
             }
+            final long generation = invalidatePluginLoginAttempt();
             pendingLoginIsApp = true;
-            post(
-                    () -> {
-                        qrStatus.set(0);
-                        publishAppLink("", loginAppButtonLabel.peek());
-                    });
+            qrStatus.set(0);
+            publishAppLink("", loginAppButtonLabel.peek());
+            webLoginError.set("");
             final String provider = pendingPluginLoginProvider;
             final String methodId = pluginAppMethodId;
             pluginAccounts
@@ -9737,8 +9796,8 @@ public final class PlayerController {
                             (challenge, error) ->
                                     post(
                                             () -> {
-                                                if (!provider.equals(pendingPluginLoginProvider)
-                                                        || !pendingLoginIsApp) return;
+                                                if (generation != loginAttemptGeneration
+                                                        || !provider.equals(pendingPluginLoginProvider)) return;
                                                 if (error != null) {
                                                     Logger.warn(
                                                             "plugin {} app login start failed: {}",
@@ -9795,23 +9854,23 @@ public final class PlayerController {
             if (!pendingPluginLoginProvider.isEmpty() && !pendingPluginLoginChallenge.isEmpty()) {
                 final String provider = pendingPluginLoginProvider;
                 final String challenge = pendingPluginLoginChallenge;
+                final long generation = loginAttemptGeneration;
                 pluginAccounts
                         .poll(provider, challenge)
                         .whenComplete(
                                 (result, error) -> {
-                                    try {
-                                        post(
-                                                () -> {
-                                                    if (!provider.equals(pendingPluginLoginProvider)
-                                                            || !challenge.equals(
-                                                                    pendingPluginLoginChallenge))
-                                                        return;
-                                                    if (error == null)
-                                                        applyPluginLoginChallenge(result, false);
-                                                });
-                                    } finally {
-                                        loginPollInFlight.set(false);
+                                    // Background app-login polling must not wait for a render pump.
+                                    synchronized (QmlRuntimeLock.MONITOR) {
+                                        if (generation == loginAttemptGeneration) {
+                                            loginPollInFlight.set(false);
+                                        }
                                     }
+                                    post(() -> {
+                                        if (generation != loginAttemptGeneration) return;
+                                        if (!provider.equals(pendingPluginLoginProvider)
+                                                || !challenge.equals(pendingPluginLoginChallenge)) return;
+                                        if (error == null) applyPluginLoginChallenge(result, false);
+                                    });
                                 });
                 return;
             }
@@ -9862,7 +9921,7 @@ public final class PlayerController {
         switch (challenge.status) {
             case "scanned": qrStatus.set(802); break;
             case "success":
-                stopLoginPoll();
+                invalidatePluginLoginAttempt();
                 qrStatus.set(803);
                 webLoginBusy.set(false);
                 webLoginError.set("");
@@ -9880,7 +9939,7 @@ public final class PlayerController {
                 else startQrLogin();
                 break;
             case "failed":
-                stopLoginPoll();
+                invalidatePluginLoginAttempt();
                 pendingCredentialEncryptedNotice = false;
                 qrStatus.set(800);
                 webLoginBusy.set(false);
@@ -9963,7 +10022,6 @@ public final class PlayerController {
             }
             refreshPluginLiked();
             loadMyPlaylists();
-            loadRecent();
         } else {
             pendingCredentialEncryptedNotice = false;
             pluginLikedBySource.remove(provider);
@@ -10011,8 +10069,6 @@ public final class PlayerController {
 
         myPlaylists.set(Collections.<NeteasePlaylist>emptyList());
         recommendations.set(Collections.<NeteaseSong>emptyList());
-        recentSongs.set(Collections.<NeteaseSong>emptyList());
-        sourceRecentSongs.set(Collections.<Song>emptyList());
         clearPublishedPluginAccount();
         clearSourceAccount(pluginRegistry.primaryProvider());
         publishMyPlaylists();
@@ -10051,7 +10107,8 @@ public final class PlayerController {
     public CompletableFuture<Void> shutdownAsync() {
         synchronized (QmlRuntimeLock.MONITOR) {
             if (shutdownFuture != null) return shutdownFuture;
-            CompletableFuture<Void> saved = saveSessionStateAsync();
+            CompletableFuture<Void> saved = CompletableFuture.allOf(
+                    saveSessionStateAsync(), playbackHistoryStore.pendingWrites());
             appShuttingDown = true;
             ++sleepTimerGeneration;
             if (sleepTimerTask != null) sleepTimerTask.cancel(false);

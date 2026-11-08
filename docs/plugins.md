@@ -329,6 +329,11 @@ Promise. Permission/argument checks in the JavaScript gate can throw before a
 Promise is created; dispatcher/service failures reject it. A permission prefix
 in the runtime gate does not imply that every method with that prefix exists.
 
+JavaScript object properties whose value is `undefined` are omitted when crossing
+the host boundary. Explicit `null` values remain present; `undefined` array
+elements become `null`. Optional arguments can therefore use `undefined`
+without becoming explicitly supplied null arguments.
+
 ### Storage and network
 
 | Method | Permission | Arguments → result |
@@ -513,6 +518,11 @@ launcher to show that route; the parser accepting `app` does not make it usable
 on desktop. `qr` and `app` use `begin` followed by polling, currently at
 approximately 800 ms while no poll is in flight. `app` does not show a QR.
 `credential` submits the user's text directly.
+
+The host loads the selected source's methods before starting a login flow.
+Method IDs belong to that source, not to the method type: two QR providers can
+use different IDs. A credential-only source does not receive `begin` or `poll`.
+Switching sources or restarting a challenge invalidates older UI results.
 
 A `web` method also requires `webAuth`, HTTPS `webUrl`, HTTPS `cookieUrl`, and
 `credentialCookieName` matching `[A-Za-z0-9_.-]{1,64}`. QPlayer opens the

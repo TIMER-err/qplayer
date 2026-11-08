@@ -481,7 +481,10 @@ public final class PluginRuntime implements AutoCloseable {
                     Object member = id instanceof Number
                             ? object.get(((Number) id).intValue(), object)
                             : object.get(key, object);
-                    if (!(member instanceof Function)) {
+                    // Optional JS object fields follow JSON object semantics.
+                    // Preserve explicit null, but do not turn undefined into a
+                    // supplied argument (for example a GET request's body).
+                    if (member != Undefined.instance && !(member instanceof Function)) {
                         out.put(key, fromJs(member, budget, depth + 1));
                     }
                 }

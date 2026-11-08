@@ -157,14 +157,15 @@ final class InputBridge {
                 handleEscape(action);
                 return;
             }
-            // Space toggles play/pause, like a media player — but NOT while typing into a
-            // text field, where the char callback must insert a space instead. Focus lives
-            // on the render thread, so check it there; toggle() is safe to call from there
-            // (same context as a QML onClicked). Ignore auto-repeat + release.
+            // Give a visible keyboard-focused control first refusal of Space, otherwise
+            // use it as the playback shortcut. Text fields receive it only through the
+            // char callback below; non-text controls must not receive that second event.
             if (action == GLFW.GLFW_PRESS && key == GLFW.GLFW_KEY_SPACE) {
                 win.postRenderTask(() -> {
                     QmlView v = win.view();
-                    if (v == null || v.focused() instanceof TextEditable) return;
+                    if (v == null) return;
+                    clearHiddenFocus(v);
+                    if (v.focused() instanceof TextEditable || v.dispatchKey(0, " ", true)) return;
                     PlayerController controller = win.controller();
                     if (controller != null) controller.toggle();
                 });
@@ -177,14 +178,19 @@ final class InputBridge {
             final boolean shift = (mods & GLFW.GLFW_MOD_SHIFT) != 0;
             win.postRenderTask(() -> {
                 QmlView v = win.view();
-                if (v != null) v.dispatchKey(code, null, down, shift);
+                if (v == null) return;
+                clearHiddenFocus(v);
+                v.dispatchKey(code, null, down, shift);
             });
         });
         GLFW.glfwSetCharCallback(window, (w, codepoint) -> {
-            final String s = new String(Character.toChars(codepoint));
+            final String s = codepoint == ' ' ? " " : new String(Character.toChars(codepoint));
             win.postRenderTask(() -> {
                 QmlView v = win.view();
-                if (v != null && !s.isEmpty()) v.dispatchKey(0, s, true);
+                if (v == null) return;
+                clearHiddenFocus(v);
+                if (codepoint == ' ' && !(v.focused() instanceof TextEditable)) return;
+                v.dispatchKey(0, s, true);
             });
         });
         // Same path as Settings → 从文件导入: a dropped .qplug opens the
@@ -338,6 +344,17 @@ final class InputBridge {
             return;
         }
         v.dispatchWheel(lx, ly, (float) stepX, (float) stepY);
+    }
+
+    // qml4j retains focus when an item or its page is hidden. Never send keys
+    // into that detached keyboard context (popup handlers bubble to its owner).
+    private static void clearHiddenFocus(QmlView v) {
+        for (Item item = v.focused(); item != null; item = item.parent.peek()) {
+            if (!item.isVisible()) {
+                v.setFocus(null);
+                return;
+            }
+        }
     }
 
     // Select-all on the focused editable, mirroring the engine's own selection

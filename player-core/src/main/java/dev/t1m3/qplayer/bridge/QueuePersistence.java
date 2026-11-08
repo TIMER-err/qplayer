@@ -140,6 +140,7 @@ public final class QueuePersistence {
             } else if (track.coverThumbPath != null && !track.coverThumbPath.startsWith("http")) {
                 row.addProperty("coverLocalPath", track.coverThumbPath);
             }
+            if (track.source == Track.Source.LOCAL) optional(row, "coverThumbPath", track.coverThumbPath);
             optional(row, "lyricFilePath", track.lyricFilePath);
             optional(row, "translationFilePath", track.translationFilePath);
             optional(row, "romajiFilePath", track.romajiFilePath);
@@ -180,6 +181,7 @@ public final class QueuePersistence {
             track.filePath = text(row, "filePath", null);
             track.contentUri = text(row, "contentUri", null);
             track.coverLocalPath = text(row, "coverLocalPath", null);
+            track.coverThumbPath = text(row, "coverThumbPath", track.coverLocalPath);
             track.lyricFilePath = text(row, "lyricFilePath", null);
             track.translationFilePath = text(row, "translationFilePath", null);
             track.romajiFilePath = text(row, "romajiFilePath", null);
@@ -193,7 +195,7 @@ public final class QueuePersistence {
         return track;
     }
 
-    private static Track copyPersistent(Track source) {
+    static Track copyPersistent(Track source) {
         Track copy = new Track();
         copy.source = source.source;
         copy.mediaId = source.mediaId;
