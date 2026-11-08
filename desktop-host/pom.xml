@@ -30,7 +30,7 @@
         <native.buildtools.version>1.1.17</native.buildtools.version>
         <!-- Keep this version aligned with Android versionName. The release workflow
              also passes the tag version explicitly when compiling native packages. -->
-        <qplayer.app.version>1.9.8</qplayer.app.version>
+        <qplayer.app.version>1.9.9</qplayer.app.version>
         <!-- exec:exec run knobs. Empty gfx means use the persisted in-app setting;
              pass -Dgfx=gl|vulkan only when an explicit development override is
              wanted. -->
