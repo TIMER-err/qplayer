@@ -1,26 +1,25 @@
 import QtQuick
-import QtQuick.Layouts
 import miuix.Core
+import design
 import "."
 import "../dialogs"
 import "../components"
 
-// App settings overlay. Nothing here knows what a setting IS: the categories and
+// App settings route. Nothing here knows what a setting IS: the categories and
 // the rows come from player-core's SettingsCatalog through the `settings` context
 // global (SettingsCore), and each row is rendered by whichever Setting*Row
 // component matches its declared type. Adding a setting is a catalog entry —
 // no edit here, and none in either platform's host code.
 //
-// This also keeps the page well clear of the 64KB-per-QML-file constructor limit
-// that forced the old hand-written version to be split across six files: the
-// markup is now one Repeater plus one Component per row type.
+// Wide pages (>= Ui.expandedMin) are master-detail: the category list on the
+// left, the selected category's groups in a readable column on the right.
+// Narrower pages keep a horizontally scrolling category tab row.
 Rectangle {
     id: page
     property real bottomContentInset: 0
     signal back()
-    signal home()
     signal openDebugLog()
-    color: Theme.color.surface
+    color: Ui.background
 
     property var categories: settings.categories()
     property var categoryTabModel: {
@@ -30,25 +29,41 @@ Rectangle {
         return out
     }
 
-    // Category switching uses Main.qml's fade-through verbatim (fade out,
-    // swap, fade back in while rising), so it reads the same as switching pages.
+    // Category switching fades the panel out, swaps, then fades it back in while
+    // rising. Selection highlights follow nextCategory so they react at once.
     property string currentCategory: page.categories.length > 0 ? page.categories[0] : ""
     property string nextCategory: page.currentCategory
     property real panelOpacity: 1
     property real panelShift: 0
     property var groups: settings.groups(page.currentCategory)
-    property var installedPlugins: player.sourcePlugins || []
-    property var availablePlugins: {
-        var out = []
-        var rows = player.pluginCatalogEntries || []
-        for (var i = 0; i < rows.length; i++) {
-            if (!rows[i].installed) out.push(rows[i])
-        }
-        return out
+
+    readonly property bool wide: width >= Ui.expandedMin
+    readonly property real gutter: Ui.gutter(width)
+    readonly property real navX: Math.max(4, gutter - 12)
+    readonly property real navWidth: 232
+    readonly property real tabsHeight: 45
+    readonly property real detailX: wide ? navX + navWidth : 0
+    readonly property real detailWidth: Math.max(0, width - detailX)
+    readonly property real detailTop: wide ? Ui.headerHeight : Ui.headerHeight + tabsHeight + Ui.space2
+    readonly property real panelLeft: wide ? Ui.space4 : gutter
+    readonly property real panelAvailable: Math.max(0, detailWidth - panelLeft - gutter)
+    readonly property real panelWidth: Math.min(Ui.readableMax, panelAvailable)
+
+    function categoryIcon(name) {
+        if (name === "appearance") return "palette"
+        if (name === "pages") return "dashboard"
+        if (name === "playback") return "play_circle"
+        if (name === "lyric") return "lyrics"
+        if (name === "overlayLyric") return "subtitles"
+        if (name === "desktopLyric") return "desktop_windows"
+        if (name === "local") return "storage"
+        if (name === "plugins") return "extension"
+        if (name === "about") return "info"
+        return "settings"
     }
 
     function selectCategory(name) {
-        if (!name || name === page.currentCategory) return
+        if (!name || name === page.nextCategory) return
         page.nextCategory = name
         categoryAnim.restart()
     }
@@ -63,7 +78,7 @@ Rectangle {
             onTrigger: {
                 page.currentCategory = page.nextCategory
                 settingsFlickable.contentY = 0
-                page.panelShift = 28
+                page.panelShift = 24
             }
         }
         ParallelAnimation {
@@ -72,7 +87,7 @@ Rectangle {
                 duration: 220; easing.type: Easing.OutCubic
             }
             NumberAnimation {
-                target: page; property: "panelShift"; from: 28; to: 0
+                target: page; property: "panelShift"; from: 24; to: 0
                 duration: 220; easing.type: Easing.OutCubic
             }
         }
@@ -81,206 +96,96 @@ Rectangle {
     // Catch-all so taps on empty areas don't fall through to the page beneath.
     MouseArea { anchors.fill: parent }
 
-    ColumnLayout {
-        anchors.fill: parent
-        spacing: 0
+    // ---- Wide: category list -----------------------------------------------------
+    Flickable {
+        id: categoryList
+        objectName: "settingsCategoryList"
+        visible: page.wide
+        x: page.navX
+        y: Ui.headerHeight + Ui.space1
+        width: page.navWidth
+        height: Math.max(0, page.height - y)
+        clip: true
+        contentWidth: width
+        contentHeight: page.categories.length * 44 + Ui.space4 + page.bottomContentInset
 
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 64
-            Layout.leftMargin: 4
-            Layout.rightMargin: 16
-            spacing: 4
-            PageHeaderButtons {
-                Layout.alignment: Qt.AlignVCenter
-                onHome: page.home()
-                onBack: page.back()
-            }
-            Text {
-                Layout.fillWidth: true
-                Layout.alignment: Qt.AlignVCenter
-                text: i18n.t("settings.title")
-                color: Theme.color.onSurfaceColor
-                font.family: Theme.typography.titleLarge.family
-                font.pixelSize: 28
-                font.weight: Font.DemiBold
-            }
-            IconButton {
-                objectName: "settingsDebugAction"
-                Layout.alignment: Qt.AlignVCenter
-                type: "standard"
-                icon: "bug_report"
-                onClicked: page.openDebugLog()
+        Repeater {
+            model: page.wide ? page.categories : null
+            SidebarItem {
+                objectName: "settingsCategory_" + modelData
+                y: index * 44
+                width: page.navWidth
+                icon: page.categoryIcon(modelData)
+                text: i18n.t("settings.category." + modelData)
+                selected: modelData === page.nextCategory
+                onClicked: page.selectCategory(modelData)
             }
         }
+    }
 
-        TabRowWithContour {
-            id: categoryTabs
-            objectName: "settingsCategoryTabs"
-            equalWidth: false
-            Layout.fillWidth: true
-            Layout.preferredHeight: 45
-            Layout.leftMargin: 12
-            Layout.rightMargin: 12
-            tabs: page.categoryTabModel
-            selectedTabIndex: page.categories.indexOf(page.currentCategory)
-            selectOnClick: false
-            onTabSelected: (index) => page.selectCategory(page.categories[index])
+    // ---- Compact / medium: category tabs -------------------------------------------
+    TabRowWithContour {
+        id: categoryTabs
+        objectName: "settingsCategoryTabs"
+        visible: !page.wide
+        x: page.gutter
+        y: Ui.headerHeight
+        width: Math.max(0, page.width - page.gutter * 2)
+        height: page.tabsHeight
+        equalWidth: false
+        cornerRadius: Ui.radiusSm
+        backgroundColor: Ui.surfaceRaised
+        selectedBackgroundColor: Ui.accentSoft
+        selectedContentColor: Ui.accent
+        contentColor: Ui.textSecondary
+        tabs: page.categoryTabModel
+        selectedTabIndex: page.categories.indexOf(page.nextCategory)
+        selectOnClick: false
+        onTabSelected: (index) => page.selectCategory(page.categories[index])
+    }
+
+    // ---- Detail: the selected category ----------------------------------------------
+    Flickable {
+        id: settingsFlickable
+        objectName: "settingsScroller"
+        x: page.detailX
+        y: page.detailTop
+        width: page.detailWidth
+        height: Math.max(0, page.height - y)
+        clip: true
+        contentWidth: width
+        contentHeight: panel.implicitHeight + panel.topPad + Ui.space8 + page.bottomContentInset
+
+        SettingsPanel {
+            id: panel
+            objectName: "settingsSingleColumn"
+            readonly property real topPad: page.wide ? Ui.space1 : Ui.space3
+            x: page.panelLeft + (page.panelAvailable - page.panelWidth) / 2
+            y: topPad + page.panelShift
+            width: page.panelWidth
+            opacity: page.panelOpacity
+            category: page.currentCategory
+            groups: page.groups
+            showTitle: page.wide
         }
 
-        Flickable {
-            id: settingsFlickable
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            // Breathing room under the tab bar so the first card doesn't sit on
-            // the indicator.
-            Layout.topMargin: 16
-            clip: true
-            contentWidth: width
-            contentHeight: groupsColumn.implicitHeight + 40 + page.bottomContentInset
+        ViewportScrollBar {
+            target: settingsFlickable
+            bottomInset: page.bottomContentInset
+        }
+    }
 
-            ColumnLayout {
-                id: groupsColumn
-                objectName: "settingsSingleColumn"
-                width: Math.min(880, Math.max(0, settingsFlickable.width - 32))
-                x: (settingsFlickable.width - width) / 2
-                y: page.panelShift
-                opacity: page.panelOpacity
-                spacing: 20
-
-                    SettingCard {
-                        Layout.fillWidth: true
-                        visible: page.currentCategory === "about"
-                                 && player.credentialOwnerOnlyFallback
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-                            SettingTitle { text: i18n.t("settings.credential.title") }
-                            Button {
-                                type: "filledTonal"
-                                icon: "enhanced_encryption"
-                                enabled: !player.credentialProtectionBusy
-                                text: i18n.t(player.credentialProtectionBusy
-                                             ? "settings.credential.busy"
-                                             : "settings.credential.button")
-                                onClicked: player.reenableSystemCredentialProtection()
-                            }
-                        }
-                        SettingDesc {
-                            text: i18n.t("settings.credential.desc")
-                        }
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        Layout.leftMargin: 4
-                        visible: page.currentCategory === "plugins"
-                        text: i18n.t("plugin.installed")
-                        color: Theme.color.primary
-                        fontSize: 14
-                        font.weight: Font.DemiBold
-                    }
-
-                    Card {
-                        Layout.fillWidth: true
-                        visible: page.currentCategory === "plugins" && page.installedPlugins.length > 0
-                        implicitHeight: pluginRows.implicitHeight
-                        ColumnLayout {
-                            id: pluginRows
-                            width: parent.width
-                            spacing: 0
-                            Repeater {
-                                model: page.currentCategory === "plugins" ? page.installedPlugins : null
-                                PluginSettingsEntry { Layout.fillWidth: true; pluginData: modelData }
-                            }
-                        }
-                    }
-
-                    SettingCard {
-                        Layout.fillWidth: true
-                        visible: page.currentCategory === "plugins"
-                                 && page.installedPlugins.length === 0
-
-                        SettingTitle { text: i18n.t("plugin.none.title") }
-                        SettingDesc { text: i18n.t("plugin.none.desc") }
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        Layout.leftMargin: 4
-                        visible: page.currentCategory === "plugins"
-                                 && page.availablePlugins.length > 0
-                        text: i18n.t("plugin.available")
-                        color: Theme.color.primary
-                        fontSize: 14
-                        font.weight: Font.DemiBold
-                    }
-
-                    Repeater {
-                        model: page.currentCategory === "plugins" ? page.availablePlugins : null
-                        delegate: PluginCatalogEntry {
-                            Layout.fillWidth: true
-                            pluginData: modelData
-                        }
-                    }
-
-                    SettingCard {
-                        Layout.fillWidth: true
-                        visible: page.currentCategory === "plugins"
-                                 && player.pluginCatalogLoading
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 10
-                            LoadingIndicator {
-                                running: player.pluginCatalogLoading
-                            }
-                            SettingDesc { text: i18n.t("plugin.catalog.loading") }
-                        }
-                    }
-
-                    SettingCard {
-                        Layout.fillWidth: true
-                        visible: page.currentCategory === "plugins"
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-                            Button {
-                                type: "text"
-                                icon: "refresh"
-                                text: i18n.t("plugin.catalog.refresh")
-                                enabled: !player.pluginCatalogLoading && !player.pluginInstallBusy
-                                onClicked: player.refreshPluginCatalog()
-                            }
-                            Item { Layout.fillWidth: true }
-                            Button {
-                                type: "outlined"
-                                icon: "upload_file"
-                                text: i18n.t("plugin.catalog.import")
-                                enabled: !player.pluginInstallBusy
-                                onClicked: player.requestPluginImport()
-                            }
-                        }
-                        SettingDesc {
-                            text: i18n.t("plugin.catalog.desc")
-                        }
-                    }
-
-                Repeater {
-                    model: page.groups
-                    SettingGroup {
-                        Layout.fillWidth: true
-                        groupData: modelData
-                    }
-                }
-            }
-
-            ViewportScrollBar {
-                target: settingsFlickable
-                bottomInset: page.bottomContentInset
-            }
+    RouteHeader {
+        id: header
+        width: page.width
+        title: i18n.t("settings.title")
+        elevated: settingsFlickable.contentY > 1
+        onBack: page.back()
+        IconButton {
+            objectName: "settingsDebugAction"
+            type: "standard"
+            icon: "bug_report"
+            onClicked: page.openDebugLog()
         }
     }
 
@@ -291,5 +196,4 @@ Rectangle {
     }
 
     ColorPickerDialog { objectName: "settingsColorPicker" }
-
 }

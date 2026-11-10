@@ -1,5 +1,6 @@
 import QtQuick
 import miuix.Core
+import design
 
 // Reparent only the overlay, like Menu, so the MiniPlayer never clips the popup.
 Item {
@@ -66,13 +67,13 @@ Item {
             id: popupContainer
             objectName: "miniPlayerVolumePopup"
             width: Math.max(0, Math.min(280, overlayLayer.width - 32))
-            height: 72
+            height: 64
             x: Math.max(16, Math.min(control.targetX - width / 2, overlayLayer.width - width - 16))
             y: Math.max(16, Math.min(control.targetY - height - 12, overlayLayer.height - height - 16))
-            radius: 16
+            radius: Ui.radiusLg
             color: Theme.color.surfaceContainerHigh
             border.width: 1
-            border.color: Theme.color.outlineVariant
+            border.color: Ui.hairline
             scale: 0.8
             opacity: 0
 
@@ -98,9 +99,10 @@ Item {
                 id: muteButton
                 objectName: "miniPlayerMuteButton"
                 anchors.left: parent.left
-                anchors.leftMargin: 12
+                anchors.leftMargin: Ui.space2
                 anchors.verticalCenter: parent.verticalCenter
                 type: "standard"
+                contentColor: settings.appVolume === 0 ? Ui.textTertiary : Ui.accent
                 icon: settings.appVolume === 0 ? "volume_off"
                       : (settings.appVolume < 50 ? "volume_down" : "volume_up")
                 onClicked: {
@@ -134,13 +136,14 @@ Item {
             Text {
                 id: valueText
                 anchors.right: parent.right
-                anchors.rightMargin: 12
-                anchors.verticalCenter: parent.verticalCenter
+                anchors.rightMargin: Ui.space4
+                y: (parent.height - implicitHeight) / 2
                 width: 40
                 text: Math.round(volumeSlider.value) + "%"
                 horizontalAlignment: Text.AlignRight
-                color: Theme.color.onSurfaceColor
-                font.pixelSize: 14
+                color: Ui.textSecondary
+                font.pixelSize: Ui.textCallout
+                font.weight: Ui.weightBold
             }
         }
     }

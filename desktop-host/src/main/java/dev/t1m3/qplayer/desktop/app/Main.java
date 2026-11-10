@@ -168,6 +168,9 @@ public final class Main {
         Fonts.addFileIndex(dev.t1m3.qplayer.lyric.skia.ImportedFonts.instance());
         Fonts.warmupFromConfig();
         DesktopWindow window = new DesktopWindow(resources, controller, settings);
+        window.setUserScale(settings.uiScaleFactor());
+        settings.onChange(SettingsCatalog.UI_SCALE_KEY, ignored ->
+                window.postMainTask(() -> window.setUserScale(settings.uiScaleFactor())));
         settings.onChange("darkMode", ignored -> {
             window.refreshSystemChromeTheme();
         });

@@ -1,6 +1,6 @@
 import QtQuick
-import QtQuick.Layouts
 import miuix.Core
+import design
 import "."
 import "../components"
 
@@ -8,6 +8,11 @@ import "../components"
 // sources own. They are split into two tabs rather than merged, because they
 // behave differently — a local playlist works signed out, mixes every source and
 // can be exported, while a source playlist lives on that service.
+//
+// Layout: Main draws the large "我的" title above this page. The page itself is
+// a toolbar row (pill tabs on the left, view toggle + sort on the right) over a
+// playlist grid or list, with floating create/import actions at the bottom
+// right. Everything is placed at explicit x/y (no nested layouts).
 Item {
     id: page
     property real bottomContentInset: 0
@@ -15,6 +20,9 @@ Item {
     signal openPlaylist()
     signal openLocalPlaylist()
     signal requestLogin()
+
+    readonly property real gutter: Ui.gutter(page.width)
+    readonly property bool compact: page.width < Ui.compactMax
 
     // Playlists are aggregated across sources, so a signed-in secondary source
     // still fills this page while the primary one is signed out.
@@ -40,183 +48,285 @@ Item {
         return out
     }
     property int selectedSourceIndex: 0
+    readonly property bool canCreate: page.showLocal || page.creatableSources.length > 0
+    readonly property bool canImport: page.showLocal && player.playlistTransferAvailable
+    // Whether the current tab has playlists to present; view toggle and sort
+    // are pointless over an empty or signed-out state.
+    readonly property bool tabHasContent: page.showLocal ? player.localPlaylistCount > 0
+                                                         : (player.loggedIn || page.hasPlaylists)
+    // Trailing scroll space so the last row can scroll clear of the floating
+    // actions as well as the player bar.
+    readonly property real fabClearance: page.canCreate ? Ui.space4 + 60 : 0
 
-    ColumnLayout {
-        anchors.fill: parent
-        spacing: 0
+    function openCreateDialog() {
+        nameField.text = ""
+        page.selectedSourceIndex = 0
+        createDialog.open()
+    }
 
-        Item {
-            Layout.fillWidth: true
-            Layout.leftMargin: 16
-            Layout.rightMargin: 16
-            Layout.bottomMargin: 8
-            Layout.preferredHeight: 45
+    // ---- Toolbar -------------------------------------------------------------
 
-            TabRowWithContour {
-                objectName: "libraryTabs"
-                anchors.left: parent.left
-                anchors.right: sortButton.left
-                anchors.rightMargin: sortButton.visible ? 8 : 0
-                height: parent.height
-                tabs: [i18n.t("library.tab.mine"), i18n.t("playlist.local.title")]
-                selectOnClick: false
-                selectedTabIndex: page.showLocal ? 1 : 0
-                onTabSelected: (index) => page.showLocal = (index === 1)
-            }
+    Row {
+        id: tabRow
+        objectName: "libraryTabs"
+        x: page.gutter
+        y: Ui.space1
+        height: Ui.pillHeight
+        spacing: Ui.space2
+        property var labels: [i18n.t("library.tab.mine"), i18n.t("playlist.local.title")]
+        property var counts: [player.playlistCount, player.localPlaylistCount]
+        property int selectedTabIndex: page.showLocal ? 1 : 0
 
-            // Sort only applies to 我的: local playlists have no "source" to group
-            // by, and are always draggable in list view without picking a mode.
-            IconButton {
-                id: sortButton
-                objectName: "librarySortButton"
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                visible: !page.showLocal
-                type: "standard"
-                icon: "sort"
-                onClicked: { sortMenu.rebuild(); sortMenu.open(sortButton, 0, sortButton.height) }
+        Repeater {
+            model: tabRow.labels
+            Rectangle {
+                id: pill
+                objectName: "libraryTab" + index
+                readonly property bool active: index === tabRow.selectedTabIndex
+                readonly property int count: tabRow.counts[index] || 0
+                // Measured in the bold face so selecting never changes the width.
+                width: Math.max(64, labelProbe.implicitWidth
+                                + (countText.visible ? countText.implicitWidth + 6 : 0)
+                                + 2 * Ui.space4)
+                height: Ui.pillHeight
+                radius: height / 2
+                color: pill.active ? Ui.accentSoft
+                                   : (pillArea.containsMouse ? Ui.surfacePressed : Ui.surfaceSunken)
+                Behavior on color { ColorAnimation { duration: 120 } }
+
+                Text {
+                    id: labelProbe
+                    text: modelData
+                    opacity: 0
+                    font.pixelSize: Ui.textCallout
+                    font.weight: Ui.weightBold
+                }
+                Text {
+                    id: label
+                    x: Ui.space4 + (labelProbe.implicitWidth - implicitWidth) / 2
+                    y: (pill.height - implicitHeight) / 2
+                    text: modelData
+                    color: pill.active ? Ui.accent : Ui.textPrimary
+                    font.pixelSize: Ui.textCallout
+                    font.weight: pill.active ? Ui.weightBold : Ui.weightRegular
+                }
+                Text {
+                    id: countText
+                    x: Ui.space4 + labelProbe.implicitWidth + 6
+                    y: (pill.height - implicitHeight) / 2
+                    visible: pill.count > 0
+                    text: "" + pill.count
+                    color: pill.active ? Ui.accent : Ui.textTertiary
+                    opacity: pill.active ? 0.75 : 1
+                    font.pixelSize: Ui.textCaption
+                }
+                MouseArea {
+                    id: pillArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: page.showLocal = (index === 1)
+                }
             }
         }
+    }
 
-        Item {
-            id: contentArea
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            readonly property bool listView: settings.value("libraryListView") === true
-            readonly property real cardSize: settings.value("libraryCardSize") || 200
-            // Reuse visited presentations without building the unused one.
-            property bool gridLoaded: false
-            property bool listLoaded: false
-            function ensureViewLoaded() {
-                if (settings.value("libraryListView") === true) contentArea.listLoaded = true
-                else contentArea.gridLoaded = true
-            }
-            onListViewChanged: ensureViewLoaded()
-            Component.onCompleted: ensureViewLoaded()
+    Row {
+        id: toolbarActions
+        x: page.width - width - Math.max(4, page.gutter - 12)
+        y: tabRow.y + (tabRow.height - height) / 2
+        height: Ui.iconButton
+        spacing: 2
 
-            PlaylistGrid {
-                id: localGrid
-                anchors.fill: parent
-                bottomContentInset: page.bottomContentInset
-                pageActive: page.visible
-                // enabled, not just visible: an inactive grid/list still sits at the
-                // same anchors.fill geometry as whichever one IS shown, and qml4j does
-                // not skip an invisible item's children during hit-testing — without
-                // this, a right-click landing on one of this grid's (unseen) cards
-                // opens ITS plain context menu instead of the visible list row's.
-                enabled: visible
-                visible: page.showLocal && !contentArea.listView
-                list: page.showLocal && contentArea.gridLoaded ? player.localPlaylists : null
-                minTile: contentArea.cardSize
-                // Same as the local list view — the only order these have.
-                reorderable: true
-                onOpenPlaylist: {
-                    page.pendingPlaylist = localGrid.pendingPlaylist
-                    page.openLocalPlaylist()
-                }
-                onDeletePlaylistRequested: {
-                    page.pendingRemoval = localGrid.pendingPlaylist
-                    if (page.pendingRemoval) localDeleteDialog.open()
-                }
-                onMoveRequested: player.moveLocalPlaylistCard(localGrid.moveFrom, localGrid.moveTo)
-            }
+        // Import belongs to the local tab (it creates a local playlist from a
+        // file). A toolbar action rather than a second FAB, so the floating
+        // area keeps one clear primary action and never stacks over cards.
+        IconButton {
+            objectName: "libraryImportButton"
+            visible: page.canImport
+            type: "standard"
+            icon: "file_download"
+            onClicked: player.requestLocalPlaylistImport()
+        }
 
-            VirtualPlaylistList {
-                id: localList
-                anchors.fill: parent
-                bottomContentInset: page.bottomContentInset
-                enabled: visible
-                visible: page.showLocal && contentArea.listView
-                list: page.showLocal && contentArea.listLoaded ? player.localPlaylists : null
-                // The only order a set of local playlists has — no mode to pick.
-                reorderable: true
-                onOpenPlaylist: {
-                    page.pendingPlaylist = localList.pendingPlaylist
-                    page.openLocalPlaylist()
-                }
-                onDeletePlaylistRequested: {
-                    page.pendingRemoval = localList.pendingPlaylist
-                    if (page.pendingRemoval) localDeleteDialog.open()
-                }
-                onMoveRequested: player.moveLocalPlaylistCard(localList.moveFrom, localList.moveTo)
-            }
+        IconButton {
+            id: viewToggle
+            objectName: "libraryViewToggle"
+            visible: page.tabHasContent
+            type: "standard"
+            icon: contentArea.listView ? "grid_view" : "view_list"
+            onClicked: settings.setValue("libraryListView", !contentArea.listView)
+        }
+        // Sort only applies to 我的: local playlists have no "source" to group
+        // by, and are always draggable without picking a mode.
+        IconButton {
+            id: sortButton
+            objectName: "librarySortButton"
+            visible: !page.showLocal && page.tabHasContent
+            type: "standard"
+            icon: "sort"
+            onClicked: { sortMenu.rebuild(); sortMenu.open(sortButton, 0, sortButton.height) }
+        }
+    }
 
-            PlaylistGrid {
-                id: grid
-                anchors.fill: parent
-                bottomContentInset: page.bottomContentInset
-                pageActive: page.visible
-                enabled: visible
-                visible: !page.showLocal && !contentArea.listView && (player.loggedIn || page.hasPlaylists)
-                list: !page.showLocal && contentArea.gridLoaded
-                      ? ((player.sourceContentActive || page.hasPlaylists)
-                         ? player.sourceMyPlaylists : player.myPlaylists)
-                      : null
-                minTile: contentArea.cardSize
-                // Same rule as the list view: only draggable in custom mode.
-                reorderable: player.librarySortMode === "custom"
-                onOpenPlaylist: { page.pendingPlaylist = grid.pendingPlaylist; page.openPlaylist() }
-                // Deleting is destructive and confirms first; un-collecting is reversible
-                // and matches the detail page's own bookmark button, which acts at once.
-                onDeletePlaylistRequested: {
-                    page.pendingRemoval = grid.pendingPlaylist
-                    if (page.pendingRemoval) deleteDialog.open()
-                }
-                onUnsubscribePlaylistRequested: {
-                    var target = grid.pendingPlaylist
-                    if (target) player.setMediaPlaylistSubscribed("" + target.id, false)
-                }
-                onMoveRequested: player.moveMyPlaylist(grid.moveFrom, grid.moveTo)
-            }
+    // ---- Content ---------------------------------------------------------------
 
-            VirtualPlaylistList {
-                id: sourceList
-                anchors.fill: parent
-                bottomContentInset: page.bottomContentInset
-                enabled: visible
-                visible: !page.showLocal && contentArea.listView && (player.loggedIn || page.hasPlaylists)
-                list: !page.showLocal && contentArea.listLoaded
-                      ? ((player.sourceContentActive || page.hasPlaylists)
-                         ? player.sourceMyPlaylists : player.myPlaylists)
-                      : null
-                // Only draggable in custom mode — same rule as the local song sort
-                // menu: a drag in the source-grouped view has nowhere stable to land.
-                reorderable: player.librarySortMode === "custom"
-                onOpenPlaylist: { page.pendingPlaylist = sourceList.pendingPlaylist; page.openPlaylist() }
-                onDeletePlaylistRequested: {
-                    page.pendingRemoval = sourceList.pendingPlaylist
-                    if (page.pendingRemoval) deleteDialog.open()
-                }
-                onUnsubscribePlaylistRequested: {
-                    var target = sourceList.pendingPlaylist
-                    if (target) player.setMediaPlaylistSubscribed("" + target.id, false)
-                }
-                onMoveRequested: player.moveMyPlaylist(sourceList.moveFrom, sourceList.moveTo)
-            }
+    Item {
+        id: contentArea
+        x: 0
+        y: tabRow.y + tabRow.height + Ui.space2
+        width: page.width
+        height: Math.max(0, page.height - y)
+        readonly property bool listView: settings.value("libraryListView") === true
+        readonly property real cardSize: settings.value("libraryCardSize") || 200
+        readonly property real trailingInset: page.bottomContentInset + page.fabClearance
+        // Reuse visited presentations without building the unused one.
+        property bool gridLoaded: false
+        property bool listLoaded: false
+        function ensureViewLoaded() {
+            if (settings.value("libraryListView") === true) contentArea.listLoaded = true
+            else contentArea.gridLoaded = true
+        }
+        onListViewChanged: ensureViewLoaded()
+        Component.onCompleted: ensureViewLoaded()
 
-            EmptyState {
-                anchors.centerIn: parent
-                visible: page.showLocal && player.localPlaylistCount === 0
-                icon: "queue_music"
-                title: i18n.t("playlist.local.empty.title")
-                message: i18n.t("playlist.local.empty.desc")
+        PlaylistGrid {
+            id: localGrid
+            anchors.fill: parent
+            bottomContentInset: contentArea.trailingInset
+            pad: page.gutter
+            topPadding: Ui.space2
+            pageActive: page.visible
+            // enabled, not just visible: an inactive grid/list still sits at the
+            // same anchors.fill geometry as whichever one IS shown; set it on the
+            // view itself, since qml4j does not inherit enabled for input.
+            enabled: visible
+            visible: page.showLocal && !contentArea.listView
+            list: page.showLocal && contentArea.gridLoaded ? player.localPlaylists : null
+            minTile: contentArea.cardSize
+            // Same as the local list view — the only order these have.
+            reorderable: true
+            onOpenPlaylist: {
+                page.pendingPlaylist = localGrid.pendingPlaylist
+                page.openLocalPlaylist()
             }
+            onDeletePlaylistRequested: {
+                page.pendingRemoval = localGrid.pendingPlaylist
+                if (page.pendingRemoval) localDeleteDialog.open()
+            }
+            onMoveRequested: player.moveLocalPlaylistCard(localGrid.moveFrom, localGrid.moveTo)
+        }
 
-            EmptyState {
-                anchors.centerIn: parent
-                visible: !page.showLocal && !player.loggedIn && !page.hasPlaylists
-                icon: "library_music"
-                title: i18n.t("nav.library")
-                message: i18n.t("library.signInPrompt")
-                actionText: i18n.t("library.signInButton")
-                onActionRequested: page.requestLogin()
+        VirtualPlaylistList {
+            id: localList
+            anchors.fill: parent
+            bottomContentInset: contentArea.trailingInset
+            rowInset: page.gutter
+            enabled: visible
+            visible: page.showLocal && contentArea.listView
+            list: page.showLocal && contentArea.listLoaded ? player.localPlaylists : null
+            // The only order a set of local playlists has — no mode to pick.
+            reorderable: true
+            onOpenPlaylist: {
+                page.pendingPlaylist = localList.pendingPlaylist
+                page.openLocalPlaylist()
             }
+            onDeletePlaylistRequested: {
+                page.pendingRemoval = localList.pendingPlaylist
+                if (page.pendingRemoval) localDeleteDialog.open()
+            }
+            onMoveRequested: player.moveLocalPlaylistCard(localList.moveFrom, localList.moveTo)
+        }
+
+        PlaylistGrid {
+            id: grid
+            anchors.fill: parent
+            bottomContentInset: contentArea.trailingInset
+            pad: page.gutter
+            topPadding: Ui.space2
+            pageActive: page.visible
+            enabled: visible
+            visible: !page.showLocal && !contentArea.listView && (player.loggedIn || page.hasPlaylists)
+            list: !page.showLocal && contentArea.gridLoaded
+                  ? ((player.sourceContentActive || page.hasPlaylists)
+                     ? player.sourceMyPlaylists : player.myPlaylists)
+                  : null
+            minTile: contentArea.cardSize
+            // Same rule as the list view: only draggable in custom mode.
+            reorderable: player.librarySortMode === "custom"
+            onOpenPlaylist: { page.pendingPlaylist = grid.pendingPlaylist; page.openPlaylist() }
+            // Deleting is destructive and confirms first; un-collecting is reversible
+            // and matches the detail page's own bookmark button, which acts at once.
+            onDeletePlaylistRequested: {
+                page.pendingRemoval = grid.pendingPlaylist
+                if (page.pendingRemoval) deleteDialog.open()
+            }
+            onUnsubscribePlaylistRequested: {
+                var target = grid.pendingPlaylist
+                if (target) player.setMediaPlaylistSubscribed("" + target.id, false)
+            }
+            onMoveRequested: player.moveMyPlaylist(grid.moveFrom, grid.moveTo)
+        }
+
+        VirtualPlaylistList {
+            id: sourceList
+            anchors.fill: parent
+            bottomContentInset: contentArea.trailingInset
+            rowInset: page.gutter
+            enabled: visible
+            visible: !page.showLocal && contentArea.listView && (player.loggedIn || page.hasPlaylists)
+            list: !page.showLocal && contentArea.listLoaded
+                  ? ((player.sourceContentActive || page.hasPlaylists)
+                     ? player.sourceMyPlaylists : player.myPlaylists)
+                  : null
+            // Only draggable in custom mode — a drag in the source-grouped view
+            // has nowhere stable to land.
+            reorderable: player.librarySortMode === "custom"
+            onOpenPlaylist: { page.pendingPlaylist = sourceList.pendingPlaylist; page.openPlaylist() }
+            onDeletePlaylistRequested: {
+                page.pendingRemoval = sourceList.pendingPlaylist
+                if (page.pendingRemoval) deleteDialog.open()
+            }
+            onUnsubscribePlaylistRequested: {
+                var target = sourceList.pendingPlaylist
+                if (target) player.setMediaPlaylistSubscribed("" + target.id, false)
+            }
+            onMoveRequested: player.moveMyPlaylist(sourceList.moveFrom, sourceList.moveTo)
+        }
+
+        // Empty states are centred in the part of the panel the player bar does
+        // not cover, so they read as centred on screen.
+        EmptyState {
+            objectName: "libraryLocalEmptyState"
+            x: 0
+            y: 0
+            width: contentArea.width
+            height: Math.max(0, contentArea.height - page.bottomContentInset)
+            visible: page.showLocal && player.localPlaylistCount === 0
+            icon: "queue_music"
+            title: i18n.t("playlist.local.empty.title")
+            message: i18n.t("playlist.local.empty.desc")
+        }
+
+        EmptyState {
+            objectName: "librarySignInState"
+            x: 0
+            y: 0
+            width: contentArea.width
+            height: Math.max(0, contentArea.height - page.bottomContentInset)
+            visible: !page.showLocal && !player.loggedIn && !page.hasPlaylists
+            icon: "library_music"
+            title: i18n.t("library.tab.mine")
+            message: i18n.t("library.signInPrompt")
+            actionText: i18n.t("library.signInButton")
+            actionIcon: "login"
+            onActionRequested: page.requestLogin()
         }
     }
 
     // 我的's sort mode. "Custom" is the only mode a drag can land in — see
     // reorderable on sourceList above — so picking either entry here also
-    // decides whether the list view's drag handles do anything.
+    // decides whether the drag handles do anything.
     Menu {
         id: sortMenu
         outlined: true
@@ -241,38 +351,32 @@ Item {
         }
     }
 
-    // Import sits next to "new" on the local tab: both create a playlist.
+    // ---- Floating action ------------------------------------------------------------
+    // New playlist is the primary action: an extended FAB with a label where
+    // there is room, a round one on compact widths.
+
     FAB {
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        anchors.rightMargin: 16
-        anchors.bottomMargin: 88 + page.bottomContentInset
-        visible: page.showLocal && player.playlistTransferAvailable
-        type: "standard"
-        icon: "file_download"
-        onClicked: player.requestLocalPlaylistImport()
+        id: createFab
+        objectName: "createPlaylistFab"
+        x: page.width - width - page.gutter
+        y: page.height - page.bottomContentInset - Ui.space4 - height
+        width: implicitWidth
+        height: implicitHeight
+        visible: page.canCreate
+        type: page.compact ? "standard" : "extended"
+        text: i18n.t("library.create.title")
+        icon: "add"
+        containerColor: Ui.accent
+        contentColor: Ui.onAccent
+        onClicked: page.openCreateDialog()
     }
 
-    // New-playlist entry point. A local playlist needs no account; a source one
-    // needs both a session and a source that can create them.
-    FAB {
-        objectName: "createPlaylistFab"
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        anchors.rightMargin: 16
-        anchors.bottomMargin: 16 + page.bottomContentInset
-        visible: page.showLocal || page.creatableSources.length > 0
-        type: "standard"
-        icon: "add"
-        onClicked: { nameField.text = ""; page.selectedSourceIndex = 0; createDialog.open() }
-    }
+    // ---- Dialogs -----------------------------------------------------------------
 
     Dialog {
-
-        topInset: settings.topInset
-
-        bottomInset: settings.bottomInset
         id: createDialog
+        topInset: settings.topInset
+        bottomInset: settings.bottomInset
         icon: "playlist_add"
         title: page.showLocal ? i18n.t("playlist.local.create.title")
                               : i18n.t("library.create.title")
@@ -288,10 +392,17 @@ Item {
 
         Column {
             width: parent.width
-            spacing: 12
+            spacing: Ui.space3
 
             // Only shown once there is an actual choice to make: a single logged-in,
-            // playlist-capable source keeps the old one-field dialog unchanged.
+            // playlist-capable source keeps the plain one-field dialog.
+            Text {
+                width: parent.width
+                visible: sourcePicker.visible
+                text: i18n.t("library.create.sourceLabel")
+                color: Ui.textSecondary
+                font.pixelSize: Ui.textCaption
+            }
             TabRowWithContour {
                 id: sourcePicker
                 width: parent.width
@@ -319,11 +430,9 @@ Item {
     }
 
     Dialog {
-
-        topInset: settings.topInset
-
-        bottomInset: settings.bottomInset
         id: deleteDialog
+        topInset: settings.topInset
+        bottomInset: settings.bottomInset
         icon: "delete"
         title: i18n.t("playlist.delete.title")
         text: i18n.t("playlist.delete.body",
@@ -342,9 +451,9 @@ Item {
     }
 
     Dialog {
+        id: localDeleteDialog
         topInset: settings.topInset
         bottomInset: settings.bottomInset
-        id: localDeleteDialog
         icon: "delete"
         title: i18n.t("playlist.delete.title")
         text: i18n.t("playlist.local.delete.body",

@@ -4,6 +4,7 @@ import dev.t1m3.qplayer.desktop.resources.ClasspathResourceLoader;
 import dev.t1m3.qplayer.i18n.I18n;
 import io.github.timer_err.qml4j.engine.QmlEngine;
 import io.github.timer_err.qml4j.engine.binding.DirtyQueue;
+import io.github.timer_err.qml4j.engine.binding.Property;
 import io.github.timer_err.qml4j.render.QmlView;
 import io.github.timer_err.qml4j.render.items.core.Item;
 import org.junit.Test;
@@ -25,6 +26,13 @@ public class PluginDialogSwitchTest {
         public void record(String value) {
             submitted = value;
         }
+    }
+
+    /** The node's (unused) input slot is a miuix TextField, which reads these. */
+    public static final class PlayerStub {
+        public final Property<Boolean> lyricsOpen = new Property<>(false);
+        public final Property<Double> lyricSlide = new Property<>(0.0);
+        public final Property<Boolean> rootInputBlocked = new Property<>(false);
     }
 
     private static final String SCENE =
@@ -59,6 +67,7 @@ public class PluginDialogSwitchTest {
         QmlView view = QmlView.withStockTypes(new QmlEngine())
                 .resources(new ClasspathResourceLoader())
                 .context("i18n", I18n.instance())
+                .context("player", new PlayerStub())
                 .context("probe", probe);
         try {
             view.load(String.format(SCENE, initiallyChecked));

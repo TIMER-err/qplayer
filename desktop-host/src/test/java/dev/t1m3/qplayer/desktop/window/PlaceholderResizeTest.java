@@ -104,7 +104,8 @@ public final class PlaceholderResizeTest {
         Item badge = findIn(state, "emptyStateBadge");
         assertNotNull(stateName + " badge", badge);
         float panelLeft = absoluteX(state);
-        float expectedLeft = windowWidth >= 840 ? 216f : (windowWidth >= 600 ? 80f : 0f);
+        // Ui.sidebarWide (232) at >= 840, Ui.sidebarNarrow (80) at >= 600, none below.
+        float expectedLeft = windowWidth >= 840 ? 232f : (windowWidth >= 600 ? 80f : 0f);
         assertEquals(label + " panel must use the current navigation footprint",
                 expectedLeft, panelLeft, 0.5f);
         assertEquals(label + " panel must reach the current window right edge",

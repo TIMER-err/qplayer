@@ -19,6 +19,8 @@ import org.junit.rules.TemporaryFolder;
 import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -68,6 +70,17 @@ public class PlaylistDetailPageScrollTopTest {
             assertNotNull("the scroll-to-top button must exist even with an empty playlist", fab);
             assertNotNull(view.findByObjectName("playlistDetailSelectButton"));
             assertNotNull(view.findByObjectName("playlistDetailSelectBar"));
+            // Shared detail structure: floating route header + scrolling hero.
+            assertNotNull(view.findByObjectName("routeBackButton"));
+            Item heroCover = view.findByObjectName("heroCover");
+            assertNotNull("the playlist hero is the list header", heroCover);
+            assertEquals("wide hero cover starts at the expanded gutter", 32f,
+                    heroCover.x.peekFloat(), 0.5f);
+            assertEquals(200f, heroCover.width.peekFloat(), 0.5f);
+            Item title = view.findByObjectName("routeHeaderTitle");
+            assertNotNull(title);
+            assertFalse("the header title only fades in once the hero title scrolls away",
+                    title.visible.peek());
         } finally {
             if (view != null) {
                 try { view.dispose(); } catch (Throwable ignored) { }
@@ -115,8 +128,15 @@ public class PlaylistDetailPageScrollTopTest {
             settle(view);
 
             Item overflow = view.findByObjectName("playlistDetailOverflowButton");
-            assertNotNull("a portrait-width playlist page must keep cover/follow behind ⋮", overflow);
+            assertNotNull("a portrait-width playlist page folds rare actions behind ⋮", overflow);
             assertTrue("the overflow control itself must be on screen", overflow.visible.peek());
+            Item follow = view.findByObjectName("followIntoLocalButton");
+            assertNotNull("following stays one tap away in the hero action row", follow);
+            assertTrue(follow.visible.peek());
+            Item heroCover = view.findByObjectName("heroCover");
+            assertNotNull(heroCover);
+            assertEquals("a compact hero centres its cover", (400f - 148f) / 2f,
+                    heroCover.x.peekFloat(), 0.5f);
         } finally {
             if (view != null) {
                 try { view.dispose(); } catch (Throwable ignored) { }

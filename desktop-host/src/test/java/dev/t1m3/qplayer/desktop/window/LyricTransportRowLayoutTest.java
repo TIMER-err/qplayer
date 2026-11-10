@@ -85,9 +85,14 @@ public class LyricTransportRowLayoutTest {
             assertNotNull(pause);
             assertNotNull(like);
             assertNotNull(mode);
-            assertTrue("buttons must shrink below 40px on a 160px row, got "
-                            + pause.width.peekFloat(),
-                    pause.width.peekFloat() <= 36f);
+            // Side buttons are 40px and the play disc 1.25x that (50px) at full size.
+            assertTrue("side buttons must shrink below 40px on a 160px row, got "
+                            + like.width.peekFloat(),
+                    like.width.peekFloat() <= 36f);
+            assertTrue("the play disc must shrink with them, got " + pause.width.peekFloat(),
+                    pause.width.peekFloat() <= 45f);
+            assertTrue("the play disc stays the largest target",
+                    pause.width.peekFloat() > like.width.peekFloat());
             float likeRight = absX(like) + like.width.peekFloat();
             float rowRight = absX(row) + row.width.peekFloat();
             assertTrue("shrunk row must not overflow: like=" + likeRight

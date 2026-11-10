@@ -1,17 +1,20 @@
 import QtQuick
-import QtQuick.Layouts
 import miuix.Core
+import design
 import "."
 import "../components"
 
-// Drill-in playlist view: header with back + title, then the tracks.
+// Drill-in source playlist. One scrolling surface: the hero (cover, title,
+// source, count, actions) and the in-playlist filter are the VirtualSongList
+// header, so on a phone the tracks get the whole viewport after the first swipe.
+// The RouteHeader floats over it; its title fades in once the hero title has
+// scrolled underneath, and it turns opaque at the same point.
 Rectangle {
     id: page
     property real bottomContentInset: 0
     signal back()
-    signal home()
     signal openQueue()
-    color: Theme.color.surface
+    color: Ui.background
 
     // Reset the scroll to the top whenever a new playlist starts loading, so the
     // previous playlist's scroll position doesn't carry over.
@@ -22,10 +25,11 @@ Rectangle {
         page.exitSelectMode()
     }
 
+    property var allTracks: player.openSourcePlaylistId !== ""
+                            ? player.sourcePlaylistTracks : player.playlistTracks
     property string filterText: ""
     property var filteredTracks: {
-        var all = player.openSourcePlaylistId !== ""
-                  ? player.sourcePlaylistTracks : player.playlistTracks
+        var all = page.allTracks
         if (!all) return all
         var q = page.filterText.trim().toLowerCase()
         if (q === "") return all
@@ -38,11 +42,12 @@ Rectangle {
         }
         return out
     }
+    readonly property int totalCount: page.allTracks ? page.allTracks.length : 0
 
     // Swallow taps on empty areas so they don't reach the page beneath.
     MouseArea { anchors.fill: parent }
 
-    readonly property bool compactHeader: page.width < 600
+    readonly property real gutter: Ui.gutter(page.width)
     // Method calls alone are not reactive. Read the account projection as well
     // so a secondary provider signing in/out refreshes its own action gates.
     readonly property bool targetMutable: {
@@ -60,17 +65,22 @@ Rectangle {
         return player.openSourcePlaylistId !== ""
             && player.providerLoggedIn(player.openSourcePlaylistId.split(":")[0])
     }
-    readonly property bool canHeart: !player.playlistLoading && page.targetHeart
-                                     && tracks.list && tracks.list.length > 0
+    readonly property bool canHeart: !player.playlistLoading && page.targetHeart && page.totalCount > 0
+    // Pull this whole playlist into a local one, which then follows it. Unlike
+    // collecting, this works signed out and across sources — it copies the songs
+    // into a list QPlayer owns.
     readonly property bool canFollow: !player.playlistLoading && player.openSourcePlaylistId !== ""
+    // Collect (subscribe) — only for playlists that aren't the user's own; the
+    // initial state comes from playlist/detail, so it's correct on open.
     readonly property bool canSubscribe: !player.playlistLoading && !player.playlistOwned
                                          && page.targetMutable
+    // Change cover — own playlists only, and only when the playlist's own source
+    // can do it. Both hosts install the same picker callback.
     readonly property bool canChangeCover: !player.playlistLoading && player.playlistOwned
                                            && player.sourcePlaylistCoverAvailable && page.targetSignedIn
+    // Delete — only your own playlists, and never the default liked-songs list.
     readonly property bool canDelete: !player.playlistLoading && player.playlistDeletable
                                       && page.targetMutable
-    readonly property bool hasHeaderActions: page.canHeart || page.canFollow || page.canSubscribe
-                                             || page.canChangeCover || page.canDelete || page.canSelect
     readonly property bool canSelect: !player.playlistLoading && page.filteredTracks
                                       && page.filteredTracks.length > 0
     property bool selectMode: false
@@ -91,354 +101,339 @@ Rectangle {
         else player.startIntelligenceMode(player.openPlaylistId)
     }
 
-    ColumnLayout {
+    // Map a visible (possibly filtered) row back to its position in the playlist.
+    function playVisible(visibleIndex) {
+        var rows = page.filteredTracks
+        var all = page.allTracks
+        if (!rows || !all || visibleIndex < 0 || visibleIndex >= rows.length) return
+        var id = String(rows[visibleIndex].id)
+        for (var i = 0; i < all.length; i++) {
+            if (String(all[i].id) === id) {
+                player.playPlaylistTrack(i)
+                return
+            }
+        }
+    }
+
+    // ---- Hero inputs -------------------------------------------------------------
+    // The source's display name stands in for a creator line (the controller does
+    // not publish playlist creators).
+    readonly property string sourceName: {
+        var id = "" + player.openSourcePlaylistId
+        if (id === "") return player.openPlaylistId > 0 ? i18n.t("source.netease") : ""
+        var prefix = id.split(":")[0]
+        var rows = player.sourceAccounts
+        var n = rows ? rows.length : 0
+        for (var i = 0; i < n; i++) {
+            if (rows[i].providerId === prefix) return rows[i].sourceName
+        }
+        return ""
+    }
+    readonly property string heroMeta: page.totalCount > 0
+                                       ? i18n.t("common.songCount", page.totalCount) : ""
+    readonly property bool showFilter: !player.playlistLoading
+                                       && (page.totalCount > 8 || page.filterText !== "")
+    readonly property real toolbarHeight: page.showFilter ? 76 : 8
+
+    // Deterministic hero height: an unpainted twin fed the same inputs as the
+    // header delegate, so headerHeight is known before the delegate exists.
+    HeroHeader {
+        id: heroMetrics
+        visible: false
+        width: page.width
+        subtitle: page.sourceName
+        meta: page.heroMeta
+    }
+    // Where the hero title ends in content coordinates: the RouteHeader title
+    // fades in as it slides under the header.
+    readonly property real heroTitleBottom: heroMetrics.compact
+        ? heroMetrics.topInset + 8 + heroMetrics.coverSize + 18 + heroMetrics.titleLine * 2
+        : heroMetrics.topInset + 8 + heroMetrics.coverSize - Ui.iconButton - 18
+          - (page.heroMeta.length > 0 ? 20 : 0) - (page.sourceName.length > 0 ? 24 : 0)
+    readonly property real titleProgress: player.playlistLoading ? 1
+        : Math.max(0, Math.min(1, (tracks.contentY - (page.heroTitleBottom - Ui.headerHeight - 16)) / 28))
+
+    VirtualSongList {
+        id: tracks
         anchors.fill: parent
-        spacing: 0
+        rowInset: page.gutter
+        scrollBarTopInset: Ui.headerHeight
+        // The floating select bar covers the last rows otherwise.
+        bottomContentInset: page.bottomContentInset + (page.selectMode ? 72 : 0)
+        headerHeight: player.playlistLoading ? Ui.headerHeight
+                                             : heroMetrics.preferredHeight + page.toolbarHeight
+        header: Component {
+            Item {
+                id: headerRoot
+                width: tracks.width
+                height: tracks.headerHeight
+                visible: !player.playlistLoading
 
-        // Custom header: qml4j can't set a sub-property of TopAppBar's
-        // navigationIcon alias (navigationIcon.icon) via grouped binding.
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 64
-            Layout.leftMargin: 4
-            Layout.rightMargin: 16
-            spacing: 4
-            PageHeaderButtons {
-                Layout.alignment: Qt.AlignVCenter
-                onHome: page.home()
-                onBack: page.back()
-            }
-            Text {
-                Layout.fillWidth: true
-                Layout.alignment: Qt.AlignVCenter
-                text: i18n.t("playlist.title")
-                color: Theme.color.onSurfaceColor
-                font.pixelSize: 24
-                font.weight: Font.DemiBold
-                elide: Text.ElideRight
-            }
-            IconButton {
-                Layout.alignment: Qt.AlignVCenter
-                type: "standard"
-                visible: page.canHeart && !page.compactHeader
-                enabled: !player.intelligenceLoading
-                icon: "auto_awesome"
-                contentColor: player.intelligenceLoading
-                              ? Theme.color.primary
-                              : Theme.color.onSurfaceVariantColor
-                onClicked: page.startHeart()
-            }
-            // Pull this whole playlist into a local one, which then follows it.
-            // Unlike collecting below, this works signed out and across sources —
-            // it copies the songs into a list QPlayer owns.
-            IconButton {
-                id: followButton
-                objectName: "followIntoLocalButton"
-                Layout.alignment: Qt.AlignVCenter
-                type: "standard"
-                visible: page.canFollow && !page.compactHeader
-                icon: "library_add"
-                onClicked: {
-                    followMenu.rebuild()
-                    followMenu.open(followButton, 0, followButton.height)
+                HeroHeader {
+                    id: hero
+                    width: parent.width
+                    coverSource: player.playlistCoverPath
+                    coverIcon: "queue_music"
+                    kind: i18n.t("playlist.title")
+                    title: player.playlistTitle
+                    subtitle: page.sourceName
+                    meta: page.heroMeta
+
+                    Button {
+                        objectName: "playlistPlayAllButton"
+                        type: "filled"
+                        icon: "play_arrow"
+                        text: i18n.t("list.playAll")
+                        cornerRadius: Ui.radiusFull
+                        verticalPadding: 8
+                        horizontalPadding: 20
+                        enabled: page.filteredTracks && page.filteredTracks.length > 0
+                        onClicked: page.playVisible(0)
+                    }
+                    IconButton {
+                        id: followButton
+                        objectName: "followIntoLocalButton"
+                        type: "filledTonal"
+                        visible: page.canFollow
+                        icon: "library_add"
+                        onClicked: {
+                            followMenu.rebuild()
+                            followMenu.open(followButton, 0, followButton.height)
+                        }
+                    }
+                    IconButton {
+                        objectName: "playlistSubscribeButton"
+                        type: "filledTonal"
+                        visible: page.canSubscribe
+                        icon: player.playlistSubscribed ? "bookmark" : "bookmark_border"
+                        contentColor: player.playlistSubscribed ? Ui.accent : Theme.color.onSecondaryVariant
+                        onClicked: player.togglePlaylistSubscribe()
+                    }
+                    IconButton {
+                        objectName: "playlistHeartButton"
+                        type: "filledTonal"
+                        visible: page.canHeart
+                        enabled: !player.intelligenceLoading
+                        icon: "auto_awesome"
+                        onClicked: page.startHeart()
+                    }
+                }
+
+                // Own playlists: the cover itself is the "change cover" target.
+                Item {
+                    objectName: "playlistDetailCoverButton"
+                    visible: page.canChangeCover
+                    x: hero.compact ? (hero.width - hero.coverSize) / 2 : hero.gutter
+                    y: hero.topInset + 8
+                    width: hero.coverSize
+                    height: hero.coverSize
+                    Rectangle {
+                        width: parent.width
+                        height: parent.height
+                        radius: Ui.radiusLg
+                        color: Ui.surfaceAlpha(0.65)
+                        opacity: coverArea.containsMouse ? 1 : 0
+                        Behavior on opacity { NumberAnimation { duration: 120 } }
+                        Glyph {
+                            width: parent.width
+                            height: parent.height
+                            size: 36
+                            name: "edit"
+                            color: Ui.textPrimary
+                        }
+                    }
+                    MouseArea {
+                        id: coverArea
+                        anchors.fill: parent
+                        enabled: page.canChangeCover
+                        hoverEnabled: enabled
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: player.pickPlaylistCover()
+                    }
+                }
+
+                TextField {
+                    objectName: "playlistFilterField"
+                    overlayField: true
+                    visible: page.showFilter
+                    x: hero.gutter
+                    y: hero.height + 8
+                    width: hero.compact ? hero.width - 2 * hero.gutter
+                                        : Math.min(420, hero.width - 2 * hero.gutter)
+                    height: implicitHeight
+                    // A text input is hit-tested before every MouseArea, so once
+                    // the field slides under the floating header it must stop
+                    // taking pointer input or it would swallow the Back button.
+                    enabled: tracks.contentY <= y - Ui.headerHeight + 4
+                    cornerRadius: Ui.radiusXl
+                    backgroundColor: Ui.surfaceRaised
+                    labelColor: Ui.textSecondary
+                    label: i18n.t("playlist.searchInside")
+                    leadingIcon: "search"
+                    text: page.filterText
+                    onTextChanged: page.filterText = text
                 }
             }
-            // Collect (subscribe) this playlist. Shown only once loaded and only for
-            // playlists that aren't the user's own; filled when already collected. The
-            // initial state comes from playlist/detail, so it's correct on open.
+        }
+        // Drop the row delegates when the detail page is closed (see QueuePage):
+        // an invisible detail otherwise keeps the whole playlist's SongRows alive
+        // after you return home.
+        list: page.visible ? page.filteredTracks : null
+        // Long-press a track → add to another playlist, and (in your own
+        // playlist) remove it from this one. Not login-gated.
+        songMenu: true
+        ownedPlaylist: player.playlistOwned
+        showOfflineBadge: player.playlistOffline
+        selectMode: page.selectMode
+        // Own playlist, on a source that can save an order, and unfiltered —
+        // a drop position means nothing while rows are hidden.
+        reorderable: !page.selectMode && player.sourcePlaylistReorderable && page.filterText === ""
+        onMoveRequested: player.moveSourcePlaylistTrack(tracks.moveFrom, tracks.moveTo)
+        onReorderCommitted: player.commitSourcePlaylistOrder()
+        onActivated: page.playVisible(tracks.activatedIndex)
+    }
+
+    LoadingIndicator {
+        objectName: "detailLoadingIndicator"
+        anchors.centerIn: parent
+        visible: player.playlistLoading && (!page.filteredTracks || page.filteredTracks.length === 0)
+        running: visible
+    }
+
+    Text {
+        objectName: "playlistNoMatches"
+        x: page.gutter
+        y: tracks.headerHeight - tracks.contentY + 24
+        width: page.width - 2 * page.gutter
+        visible: !player.playlistLoading && page.filterText !== ""
+                 && page.filteredTracks && page.filteredTracks.length === 0
+        horizontalAlignment: Text.AlignHCenter
+        text: i18n.t("playlist.noMatches")
+        color: Ui.textSecondary
+        font.pixelSize: Ui.textBody
+    }
+
+    ScrollToTopFab {
+        objectName: "playlistScrollTopButton"
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.rightMargin: page.gutter
+        anchors.bottomMargin: 16 + page.bottomContentInset + (page.selectMode ? 64 : 0)
+        target: tracks
+    }
+
+    // Floating batch bar above the player bar while selecting.
+    Rectangle {
+        id: selectBar
+        objectName: "playlistDetailSelectBar"
+        visible: page.selectMode
+        width: Math.min(560, page.width - 2 * page.gutter)
+        height: 56
+        x: (page.width - width) / 2
+        y: page.height - page.bottomContentInset - height - 4
+        radius: Ui.radiusXl
+        color: Ui.surfaceRaised
+        border.width: 1
+        border.color: Ui.hairline
+        MouseArea { anchors.fill: parent }
+        Text {
+            x: 20
+            y: (parent.height - implicitHeight) / 2
+            width: Math.max(0, selectActions.x - x - 8)
+            text: i18n.t("playlist.selectCount", tracks.selectedN)
+            color: Ui.textPrimary
+            elide: Text.ElideRight
+            font.pixelSize: Ui.textCallout
+            font.weight: Ui.weightBold
+        }
+        Row {
+            id: selectActions
+            x: parent.width - width - 8
+            y: (parent.height - height) / 2
+            height: Ui.iconButton
+            spacing: 2
             IconButton {
-                Layout.alignment: Qt.AlignVCenter
                 type: "standard"
-                visible: page.canSubscribe && !page.compactHeader
-                icon: player.playlistSubscribed ? "bookmark" : "bookmark_border"
-                contentColor: player.playlistSubscribed ? Theme.color.primary : Theme.color.onSurfaceColor
-                onClicked: player.togglePlaylistSubscribe()
+                icon: "done_all"
+                onClicked: tracks.selectAll()
             }
-            // Change cover — own playlists only, and only when the playlist's own
-            // source can do it (built-in netease, or a plugin that advertises
-            // playlistCover). Both hosts install the same picker callback: Android
-            // keeps its system gallery picker, while desktop opens a cross-platform
-            // image file chooser.
             IconButton {
-                objectName: "playlistDetailCoverButton"
-                Layout.alignment: Qt.AlignVCenter
+                objectName: "playlistDetailUnlikeSelected"
                 type: "standard"
-                visible: page.canChangeCover && !page.compactHeader
-                icon: "image"
-                onClicked: player.pickPlaylistCover()
+                icon: "heart_minus"
+                enabled: tracks.selectedN > 0
+                onClicked: {
+                    player.unlikeMediaMany(tracks.selectedKey)
+                    page.exitSelectMode()
+                }
             }
-            // Delete — only your own playlists, and never the default liked-songs
-            // (the first playlist, which can't be removed). Confirms first.
             IconButton {
-                Layout.alignment: Qt.AlignVCenter
+                objectName: "playlistDetailDeleteSelected"
                 type: "standard"
-                visible: page.canDelete && !page.compactHeader
                 icon: "delete"
-                onClicked: deleteDialog.open()
-            }
-            IconButton {
-                objectName: "playlistDetailSelectButton"
-                Layout.alignment: Qt.AlignVCenter
-                type: "standard"
-                visible: page.canSelect && (!page.compactHeader || page.selectMode)
-                icon: page.selectMode ? "close" : "checklist"
-                onClicked: page.toggleSelectMode()
-            }
-            IconButton {
-                id: overflowButton
-                objectName: "playlistDetailOverflowButton"
-                Layout.alignment: Qt.AlignVCenter
-                type: "standard"
-                visible: page.compactHeader && page.hasHeaderActions
-                icon: "more_vert"
+                visible: player.playlistOwned
+                enabled: tracks.selectedN > 0
+                contentColor: enabled ? Ui.danger : Theme.color.disabledOnSecondaryVariant
                 onClicked: {
-                    overflowMenu.rebuild()
-                    overflowMenu.open(overflowButton, 0, overflowButton.height)
-                }
-            }
-        }
-
-        Item {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-
-            VirtualSongList {
-                id: tracks
-                anchors.fill: parent
-                bottomContentInset: page.bottomContentInset
-                // Playlist metadata and filtering belong to the scroll content.
-                // On a phone this gives the track list the full viewport after the
-                // first swipe instead of permanently reserving half the screen.
-                headerHeight: player.playlistLoading ? 0 : 212
-                header: Component {
-                    Item {
-                        width: tracks.width
-                        height: tracks.headerHeight
-                        visible: !player.playlistLoading
-
-                        CoverImage {
-                            id: playlistCover
-                            x: 16
-                            y: 8
-                            width: 128
-                            height: 128
-                            radius: 20
-                            source: player.playlistCoverPath
-                            icon: "queue_music"
-                        }
-
-                        Text {
-                            id: playlistName
-                            anchors.left: playlistCover.right
-                            anchors.leftMargin: 16
-                            anchors.right: parent.right
-                            anchors.rightMargin: 16
-                            anchors.top: playlistCover.top
-                            text: player.playlistTitle
-                            font.pixelSize: page.width >= 600 ? 28 : 22
-                            font.weight: Font.DemiBold
-                            color: Theme.color.onSurfaceColor
-                            wrapMode: Text.Wrap
-                            maximumLineCount: 2
-                            elide: Text.ElideRight
-                        }
-
-                        Text {
-                            anchors.left: playlistName.left
-                            anchors.right: playlistName.right
-                            anchors.top: playlistName.bottom
-                            anchors.topMargin: 4
-                            text: i18n.t("common.songCount",
-                                         page.filteredTracks ? page.filteredTracks.length : 0)
-                            font.pixelSize: 14
-                            color: Theme.color.onSurfaceVariantSummary
-                            elide: Text.ElideRight
-                        }
-
-                        Button {
-                            id: playAllBtn
-                            anchors.left: playlistName.left
-                            anchors.bottom: playlistCover.bottom
-                            text: i18n.t("playlist.playAll")
-                            icon: "play_arrow"
-                            verticalPadding: 8
-                            enabled: page.filteredTracks && page.filteredTracks.length > 0
-                            onClicked: {
-                                var first = page.filteredTracks[0]
-                                var all = player.openSourcePlaylistId !== ""
-                                          ? player.sourcePlaylistTracks : player.playlistTracks
-                                for (var i = 0; i < all.length; i++) {
-                                    if (String(all[i].id) === String(first.id)) {
-                                        player.playPlaylistTrack(i)
-                                        return
-                                    }
-                                }
-                            }
-                        }
-                        IconButton {
-                            anchors.left: playAllBtn.right
-                            anchors.leftMargin: 8
-                            anchors.verticalCenter: playAllBtn.verticalCenter
-                            type: "standard"
-                            icon: "queue_music"
-                            onClicked: page.openQueue()
-                        }
-
-                        TextField {
-                            overlayField: true
-                            x: 16
-                            y: 148
-                            width: parent.width - 32
-                            height: implicitHeight
-                            label: i18n.t("playlist.searchInside")
-                            leadingIcon: "search"
-                            text: page.filterText
-                            onTextChanged: page.filterText = text
-                        }
-                    }
-                }
-                // Drop the row delegates when the detail page is closed (see
-                // QueuePage): an invisible detail otherwise keeps the whole
-                // playlist's SongRows alive after you return home.
-                list: page.visible ? page.filteredTracks : null
-                // Long-press a track → add to another playlist, and (in your own
-                // playlist) remove it from this one. Not login-gated: adding to the queue
-                // (local list) works signed-out too.
-                songMenu: true
-                ownedPlaylist: player.playlistOwned
-                showOfflineBadge: player.playlistOffline
-                // Own playlist, on a source that can save an order, and unfiltered —
-                // a drop position means nothing while rows are hidden.
-                selectMode: page.selectMode
-                reorderable: !page.selectMode && player.sourcePlaylistReorderable && page.filterText === ""
-                onMoveRequested: player.moveSourcePlaylistTrack(tracks.moveFrom, tracks.moveTo)
-                onReorderCommitted: player.commitSourcePlaylistOrder()
-                onActivated: {
-                    var selected = tracks.list[tracks.activatedIndex]
-                    var all = player.openSourcePlaylistId !== ""
-                              ? player.sourcePlaylistTracks : player.playlistTracks
-                    if (!selected || !all) return
-                    for (var i = 0; i < all.length; i++) {
-                        if (String(all[i].id) === String(selected.id)) {
-                            player.playPlaylistTrack(i)
-                            return
-                        }
-                    }
-                }
-            }
-
-            LoadingIndicator {
-                objectName: "detailLoadingIndicator"
-                anchors.centerIn: parent
-                visible: player.playlistLoading && (!page.filteredTracks || page.filteredTracks.length === 0)
-                running: visible
-            }
-
-            Text {
-                anchors.centerIn: parent
-                visible: !player.playlistLoading && page.filterText !== ""
-                         && page.filteredTracks && page.filteredTracks.length === 0
-                text: i18n.t("playlist.noMatches")
-                fontSize: 16
-                color: Theme.color.onSurfaceVariantColor
-            }
-
-            ScrollToTopFab {
-                objectName: "playlistScrollTopButton"
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                anchors.margins: 16
-                anchors.bottomMargin: 16 + page.bottomContentInset
-                target: tracks
-            }
-        }
-
-        Item {
-            objectName: "playlistDetailSelectBar"
-            Layout.fillWidth: true
-            Layout.preferredHeight: 56
-            visible: page.selectMode
-            Rectangle {
-                width: parent.width
-                height: parent.height
-                y: -page.bottomContentInset
-                color: Theme.color.surfaceContainer
-                Text {
-                    anchors.left: parent.left
-                    anchors.leftMargin: 16
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: i18n.t("playlist.selectCount", tracks.selectedN)
-                    color: Theme.color.onSurfaceColor
-                    font.pixelSize: 14
-                }
-                Row {
-                    anchors.right: parent.right
-                    anchors.rightMargin: 8
-                    anchors.verticalCenter: parent.verticalCenter
-                    spacing: 4
-                    IconButton {
-                        type: "standard"
-                        icon: "done_all"
-                        onClicked: tracks.selectAll()
-                    }
-                    IconButton {
-                        objectName: "playlistDetailUnlikeSelected"
-                        type: "standard"
-                        icon: "favorite_border"
-                        enabled: tracks.selectedN > 0
-                        onClicked: {
-                            player.unlikeMediaMany(tracks.selectedKey)
-                            page.exitSelectMode()
-                        }
-                    }
-                    IconButton {
-                        objectName: "playlistDetailDeleteSelected"
-                        type: "standard"
-                        icon: "delete"
-                        visible: player.playlistOwned
-                        enabled: tracks.selectedN > 0
-                        onClicked: {
-                            player.removeMediaManyFromCurrentPlaylist(tracks.selectedKey)
-                            page.exitSelectMode()
-                        }
-                    }
+                    player.removeMediaManyFromCurrentPlaylist(tracks.selectedKey)
+                    page.exitSelectMode()
                 }
             }
         }
     }
 
+    // Header area: block taps from reaching hero controls scrolled underneath.
+    MouseArea {
+        width: page.width
+        height: Ui.headerHeight
+    }
+
+    RouteHeader {
+        id: header
+        width: page.width
+        gutter: page.gutter
+        title: player.playlistTitle !== "" ? player.playlistTitle : i18n.t("playlist.title")
+        titleOpacity: page.titleProgress
+        elevated: page.titleProgress > 0.01
+        onBack: page.back()
+
+        IconButton {
+            objectName: "playlistDetailSelectButton"
+            type: "standard"
+            visible: page.canSelect || page.selectMode
+            icon: page.selectMode ? "close" : "checklist"
+            onClicked: page.toggleSelectMode()
+        }
+        IconButton {
+            id: overflowButton
+            objectName: "playlistDetailOverflowButton"
+            type: "standard"
+            icon: "more_vert"
+            onClicked: {
+                overflowMenu.rebuild()
+                overflowMenu.open(overflowButton, 0, overflowButton.height)
+            }
+        }
+    }
+
+    // Rare actions. Frequent ones live in the hero's action row.
     Menu {
         id: overflowMenu
         outlined: true
         function rebuild() {
-            var items = []
-            if (page.canHeart) {
+            var items = [{
+                text: i18n.t("queue.tab.queue"), icon: "queue_music",
+                action: function() { page.openQueue() }
+            }]
+            // Same link sharing the playlist card's menu offers.
+            if (player.openSourcePlaylistId !== "" || player.openPlaylistId > 0) {
                 items.push({
-                    text: i18n.t("playlist.heart"), icon: "auto_awesome",
-                    action: function() { page.startHeart() }
-                })
-            }
-            if (page.canFollow) {
-                items.push({
-                    text: i18n.t("playlist.local.addPlaylistTo"), icon: "library_add",
+                    text: i18n.t("menu.copyLink"), icon: "link",
                     action: function() {
-                        followMenu.rebuild()
-                        followMenu.open(overflowButton, 0, overflowButton.height)
+                        if (player.openSourcePlaylistId !== "")
+                            player.shareMedia("" + player.openSourcePlaylistId)
+                        else player.copyPlaylistLink(player.openPlaylistId)
                     }
-                })
-            }
-            if (page.canSubscribe) {
-                items.push({
-                    text: player.playlistSubscribed
-                          ? i18n.t("menu.unsubscribePlaylist") : i18n.t("playlist.subscribe"),
-                    icon: player.playlistSubscribed ? "bookmark" : "bookmark_border",
-                    action: function() { player.togglePlaylistSubscribe() }
-                })
-            }
-            if (page.canSelect) {
-                items.push({
-                    text: i18n.t("playlist.select"), icon: "checklist",
-                    action: function() { page.toggleSelectMode() }
                 })
             }
             if (page.canChangeCover) {
@@ -513,5 +508,4 @@ Rectangle {
             page.back()
         }
     }
-
 }

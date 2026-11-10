@@ -119,13 +119,27 @@ public class LocalPlaylistUiTest {
                     + " anchors.fill: parent }\n"
                     + "}");
             assertNotNull(view.findByObjectName("localPlaylistPage"));
-            assertNotNull("a local playlist can have its own cover",
-                    view.findByObjectName("localPlaylistCoverButton"));
+            // One structure for every detail page: a floating route header over a
+            // list whose header is the hero. The cover itself is the cover action.
+            assertNotNull("detail pages use the shared route header",
+                    view.findByObjectName("routeBackButton"));
+            Item cover = view.findByObjectName("localPlaylistCoverButton");
+            assertNotNull("a local playlist can have its own cover", cover);
+            // 1134 wide: expanded gutter 32, the cover starts under the 64px header
+            // plus 8, at the wide hero cover size.
+            assertEquals("the cover action sits on the hero cover", 32f, cover.x.peekFloat(), 0.5f);
+            assertEquals(72f, cover.y.peekFloat(), 0.5f);
+            assertEquals(200f, cover.width.peekFloat(), 0.5f);
+            assertEquals(200f, cover.height.peekFloat(), 0.5f);
             assertNotNull("and its own sort",
                     view.findByObjectName("localPlaylistSortButton"));
             assertNotNull("batch select lives on the page even with an empty list",
                     view.findByObjectName("localPlaylistSelectButton"));
             assertNotNull(view.findByObjectName("localPlaylistSelectBar"));
+            Item title = view.findByObjectName("routeHeaderTitle");
+            assertNotNull(title);
+            assertFalse("the header title stays hidden while the hero title is on screen",
+                    title.visible.peek());
             assertEquals("mixed", harness.player.localPlaylistTitle.peek());
         }
     }
@@ -193,6 +207,10 @@ public class LocalPlaylistUiTest {
             assertNotNull(view.findByObjectName("localPlaylistPage"));
             assertNotNull("the sync button appears once something is followed",
                     view.findByObjectName("localPlaylistSyncButton"));
+            Item card = view.findByObjectName("localPlaylistSourceCard");
+            assertNotNull("expanded sources draw one card per followed playlist", card);
+            assertTrue("the source card spans the content column, got " + card.width.peekFloat(),
+                    card.width.peekFloat() > 1000f);
         }
     }
 
@@ -205,8 +223,11 @@ public class LocalPlaylistUiTest {
                     + "  LibraryPage { objectName: \"libraryPage\"; anchors.fill: parent }\n"
                     + "}");
             assertNotNull(view.findByObjectName("libraryPage"));
-            assertNotNull("the local/online split must render",
-                    view.findByObjectName("libraryTabs"));
+            Item tabs = view.findByObjectName("libraryTabs");
+            assertNotNull("the local/online split must render", tabs);
+            // The pill tabs start on the page gutter (32 at >= 840), in line with
+            // the root header title above them.
+            assertEquals(32f, tabs.x.peekFloat(), 0.5f);
         }
     }
 
@@ -286,9 +307,9 @@ public class LocalPlaylistUiTest {
                     + "    Component.onCompleted: page.showLocal = true }\n"
                     + "}");
             assertNotNull(view.findByObjectName("virtualPlaylistListRow"));
-            // Header: 45 preferred height + 8 bottom margin, then row 0's own centre.
-            assertTrue("a right click is accepted", view.dispatchPointerDown(450f, 85f, 2));
-            view.dispatchPointerUp(450f, 85f, 2);
+            // Toolbar: 4 top + 36 pill tabs + 8 gap, so row 0 spans y 48..112.
+            assertTrue("a right click is accepted", view.dispatchPointerDown(450f, 80f, 2));
+            view.dispatchPointerUp(450f, 80f, 2);
             settle(view);
 
             Item grip = view.findByObjectName("playlistListRowDragHandle");
@@ -325,8 +346,8 @@ public class LocalPlaylistUiTest {
                     + "}");
             assertNotNull(view.findByObjectName("virtualPlaylistListRow"));
 
-            assertTrue("a right click is accepted", view.dispatchPointerDown(450f, 85f, 2));
-            view.dispatchPointerUp(450f, 85f, 2);
+            assertTrue("a right click is accepted", view.dispatchPointerDown(450f, 80f, 2));
+            view.dispatchPointerUp(450f, 80f, 2);
             settle(view);
 
             Item grip = view.findByObjectName("playlistListRowDragHandle");

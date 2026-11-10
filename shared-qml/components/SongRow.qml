@@ -1,12 +1,14 @@
 import QtQuick
 import miuix.Core
+import design
 import "."
 
-// One song/track row. Plain anchors — NOT nested RowLayout/ColumnLayout: the
-// Layout measure passes run for every visible row on every dirty frame (playback
-// ticks the scene ~5x/s), which was a real source of stutter. `highlighted`
-// marks the playing entry. A pre-cached local-file Image replaces the glyph
-// when a thumbnail is available — zero network overhead while scrolling.
+// One song/track row: 48px cover, title + artist, optional source badge and
+// duration, then the trailing controls. Plain explicit geometry — NOT nested
+// RowLayout/ColumnLayout and NOT anchors: the Layout measure passes ran for every
+// visible row on every dirty frame (playback ticks the scene ~5x/s), and a row
+// first realized off-screen under cachedLayout never gets the anchor pass at all.
+// `highlighted` marks the playing entry. No per-row timers or layer effects.
 //
 // VirtualSongList already bounds live rows to the viewport plus its preload
 // margin. Row covers follow those reused slots directly, without another set of
@@ -24,6 +26,13 @@ Rectangle {
     property string rowArtistIdsCsv: ""
     property string rowArtistNamesCsv: ""
     property string coverThumbPath: ""
+    // Track length; drawn on wide rows only (0 hides it).
+    property real durationMs: 0
+    property bool showDuration: true
+    // Horizontal inset of the row content: the cover starts here and the trailing
+    // controls end this far from the right edge. Lists aligned to the page gutter
+    // pass Ui.gutter(width); the default keeps the historical 12px.
+    property real contentInset: 12
     // Small per-row source badge (provider name / local) for lists that
     // mix rows from more than one source — see SearchPage.qml. Empty (default)
     // shows nothing, so every other VirtualSongList caller is unaffected.
@@ -78,6 +87,10 @@ Rectangle {
     // Cached-songs list mode (see SongContextMenu.inCacheList): flips the menu's
     // cache entry to "remove cache".
     property bool inCacheList: false
+    // Desktop pointer users get a visible "more" button for the same menu (it
+    // fades in on hover); touch keeps long-press. Reorderable rows need it most:
+    // there a right-click reveals the drag grip instead of the menu.
+    property bool showMoreButton: settings.has("desktopLyricEnabled")
     // Latched when a long-press fired, so the release's click doesn't also play the
     // song; cleared when the menu closes (or on the guarded click).
     property bool _menuArmed: false
@@ -107,45 +120,68 @@ Rectangle {
     implicitHeight: 64
     color: "transparent"
 
-    // Inset rounded hover highlight. Constant Rectangle (no per-frame allocation);
-    // its opacity fades with hover instead of snapping the colour. The playing row
-    // keeps its primary-tinted text/glyph rather than a fill.
+    // ---- Trailing slot geometry -------------------------------------------------
+    // Right to left: remove, then the drag grip or the "more" button (a revealed
+    // grip takes over the more button's slot), download, like, duration, badge.
+    readonly property real _wash: Math.max(0, row.contentInset - 4)
+    readonly property bool _removeShown: row.removable && (!row.reorderable || row.controlsRevealed)
+    readonly property bool _gripShown: row.reorderable && row.controlsRevealed
+    readonly property bool _moreShown: row.showMoreButton && row.menuEnabled && row.song !== null
+                                       && !row.selectMode && !row._gripShown && !row.dragging
+    readonly property real _rightEdge: row.width - row.contentInset
+    readonly property real _removeX: row._rightEdge - 40
+    // Removable rows keep the remove slot reserved even while reveal-gated, so
+    // revealing the controls never shifts the duration column.
+    readonly property real _slot2Right: row.removable ? row._removeX : row._rightEdge
+    readonly property real _slot2X: row._slot2Right - 44
+    // The more slot stays reserved while select mode hides the button, so the
+    // duration column does not jump when the mode toggles.
+    readonly property real _downloadRight: (row._gripShown || row._moreShown
+                                            || (row.showMoreButton && row.song !== null && !row.dragging))
+                                           ? row._slot2X : row._slot2Right
+    readonly property bool _downloadShown: row.showDownloadButton && !row.selectMode
+    readonly property real _downloadX: row._downloadRight - 36
+    readonly property real _likeRight: row._downloadShown ? row._downloadX : row._downloadRight
+    readonly property real _likeX: row._likeRight - 36
+    readonly property real _controlsLeft: row.showLikeButton ? row._likeX : row._likeRight
+    readonly property bool _durationShown: row.showDuration && row.durationMs > 0
+                                           && row.width >= Ui.compactMax
+    readonly property real _durationRight: row._controlsLeft - (row._controlsLeft < row._rightEdge ? 8 : 0)
+    readonly property real _textX: row.contentInset + 48 + 14
+    readonly property bool _emphasized: row.selectMode ? row.selected : row.highlighted
+
+    // Inset rounded wash: playing, selected and carried rows. Hover/press is the
+    // Ripple's own state layer. Explicit geometry, not anchors.fill + margins: a
+    // row first realized off-screen never gets the layout pass cachedLayout skips,
+    // and an anchored background stays 0x0 there. The carried row of a drag is
+    // realized hidden and needs this to be the opaque thing that lifts it off the
+    // list — without it the row underneath reads straight through it.
     Rectangle {
         id: rowBackground
         objectName: "songRowBackground"
-        // Explicit geometry, not anchors.fill + margins: a row first realized
-        // off-screen never gets the layout pass cachedLayout skips, and an
-        // anchored background stays 0x0 there. Harmless while it was only a hover
-        // tint, but the carried row of a drag is realized hidden and needs this to
-        // be the opaque thing that lifts it off the list — without it the row
-        // underneath reads straight through it.
-        x: 8
+        x: row._wash
         y: 4
-        width: Math.max(0, row.width - 16)
+        width: Math.max(0, row.width - 2 * row._wash)
         height: Math.max(0, row.height - 8)
-        radius: 16
-        // While carried the row needs to read as detached from the list. qml4j's
-        // MultiEffect accepts shadow properties but does not paint them yet, so the
-        // lift is done with an opaque raised fill plus an outline instead.
-        color: row.dragging ? Theme.color.surfaceContainerHighest
-             : (row.highlighted ? Theme.color.primaryContainer : Theme.color.surfaceContainerHigh)
-        opacity: row.dragging ? 1 : (row.highlighted ? 0.65 : (ripple.containsMouse ? 1 : 0))
-        // The outline is what actually says "this is the song you are holding",
-        // so it is the accent colour rather than a hairline separator.
+        radius: Ui.radiusMd
+        // While carried the row needs to read as detached from the list: an opaque
+        // raised fill plus an accent outline (no shadows on rows).
+        color: row.dragging ? Ui.surfaceRaised : Ui.accentSoft
+        // In select mode the selection is the only emphasis; otherwise the
+        // playing row is.
+        opacity: (row.dragging || row._emphasized) ? 1 : 0
         border.width: row.dragging ? 2 : 0
-        border.color: Theme.color.primary
-        Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
-        Behavior on color { ColorAnimation { duration: 150 } }
+        border.color: Ui.accent
+        Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
     }
 
-    // Cover sits 4px inside the hover background. Subtract that inset from
-    // the outer radius (16 - 4 = 12) so the rounded corners are concentric.
+    // Cover sits 4px inside the wash; radius 10 inside the wash's 14 keeps the
+    // corners concentric.
     Item {
         id: leading
         objectName: "songRowLeading"
-        readonly property real cornerRadius: Math.max(0, rowBackground.radius - 4)
-        // Explicit, for the same reason as the background above.
-        x: 12
+        readonly property real cornerRadius: Ui.radiusSm
+        x: row.contentInset
         y: (row.height - height) / 2
         width: 48
         height: 48
@@ -160,21 +196,21 @@ Rectangle {
             width: leading.width
             height: leading.height
             radius: leading.cornerRadius
-            color: Theme.color.surfaceContainerHighest
-            visible: row.coverThumbPath == ""
-            Text {
-                // Size to the box via reactive width/height bindings — NOT anchors.fill /
-                // centerIn, which run in the layout pass that cachedLayout skips for a row
-                // first realized off-screen, leaving the node 0x0 and the glyph at the
-                // box's top-left until a page switch rebuilt it. With a real box size the
-                // glyph self-centres at paint time (AlignHCenter + the icon vertical baseline).
+            color: Ui.surfaceSunken
+            // Always drawn: it is the loading state until the art decodes on top
+            // (decoding only advances while painted, so a reused row can sit
+            // undecoded for a few frames).
+            // Sized to the box via reactive width/height bindings — NOT anchors,
+            // which run in the layout pass that cachedLayout skips for a row first
+            // realized off-screen. With a real box size the glyph self-centres at
+            // paint time (AlignHCenter + the icon font's vertical metrics).
+            Glyph {
                 width: parent.width
                 height: parent.height
-                horizontalAlignment: Text.AlignHCenter
-                text: row.highlighted ? "equalizer" : "music_note"
-                font.family: Theme.iconFont.name
-                font.pixelSize: 22
-                color: row.highlighted ? Theme.color.primary : Theme.color.onSurfaceVariantColor
+                size: 22
+                name: "music_note"
+                visible: !row.highlighted
+                color: Ui.textTertiary
             }
         }
 
@@ -189,49 +225,60 @@ Rectangle {
             visible: coverImg.source !== ""
             source: row.coverThumbPath
             radius: leading.cornerRadius
-            // PreserveAspectCrop is broken on non-square sources in this engine
-            // (CLAUDE.md): it scales from the top-left instead of cropping
-            // centred, so every cover overflows its 48×48 box by a different
-            // amount — most visible on the floating row of a drag, which has
-            // no neighbour to clip it. PreserveAspectFit + clip never overflows.
+            // PreserveAspectCrop is broken on non-square sources in this engine:
+            // it scales from the top-left instead of cropping centred, so every
+            // cover overflows its 48×48 box by a different amount — most visible
+            // on the floating row of a drag, which has no neighbour to clip it.
+            // PreserveAspectFit + clip never overflows.
             fillMode: "PreserveAspectFit"
-            // See CoverImage.qml: decode-time downscale (mipmap-quality)
-            // instead of a plain bilinear draw-time scale, which aliases
-            // into moiré, scaled by the device pixel ratio so it decodes at
-            // display resolution instead of 1x. Fixed size (the leading box is
-            // always 48x48), so no reuse-staleness risk from VirtualSongList's
-            // windowing.
+            // Decode-time downscale (mipmap-quality) scaled by the device pixel
+            // ratio, see CoverImage.qml. Fixed size, so no reuse-staleness risk
+            // from VirtualSongList's windowing.
             sourceSize.width: Math.round(48 * player.pixelRatio)
             sourceSize.height: Math.round(48 * player.pixelRatio)
-            // Fade the art in as it loads, like the lyric-page cover. Keyed on source
-            // presence (not load status, which would deadlock — opacity 0 skips the
-            // paint that advances the decode). A reused row whose source swaps path→path
+            // Fade the art in as it loads. Keyed on source presence (not load
+            // status, which would deadlock — opacity 0 skips the paint that
+            // advances the decode). A reused row whose source swaps path→path
             // keeps opacity 1, so scrolling doesn't re-fade every cover.
             opacity: coverImg.source !== "" ? 1 : 0
-            Behavior on opacity { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
+            Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+        }
+
+        // Now-playing veil: the page surface at 60% over the art with an accent
+        // equalizer glyph, legible in both themes without a new colour.
+        Rectangle {
+            objectName: "songRowNowPlaying"
+            visible: row.highlighted && !row.selectMode
+            width: leading.width
+            height: leading.height
+            radius: leading.cornerRadius
+            color: row.coverThumbPath == "" ? "transparent" : Ui.surfaceAlpha(0.6)
+            Glyph {
+                width: parent.width
+                height: parent.height
+                size: 24
+                name: "equalizer"
+                color: Ui.accent
+            }
         }
 
         // "Cached, plays offline" badge — bottom-right corner of the cover.
         Rectangle {
-            visible: row.offlineReady
+            visible: row.offlineReady && !row.selectMode
             width: 16
             height: 16
             radius: 8
             x: parent.width - width + 2
             y: parent.height - height + 2
-            color: Theme.color.primary
+            color: Ui.accent
             border.width: 1.5
-            border.color: Theme.color.surface
-            Text {
-                // Sized to the box rather than centred by anchors — see the
-                // placeholder glyph above for why.
+            border.color: Ui.background
+            Glyph {
                 width: parent.width
                 height: parent.height
-                horizontalAlignment: Text.AlignHCenter
-                text: "check"
-                font.family: Theme.iconFont.name
-                font.pixelSize: 11
-                color: Theme.color.onPrimaryColor
+                size: 11
+                name: "check"
+                color: Ui.onAccent
             }
         }
 
@@ -243,68 +290,82 @@ Rectangle {
             radius: 10
             x: parent.width - width + 2
             y: parent.height - height + 2
-            color: row.selected ? Theme.color.primary : Theme.color.surfaceContainerHighest
-            border.width: row.selected ? 0 : 1.5
-            border.color: Theme.color.outline
-            Text {
+            color: row.selected ? Ui.accent : Ui.surfaceAlpha(0.7)
+            border.width: 1.5
+            border.color: row.selected ? Ui.background : Ui.textSecondary
+            Glyph {
                 width: parent.width
                 height: parent.height
-                horizontalAlignment: Text.AlignHCenter
-                text: row.selected ? "check" : ""
-                font.family: Theme.iconFont.name
-                font.pixelSize: 13
-                color: Theme.color.onPrimaryColor
+                size: 13
+                name: row.selected ? "check" : ""
+                color: Ui.onAccent
             }
         }
     }
 
-    // How much room the title/artist lines leave on the right: the remove "×"
-    // and the source tag are mutually exclusive in practice (no caller sets
-    // both), but sizing for whichever is present keeps text from sliding under it.
-    property real _rightReserve: (row.removable ? 68 : (tagPill.visible ? (tagPill.width + 24) : 16))
-                                 + (row.reorderable ? 44 : 0)
-                                 + (row.showLikeButton ? 40 : 0)
-                                 + (row.showDownloadButton ? 40 : 0)
+    // Everything between the text column and the trailing controls: the source
+    // badge sits left of the duration, both right-aligned against the controls.
+    readonly property real _badgeRight: row._durationShown
+                                        ? durationText.x - 12 : row._durationRight - 4
+    readonly property real _textRight: tagPill.visible ? tagPill.x - 12
+                                       : (row._durationShown ? durationText.x - 16 : row._durationRight - 8)
 
     Text {
         id: titleText
         objectName: "songRowTitle"
-        x: 74
+        x: row._textX
         // Fixed slots, not `height/2 - height`. The reorder floating copy is
         // born visible: false under cachedLayout, so it never gets the measure
         // that would give `height` a real line; subtracting 0 then parks the
         // title on the artist line for the whole drag.
-        y: row.height / 2 - 20
-        width: Math.max(0, row.width - x - row._rightReserve)
+        y: row.height / 2 - 21
+        width: Math.max(0, row._textRight - x)
         text: row.rowTitle
         elide: Text.ElideRight
-        color: row.highlighted ? Theme.color.primary : Theme.color.onSurfaceColor
-        fontSize: 16
+        maximumLineCount: 1
+        color: row._emphasized ? Ui.accent : Ui.textPrimary
+        font.pixelSize: Ui.textBody
+        font.weight: row._emphasized ? Ui.weightBold : Ui.weightRegular
     }
 
     Text {
         id: artistText
         objectName: "songRowArtist"
         x: titleText.x
-        y: row.height / 2 + 4
+        y: row.height / 2 + 3
         width: titleText.width
         text: row.rowArtist
         elide: Text.ElideRight
+        maximumLineCount: 1
         color: ((row.rowArtistIdsCsv !== "" || row.rowArtistId !== 0)
                 && artistArea.containsMouse)
-               ? Theme.color.primary : Theme.color.onSurfaceVariantColor
-        fontSize: 13
+               ? Ui.accent : Ui.textSecondary
+        font.pixelSize: Ui.textCaption
     }
 
     // Unconstrained shaping probe for the real rendered glyph width. The visible
-    // Text is anchored across the row so it can elide, therefore its own width is
-    // the available column width rather than the artist text's painted width.
+    // Text spans the column so it can elide, therefore its own width is the
+    // available column width rather than the artist text's painted width.
     Text {
         id: artistProbe
         visible: false
         text: row.rowArtist
-        font.family: artistText.font.family
         font.pixelSize: artistText.font.pixelSize
+    }
+
+    Text {
+        id: durationText
+        objectName: "songRowDuration"
+        visible: row._durationShown
+        // Fixed box, right-aligned: the reorder floating row is realized hidden
+        // under cachedLayout and never measures, so implicit sizes read 0 there.
+        width: 48
+        x: row._durationRight - width
+        y: row.height / 2 - 9
+        horizontalAlignment: Text.AlignRight
+        text: Ui.formatTime(row.durationMs)
+        color: Ui.textTertiary
+        font.pixelSize: Ui.textCaption
     }
 
     // Keep the source badge inside the row and leave at least 100dp for the
@@ -314,48 +375,46 @@ Rectangle {
         id: tagPill
         objectName: "songSourceBadge"
         visible: row.tag !== "" && !row.removable && width >= 32
-        x: Math.max(0, row.width - width - 12 - (row.showLikeButton ? 40 : 0)
-                   - (row.showDownloadButton ? 40 : 0))
+        x: Math.max(0, row._badgeRight - width)
         y: (row.height - height) / 2
-        radius: 8
-        color: Theme.color.surfaceContainerHighest
-        width: Math.min(Math.max(36, row.tag.length * 12 + 16), 112, Math.max(0, row.width - 198))
+        radius: height / 2
+        color: Ui.surfaceSunken
+        border.width: 1
+        border.color: Ui.hairline
+        width: Math.min(Math.max(36, row.tag.length * 12 + 16), 112,
+                        Math.max(0, row._badgeRight - row._textX - 100))
         height: 20
 
         Text {
             id: tagText
             objectName: "songSourceBadgeLabel"
             x: 8
-            // Center the measured line explicitly. Stretching the Text to the
-            // pill's height and leaning on verticalAlignment does not work here:
-            // qml4j accepts the property but it does not affect painting (same
-            // reason TextField.qml positions its label by hand), so the glyphs
-            // stayed at the top of the pill.
+            // Center the measured line explicitly: qml4j accepts
+            // verticalAlignment but it does not affect painting.
             y: (parent.height - implicitHeight) / 2
             width: Math.max(0, parent.width - 16)
             horizontalAlignment: Text.AlignHCenter
             text: row.tag
             elide: Text.ElideRight
-            fontSize: 11
-            color: Theme.color.onSurfaceVariantColor
+            maximumLineCount: 1
+            font.pixelSize: Ui.textMicro
+            color: Ui.textSecondary
         }
     }
 
-    // Tap + Material ripple, clipped to the inset pill shape. Idle cost is nil
-    // (Ripple gates its MultiEffect on live-wave count); a wave only renders while
-    // a row is being pressed. Reactive geometry, NOT anchors: under cachedLayout
+    // Tap + flat indication, clipped to the inset wash shape. Its hover layer is
+    // the row's hover wash. Reactive geometry, NOT anchors: under cachedLayout
     // (long lists) the measure pass that resolves anchors is skipped once the
     // container box is stable, so an anchor-sized ripple stays stuck at the row's
-    // first (often zero, hence -16 after margins) width — the mispositioned/half/
-    // crashing ripple. Width bindings track row.width and update without a re-measure.
+    // first (often zero) width.
     Ripple {
         id: ripple
-        x: 8
+        x: row._wash
         y: 4
-        width: row.width - 16
-        height: row.height - 8
+        width: Math.max(0, row.width - 2 * row._wash)
+        height: Math.max(0, row.height - 8)
         clipRadius: rowBackground.radius
-        rippleColor: Theme.color.onSurfaceColor
+        rippleColor: Ui.textPrimary
         longPressEnabled: row.reorderable || (row.menuEnabled && row.song !== null)
         onClicked: {
             if (row._menuArmed) { row._menuArmed = false; return }
@@ -368,13 +427,13 @@ Rectangle {
             // While reorderable, a long-press/right-click reveals the drag handle
             // and remove button instead of the context menu — see controlsRevealed.
             if (row.reorderable) row.revealToggled()
-            else row._openMenu()
+            else row._openMenu(ripple, ripple.pressX, ripple.pressY)
         }
         onContextMenuRequested: {
             if (row.selectMode) { row.selectionToggled(); return }
             row._menuArmed = true
             if (row.reorderable) row.revealToggled()
-            else row._openMenu()
+            else row._openMenu(ripple, ripple.pressX, ripple.pressY)
         }
     }
 
@@ -385,11 +444,11 @@ Rectangle {
     // artist through the long-press menu ("查看歌手") instead.
     MouseArea {
         id: artistArea
-        anchors.left: artistText.left
-        anchors.verticalCenter: artistText.verticalCenter
+        x: artistText.x
+        y: artistText.y
         width: Math.min(artistText.width, artistProbe.implicitWidth)
-        height: 20
-        enabled: settings.has("desktopLyricEnabled")
+        height: 18
+        enabled: settings.has("desktopLyricEnabled") && !row.selectMode
                  && (row.rowArtistIdsCsv !== "" || (row.rowArtistId !== 0 && row.rowArtistId !== ""))
         hoverEnabled: enabled
         cursorShape: Qt.PointingHandCursor
@@ -419,10 +478,11 @@ Rectangle {
             onDownloadChosen: row.menuDownloadRequested()
         }
     }
-    function _openMenu() {
+    readonly property bool _menuOpen: menuLoader.item !== null && menuLoader.item.opened
+    function _openMenu(anchor, ax, ay) {
         if (row.song === null || menuLoader.item === null) return
         menuLoader.item.rebuild()
-        menuLoader.item.open(ripple, ripple.pressX, ripple.pressY)
+        menuLoader.item.open(anchor, ax, ay)
     }
 
     // Reorder grip. Explicit geometry, like every other child here: anchors do
@@ -430,29 +490,23 @@ Rectangle {
     Item {
         id: dragHandle
         objectName: "songRowDragHandle"
-        visible: row.reorderable && row.controlsRevealed
+        visible: row._gripShown
         width: 44
         height: 44
-        x: Math.max(0, row.width - width - (row.removable ? 72 : 16)
-                   - (row.showDownloadButton ? 40 : 0)
-                   - (row.showLikeButton ? 40 : 0))
+        x: Math.max(0, row._slot2X)
         y: (row.height - height) / 2
 
         // Not an Icon: that centres its glyph with anchors.centerIn, which the
-        // skipped measure pass drops, and even when it runs it centres the text
-        // BOX while the glyph sits on the box's baseline. Same self-centring
-        // pattern as the placeholder glyph above — size the Text to the box and
-        // let the icon font's own vertical metrics do the rest.
-        Text {
+        // skipped measure pass drops. Same self-centring pattern as the
+        // placeholder glyph above — size the Text to the box and let the icon
+        // font's own vertical metrics do the rest.
+        Glyph {
             objectName: "songRowDragGlyph"
             width: parent.width
             height: parent.height
-            horizontalAlignment: Text.AlignHCenter
-            text: "drag_handle"
-            font.family: Theme.iconFont.name
-            font.pixelSize: 22
-            color: handleArea.pressed ? Theme.color.primary
-                                      : Theme.color.onSurfaceVariantColor
+            size: 22
+            name: "drag_handle"
+            color: handleArea.pressed ? Ui.accent : Ui.textSecondary
         }
 
         MouseArea {
@@ -461,7 +515,7 @@ Rectangle {
             y: 0
             width: parent.width
             height: parent.height
-            enabled: row.reorderable && row.controlsRevealed
+            enabled: row._gripShown
             // The row lives in a Flickable: without this the first few pixels of
             // a vertical drag are taken for scrolling and the reorder never starts.
             preventStealing: true
@@ -487,38 +541,54 @@ Rectangle {
         }
     }
 
+    // Hover-revealed menu button (desktop). Always hittable while shown so the
+    // pointer never chases a button that fades out from under it.
+    IconButton {
+        id: moreButton
+        objectName: "songRowMoreButton"
+        visible: row._moreShown
+        width: 40
+        height: 40
+        x: Math.max(0, row._slot2X + 2)
+        y: (row.height - height) / 2
+        type: "standard"
+        icon: "more_horiz"
+        contentColor: Ui.textSecondary
+        opacity: (ripple.containsMouse || moreButton.hovered || row._menuOpen) ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+        onClicked: row._openMenu(moreButton, 0, moreButton.height)
+    }
+
     // Explicit geometry follows recycled queue rows without a new anchor pass.
     // Stays visible: true whenever removable (never toggled by reveal) so the
-    // NORMAL in-list delegate gets measured from creation. That alone isn't
-    // enough for VirtualSongList's reorderFloatingRow, though: that whole row
-    // is always born visible:false (no drag yet) and, per the same cachedLayout
-    // rule, never gets a measure pass later no matter what ITS children's own
-    // visible says — so an IconButton's anchors.centerIn'd glyph inside it
-    // rendered pinned to the box's top-left ("X at the row's top edge") instead
-    // of centred, the whole time that row was the one being dragged. A plain
-    // self-sized Text sidesteps the anchor entirely — same trick as the drag
-    // handle's own glyph right below.
+    // NORMAL in-list delegate gets measured from creation. VirtualSongList's
+    // reorderFloatingRow is always born visible:false and never gets a measure
+    // pass later, so an IconButton's anchors.centerIn'd glyph inside it would
+    // render pinned to the box's top-left. A self-sized glyph sidesteps that.
     Item {
         id: removeButton
         objectName: "queueRemoveButton"
         visible: row.removable
-        opacity: (!row.reorderable || row.controlsRevealed) ? 1 : 0
-        enabled: !row.reorderable || row.controlsRevealed
+        opacity: row._removeShown ? 1 : 0
+        enabled: row._removeShown
         width: 40
         height: 40
-        x: Math.max(0, row.width - width - 16
-                   - (row.showDownloadButton ? 40 : 0)
-                   - (row.showLikeButton ? 40 : 0))
+        x: Math.max(0, row._removeX)
         y: (row.height - height) / 2
 
-        Text {
+        Rectangle {
             width: parent.width
             height: parent.height
-            horizontalAlignment: Text.AlignHCenter
-            text: "close"
-            font.family: Theme.iconFont.name
-            font.pixelSize: 22
-            color: removeArea.pressed ? Theme.color.primary : Theme.color.onSurfaceVariantColor
+            radius: width / 2
+            color: Ui.surfaceHover
+            opacity: removeArea.containsMouse ? 1 : 0
+        }
+        Glyph {
+            width: parent.width
+            height: parent.height
+            size: 22
+            name: "close"
+            color: removeArea.pressed ? Ui.accent : Ui.textSecondary
         }
 
         MouseArea {
@@ -528,6 +598,7 @@ Rectangle {
             width: parent.width
             height: parent.height
             enabled: removeButton.enabled
+            hoverEnabled: enabled
             onClicked: row.removeRequested()
         }
     }
@@ -540,26 +611,24 @@ Rectangle {
         enabled: row.likeable
         width: 36
         height: 36
-        x: Math.max(0, row.width - width - 12
-                   - (row.showDownloadButton ? 40 : 0))
+        x: Math.max(0, row._likeX)
         y: (row.height - height) / 2
         type: "standard"
         icon: row.liked ? "favorite" : "favorite_border"
-        contentColor: row.liked ? "#FF5277" : Theme.color.onSurfaceVariantColor
+        contentColor: row.liked ? Ui.like : Ui.textSecondary
         onClicked: row.likeToggled()
     }
 
     IconButton {
         objectName: "songRowDownloadButton"
-        visible: row.showDownloadButton && !row.selectMode
+        visible: row._downloadShown
         width: 36
         height: 36
-        x: Math.max(0, row.width - width - 12)
+        x: Math.max(0, row._downloadX)
         y: (row.height - height) / 2
         type: "standard"
         icon: "download"
-        contentColor: Theme.color.onSurfaceVariantColor
+        contentColor: Ui.textSecondary
         onClicked: row.downloadRequested()
     }
-
 }

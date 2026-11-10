@@ -1,5 +1,6 @@
 import QtQuick
 import miuix.Core
+import design
 import "."
 
 // Windows-only custom title bar (see WinFrameless.java / WindowChrome.java on the
@@ -13,9 +14,10 @@ import "."
 // hit-test math that reserves the same strip.
 Rectangle {
     id: bar
-    color: Theme.color.surface
-    opacity: hostWindow.focused ? 1 : 0.6
-    Behavior on opacity { NumberAnimation { duration: 150 } }
+    color: Ui.background
+    // Unfocused: dim the content, not the bar, so the strip keeps matching the
+    // page background beneath it.
+    readonly property color glyphColor: hostWindow.focused ? Ui.textPrimary : Ui.textTertiary
 
     Image {
         id: appIcon
@@ -33,9 +35,9 @@ Rectangle {
         anchors.leftMargin: 8
         anchors.verticalCenter: parent.verticalCenter
         text: "QPlayer"
-        font.family: Theme.typography.labelLarge.family
-        font.pixelSize: Theme.typography.labelLarge.size
-        color: Theme.color.onSurfaceColor
+        font.pixelSize: Ui.textCaption
+        font.weight: Ui.weightBold
+        color: hostWindow.focused ? Ui.textSecondary : Ui.textTertiary
     }
 
     Row {
@@ -52,14 +54,13 @@ Rectangle {
             color: "transparent"
             Rectangle {
                 anchors.fill: parent
-                color: Theme.color.onSurfaceColor
-                opacity: minMa.pressed ? 0.12 : (minMa.containsMouse ? 0.08 : 0)
+                color: minMa.pressed ? Ui.surfacePressed : (minMa.containsMouse ? Ui.surfaceHover : "transparent")
             }
             Rectangle {
                 anchors.centerIn: parent
                 width: 10
                 height: 1
-                color: Theme.color.onSurfaceColor
+                color: bar.glyphColor
             }
             MouseArea {
                 id: minMa
@@ -79,17 +80,17 @@ Rectangle {
             color: "transparent"
             Rectangle {
                 anchors.fill: parent
-                color: Theme.color.onSurfaceColor
-                opacity: maxMa.pressed ? 0.12 : (maxMa.containsMouse ? 0.08 : 0)
+                color: maxMa.pressed ? Ui.surfacePressed : (maxMa.containsMouse ? Ui.surfaceHover : "transparent")
             }
             Rectangle {
                 visible: !hostWindow.maximized
                 anchors.centerIn: parent
                 width: 10
                 height: 10
+                radius: 2
                 color: "transparent"
                 border.width: 1
-                border.color: Theme.color.onSurfaceColor
+                border.color: bar.glyphColor
             }
             Item {
                 visible: hostWindow.maximized
@@ -103,7 +104,7 @@ Rectangle {
                     height: 9
                     color: "transparent"
                     border.width: 1
-                    border.color: Theme.color.onSurfaceColor
+                    border.color: bar.glyphColor
                 }
                 Rectangle {
                     x: 0
@@ -112,7 +113,7 @@ Rectangle {
                     height: 9
                     color: bar.color
                     border.width: 1
-                    border.color: Theme.color.onSurfaceColor
+                    border.color: bar.glyphColor
                 }
             }
             MouseArea {
@@ -129,12 +130,11 @@ Rectangle {
             width: hostWindow.buttonWidthPx
             height: buttons.height
             color: closeMa.pressed ? "#C42B1C" : (closeMa.containsMouse ? "#E81123" : "transparent")
-            Text {
+            Glyph {
                 anchors.centerIn: parent
-                text: "close"
-                font.family: Theme.iconFont.name
-                font.pixelSize: 16
-                color: closeMa.containsMouse ? "white" : Theme.color.onSurfaceColor
+                name: "close"
+                size: 16
+                color: closeMa.containsMouse ? "white" : bar.glyphColor
             }
             MouseArea {
                 id: closeMa

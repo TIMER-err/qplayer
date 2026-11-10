@@ -9,6 +9,7 @@
 // against arbitrary plugin data.
 import QtQuick
 import miuix.Core
+import design
 
 Item {
     id: slot
@@ -100,11 +101,12 @@ Item {
         anchors.right: parent.right
         visible: slot.nodeType === "text" || slot.nodeType === "error"
         text: slot.node && slot.node.text ? slot.node.text : ""
-        color: slot.nodeType === "error" ? Theme.color.error
-               : slot.nodeStyle === "caption" ? Theme.color.onSurfaceVariantColor
-               : Theme.color.onSurfaceColor
-        fontSize: slot.nodeStyle === "title" ? 17 : slot.nodeStyle === "caption" ? 12 : 14
-        font.bold: slot.nodeStyle === "title"
+        color: slot.nodeType === "error" ? Ui.danger
+               : slot.nodeStyle === "caption" ? Ui.textSecondary
+               : Ui.textPrimary
+        font.pixelSize: slot.nodeStyle === "title" ? Ui.textHeadline
+                        : slot.nodeStyle === "caption" ? Ui.textCaption : Ui.textCallout
+        font.weight: slot.nodeStyle === "title" ? Ui.weightBold : Ui.weightRegular
         horizontalAlignment: (slot.nodeType === "error"
                               || (slot.node && slot.node.center === true))
                              ? Text.AlignHCenter : Text.AlignLeft
@@ -126,21 +128,62 @@ Item {
         onTextChanged: slot.inputValue = text
     }
 
-    // A settings-style toggle, laid out like the host's own switch rows so a
-    // plugin's on/off state never has to be drawn as a pair of buttons.
-    SuperSwitch {
+    // A settings-style toggle row (label + summary, miuix Switch on the right),
+    // laid out like the host's own switch rows so a plugin's on/off state never
+    // has to be drawn as a pair of buttons. The whole row toggles.
+    Item {
         id: toggle
         objectName: "pluginNodeSwitch"
-        width: parent.width
-        visible: slot.nodeType === "switch"
-        title: slot.node ? slot.node.label : ""
-        summary: slot.node && slot.node.desc ? slot.node.desc : ""
-        checked: slot.switchValue
-        enabled: slot.node ? slot.node.enabled !== false && !slot.busy : false
-        onClicked: {
-            slot.switchValue = toggle.checked;
+        property bool checked: false
+        property bool rowEnabled: slot.node ? slot.node.enabled !== false && !slot.busy : false
+        function activate() {
+            if (!toggle.rowEnabled) return
+            toggle.checked = !toggle.checked
+            slot.switchValue = toggle.checked
             if (slot.host && slot.node && slot.node.type === "switch")
                 slot.host.submit(slot.node.id)
+        }
+        width: parent.width
+        height: implicitHeight
+        visible: slot.nodeType === "switch"
+        implicitHeight: Math.max(52, toggleTitle.implicitHeight
+                                 + (toggleSummary.visible ? 2 + toggleSummary.implicitHeight : 0) + 16)
+
+        Text {
+            id: toggleTitle
+            y: (toggle.height - implicitHeight
+                - (toggleSummary.visible ? 2 + toggleSummary.implicitHeight : 0)) / 2
+            width: Math.max(0, toggle.width - toggleSwitch.width - Ui.space4)
+            text: slot.node ? (slot.node.label || "") : ""
+            color: Ui.textPrimary
+            opacity: toggle.rowEnabled ? 1 : 0.45
+            wrapMode: Text.Wrap
+            font.pixelSize: Ui.textHeadline
+        }
+        Text {
+            id: toggleSummary
+            y: toggleTitle.y + toggleTitle.implicitHeight + 2
+            width: toggleTitle.width
+            visible: text.length > 0
+            text: slot.node && slot.node.desc ? slot.node.desc : ""
+            color: Ui.textSecondary
+            opacity: toggle.rowEnabled ? 1 : 0.45
+            wrapMode: Text.Wrap
+            font.pixelSize: Ui.textCallout
+        }
+        MouseArea {
+            anchors.fill: parent
+            enabled: toggle.rowEnabled && toggle.visible
+            onClicked: toggle.activate()
+        }
+        Switch {
+            id: toggleSwitch
+            x: toggle.width - width
+            y: (toggle.height - height) / 2
+            checked: toggle.checked
+            enabled: toggle.rowEnabled
+            toggleOnClick: false
+            onClicked: toggle.activate()
         }
     }
 

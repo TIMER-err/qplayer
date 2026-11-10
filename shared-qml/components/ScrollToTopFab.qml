@@ -1,9 +1,13 @@
 import QtQuick
 import miuix.Core
+import design
 
-// A compact playlist affordance that stays out of the way until the user has
-// moved past the header and the first few rows. Source and local playlist pages
-// share the same threshold and component-library styling.
+// A compact "back to top" affordance that stays out of the way until the user
+// has moved past the header and the first few rows. A quiet raised surface
+// rather than an accent FAB: it is a navigation aid, not the page's primary
+// action. Opacity-only motion (scale bounces are unreliable in qml4j), and it
+// is hidden — not just transparent — while concealed, because transparent
+// items still receive hit tests.
 FAB {
     id: control
 
@@ -14,17 +18,17 @@ FAB {
 
     readonly property bool revealed: target && target.contentY > revealDistance
 
-    type: "standard"
+    type: "small"
     icon: "vertical_align_top"
-    transformOrigin: Item.Center
+    containerColor: Ui.surfaceRaised
+    contentColor: Ui.textPrimary
+    width: implicitWidth
+    height: implicitHeight
     opacity: revealed ? 1 : 0
-    scale: revealed ? 1 : 0.82
+    visible: opacity > 0.01
     enabled: revealed
     Behavior on opacity {
         NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
-    }
-    Behavior on scale {
-        NumberAnimation { duration: 160; easing.type: Easing.OutBack }
     }
 
     onClicked: {

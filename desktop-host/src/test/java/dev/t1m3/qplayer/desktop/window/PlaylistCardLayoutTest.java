@@ -12,6 +12,7 @@ import io.github.timer_err.qml4j.engine.QmlEngine;
 import io.github.timer_err.qml4j.engine.binding.DirtyQueue;
 import io.github.timer_err.qml4j.render.QmlView;
 import io.github.timer_err.qml4j.render.items.core.Item;
+import io.github.timer_err.qml4j.render.items.core.Text;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -27,7 +28,9 @@ import static org.junit.Assert.assertTrue;
 /**
  * Playlist-card geometry that qml4j will not catch at compile time: a card
  * first realized hidden (the floating copy of a drag) still has to have a
- * non-zero cover, and the title size has to follow {@code libraryCardSize}.
+ * non-zero cover, the title size has to follow {@code libraryCardSize}, and
+ * the caption has to follow the name's line count even inside a
+ * {@code cachedLayout} grid that does not re-measure recycled cards.
  */
 public class PlaylistCardLayoutTest {
 
@@ -78,13 +81,54 @@ public class PlaylistCardLayoutTest {
                     Item largeTitle = findIn(view.findByObjectName("large"), "playlistCardTitle");
                     assertNotNull(smallTitle);
                     assertNotNull(largeTitle);
-                    float smallSize = propertyFloat(smallTitle, "fontSize");
-                    float largeSize = propertyFloat(largeTitle, "fontSize");
-                    assertTrue("small title " + smallSize + " should be below default 16",
-                            smallSize < 16f);
-                    assertTrue("large title " + largeSize + " should be above default 16",
-                            largeSize > 16f);
+                    float smallSize = ((Text) smallTitle).font.pixelSize.peekFloat();
+                    float largeSize = ((Text) largeTitle).font.pixelSize.peekFloat();
+                    assertTrue("small title " + smallSize + " should be below the 15px default",
+                            smallSize < 15f);
+                    assertTrue("large title " + largeSize + " should be above the 15px default",
+                            largeSize > 15f);
                     assertTrue(largeSize > smallSize);
+                });
+    }
+
+    @Test
+    public void captionFollowsARecycledNameUnderCachedLayout() throws Exception {
+        withView("import QtQuick\nimport \"components\"\n"
+                        + "Item { id: host; width: 400; height: 400\n"
+                        + "  property string label: \"一个需要两行才能放下的很长很长的歌单名字\"\n"
+                        + "  Item { width: 400; height: 400; cachedLayout: true\n"
+                        + "    PlaylistCard { objectName: \"card\"; tile: 200; name: host.label }\n"
+                        + "  }\n"
+                        + "}",
+                view -> {
+                    Item card = view.findByObjectName("card");
+                    Item title = findIn(card, "playlistCardTitle");
+                    Item caption = findIn(card, "playlistCardSubtitle");
+                    assertNotNull(title);
+                    assertNotNull(caption);
+                    assertEquals("a long name takes two lines", 2f,
+                            propertyFloat(title, "maximumLineCount"), 0f);
+                    float twoLineCaptionY = caption.y.peekFloat();
+                    assertTrue("the caption stays inside the card",
+                            caption.y.peekFloat() + caption.height.peekFloat()
+                                    <= card.height.peekFloat() + 0.5f);
+
+                    // The same delegate gets a short name, as a windowed Repeater does
+                    // while scrolling; the cachedLayout container skips re-measuring it.
+                    DirtyQueue queue = view.dirtyQueue();
+                    queue.install();
+                    try {
+                        property(view.root(), "label").set("短");
+                    } finally {
+                        queue.uninstall();
+                    }
+                    settle(view);
+                    assertEquals("a short name takes one line", 1f,
+                            propertyFloat(title, "maximumLineCount"), 0f);
+                    float lineH = (twoLineCaptionY - title.y.peekFloat() - 2f) / 2f;
+                    assertTrue("line box was " + lineH, lineH > 10f);
+                    assertEquals("the caption moves up to sit under one title line",
+                            twoLineCaptionY - lineH, caption.y.peekFloat(), 0.5f);
                 });
     }
 

@@ -63,7 +63,7 @@
 
 - 本地音乐库、播放队列、循环与随机播放、睡眠定时。
 - 逐字歌词、翻译与罗马音、流体背景；Android 支持[词幕](https://github.com/tomakino/lyricon)。
-- 自适应手机、平板与桌面的 Miuix 界面，支持深浅主题、动态配色和可选的液态玻璃。
+- 以封面为主的沉浸式界面，自适应手机、平板与桌面；支持界面缩放、深浅主题、动态配色和可选的液态玻璃。
 - 桌面托盘、系统媒体控制；Android 锁屏、通知栏与蓝牙控制。
 - 通过插件扩展在线音源、搜索、歌单与账号功能。
 
@@ -114,7 +114,7 @@ macOS 的 JVM 运行需要 `-XstartOnFirstThread`。原生包使用 GraalVM，�
 
 - [插件开发](docs/plugins.md) · [插件模板](https://github.com/TIMER-err/qplayer-plugin-template)
 - [插件权限与安全模型](docs/plugin-security.md)
-- [Miuix 界面](docs/miuix-ui.md)
+- [界面设计](docs/miuix-ui.md)
 
 登录凭据加密存储，优先使用系统密码库；不可用时可明确选择本地密钥回退。这只提供静态文件保护，不防同用户恶意程序、root/管理员权限或运行时内存读取，详见安全模型。
 

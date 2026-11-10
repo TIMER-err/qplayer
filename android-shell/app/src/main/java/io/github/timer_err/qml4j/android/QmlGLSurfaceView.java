@@ -115,9 +115,12 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
     public void setErrorListener(ErrorListener l) {
         this.errorListener = l;
     }
-    // Logical-pixel scale: QML is authored in dp; render at the screen density so
-    // Material components are physically sized (and the canvas drawn larger).
-    private final float uiScale;
+    // Logical-pixel scale: QML is authored in dp; render at the screen density times
+    // the user's interface zoom so components are physically sized. The UI thread
+    // reads it for touch mapping; the GL thread resizes the root when it changes.
+    private final float baseScale;
+    private volatile float uiScale;
+    private float appliedScale;
     private final LiquidGlassTilt liquidGlassTilt;
 
     public QmlGLSurfaceView(Context ctx, BundledQml bundle, ResourceLoader resources,
@@ -126,7 +129,8 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         this.bundle = bundle;
         this.engine = new QmlEngine(bundle);
         this.resources = resources;
-        this.uiScale = uiScale > 0 ? uiScale : 1f;
+        this.baseScale = uiScale > 0 ? uiScale : 1f;
+        this.uiScale = baseScale;
         liquidGlassTilt = new LiquidGlassTilt(this, renderWake);
         setEGLContextClientVersion(2);
         setEGLConfigChooser(8, 8, 8, 8, 0, 8);
@@ -139,6 +143,13 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
         setRenderMode(RENDERMODE_CONTINUOUSLY);
         setFocusable(true);
         setFocusableInTouchMode(true);
+    }
+
+    /** Apply the interface zoom setting; the next frame relayouts at the new scale. */
+    public void setUserScale(float factor) {
+        if (!(factor > 0f)) return;
+        uiScale = baseScale * factor;
+        wakeRenderer();
     }
 
     @Override
@@ -709,10 +720,12 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                     if (iconFont != null) view.iconTypeface(iconFont);
                     bundle.load(view);
                 }
+                float scale = uiScale;
                 if (view.root() != null) {
-                    view.root().width.set(width / uiScale);
-                    view.root().height.set(height / uiScale);
+                    view.root().width.set(width / scale);
+                    view.root().height.set(height / scale);
                 }
+                appliedScale = scale;
             } catch (Throwable t) {
                 reportError(t);
             }
@@ -727,6 +740,12 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 try {
                 long t0 = System.nanoTime();
                 long v0 = Property.changeVersion();
+                float scale = uiScale;
+                if (scale != appliedScale && view.root() != null) {
+                    view.root().width.set(surface.width() / scale);
+                    view.root().height.set(surface.height() / scale);
+                    appliedScale = scale;
+                }
                 if (controller != null) controller.pump();
                 view.tickAnimations(System.nanoTime());
                 dq.flush();
@@ -741,7 +760,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 // LyricCompositor — the same code path the desktop LWJGL host runs.
                 compositor.setLiquidGlassGravityAngle(liquidGlassTilt.angle());
                 compositor.composite(canvas, renderer, view, controller, settings,
-                        surface.recordingContext(), uiScale, surface.width(), surface.height());
+                        surface.recordingContext(), scale, surface.width(), surface.height());
                 liquidGlassTilt.setActive(compositor.liquidGlassActive());
                 if (compositor.skippedLayout()) profSkips++;
                 long t1b = System.nanoTime();

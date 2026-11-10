@@ -1,5 +1,6 @@
 import QtQuick
 import miuix.Core
+import design
 import "."
 
 // One playlist row for the library's list view (the compact alternative to
@@ -19,6 +20,11 @@ Rectangle {
     property var playlistId: 0
 
     property bool reorderable: false
+    // Horizontal content inset: the cover starts here and the overflow glyph
+    // ends this far from the right edge. The hover wash extends 4px beyond it,
+    // matching SongRow so playlist and song lists read as one family.
+    property real contentInset: 12
+    readonly property real _washX: Math.max(0, row.contentInset - 4)
     property bool controlsRevealed: true
     signal revealToggled()
     property real reorderContentY: 0
@@ -51,22 +57,22 @@ Rectangle {
 
     Rectangle {
         id: rowBackground
-        x: 8
+        x: row._washX
         y: 4
-        width: Math.max(0, row.width - 16)
+        width: Math.max(0, row.width - 2 * row._washX)
         height: Math.max(0, row.height - 8)
-        radius: 16
-        color: row.dragging ? Theme.color.surfaceContainerHighest : Theme.color.surfaceContainerHigh
-        opacity: row.dragging ? 1 : (ripple.containsMouse ? 1 : 0)
-        border.width: row.dragging ? 2 : 0
-        border.color: Theme.color.primary
-        Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+        radius: Ui.radiusMd
+        // Hover/press feedback comes from the Ripple's own state layer; this
+        // surface only lifts the carried row off the list while dragging.
+        color: Ui.surfaceRaised
+        visible: row.dragging
+        border.width: 2
+        border.color: Ui.accent
     }
 
     Item {
         id: leading
-        readonly property real cornerRadius: Math.max(0, rowBackground.radius - 4)
-        x: 12
+        x: row.contentInset
         y: (row.height - height) / 2
         width: 48
         height: 48
@@ -74,17 +80,15 @@ Rectangle {
         Rectangle {
             width: leading.width
             height: leading.height
-            radius: leading.cornerRadius
-            color: Theme.color.surfaceContainerHighest
+            radius: Ui.radiusSm
+            color: Ui.surfaceSunken
             visible: row.coverThumbPath === "" && row.coverUrl === ""
-            Text {
-                width: parent.width
-                height: parent.height
-                horizontalAlignment: Text.AlignHCenter
-                text: "queue_music"
-                font.family: Theme.iconFont.name
-                font.pixelSize: 22
-                color: Theme.color.onSurfaceVariantColor
+            Glyph {
+                x: (parent.width - width) / 2
+                y: (parent.height - height) / 2
+                name: "queue_music"
+                size: Ui.iconSize
+                color: Ui.textTertiary
             }
         }
 
@@ -93,7 +97,7 @@ Rectangle {
             height: leading.height
             visible: row.coverThumbPath !== "" || row.coverUrl !== ""
             source: row.coverThumbPath || row.coverUrl
-            radius: leading.cornerRadius
+            radius: Ui.radiusSm
             fillMode: Image.PreserveAspectFit
             clip: true
             sourceSize.width: Math.round(48 * player.pixelRatio)
@@ -104,37 +108,43 @@ Rectangle {
     // The overflow button is always reserved (it is always shown); the grip adds
     // its own width only while reorderable, whether or not it is revealed yet —
     // reserving by the revealed state instead would shift the title every reveal.
-    readonly property real _rightReserve: 60 + (row.reorderable ? 48 : 0)
+    readonly property real _rightReserve: row.contentInset + 44 + (row.reorderable ? 44 : 0)
 
     Text {
         id: nameText
-        x: 74
-        y: row.height / 2 - 20
+        x: row.contentInset + leading.width + Ui.space3
+        // Fixed offsets, not implicitHeight: the carried row of a drag is realized
+        // hidden under cachedLayout, where implicitHeight is still 0 and the two
+        // lines would land on top of each other.
+        y: Math.round(row.height / 2) - 21
         width: Math.max(0, row.width - x - row._rightReserve)
         text: row.rowName
         elide: Text.ElideRight
-        color: Theme.color.onSurfaceColor
-        fontSize: 16
+        maximumLineCount: 1
+        color: Ui.textPrimary
+        font.pixelSize: Ui.textBody
+        font.weight: Ui.weightRegular
     }
 
     Text {
         x: nameText.x
-        y: row.height / 2 + 4
+        y: Math.round(row.height / 2) + 3
         width: nameText.width
         text: row.rowSubtitle
         elide: Text.ElideRight
-        color: Theme.color.onSurfaceVariantColor
-        fontSize: 13
+        maximumLineCount: 1
+        color: Ui.textSecondary
+        font.pixelSize: Ui.textCaption
     }
 
     Ripple {
         id: ripple
-        x: 8
-        y: 4
-        width: row.width - 16
-        height: row.height - 8
+        x: rowBackground.x
+        y: rowBackground.y
+        width: rowBackground.width
+        height: rowBackground.height
         clipRadius: rowBackground.radius
-        rippleColor: Theme.color.onSurfaceColor
+        rippleColor: Ui.textPrimary
         longPressEnabled: true
         onClicked: {
             if (row._menuArmed) { row._menuArmed = false; return }
@@ -178,24 +188,30 @@ Rectangle {
     Item {
         id: overflowButton
         objectName: "playlistListRowOverflowButton"
-        width: 44
-        height: 44
-        x: row.width - width - 16
+        width: 40
+        height: 40
+        // The glyph (22 in a 40 box) ends one pixel inside the content inset.
+        x: row.width - row.contentInset - width + 8
         y: (row.height - height) / 2
 
-        Text {
-            width: parent.width
-            height: parent.height
-            horizontalAlignment: Text.AlignHCenter
-            text: "more_vert"
-            font.family: Theme.iconFont.name
-            font.pixelSize: 22
-            color: overflowArea.pressed ? Theme.color.primary : Theme.color.onSurfaceVariantColor
+        Rectangle {
+            anchors.fill: parent
+            radius: width / 2
+            color: overflowArea.pressed ? Ui.surfacePressed : Ui.surfaceHover
+            visible: overflowArea.containsMouse || overflowArea.pressed
+        }
+        Glyph {
+            x: (parent.width - width) / 2
+            y: (parent.height - height) / 2
+            name: "more_vert"
+            size: Ui.iconSize
+            color: overflowArea.pressed ? Ui.accent : Ui.textSecondary
         }
 
         MouseArea {
             id: overflowArea
             anchors.fill: parent
+            hoverEnabled: true
             onClicked: row._openMenu()
         }
     }
@@ -204,19 +220,17 @@ Rectangle {
         id: dragHandle
         objectName: "playlistListRowDragHandle"
         visible: row.reorderable && row.controlsRevealed
-        width: 44
-        height: 44
-        x: row.width - width - overflowButton.width - 16 - 4
+        width: 40
+        height: 40
+        x: overflowButton.x - width - Ui.space1
         y: (row.height - height) / 2
 
-        Text {
-            width: parent.width
-            height: parent.height
-            horizontalAlignment: Text.AlignHCenter
-            text: "drag_handle"
-            font.family: Theme.iconFont.name
-            font.pixelSize: 22
-            color: handleArea.pressed ? Theme.color.primary : Theme.color.onSurfaceVariantColor
+        Glyph {
+            x: (parent.width - width) / 2
+            y: (parent.height - height) / 2
+            name: "drag_handle"
+            size: Ui.iconSize
+            color: handleArea.pressed ? Ui.accent : Ui.textSecondary
         }
 
         MouseArea {

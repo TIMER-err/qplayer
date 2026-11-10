@@ -1,45 +1,36 @@
 import QtQuick
 import miuix.Core
+import design
+import "."
 
-BasicComponent {
+// SettingSpec.ACTION: a tappable row that invokes a host action. A provider's
+// live text (font name, cache size, app version) shows either inline on the
+// right (inlineProvider) or as the first summary line.
+Item {
     id: row
     property var spec: null
+    property bool separator: false
+    objectName: spec ? "setting_" + spec.key : ""
     property string providerText: spec && spec.provider.length > 0 ? settings.info(spec.provider) : ""
-    title: spec ? i18n.t(spec.title) : ""
-    summary: {
-        if (!row.spec) return ""
-        var desc = i18n.t(row.spec.desc)
-        return !row.spec.inlineProvider && row.providerText.length > 0
-            ? row.providerText + (desc.length > 0 ? "\n" + desc : "") : desc
-    }
-    property string rightText: spec && spec.inlineProvider ? providerText : (spec ? i18n.t(spec.button) : "")
-    startAction: Component {
-        Icon {
-            objectName: "settingActionLeadingIcon"
-            name: row.spec ? row.spec.icon : ""
-            implicitWidth: name.length > 0 ? 24 : 0
-            implicitHeight: implicitWidth
-            width: implicitWidth
-            height: implicitHeight
-            color: Theme.color.onSurfaceVariantColor
+
+    implicitHeight: frame.implicitHeight
+
+    SettingRowFrame {
+        id: frame
+        width: row.width
+        height: row.height
+        icon: row.spec ? row.spec.icon : ""
+        title: row.spec ? i18n.t(row.spec.title) : ""
+        summary: {
+            if (!row.spec) return ""
+            var desc = i18n.t(row.spec.desc)
+            return !row.spec.inlineProvider && row.providerText.length > 0
+                ? row.providerText + (desc.length > 0 ? "\n" + desc : "") : desc
         }
+        separator: row.separator
+        value: row.spec && row.spec.inlineProvider ? row.providerText
+               : (row.spec ? i18n.t(row.spec.button) : "")
+        indicator: "chevron_right"
+        onClicked: if (row.spec) settings.invoke(row.spec.action)
     }
-    endAction: Component {
-        Row {
-            spacing: row.rightText.length > 0 ? 8 : 0
-            Text {
-                text: row.rightText
-                font.pixelSize: 14
-                color: Theme.color.onSurfaceVariantActions
-                anchors.verticalCenter: parent.verticalCenter
-            }
-            Icon {
-                name: "chevron_right"
-                width: 10; height: 16
-                anchors.verticalCenter: parent.verticalCenter
-                color: Theme.color.onSurfaceVariantActions
-            }
-        }
-    }
-    onClicked: if (spec) settings.invoke(spec.action)
 }

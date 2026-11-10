@@ -1,7 +1,13 @@
 import QtQuick
 import QtQuick.Layouts
 import miuix.Core
+import design
+import "../components"
+import "../settings"
 
+// Font picker: one grouped list (follow app font / bundled / system / import /
+// installed families) with the current choice checked, and a second dialog with
+// a searchable, windowed list of installed families.
 Item {
     id: control
     anchors.fill: parent
@@ -15,6 +21,8 @@ Item {
     property bool secondary: control.targetKey.length > 0
     property string bundledValue: control.secondary ? "bundled" : ""
     property string current: settings.fontFamilyFor(control.targetKey)
+    readonly property bool customFamily: control.current !== "" && control.current !== "system"
+                                         && control.current !== control.bundledValue
     function choose(value) { settings.setFontSelectionFor(control.targetKey, value) }
     signal closed()
     onActiveChanged: {
@@ -33,50 +41,103 @@ Item {
         return out
     }
     Dialog {
+        id: picker
+        objectName: "fontPickerDialog"
         topInset: settings.topInset
         bottomInset: settings.bottomInset
-        id: picker
+        icon: "text_fields"
         title: i18n.t("font.picker.title")
         showAcceptButton: false
         rejectText: i18n.t("common.cancel")
         onClosed: control.closed()
-        ColumnLayout {
+
+        SettingCard {
             width: picker.contentWidth
-            spacing: 8
-            SuperArrow {
+            height: implicitHeight
+
+            Item {
+                id: followRow
                 Layout.fillWidth: true
                 visible: control.secondary
-                title: i18n.t("font.picker.followMain")
-                indicator: control.current === "" ? "check" : "chevron_right"
-                onClicked: { control.choose(""); picker.close() }
+                implicitHeight: followFrame.implicitHeight
+                SettingRowFrame {
+                    id: followFrame
+                    width: followRow.width
+                    height: followRow.height
+                    icon: "link"
+                    title: i18n.t("font.picker.followMain")
+                    indicator: control.current === "" ? "check" : ""
+                    indicatorColor: Ui.accent
+                    onClicked: { control.choose(""); picker.close() }
+                }
             }
-            SuperArrow {
+            Item {
+                id: bundledRow
                 Layout.fillWidth: true
-                title: i18n.t("font.picker.bundled")
-                indicator: control.current === control.bundledValue ? "check" : "chevron_right"
-                onClicked: { control.choose(control.bundledValue); picker.close() }
+                implicitHeight: bundledFrame.implicitHeight
+                SettingRowFrame {
+                    id: bundledFrame
+                    width: bundledRow.width
+                    height: bundledRow.height
+                    icon: "font_download"
+                    title: i18n.t("font.picker.bundled")
+                    separator: control.secondary
+                    indicator: control.current === control.bundledValue ? "check" : ""
+                    indicatorColor: Ui.accent
+                    onClicked: { control.choose(control.bundledValue); picker.close() }
+                }
             }
-            SuperArrow {
+            Item {
+                id: systemRow
                 Layout.fillWidth: true
-                title: i18n.t("font.picker.system")
-                indicator: control.current === "system" ? "check" : "chevron_right"
-                onClicked: { control.choose("system"); picker.close() }
+                implicitHeight: systemFrame.implicitHeight
+                SettingRowFrame {
+                    id: systemFrame
+                    width: systemRow.width
+                    height: systemRow.height
+                    icon: "computer"
+                    title: i18n.t("font.picker.system")
+                    separator: true
+                    indicator: control.current === "system" ? "check" : ""
+                    indicatorColor: Ui.accent
+                    onClicked: { control.choose("system"); picker.close() }
+                }
             }
-            SuperArrow {
-                objectName: "importFontFile"
-                Layout.fillWidth: true
-                title: i18n.t("font.picker.import")
-                summary: i18n.t("font.picker.import.summary")
-                onClicked: { settings.openFontImport(); picker.close() }
-            }
-            SuperArrow {
+            Item {
+                id: installedRow
                 objectName: "openFontFamilyList"
                 Layout.fillWidth: true
-                title: i18n.t("font.picker.installed")
-                summary: control.current !== "" && control.current !== "system"
-                         && control.current !== control.bundledValue
-                    ? control.current : i18n.t("font.picker.installed.summary")
-                onClicked: { control.familyListOpen = true; familyPicker.open() }
+                implicitHeight: installedFrame.implicitHeight
+                SettingRowFrame {
+                    id: installedFrame
+                    width: installedRow.width
+                    height: installedRow.height
+                    icon: "format_list_bulleted"
+                    iconColor: control.customFamily ? Ui.accent : Ui.textSecondary
+                    title: i18n.t("font.picker.installed")
+                    summary: control.customFamily ? control.current
+                                                  : i18n.t("font.picker.installed.summary")
+                    separator: true
+                    indicator: "chevron_right"
+                    onClicked: { control.familyListOpen = true; familyPicker.open() }
+                }
+            }
+            Item {
+                id: importRow
+                objectName: "importFontFile"
+                Layout.fillWidth: true
+                implicitHeight: importFrame.implicitHeight
+                SettingRowFrame {
+                    id: importFrame
+                    width: importRow.width
+                    height: importRow.height
+                    icon: "upload_file"
+                    title: i18n.t("font.picker.import")
+                    summary: i18n.t("font.picker.import.summary")
+                    separator: true
+                    indicator: "chevron_right"
+                    onClicked: { settings.openFontImport(); picker.close() }
+                }
             }
         }
     }
@@ -91,7 +152,7 @@ Item {
         onClosed: control.familyListOpen = false
         ColumnLayout {
             width: familyPicker.contentWidth
-            spacing: 8
+            spacing: Ui.space3
             TextField {
                 id: searchField
                 overlayField: true
@@ -104,15 +165,23 @@ Item {
                 Layout.fillWidth: true
                 // Keep the dialog body itself below its scroll threshold. The
                 // virtual font list is the sole vertical scroll owner.
-                Layout.preferredHeight: Math.min(240, Math.max(88, control.height - 240))
+                Layout.preferredHeight: Math.min(260, Math.max(88, control.height - 240))
+                Rectangle {
+                    anchors.fill: parent
+                    radius: Ui.radiusLg
+                    color: Ui.surfaceRaised
+                }
                 Flickable {
                     id: listView
                     objectName: "fontFamilyList"
-                    anchors.fill: parent
+                    x: 4
+                    y: 4
+                    width: Math.max(0, parent.width - 8)
+                    height: Math.max(0, parent.height - 8)
                     clip: true
                     contentWidth: width
                     contentHeight: control.filtered.length * rowH
-                    property int rowH: 52
+                    property int rowH: 48
                     property int liveRows: Math.ceil(height / rowH) + 7
                     onContentHeightChanged: contentY = Math.min(contentY, Math.max(0, contentHeight - height))
                     Item {
@@ -129,7 +198,7 @@ Item {
                                 property string family: modelData
                                 property bool selected: control.current === family
                                 width: listView.width
-                                height: listView.rowH - 4
+                                height: listView.rowH
                                 y: index * listView.rowH
                                 activeFocusOnTab: true
                                 function choose() { control.choose(family); familyPicker.close() }
@@ -137,31 +206,39 @@ Item {
                                 Keys.onSpacePressed: { choose(); event.accepted = true }
                                 Rectangle {
                                     objectName: "fontFamilyBackground"
-                                    width: parent.width; height: parent.height; radius: 12
-                                    color: familyRow.selected || familyRow.activeFocus
-                                        ? Theme.color.secondaryContainer : "transparent"
+                                    y: 2
+                                    width: parent.width
+                                    height: parent.height - 4
+                                    radius: Ui.radiusMd
+                                    color: familyRow.selected ? Ui.accentSoft
+                                           : (familyRow.activeFocus || familyArea.containsMouse
+                                              ? Ui.surfaceHover : "transparent")
                                 }
                                 Text {
                                     objectName: "fontFamilyLabel"
-                                    x: 16
-                                    y: (familyRow.height - height) / 2
-                                    width: Math.max(0, parent.width - 64)
-                                    height: implicitHeight
+                                    x: Ui.space3
+                                    y: (familyRow.height - implicitHeight) / 2
+                                    width: Math.max(0, parent.width - 56)
                                     text: familyRow.family
-                                    horizontalAlignment: Text.AlignLeft
                                     elide: Text.ElideRight
-                                    font.pixelSize: 16
-                                    color: Theme.color.onSurfaceColor
+                                    maximumLineCount: 1
+                                    font.pixelSize: Ui.textBody
+                                    font.weight: familyRow.selected ? Ui.weightBold : Ui.weightRegular
+                                    color: familyRow.selected ? Ui.accent : Ui.textPrimary
                                 }
-                                Icon {
-                                    x: parent.width - 40; y: (parent.height - height) / 2
-                                    width: 24; height: 24
+                                Glyph {
+                                    x: parent.width - Ui.space3 - width
+                                    y: (parent.height - height) / 2
+                                    size: 20
                                     name: "check"
                                     visible: familyRow.selected
-                                    color: Theme.color.primary
+                                    color: Ui.accent
                                 }
-                                Ripple {
-                                    width: parent.width; height: parent.height; clipRadius: 12
+                                MouseArea {
+                                    id: familyArea
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
                                     onClicked: familyRow.choose()
                                 }
                             }

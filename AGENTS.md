@@ -47,6 +47,14 @@ mvn -pl desktop-host exec:exec
   handlers, read source properties directly or explicitly update dependent state.
 - Keep layouts shallow and position `Repeater` children explicitly.
 - For non-square local cover previews, use `PreserveAspectFit` with `clip: true`.
+- Take spacing, radii, type sizes and colours from the `Ui` singleton
+  (`shared-qml/design/Ui.qml`, `import design`). Build route headers, detail heroes
+  and section titles from `RouteHeader`, `HeroHeader` and `SectionHeader`.
+- `GradientStop.color` needs a `#AARRGGBB` string (`Ui.hexAlpha`); only
+  `ElideRight` and weights of `DemiBold` and above render as specified.
+- Repeater delegates inside a root-reparented `Dialog` cannot always resolve ids
+  of the enclosing page; call a function declared on the dialog instead. Never
+  give a child the same `id` as a function of its parent.
 
 ## Native desktop and verification
 

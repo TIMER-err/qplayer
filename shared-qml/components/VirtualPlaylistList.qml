@@ -23,6 +23,10 @@ Flickable {
     onVisibleChanged: if (!visible) view._cancelDrag()
     onEnabledChanged: if (!enabled) view._cancelDrag()
     property int rowH: 64
+    // Horizontal content inset of every row: the cover's left edge and the
+    // overflow button's right edge sit this far inside the list. Pages pass
+    // Ui.gutter(width) so rows line up with the header title.
+    property real rowInset: 12
 
     signal openPlaylist()
     signal deletePlaylistRequested()
@@ -153,6 +157,7 @@ Flickable {
                 objectName: "virtualPlaylistListRow"
                 height: view.rowH
                 width: view.width
+                contentInset: view.rowInset
                 y: index * view.rowH + (view._dragFrom >= 0 ? reorderShift : 0)
                 playlistId: modelData.id
                 rowName: modelData.name
@@ -215,6 +220,7 @@ Flickable {
             z: 5
             width: view.width
             height: view.rowH
+            contentInset: view.rowInset
             y: view._dragFloatY
             dragging: true
             reorderable: true

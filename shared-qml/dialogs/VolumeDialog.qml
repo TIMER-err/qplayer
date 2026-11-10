@@ -1,5 +1,6 @@
 import QtQuick
 import miuix.Core
+import design
 
 // Mobile volume control, opened from the page's top app bar.
 Item {
@@ -18,8 +19,10 @@ Item {
 
     Dialog {
         id: dialog
+        objectName: "volumeDialog"
         topInset: settings.topInset
         bottomInset: settings.bottomInset
+        icon: "volume_up"
         title: i18n.t("settings.volume.title")
         text: i18n.t("settings.volume.desc")
         showAcceptButton: false
@@ -28,12 +31,19 @@ Item {
 
         Item {
             width: dialog.contentWidth
-            height: 56
+            height: 64
+
+            Rectangle {
+                anchors.fill: parent
+                radius: Ui.radiusLg
+                color: Ui.surfaceRaised
+            }
 
             IconButton {
                 id: muteButton
-                anchors.left: parent.left
-                anchors.verticalCenter: parent.verticalCenter
+                objectName: "volumeMuteButton"
+                x: Ui.space2
+                y: (parent.height - height) / 2
                 type: "standard"
                 icon: settings.appVolume === 0 ? "volume_off"
                       : (settings.appVolume < 50 ? "volume_down" : "volume_up")
@@ -49,31 +59,31 @@ Item {
 
             Slider {
                 id: volumeSlider
+                objectName: "volumeSlider"
                 property int persistedVolume: settings.appVolume
-                anchors.left: muteButton.right
-                anchors.leftMargin: 12
-                anchors.right: valueText.left
-                anchors.rightMargin: 12
-                anchors.verticalCenter: parent.verticalCenter
+                x: muteButton.x + muteButton.width + Ui.space2
+                y: (parent.height - height) / 2
+                width: Math.max(0, valueText.x - Ui.space3 - x)
                 from: 0
                 to: 100
                 stepSize: 1
                 value: persistedVolume
-                valueLabelEnabled: true
                 onPersistedVolumeChanged: if (!pressed) value = persistedVolume
+                // Playback follows the thumb live; the setting persists on release.
                 onMoved: player.setVolume(value / 100)
                 onEditingFinished: settings.setAppVolume(Math.round(value))
             }
 
             Text {
                 id: valueText
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                width: 42
+                x: parent.width - Ui.space4 - width
+                y: (parent.height - implicitHeight) / 2
+                width: 44
                 text: Math.round(volumeSlider.value) + "%"
                 horizontalAlignment: Text.AlignRight
-                color: Theme.color.onSurfaceColor
-                font.pixelSize: 14
+                color: Ui.textPrimary
+                font.pixelSize: Ui.textBody
+                font.weight: Ui.weightBold
             }
         }
     }

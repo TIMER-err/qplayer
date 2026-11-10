@@ -1,12 +1,17 @@
 import QtQuick
-import QtQuick.Layouts
 import miuix.Core
+import design
 
 // Host-owned quality picker. qml4j drops JS closures on Menu.subItems, so the
 // right-click Download entry only opens this dialog; each button is a real
-// QML handler that calls Java with a quality token.
+// QML handler that calls Java with a quality token. Very high (exhigh) is the
+// filled default; the others are tonal.
 Item {
     id: control
+
+    readonly property var qualities: ["standard", "higher", "exhigh", "lossless", "hires"]
+    readonly property real buttonHeight: 48
+    readonly property real gap: Ui.space2
 
     property bool openWatch: player.downloadQualityOpen
     onOpenWatchChanged: {
@@ -16,6 +21,7 @@ Item {
 
     Dialog {
         id: dialog
+        objectName: "downloadQualityDialog"
         topInset: settings.topInset
         bottomInset: settings.bottomInset
         icon: "download"
@@ -28,44 +34,22 @@ Item {
             if (player.downloadQualityOpen) player.cancelDownloadQuality()
         }
 
-        ColumnLayout {
+        Item {
             width: dialog.contentWidth
-            spacing: 8
+            height: control.qualities.length * (control.buttonHeight + control.gap)
 
-            Button {
-                Layout.fillWidth: true
-                height: 44
-                text: i18n.t("menu.download.standard")
-                type: "outlined"
-                onClicked: { player.confirmDownloadQuality("standard"); dialog.close() }
-            }
-            Button {
-                Layout.fillWidth: true
-                height: 44
-                text: i18n.t("menu.download.higher")
-                type: "outlined"
-                onClicked: { player.confirmDownloadQuality("higher"); dialog.close() }
-            }
-            Button {
-                Layout.fillWidth: true
-                height: 44
-                text: i18n.t("menu.download.exhigh")
-                type: "filled"
-                onClicked: { player.confirmDownloadQuality("exhigh"); dialog.close() }
-            }
-            Button {
-                Layout.fillWidth: true
-                height: 44
-                text: i18n.t("menu.download.lossless")
-                type: "outlined"
-                onClicked: { player.confirmDownloadQuality("lossless"); dialog.close() }
-            }
-            Button {
-                Layout.fillWidth: true
-                height: 44
-                text: i18n.t("menu.download.hires")
-                type: "outlined"
-                onClicked: { player.confirmDownloadQuality("hires"); dialog.close() }
+            // Placed by index: qml4j does not position Repeater children.
+            Repeater {
+                model: control.qualities
+                Button {
+                    objectName: "downloadQuality_" + modelData
+                    y: index * (control.buttonHeight + control.gap)
+                    width: parent.width
+                    height: control.buttonHeight
+                    type: modelData === "exhigh" ? "filled" : "filledTonal"
+                    text: i18n.t("menu.download." + modelData)
+                    onClicked: { player.confirmDownloadQuality(modelData); dialog.close() }
+                }
             }
         }
     }

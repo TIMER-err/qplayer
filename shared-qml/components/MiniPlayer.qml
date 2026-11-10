@@ -1,33 +1,33 @@
 import QtQuick
 import miuix.Core
+import design
 import "."
 
-// Bottom transport: cover/title, seekable progress and playback actions.
-// Glass mode uses a circular cover and progress ring; other layouts keep the bar.
+// Floating now-playing bar.
 //
-// Plain anchors — NOT nested RowLayout/ColumnLayout. This bar is always visible
-// and the play clock sets player.positionMs ~5x/s; every such set bumps the
-// engine change version and forces a whole-tree settleLayout that frame. With
-// Layout containers here, that relayout re-ran their measure/fill-distribution
-// passes 5x/s (and on every list-scroll frame that coincided), so anchors keep
-// the unavoidable relayout cheap.
+// Wide (>= 720 px, ordinary mode): cover + title on the left, centred transport
+// with a scrubbable progress row underneath, volume on the right.
+// Compact: cover + title, like / play / next on the right and a thin progress
+// line along the bottom edge.
+// Liquid glass (compact only): circular cover with a progress ring; the host
+// samples the capsule's backdrop through liquidGlassMiniPlayerSurface.
+//
+// Plain x/y and anchors, NOT nested Layouts: this bar is always visible and the
+// play clock updates player.positionMs ~5x/s, which forces a settle pass; layout
+// containers here re-ran their measure passes on every tick.
 SmoothRectangle {
     id: mini
 
     signal lyricsRequested()
     property bool liquidGlass: false
 
-    function fmt(ms) {
-        if (ms <= 0) return "0:00";
-        var s = Math.floor(ms / 1000);
-        var m = Math.floor(s / 60);
-        var r = s % 60;
-        return m + ":" + (r < 10 ? "0" + r : r);
-    }
+    implicitHeight: liquidGlass ? 80 : Ui.playerBarHeight
+    radius: liquidGlass ? height / 2 : Ui.radiusLg
+    color: liquidGlass ? "transparent" : Ui.surfaceRaised
 
-    implicitHeight: 80
-    radius: liquidGlass ? height / 2 : 20
-    color: liquidGlass ? "transparent" : Theme.color.surfaceContainer
+    readonly property bool wideLayout: !liquidGlass && width >= 720
+    readonly property bool desktopVolumeControl: settings.has("desktopLyricEnabled")
+    readonly property real coverSize: liquidGlass ? 60 : (wideLayout ? 52 : 48)
 
     // Drawn before the ordinary controls: their hit regions and playback state
     // stay in QML while the host samples only this capsule's live backdrop.
@@ -39,12 +39,21 @@ SmoothRectangle {
         property bool darkTheme: Theme.dark
     }
 
+    Rectangle {
+        anchors.fill: parent
+        visible: !mini.liquidGlass
+        radius: mini.radius
+        color: "transparent"
+        border.width: 1
+        border.color: Ui.hairline
+    }
+
+    // ---- Progress state (host-driven loading clock) ---------------------------
     // The host's frame-driven clock finishes the current loading cycle before
     // returning to the actual play position, without a loop-restart pause.
     property bool sweeping: false
     property real _sweepPhase: 0
     property real _sweepCycle: 0
-    readonly property bool desktopVolumeControl: settings.has("desktopLyricEnabled")
 
     property bool _loading: player.loading
     property real _targetProgress: player.durationMs > 0
@@ -92,142 +101,31 @@ SmoothRectangle {
         }
     }
 
-
-    // Keep the original linear progress only in the ordinary player.
-    Rectangle {
-        id: track
-        visible: !mini.liquidGlass
-        enabled: visible
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.leftMargin: 20
-        anchors.rightMargin: 20
-        anchors.topMargin: 1
-        radius: 2
-        height: 3
-        color: Theme.color.surfaceContainerHighest
-        // The loading sweep slides in from x = -sweep.width; clip so its off-left
-        // portion is cut at this bar's edge instead of spilling onto the rail beside it.
-        clip: true
-
-        Rectangle {
-            anchors.left: parent.left
-            anchors.top: parent.top
-            anchors.bottom: parent.bottom
-            visible: !mini.sweeping
-            width: parent.width * mini._visualProgress
-            color: Theme.color.primary
-        }
-        // Loading sweep: a segment sliding left-to-right while the next track resolves,
-        // in place of the frozen position fill. Only ticks while sweeping + visible.
-        Rectangle {
-            id: sweep
-            x: -width + (track.width + width) * (1 - Math.cos(mini._sweepPhase * Math.PI)) / 2
-            anchors.top: parent.top
-            anchors.bottom: parent.bottom
-            visible: mini.sweeping
-            width: track.width * 0.3
-            color: Theme.color.primary
-        }
-        MouseArea {
-            anchors.fill: parent
-            anchors.topMargin: -10
-            anchors.bottomMargin: -10
-            onClicked: {
-                if (player.durationMs > 0)
-                    player.seek(Math.round(mouseX / width * player.durationMs));
-            }
-        }
-    }
-
-    // Right-side transport cluster, anchored right-to-left so the title/artist
-    // region can fill the gap to its left.
-    IconButton {
-        id: nextBtn
-        anchors.right: parent.right
-        anchors.rightMargin: 4
-        anchors.verticalCenter: parent.verticalCenter
-        anchors.verticalCenterOffset: 1
-        type: "standard"; icon: "skip_next"; onClicked: player.next()
-    }
-    IconButton {
-        id: playBtn
-        anchors.right: nextBtn.left
-        anchors.verticalCenter: parent.verticalCenter
-        anchors.verticalCenterOffset: 1
-        type: "filled"
-        icon: player.playing ? "pause" : "play_arrow"
-        onClicked: player.toggle()
-    }
-    IconButton {
-        id: likeBtn
-        // Mobile keeps like/mode at compact-phone widths. Desktop reserves a
-        // separate volume control, so those optional actions yield sooner as the
-        // window narrows.
-        visible: mini.width >= (mini.desktopVolumeControl ? 400 : 280)
-        width: visible ? 40 : 0
-        anchors.right: playBtn.left
-        anchors.verticalCenter: parent.verticalCenter
-        anchors.verticalCenterOffset: 1
-        type: "standard"
-        // Local tracks have no server-side favorite list — disable, don't toggle.
-        enabled: player.currentLikeable
-        icon: player.currentLiked ? "favorite" : "favorite_border"
-        contentColor: player.currentLiked ? "#FF5277" : Theme.color.onSurfaceVariantColor
-        onClicked: player.toggleLike()
-    }
-    IconButton {
-        id: modeBtn
-        visible: mini.width >= (mini.desktopVolumeControl ? 440 : 320)
-        width: visible ? 40 : 0
-        anchors.right: likeBtn.left
-        anchors.verticalCenter: parent.verticalCenter
-        anchors.verticalCenterOffset: 1
-        type: "standard"
-        icon: player.playMode === 1 ? "shuffle"
-              : (player.playMode === 2 ? "repeat_one" : "repeat")
-        onClicked: player.cyclePlayMode()
-    }
-
-    IconButton {
-        id: volumeButton
-        objectName: "miniPlayerVolumeButton"
-        visible: mini.desktopVolumeControl
-        width: visible ? 40 : 0
-        anchors.right: modeBtn.left
-        anchors.verticalCenter: parent.verticalCenter
-        anchors.verticalCenterOffset: 1
-        type: "standard"
-        icon: settings.appVolume === 0 ? "volume_off"
-              : (settings.appVolume < 50 ? "volume_down" : "volume_up")
-        onClicked: volumePopup.open(volumeButton)
+    function seekTo(ratio) {
+        if (player.durationMs > 0) player.seek(Math.round(ratio * player.durationMs))
     }
 
     VolumePopup { id: volumePopup }
     onWidthChanged: volumePopup.close()
     onYChanged: volumePopup.close()
-
     function handleBack() { return volumePopup.handleBack() }
 
+    // ---- Cover ----------------------------------------------------------------
     CoverImage {
         id: cover
         objectName: "miniPlayerCover"
-        anchors.left: parent.left
-        anchors.leftMargin: 10
-        anchors.verticalCenter: parent.verticalCenter
-        anchors.verticalCenterOffset: 1
-        width: 60; height: 60
-        radius: mini.liquidGlass ? width / 2 : 10
+        x: mini.liquidGlass ? 10 : 12
+        y: (mini.height - height) / 2
+        width: mini.coverSize
+        height: mini.coverSize
+        radius: mini.liquidGlass ? width / 2 : Ui.radiusSm
         // Prefer the on-disk cached cover (shows offline) over the network url.
         source: player.coverPath !== "" ? player.coverPath : player.coverUrl
 
-        // Tapping the cover itself opens the lyric page too — the title/artist
-        // MouseArea below only spans cover.right onward, so the cover was dead
-        // space on its own.
         MouseArea {
             anchors.fill: parent
             enabled: !mini.liquidGlass
+            cursorShape: Qt.PointingHandCursor
             onClicked: mini.lyricsRequested()
         }
     }
@@ -235,7 +133,8 @@ SmoothRectangle {
     Item {
         id: coverProgress
         objectName: "miniPlayerProgressRing"
-        anchors.centerIn: cover
+        x: cover.x - 4
+        y: cover.y - 4
         width: cover.width + 8
         height: cover.height + 8
         visible: mini.liquidGlass
@@ -267,51 +166,208 @@ SmoothRectangle {
         }
     }
 
-    // Cover + title/artist: tap anywhere here to open the lyric page.
+    // ---- Compact / glass transport (right-aligned) ----------------------------
     Item {
-        anchors.left: cover.right
-        anchors.leftMargin: 12
-        anchors.right: volumeButton.left
-        anchors.rightMargin: 4
-        anchors.top: mini.liquidGlass ? parent.top : track.bottom
-        anchors.topMargin: mini.liquidGlass ? 2 : 0
-        anchors.bottom: parent.bottom
+        id: compactCluster
+        visible: !mini.wideLayout
+        enabled: visible
+        // Mobile keeps like at compact-phone widths. Desktop reserves the volume
+        // control, so the optional like yields sooner as the window narrows.
+        readonly property bool showLike: mini.width >= (mini.desktopVolumeControl ? 380 : 280)
+        width: (mini.desktopVolumeControl ? 40 : 0) + (showLike ? 40 : 0) + 44 + 40 + 8
+        height: 44
+        x: mini.width - width - 6
+        y: (mini.height - height) / 2
 
-        MarqueeText {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.verticalCenter
-            anchors.bottomMargin: 1
-            text: player.title.length > 0 ? player.title : i18n.t("player.idle")
-            textColor: Theme.color.onSurfaceColor
-            fontSize: 16
+        IconButton {
+            objectName: "miniPlayerVolumeButton"
+            id: compactVolume
+            visible: mini.desktopVolumeControl
+            x: 0
+            y: 2
+            type: "standard"
+            icon: settings.appVolume === 0 ? "volume_off"
+                  : (settings.appVolume < 50 ? "volume_down" : "volume_up")
+            onClicked: volumePopup.open(compactVolume)
         }
-        // Time on the right, pinned to its own width so it's never clipped; the
-        // artist fills the space to its left and elides on its own.
+        IconButton {
+            visible: compactCluster.showLike
+            x: mini.desktopVolumeControl ? 40 : 0
+            y: 2
+            type: "standard"
+            enabled: player.currentLikeable
+            icon: player.currentLiked ? "favorite" : "favorite_border"
+            contentColor: player.currentLiked ? Ui.like : Theme.color.onSurfaceVariantColor
+            onClicked: player.toggleLike()
+        }
+        IconButton {
+            objectName: "miniPlayerPlayButton"
+            x: compactCluster.width - 44 - 40 - 8
+            y: 0
+            width: 44
+            height: 44
+            type: "filled"
+            icon: player.playing ? "pause" : "play_arrow"
+            onClicked: player.toggle()
+        }
+        IconButton {
+            x: compactCluster.width - 40 - 4
+            y: 2
+            type: "standard"
+            icon: "skip_next"
+            onClicked: player.next()
+        }
+    }
+
+    // Thin progress line along the bottom edge (ordinary compact bar).
+    SeekBar {
+        objectName: "miniPlayerCompactProgress"
+        visible: !mini.liquidGlass && !mini.wideLayout
+        interactive: visible
+        x: 18
+        y: mini.height - 9
+        width: mini.width - 36
+        height: 8
+        trackHeight: 3
+        value: mini._visualProgress
+        sweeping: mini.sweeping
+        sweepPhase: mini._sweepPhase
+        onSeekRequested: mini.seekTo(pendingRatio)
+    }
+
+    // ---- Wide transport (centred) ----------------------------------------------
+    Item {
+        id: wideCluster
+        objectName: "miniPlayerWideTransport"
+        visible: mini.wideLayout
+        enabled: visible
+        width: Math.min(460, mini.width * 0.44)
+        height: mini.height
+        x: (mini.width - width) / 2
+        y: 0
+
+        Row {
+            id: transportRow
+            x: (wideCluster.width - width) / 2
+            y: 6
+            height: 44
+            spacing: 6
+            IconButton {
+                y: 2
+                type: "standard"
+                icon: player.playMode === 1 ? "shuffle"
+                      : (player.playMode === 2 ? "repeat_one" : "repeat")
+                contentColor: Theme.color.onSurfaceVariantColor
+                onClicked: player.cyclePlayMode()
+            }
+            IconButton {
+                y: 2
+                type: "standard"
+                icon: "skip_previous"
+                onClicked: player.prev()
+            }
+            IconButton {
+                objectName: "miniPlayerWidePlayButton"
+                width: 44
+                height: 44
+                type: "filled"
+                icon: player.playing ? "pause" : "play_arrow"
+                onClicked: player.toggle()
+            }
+            IconButton {
+                y: 2
+                type: "standard"
+                icon: "skip_next"
+                onClicked: player.next()
+            }
+            IconButton {
+                y: 2
+                type: "standard"
+                enabled: player.currentLikeable
+                icon: player.currentLiked ? "favorite" : "favorite_border"
+                contentColor: player.currentLiked ? Ui.like : Theme.color.onSurfaceVariantColor
+                onClicked: player.toggleLike()
+            }
+        }
+
         Text {
-            id: timeText
-            visible: mini.width >= 600
-            anchors.right: parent.right
-            anchors.top: parent.verticalCenter
-            anchors.topMargin: 2
-            text: player.durationMs > 0
-                  ? fmt(player.positionMs) + " / " + fmt(player.durationMs) : ""
-            color: Theme.color.onSurfaceVariantColor
-            fontSize: 12
+            id: positionText
+            x: 0
+            y: progressRow.y + (progressRow.height - implicitHeight) / 2
+            width: 44
+            horizontalAlignment: Text.AlignRight
+            text: Ui.formatTime(wideSeek.scrubbing
+                                ? wideSeek.shownValue * player.durationMs : player.positionMs)
+            color: Ui.textTertiary
+            font.pixelSize: Ui.textMicro
+        }
+        SeekBar {
+            id: wideSeek
+            objectName: "miniPlayerSeekBar"
+            x: 52
+            y: progressRow.y
+            width: wideCluster.width - 104
+            height: progressRow.height
+            value: mini._visualProgress
+            sweeping: mini.sweeping
+            sweepPhase: mini._sweepPhase
+            onSeekRequested: mini.seekTo(pendingRatio)
+        }
+        Text {
+            x: wideCluster.width - 44
+            y: positionText.y
+            width: 44
+            text: Ui.formatTime(player.durationMs)
+            color: Ui.textTertiary
+            font.pixelSize: Ui.textMicro
+        }
+        Item {
+            id: progressRow
+            y: 52
+            width: wideCluster.width
+            height: 16
+        }
+    }
+
+    IconButton {
+        id: wideVolume
+        objectName: "miniPlayerWideVolumeButton"
+        visible: mini.wideLayout && mini.desktopVolumeControl
+        x: mini.width - width - 12
+        y: (mini.height - height) / 2
+        type: "standard"
+        icon: settings.appVolume === 0 ? "volume_off"
+              : (settings.appVolume < 50 ? "volume_down" : "volume_up")
+        onClicked: volumePopup.open(wideVolume)
+    }
+
+    // ---- Title / artist: tap to open the lyric page ------------------------------
+    Item {
+        id: info
+        x: cover.x + cover.width + 12
+        width: Math.max(0, (mini.wideLayout ? wideCluster.x - 16 : compactCluster.x - 4) - x)
+        y: 0
+        height: mini.liquidGlass ? mini.height : mini.height - (mini.wideLayout ? 0 : 8)
+
+        MarqueeText {
+            x: 0
+            width: parent.width
+            y: parent.height / 2 - height - 1
+            text: player.title.length > 0 ? player.title : i18n.t("player.idle")
+            textColor: Ui.textPrimary
+            fontSize: Ui.textHeadline
         }
         MarqueeText {
-            anchors.left: parent.left
-            anchors.right: timeText.visible && timeText.text.length > 0 ? timeText.left : parent.right
-            anchors.rightMargin: timeText.visible && timeText.text.length > 0 ? 8 : 0
-            anchors.top: parent.verticalCenter
-            anchors.topMargin: 2
+            x: 0
+            width: parent.width
+            y: parent.height / 2 + 3
             text: player.artist
-            textColor: Theme.color.onSurfaceVariantColor
-            fontSize: 12
+            textColor: Ui.textSecondary
+            fontSize: Ui.textCaption
         }
-
         MouseArea {
             anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
             onClicked: mini.lyricsRequested()
         }
     }

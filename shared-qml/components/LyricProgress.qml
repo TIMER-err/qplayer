@@ -93,6 +93,11 @@ Item {
     implicitHeight: wavy ? 16 : 4
 
     property var _colors: Theme.color
+    // Drawn over the lyric page's dark fluid backdrop in every theme, so the
+    // bar is a white-on-translucent-white track rather than the Monet accent
+    // (a dark accent would vanish on the backdrop in light mode).
+    property color trackColor: "#33FFFFFF"
+    property color activeColor: "#F2FFFFFF"
 
     // Animation control
     // Standard Linear Progress
@@ -100,7 +105,7 @@ Item {
         id: track
         anchors.fill: parent
         visible: !control.wavy
-        color: _colors.surfaceContainerHighest
+        color: control.trackColor
         radius: height / 2
         clip: true
 
@@ -112,7 +117,7 @@ Item {
             // here gets restarted by every update and can indefinitely trail/freeze
             // under qml4j, so use the live value just like the wavy canvas below.
             width: parent.width * control._displayValue
-            color: _colors.primary
+            color: control.activeColor
             radius: height / 2
         }
 
@@ -209,7 +214,7 @@ Item {
             Rectangle {
                 id: bar1
                 height: parent.height
-                color: _colors.primary
+                color: control.activeColor
                 radius: height / 2
 
                 SequentialAnimation {
@@ -230,7 +235,7 @@ Item {
             Rectangle {
                 id: bar2
                 height: parent.height
-                color: _colors.primary
+                color: control.activeColor
                 radius: height / 2
 
                 SequentialAnimation {
@@ -269,8 +274,8 @@ Item {
         renderStrategy: Canvas.Threaded
 
         // Trigger repaint when dependencies change
-        property color trackColor: control._colors.surfaceContainerHighest
-        property color activeColor: control._colors.primary
+        property color trackColor: control.trackColor
+        property color activeColor: control.activeColor
         // Normal playback follows value directly; only the one-off loading handoff
         // animates _displayValue (see catchUpAnim above).
         property real progress: control._displayValue

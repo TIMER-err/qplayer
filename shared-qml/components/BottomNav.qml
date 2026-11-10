@@ -1,5 +1,6 @@
 import QtQuick
 import miuix.Core
+import design
 import "."
 
 Item {
@@ -22,8 +23,21 @@ Item {
         currentIndex: bar.currentIndex
         bottomInset: bar.bottomInset
         selectOnClick: false
-        selectedContentColor: Theme.color.primary
+        // Own hairline below instead of miuix's divider. Nothing blurs behind
+        // the ordinary bar, so it stays nearly opaque to keep labels legible.
+        showDivider: false
+        backgroundColor: Ui.hexAlpha(Ui.background, 0.97)
+        contentColor: Ui.textPrimary
+        selectedContentColor: Ui.accent
         onActivated: (index) => { bar.pendingIndex = index; bar.navigate() }
+    }
+    // 1px top border for the ordinary bar (barHeight keeps its 65px: 1 hairline
+    // + miuix's 64px item row).
+    Rectangle {
+        visible: !bar.liquidGlass
+        width: parent.width
+        height: 1
+        color: Ui.hairline
     }
     LiquidGlassNavigation {
         id: glassNavigation

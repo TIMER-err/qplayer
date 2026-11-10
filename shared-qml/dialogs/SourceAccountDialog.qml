@@ -1,11 +1,12 @@
 import QtQuick
 import miuix.Core
+import design
 import "../components"
 
-// One source's account settings, opened from that row's gear on AccountPage.
-// Wraps the Miuix Dialog (scrim, surface, motion, action area) and fills
-// its content slot with an account header plus tappable action rows, rather
-// than crowding sign-in and sign-out into the dialog's own button row.
+// One source's account sheet, opened from that source's row on AccountPage.
+// Wraps the Miuix Dialog (scrim, surface, motion, action area) and fills its
+// content slot with an account header plus tappable action lines, rather than
+// crowding sign-in and sign-out into the dialog's own button row.
 Item {
     id: control
 
@@ -14,8 +15,8 @@ Item {
     signal requestLogin()
     signal requestLogout()
 
-    readonly property real headerHeight: 76
-    readonly property real rowHeight: 56
+    readonly property real headerHeight: 80
+    readonly property real rowHeight: 52
     readonly property bool signedIn: row ? row.loggedIn : false
     // Sign in is always offered; sign out only once there is a session to end.
     readonly property int actionCount: signedIn ? 2 : 1
@@ -23,47 +24,43 @@ Item {
     function open() { sheet.open() }
 
     Dialog {
-
-        topInset: settings.topInset
-
-        bottomInset: settings.bottomInset
         id: sheet
-        icon: "manage_accounts"
-        // No headline: Dialog's own title is Layout.fillWidth + Text.Wrap, and the
-        // width it resolves to here breaks a source name mid-word (QQ音 / 乐 --
-        // Text.Wrap splits between CJK characters). The header below already
-        // carries the source name, so the headline was only duplicating it.
+        objectName: "sourceAccountDialog"
+        topInset: settings.topInset
+        bottomInset: settings.bottomInset
+        // No headline: the header below already carries the source name, and the
+        // Dialog title's centred wrap breaks CJK source names mid-word.
         showAcceptButton: false
         rejectText: i18n.t("common.cancel")
 
         Item {
             width: sheet.contentWidth
-            height: control.headerHeight + control.actionCount * control.rowHeight
+            height: control.headerHeight + Ui.space2 + control.actionCount * control.rowHeight
 
             // --- account header ------------------------------------------
-            Item {
+            Rectangle {
                 id: header
                 width: parent.width
                 height: control.headerHeight
+                radius: Ui.radiusLg
+                color: Ui.surfaceRaised
 
                 Item {
                     id: avatar
-                    anchors.left: parent.left
-                    anchors.leftMargin: 4
-                    anchors.verticalCenter: parent.verticalCenter
+                    x: Ui.space4
+                    y: (header.height - height) / 2
                     width: 48
                     height: 48
-
                     Rectangle {
                         anchors.fill: parent
                         radius: width / 2
-                        color: Theme.color.surfaceContainerHigh
-                        Text {
-                            anchors.centerIn: parent
-                            text: "account_circle"
-                            font.family: Theme.iconFont.name
-                            font.pixelSize: 30
-                            color: Theme.color.onSurfaceVariantColor
+                        color: control.signedIn ? Ui.accentSoft : Ui.surfaceSunken
+                        Glyph {
+                            x: (parent.width - width) / 2
+                            y: (parent.height - height) / 2
+                            size: 26
+                            name: "person"
+                            color: control.signedIn ? Ui.accent : Ui.textTertiary
                         }
                     }
                     Image {
@@ -79,53 +76,42 @@ Item {
 
                 Text {
                     id: who
-                    anchors.left: avatar.right
-                    anchors.leftMargin: 14
-                    anchors.right: parent.right
-                    anchors.rightMargin: 4
-                    anchors.top: parent.top
-                    anchors.topMargin: 14
+                    x: avatar.x + avatar.width + 14
+                    y: (header.height - implicitHeight - sourceLabel.implicitHeight - 2) / 2
+                    width: Math.max(0, header.width - x - Ui.space4)
                     elide: Text.ElideRight
+                    maximumLineCount: 1
                     text: control.signedIn
                           ? ((control.row && control.row.displayName.length > 0)
                              ? control.row.displayName : i18n.t("account.anonymous"))
                           : i18n.t("account.source.signedOut")
-                    color: control.signedIn ? Theme.color.onSurfaceColor
-                                            : Theme.color.onSurfaceVariantColor
-                    font.family: Theme.typography.titleMedium.family
-                    font.pixelSize: Theme.typography.titleMedium.size
+                    color: control.signedIn ? Ui.textPrimary : Ui.textSecondary
+                    font.pixelSize: Ui.textHeadline
+                    font.weight: Ui.weightBold
                 }
 
                 Text {
-                    anchors.left: who.left
-                    anchors.right: who.right
-                    anchors.top: who.bottom
-                    anchors.topMargin: 2
+                    id: sourceLabel
+                    x: who.x
+                    y: who.y + who.implicitHeight + 2
+                    width: who.width
                     elide: Text.ElideRight
+                    maximumLineCount: 1
                     text: !control.row ? ""
                           : (control.row.primary
                              ? control.row.sourceName + " · " + i18n.t("account.source.primary")
                              : control.row.sourceName)
-                    color: Theme.color.onSurfaceVariantColor
-                    font.family: Theme.typography.bodySmall.family
-                    font.pixelSize: Theme.typography.bodySmall.size
-                }
-
-                Rectangle {
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.bottom: parent.bottom
-                    height: 1
-                    color: Theme.color.outlineVariant
+                    color: Ui.textSecondary
+                    font.pixelSize: Ui.textCallout
                 }
             }
 
             // --- actions --------------------------------------------------
-            // Placed with explicit y rather than a positioner: this engine does
-            // not lay out a Repeater's children, and hand-placing keeps the two
-            // rows identical whether or not sign-out is present.
+            // Placed with explicit y rather than a positioner, so the two rows are
+            // identical whether or not sign-out is present.
             SourceAccountAction {
-                y: control.headerHeight
+                objectName: "sourceAccountLogin"
+                y: control.headerHeight + Ui.space2
                 width: parent.width
                 height: control.rowHeight
                 icon: "login"
@@ -135,7 +121,8 @@ Item {
             }
 
             SourceAccountAction {
-                y: control.headerHeight + control.rowHeight
+                objectName: "sourceAccountLogout"
+                y: control.headerHeight + Ui.space2 + control.rowHeight
                 width: parent.width
                 height: control.rowHeight
                 visible: control.signedIn

@@ -65,7 +65,7 @@ running in two host shells.
 
 - Local library, playback queue, repeat, shuffle and sleep timer.
 - Syllable-synced lyrics, translations, romanization and fluid backgrounds; [Lyricon](https://github.com/tomakino/lyricon) support on Android.
-- Responsive Miuix interface for phones, tablets and desktops, with light/dark themes, dynamic color and optional liquid glass.
+- Immersive, artwork-first interface for phones, tablets and desktops, with interface scaling, light/dark themes, dynamic color and optional liquid glass.
 - Desktop tray and system media controls; Android lockscreen, notification and Bluetooth controls.
 - Plugins for online sources, search, playlists and accounts.
 
@@ -116,7 +116,7 @@ JVM runs on macOS require `-XstartOnFirstThread`. Native packages use GraalVM; s
 
 - [Plugin development](docs/plugins.md) · [Plugin template](https://github.com/TIMER-err/qplayer-plugin-template)
 - [Plugin permissions and security](docs/plugin-security.md)
-- [Miuix interface](docs/miuix-ui.md)
+- [Interface design](docs/miuix-ui.md)
 
 Login credentials are encrypted, preferably using the system credential store, with an explicit local-key fallback when unavailable. This protects files at rest, not against same-user malware, root/administrator access or live-memory reads. See the security model for details.
 

@@ -90,6 +90,7 @@ Item {
     // The Overlay Layer
     Item {
         id: overlayLayer
+        objectName: "miuixMenuOverlay"
         visible: false
         Keys.onEscapePressed: { control._restoreFocusOnClose = true; control.close(); event.accepted = true }
         Keys.onDownPressed: { control.moveSelection(1); event.accepted = true }
@@ -100,7 +101,11 @@ Item {
         function close() { 
             startExitAnimation()
         }
-        
+        // Host-dispatched Back/Escape (the key never reaches this overlay).
+        function consumeBack() {
+            control._restoreFocusOnClose = true
+            control.close()
+        }
         function forceClose() {
              overlayLayer.visible = false
              overlayLayer.parent = control

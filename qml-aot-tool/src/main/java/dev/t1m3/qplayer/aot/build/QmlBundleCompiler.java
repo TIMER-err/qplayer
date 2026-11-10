@@ -93,6 +93,8 @@ public final class QmlBundleCompiler {
         addReflectType(io.github.timer_err.qml4j.render.items.input.KeyEvent.class, reflectTypes);
         // Model properties expose List, but teardown queries the concrete wrapper.
         addReflectType(io.github.timer_err.qml4j.engine.binding.ObservableList.class, reflectTypes);
+        // color values reach JS as QColor; scripts read their r/g/b/a channels.
+        addReflectType(io.github.timer_err.qml4j.runtime.qt.QColor.class, reflectTypes);
         List<Map<String, Object>> reflection = new ArrayList<>();
         for (String name : reflectTypes) {
             Map<String, Object> type = new LinkedHashMap<>();

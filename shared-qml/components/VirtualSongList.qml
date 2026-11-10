@@ -75,6 +75,12 @@ Flickable {
     // every other caller renders unchanged.
     property bool showLikeButton: false
     property int rowH: 64
+    // Horizontal inset of each row's content (cover start / trailing-control end).
+    // Full-width lists whose header spans the page (detail heroes) pass
+    // Ui.gutter(width) so rows line up with the page title.
+    property real rowInset: 12
+    // Space at the top of the viewport covered by an overlaid page header.
+    property real scrollBarTopInset: 0
     property int activatedIndex: -1
     property int removeIndex: -1
     // Drag-to-reorder. The model is NOT touched while the finger is down: the
@@ -366,9 +372,16 @@ Flickable {
                 // Only present on SearchPage.qml's unified list (SearchRow.kindLabel);
                 // every other model shape leaves this "" so no tag renders.
                 tag: modelData.kindLabel || ""
-                highlighted: view.isLocal && view.highlightCurrent && (view.highlightByFilePath
+                // Now playing: the row's media identity against the controller's,
+                // or its file path for local files (which have no media id). Both
+                // stay right in filtered/sorted views whose row numbers no longer
+                // line up with the queue's.
+                highlighted: view.highlightCurrent && (view.highlightByFilePath
                     ? (player.currentFilePath !== "" && modelData.filePath === player.currentFilePath)
-                    : (player.currentMediaId !== "" && view.rowId(modelData) === player.currentMediaId))
+                    : ((player.currentMediaId !== "" && view.rowId(modelData) === player.currentMediaId)
+                       || (!!modelData.filePath && modelData.filePath === player.currentFilePath)))
+                contentInset: view.rowInset
+                durationMs: modelData.durationMs || 0
                 offlineReady: view.showOfflineBadge && !!modelData.cachedOffline
                 removable: view.removable && !view.selectMode
                 song: view.songMenu && (!view.menuEligibilityFromModel || !!modelData.menuEnabled)
@@ -466,6 +479,8 @@ Flickable {
             removable: view.removable
             showDownloadButton: !!player.downloadHelperEnabled && view.songMenu
             highlighted: false
+            contentInset: view.rowInset
+            durationMs: view._dragRow ? (view._dragRow.durationMs || 0) : 0
             rowTitle: view._dragRow ? (view.isLocal ? view._dragRow.title : view._dragRow.name) : ""
             rowArtist: view._dragRow ? view._dragRow.artist : ""
             coverThumbPath: view._dragRow ? (view._dragRow.coverThumbPath || "") : ""
@@ -477,6 +492,8 @@ Flickable {
 
     ViewportScrollBar {
         target: view
-        bottomInset: view.bottomContentInset
+        // Pages that overlay a RouteHeader keep the track below it.
+        y: view.contentY + view.scrollBarTopInset
+        bottomInset: view.bottomContentInset + view.scrollBarTopInset
     }
 }

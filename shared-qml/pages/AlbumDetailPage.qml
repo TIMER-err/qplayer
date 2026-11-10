@@ -1,17 +1,17 @@
 import QtQuick
-import QtQuick.Layouts
 import miuix.Core
+import design
 import "."
 import "../components"
 
-// Drill-in album view: header with back + title, then cover/artist/track-count,
-// then the tracklist (VirtualSongList handles arbitrarily long tracklists).
+// Drill-in album: the shared detail structure — a floating RouteHeader over a
+// VirtualSongList whose header is the hero (cover, album name, artist link,
+// year · track count, play). VirtualSongList handles arbitrarily long tracklists.
 Rectangle {
     id: page
     property real bottomContentInset: 0
     signal back()
-    signal home()
-    color: Theme.color.surface
+    color: Ui.background
 
     property bool loadingWatch: player.albumLoading
     onLoadingWatchChanged: if (player.albumLoading) tracks.contentY = 0
@@ -19,119 +19,96 @@ Rectangle {
     // Swallow taps on empty areas so they don't reach the page beneath.
     MouseArea { anchors.fill: parent }
 
-    ColumnLayout {
+    readonly property real gutter: Ui.gutter(page.width)
+    property var albumTracks: player.openSourceAlbumId !== ""
+                              ? player.sourceAlbumTracks : player.albumTracks
+    readonly property int trackCount: page.albumTracks ? page.albumTracks.length : 0
+    readonly property bool artistLinked: player.albumArtistMediaId !== "" || player.albumArtistId !== 0
+    readonly property string heroMeta: {
+        var songs = page.trackCount > 0 ? i18n.t("common.songCount", page.trackCount) : ""
+        if (player.albumPublishYear === "") return songs
+        return player.albumPublishYear + (songs !== "" ? " · " + songs : "")
+    }
+
+    function openArtist() {
+        if (!page.artistLinked) return
+        player.openMediaArtist(player.albumArtistMediaId !== ""
+                               ? player.albumArtistMediaId : ("" + player.albumArtistId))
+    }
+
+    // Deterministic hero height (see PlaylistDetailPage).
+    HeroHeader {
+        id: heroMetrics
+        visible: false
+        width: page.width
+        subtitle: player.albumArtistName
+        meta: page.heroMeta
+    }
+    readonly property real heroTitleBottom: heroMetrics.compact
+        ? heroMetrics.topInset + 8 + heroMetrics.coverSize + 18 + heroMetrics.titleLine * 2
+        : heroMetrics.topInset + 8 + heroMetrics.coverSize - Ui.iconButton - 18
+          - (page.heroMeta.length > 0 ? 20 : 0) - (player.albumArtistName.length > 0 ? 24 : 0)
+    readonly property real titleProgress: player.albumLoading ? 1
+        : Math.max(0, Math.min(1, (tracks.contentY - (page.heroTitleBottom - Ui.headerHeight - 16)) / 28))
+
+    VirtualSongList {
+        id: tracks
         anchors.fill: parent
-        spacing: 0
+        visible: !player.albumLoading
+        rowInset: page.gutter
+        scrollBarTopInset: Ui.headerHeight
+        bottomContentInset: page.bottomContentInset + 8
+        headerHeight: heroMetrics.preferredHeight + 8
+        header: Component {
+            HeroHeader {
+                width: tracks.width
+                coverSource: player.albumCoverPath
+                coverIcon: "album"
+                kind: i18n.t("detail.kind.album")
+                title: player.albumName
+                subtitle: player.albumArtistName
+                subtitleLink: page.artistLinked
+                meta: page.heroMeta
+                onSubtitleClicked: page.openArtist()
 
-        // Custom header: qml4j can't set a sub-property of TopAppBar's
-        // navigationIcon alias (navigationIcon.icon) via grouped binding.
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 64
-            Layout.leftMargin: 4
-            Layout.rightMargin: 16
-            spacing: 4
-            PageHeaderButtons {
-                Layout.alignment: Qt.AlignVCenter
-                onHome: page.home()
-                onBack: page.back()
-            }
-            Text {
-                Layout.fillWidth: true
-                Layout.alignment: Qt.AlignVCenter
-                text: player.albumName
-                color: Theme.color.onSurfaceColor
-                font.family: Theme.typography.titleLarge.family
-                font.pixelSize: Theme.typography.titleLarge.size
-                verticalAlignment: Text.AlignVCenter
-                elide: Text.ElideRight
-            }
-        }
-
-        // Album info: cover + artist (tap to open their page) + release year/track count.
-        Item {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 96
-            visible: !player.albumLoading
-
-            CoverImage {
-                id: cover
-                x: 16; y: 8
-                width: 80; height: 80
-                radius: 10
-                icon: "album"
-                iconSize: 30
-                fadeIn: true
-                source: player.albumCoverPath
-            }
-
-            Text {
-                id: artistLine
-                anchors.left: cover.right
-                anchors.leftMargin: 14
-                anchors.right: parent.right
-                anchors.rightMargin: 16
-                anchors.top: cover.top
-                anchors.topMargin: 6
-                text: player.albumArtistName
-                color: (artistArea.enabled && artistArea.containsMouse)
-                       ? Theme.color.primary : Theme.color.onSurfaceVariantColor
-                fontSize: 14
-                elide: Text.ElideRight
-            }
-            MouseArea {
-                id: artistArea
-                anchors.left: artistLine.left
-                anchors.right: artistLine.right
-                anchors.top: artistLine.top
-                anchors.bottom: artistLine.bottom
-                enabled: player.albumArtistMediaId !== "" || player.albumArtistId !== 0
-                hoverEnabled: enabled
-                cursorShape: Qt.PointingHandCursor
-                onClicked: player.openMediaArtist(player.albumArtistMediaId !== ""
-                                                  ? player.albumArtistMediaId
-                                                  : ("" + player.albumArtistId))
-            }
-
-            Text {
-                anchors.left: artistLine.left
-                anchors.right: artistLine.right
-                anchors.top: artistLine.bottom
-                anchors.topMargin: 8
-                text: {
-                    var songs = tracks.list && tracks.list.length > 0
-                                ? i18n.t("common.songCount", tracks.list.length) : ""
-                    if (player.albumPublishYear === "") return songs
-                    return player.albumPublishYear + (songs !== "" ? " · " + songs : "")
+                Button {
+                    objectName: "albumPlayAllButton"
+                    type: "filled"
+                    icon: "play_arrow"
+                    text: i18n.t("list.playAll")
+                    cornerRadius: Ui.radiusFull
+                    verticalPadding: 8
+                    horizontalPadding: 20
+                    enabled: page.trackCount > 0
+                    onClicked: player.playAlbumTrack(0)
                 }
-                color: Theme.color.onSurfaceVariantColor
-                fontSize: 12
             }
         }
+        // Drop the row delegates when the detail page is closed (see QueuePage):
+        // an invisible detail otherwise keeps the whole album's SongRows alive.
+        list: page.visible ? page.albumTracks : null
+        onActivated: player.playAlbumTrack(tracks.activatedIndex)
+    }
 
-        Item {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
+    LoadingIndicator {
+        objectName: "detailLoadingIndicator"
+        anchors.centerIn: parent
+        visible: player.albumLoading
+        running: player.albumLoading
+    }
 
-            VirtualSongList {
-                id: tracks
-                anchors.fill: parent
-                bottomContentInset: page.bottomContentInset
-                visible: !player.albumLoading
-                // Drop the row delegates when the detail page is closed (see
-                // QueuePage): an invisible detail otherwise keeps the whole
-                // album's SongRows alive after you return.
-                list: page.visible ? (player.openSourceAlbumId !== ""
-                                      ? player.sourceAlbumTracks : player.albumTracks) : null
-                onActivated: player.playAlbumTrack(tracks.activatedIndex)
-            }
+    // Header area: block taps from reaching hero controls scrolled underneath.
+    MouseArea {
+        width: page.width
+        height: Ui.headerHeight
+    }
 
-            LoadingIndicator {
-                objectName: "detailLoadingIndicator"
-                anchors.centerIn: parent
-                visible: player.albumLoading
-                running: player.albumLoading
-            }
-        }
+    RouteHeader {
+        width: page.width
+        gutter: page.gutter
+        title: player.albumName
+        titleOpacity: page.titleProgress
+        elevated: !player.albumLoading && page.titleProgress > 0.01
+        onBack: page.back()
     }
 }

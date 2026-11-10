@@ -566,6 +566,80 @@ public class SongRowLayoutTest {
         }
     }
 
+    /**
+     * Detail pages run their lists full width (the hero is the list header) and
+     * align rows to the page gutter through contentInset: the cover starts on the
+     * gutter, trailing controls end on it, and the wide-only duration sits between
+     * the title column and the controls without overlapping either.
+     */
+    @Test
+    public void rowContentFollowsTheInsetAndKeepsTheDurationClear() throws Exception {
+        String oldBase = AppDirs.base();
+        String oldCache = AppDirs.cacheBase();
+        PlayerController player = null;
+        QmlView view = null;
+        try {
+            Path base = temporary.newFolder().toPath();
+            AppDirs.setBase(base.toString());
+            AppDirs.setCacheBase(base.resolve("cache").toString());
+            AudioBackend backend = (AudioBackend) Proxy.newProxyInstance(
+                    AudioBackend.class.getClassLoader(), new Class<?>[]{AudioBackend.class},
+                    (proxy, method, args) -> {
+                        if (method.getReturnType() == boolean.class) return false;
+                        if (method.getReturnType() == long.class) return 0L;
+                        return null;
+                    });
+            player = new PlayerController(backend, track -> { });
+            SettingsCore settings = new SettingsCore();
+            settings.load(new JsonSettingsStore(), SettingsCatalog.DESKTOP);
+            view = QmlView.withStockTypes(new QmlEngine())
+                    .resources(new ClasspathResourceLoader())
+                    .context("player", player).context("settings", settings)
+                    .context("i18n", I18n.instance());
+            view.load("import QtQuick\nimport \"components\"\n"
+                    + "Item { width: 900; height: 64\n"
+                    + "  SongRow { width: 900; height: 64; contentInset: 32\n"
+                    + "    rowTitle: \"a rather long song title that has to elide before the time\"\n"
+                    + "    rowArtist: \"artist\"; durationMs: 245000; removable: true }\n"
+                    + "}");
+            settle(view);
+
+            Item leading = view.findByObjectName("songRowLeading");
+            assertNotNull(leading);
+            assertEquals("the cover starts on the inset", 32f, leading.x.peekFloat(), 0.5f);
+            assertEquals("48px cover at y 8 in a 64px row", 8f, leading.y.peekFloat(), 0.5f);
+            assertEquals(48f, leading.width.peekFloat(), 0.5f);
+
+            Item remove = view.findByObjectName("queueRemoveButton");
+            assertNotNull(remove);
+            assertEquals("trailing controls end on the inset", 900f - 32f,
+                    remove.x.peekFloat() + remove.width.peekFloat(), 0.5f);
+
+            Item duration = view.findByObjectName("songRowDuration");
+            Item title = view.findByObjectName("songRowTitle");
+            assertNotNull(duration);
+            assertNotNull(title);
+            assertTrue("a wide row shows the duration", duration.visible.peek());
+            float durationRight = duration.x.peekFloat() + duration.width.peekFloat();
+            assertTrue("the duration stays left of the trailing controls: ends at "
+                            + durationRight + ", remove starts at " + remove.x.peekFloat(),
+                    durationRight <= remove.x.peekFloat());
+            assertTrue("the title column stops before the duration: ends at "
+                            + (title.x.peekFloat() + title.width.peekFloat())
+                            + ", duration starts at " + duration.x.peekFloat(),
+                    title.x.peekFloat() + title.width.peekFloat() <= duration.x.peekFloat());
+        } finally {
+            if (view != null) {
+                try { view.dispose(); } catch (Throwable ignored) { }
+            }
+            if (player != null) {
+                try { player.shutdownAsync().join(); } catch (Throwable ignored) { }
+            }
+            AppDirs.setBase(oldBase);
+            AppDirs.setCacheBase(oldCache);
+        }
+    }
+
     private static float probeX(QmlView view, String objectName) {
         Item probe = view.findByObjectName(objectName);
         assertNotNull("missing probe " + objectName, probe);

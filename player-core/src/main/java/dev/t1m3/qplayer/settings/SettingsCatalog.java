@@ -117,6 +117,11 @@ public final class SettingsCatalog {
     public static final int LANGUAGE_SYSTEM = 0;
     public static final int LANGUAGE_ZH_CN = 1;
     public static final int LANGUAGE_EN_US = 2;
+    /** Interface zoom in percent, multiplied with the display's own scale. */
+    public static final String UI_SCALE_KEY = "uiScale";
+    public static final int UI_SCALE_DEFAULT = 100;
+    public static final int UI_SCALE_MIN = 80;
+    public static final int UI_SCALE_MAX = 150;
 
     /** Desktop-lyric click-through. Shared with the floating window's own lock
      *  button, which writes the same key — the two stay in sync in both directions. */
@@ -168,6 +173,12 @@ public final class SettingsCatalog {
         out.add(SettingSpec.segmented("darkMode", APPEARANCE, "settings.darkMode.title", MODE_SYSTEM,
                         "settings.darkMode.system", "settings.darkMode.light",
                         "settings.darkMode.dark")
+                .group("interface")
+                .build());
+        out.add(SettingSpec.slider(UI_SCALE_KEY, APPEARANCE, "settings.uiScale.title",
+                        UI_SCALE_DEFAULT, UI_SCALE_MIN, UI_SCALE_MAX, 5)
+                .desc("settings.uiScale.desc")
+                .unit("%").dots()
                 .group("interface")
                 .build());
         out.add(SettingSpec.dropdown(PAGE_TRANSITION_KEY, APPEARANCE,

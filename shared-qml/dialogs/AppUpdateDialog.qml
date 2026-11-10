@@ -1,5 +1,6 @@
 import QtQuick
 import miuix.Core
+import design
 
 // The app's own new-version dialog. Kept in its own document because qml4j
 // compiles a whole QML file's construction into one generated constructor and
@@ -21,11 +22,10 @@ Item {
     onUpdateWatchChanged: if (player.updateAvailable) dialog.open()
 
     Dialog {
-
-        topInset: settings.topInset
-
-        bottomInset: settings.bottomInset
         id: dialog
+        objectName: "appUpdateDialog"
+        topInset: settings.topInset
+        bottomInset: settings.bottomInset
         title: i18n.t("update.app.title")
         icon: "system_update"
         text: i18n.t("update.app.body", player.updateVersion)
@@ -36,15 +36,28 @@ Item {
         // dialog is ever on screen, and the app's own goes first.
         onClosed: player.appUpdatePromptClosed()
 
-        // No Flickable of its own: Dialog scrolls its body once the notes push
-        // it past the screen, and a nested scroller would just fight that one
-        // for the drag.
-        Text {
+        // Release notes on a sunken panel. No Flickable of its own: Dialog scrolls
+        // its body once the notes push it past the screen, and a nested scroller
+        // would just fight that one for the drag.
+        Item {
             width: dialog.contentWidth
-            text: player.updateNotes
-            color: Theme.color.onSurfaceVariantColor
-            fontSize: 13
-            wrapMode: Text.Wrap
+            height: player.updateNotes.length > 0 ? notes.implicitHeight + Ui.space8 : 0
+            visible: player.updateNotes.length > 0
+            Rectangle {
+                anchors.fill: parent
+                radius: Ui.radiusMd
+                color: Ui.surfaceRaised
+            }
+            Text {
+                id: notes
+                x: Ui.space4
+                y: Ui.space4
+                width: Math.max(0, parent.width - Ui.space8)
+                text: player.updateNotes
+                color: Ui.textSecondary
+                wrapMode: Text.Wrap
+                font.pixelSize: Ui.textCallout
+            }
         }
     }
 }

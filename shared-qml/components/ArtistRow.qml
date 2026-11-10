@@ -1,9 +1,11 @@
 import QtQuick
 import miuix.Core
+import design
+import "."
 
 // Compact horizontal artist entry used by the song-credits picker. It mirrors
-// SongRow's long, narrow interaction shape while using a circular avatar.
-Rectangle {
+// SongRow's long, narrow interaction shape with ArtistCard's round avatar.
+Item {
     id: row
 
     property double artistId: 0
@@ -12,80 +14,66 @@ Rectangle {
     property string coverThumbPath: ""
     signal activated()
 
-    implicitHeight: 64
-    color: "transparent"
+    implicitHeight: Ui.rowHeight
 
     Rectangle {
-        anchors.fill: parent
-        anchors.leftMargin: 4
-        anchors.rightMargin: 4
-        anchors.topMargin: 4
-        anchors.bottomMargin: 4
-        radius: 12
-        color: Theme.color.surfaceContainerHighest
-        opacity: ripple.containsMouse ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+        x: Ui.space1
+        y: Ui.space1
+        width: row.width - 2 * Ui.space1
+        height: row.height - 2 * Ui.space1
+        radius: Ui.radiusSm
+        color: ripple.pressed ? Ui.surfacePressed : Ui.surfaceHover
+        opacity: ripple.containsMouse || ripple.pressed ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
     }
 
-    Item {
+    Rectangle {
         id: avatar
-        anchors.left: parent.left
-        anchors.leftMargin: 12
-        anchors.verticalCenter: parent.verticalCenter
+        x: Ui.space3
+        y: (row.height - height) / 2
         width: 44
         height: 44
-
-        Rectangle {
-            anchors.fill: parent
-            radius: width / 2
-            color: Theme.color.surfaceContainerHighest
+        radius: width / 2
+        color: Ui.surfaceSunken
+        Glyph {
+            x: (parent.width - size) / 2
+            y: (parent.height - size) / 2
             visible: row.coverThumbPath === "" && row.coverUrl === ""
-            Text {
-                anchors.centerIn: parent
-                text: "person"
-                font.family: Theme.iconFont.name
-                font.pixelSize: 22
-                color: Theme.color.onSurfaceVariantColor
-            }
+            name: "person"
+            color: Ui.textSecondary
         }
-
         Image {
-            anchors.fill: parent
+            width: parent.width
+            height: parent.height
             source: row.coverThumbPath !== "" ? row.coverThumbPath : row.coverUrl
             radius: width / 2
             fillMode: Image.PreserveAspectCrop
-            // See CoverImage.qml's own comment: without sourceSize, a large
-            // fetched avatar (up to 512px) gets decoded at full resolution and
-            // downscaled to this 44px avatar every frame with plain (non-
-            // mipmap) bilinear sampling -- aliases into visible moiré on
-            // detailed source art. sourceSize routes it through the mipmap-
-            // quality decode-time downscale instead, at the device pixel ratio
-            // so it decodes at display resolution rather than 1x.
+            // Decode at display resolution (device pixels), not the full 512px
+            // asset: a plain draw-time downscale aliases into moiré.
             sourceSize.width: Math.round(44 * player.pixelRatio)
             sourceSize.height: Math.round(44 * player.pixelRatio)
         }
     }
 
     Text {
-        anchors.left: avatar.right
-        anchors.leftMargin: 14
-        anchors.right: parent.right
-        anchors.rightMargin: 16
-        anchors.verticalCenter: parent.verticalCenter
+        x: avatar.x + avatar.width + Ui.space3
+        y: (row.height - implicitHeight) / 2
+        width: Math.max(0, row.width - x - Ui.space4)
         text: row.name
         elide: Text.ElideRight
-        color: Theme.color.onSurfaceColor
-        fontSize: 15
+        maximumLineCount: 1
+        color: Ui.textPrimary
+        font.pixelSize: Ui.textBody
     }
 
     Ripple {
         id: ripple
-        x: 4
-        y: 4
-        width: row.width - 8
-        height: row.height - 8
-        clipRadius: 12
-        rippleColor: Theme.color.onSurfaceColor
+        x: Ui.space1
+        y: Ui.space1
+        width: row.width - 2 * Ui.space1
+        height: row.height - 2 * Ui.space1
+        clipRadius: Ui.radiusSm
+        rippleColor: Ui.textPrimary
         onClicked: row.activated()
     }
 }

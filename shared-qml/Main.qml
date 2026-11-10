@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import miuix.Core
+import design
 import "."
 import "components"
 import "dialogs"
@@ -12,7 +13,7 @@ import "settings"
 // messages and the debug log on top.
 Rectangle {
     id: app
-    color: Theme.color.surface
+    color: Ui.background
 
     property int page: 0
     property int nextPage: 0
@@ -70,30 +71,6 @@ Rectangle {
     property bool pluginSettingsLoaded: false
     property bool accountLoaded: false
     property bool cacheListLoaded: false
-    property var playerPluginActions: {
-        var out = []
-        var rows = player.pluginUiContributions || []
-        for (var i = 0; i < rows.length; i++) {
-            if (rows[i].placement === "playerAction") out.push(rows[i])
-        }
-        return out
-    }
-    function footerActions() {
-        var out = [
-            { action: "recent", icon: "history", text: i18n.t("nav.recent") },
-            { action: "download", icon: "download", text: i18n.t("nav.downloaded") }
-        ]
-        for (var i = 0; i < app.playerPluginActions.length; i++) {
-            var item = app.playerPluginActions[i]
-            out.push({ action: "plugin", icon: item.icon, text: item.label,
-                       pluginId: item.pluginId, contributionId: item.id })
-        }
-        out.push({ action: "sleepTimer", icon: "bedtime", text: i18n.t("sleepTimer.title") })
-        out.push({ action: "account", icon: player.loggedIn ? "account_circle" : "login",
-                   text: i18n.t(player.loggedIn ? "account.title" : "nav.signIn") })
-        out.push({ action: "settings", icon: "settings", text: i18n.t("nav.settings") })
-        return out
-    }
     // openArtist/openAlbum are called from reusable child components that cannot
     // see this root id. The controller publishes an event revision for every call
     // (not just false -> true), and the page manager turns it into a route push.
@@ -235,7 +212,8 @@ Rectangle {
         for (var i = app.children.length - 1; i >= 0; i--) {
             var child = app.children[i]
             if (child.visible && (child.objectName === "miuixDialogOverlay"
-                    || child.objectName === "miuixDropdownOverlay")) {
+                    || child.objectName === "miuixDropdownOverlay"
+                    || child.objectName === "miuixMenuOverlay")) {
                 child.consumeBack()
                 return true
             }
@@ -508,17 +486,21 @@ Rectangle {
     property string toastWatch: player.toast
     onToastWatchChanged: if (player.toast.length > 0) app.showToast(player.toast)
 
+    // One model for every secondary destination (sidebar, compact menu).
+    AppActions {
+        id: appActions
+        pageManager: app
+    }
+
     // Chrome is absolute/anchor-positioned, NOT a ColumnLayout. The play clock
-    // sets player.positionMs ~5x/s; each set bumps the engine change version and
-    // forces a whole-tree settleLayout that frame (and on coinciding scroll
-    // frames). Layout containers in the always-visible chrome re-ran their
-    // measure/fill passes every one of those ticks; anchors keep it cheap.
-    // Wide-screen navigation rail (left); split into its own component so
-    // Main.qml's generated Component.<init>() stays under the JVM's 64KB
-    // method-size limit (see AppNavigationRail.qml's header comment).
+    // sets player.positionMs ~5x/s; each set forces a settle pass, and layout
+    // containers in always-visible chrome re-ran their measure passes on every
+    // tick. The sidebar lives in its own file to keep Main.qml's generated
+    // constructor under the JVM's 64 KB method limit.
     AppNavigationRail {
         id: rail
         pageManager: app
+        appActions: appActions
     }
 
     // Root-page chrome shares the page motion instead of disappearing as soon as
@@ -530,83 +512,20 @@ Rectangle {
         x: baseLeft + rootPageMotion.contentX
         y: settings.topInset + rootPageMotion.contentY
         width: app.width - baseLeft - settings.rightInset
-        height: 64
+        height: Ui.headerHeight
         scale: rootPageMotion.contentScale
         opacity: rootPageMotion.contentOpacity
         visible: opacity > 0.001
         enabled: app.currentOverlay === "" && !player.lyricsOpen
 
-        TopAppBar {
+        RootHeader {
             id: topBar
             anchors.fill: parent
-            large: false
-            collapsedHeight: 64
-            titlePadding: 16
             title: app.titles[app.page]
-            showNavigationIcon: false
-
-            IconButton {
-                objectName: "openTempera"
-                visible: settings.has("temperaWholeLine")
-                type: "standard"
-                icon: "auto_awesome"
-                onClicked: player.setTemperaOpen(true)
-            }
-            IconButton {
-                objectName: "mobileVolumeAction"
-                visible: !settings.has("desktopLyricEnabled")
-                type: "standard"
-                icon: settings.appVolume === 0 ? "volume_off"
-                      : (settings.appVolume < 50 ? "volume_down" : "volume_up")
-                onClicked: app.volumeOpen = true
-            }
-            IconButton {
-                // This setting only exists on desktop hosts. Its presence, rather than
-                // a responsive layout breakpoint, decides whether the action is shown.
-                visible: app.wide && settings.has("desktopLyricEnabled")
-                type: "standard"
-                icon: "subtitles"
-                contentColor: settings.value("desktopLyricEnabled")
-                              ? Theme.color.primary : Theme.color.onSurfaceVariantColor
-                onClicked: settings.setValue("desktopLyricEnabled",
-                                             !settings.value("desktopLyricEnabled"))
-            }
-            IconButton {
-                type: "standard"
-                icon: "queue_music"
-                onClicked: app.replacePage("queue", 0)
-            }
-            IconButton {
-                id: overflowAction
-                objectName: "compactOverflowAction"
-                visible: !app.wide
-                icon: "more_vert"
-                onClicked: compactMenu.open(overflowAction)
-            }
+            appActions: appActions
+            onQueueRequested: app.replacePage("queue", 0)
+            onVolumeRequested: app.volumeOpen = true
         }
-    }
-    Menu {
-        id: compactMenu
-        objectName: "compactOverflowMenu"
-        function pluginAction(pluginId, contributionId) {
-            return function() { player.requestPluginUi(pluginId, contributionId) }
-        }
-        model: {
-            var items = [
-                {text: i18n.t("nav.recent"), icon: "history", action: function() { app.replacePage("recent", 0) }},
-                {text: i18n.t("nav.downloaded"), icon: "download", action: function() { player.refreshCachedSongs(); app.replacePage("cachedSongs", 0) }},
-                {text: i18n.t("nav.account"), icon: "account_circle", action: function() { app.replacePage("account", 0) }},
-                {text: i18n.t("sleepTimer.title"), icon: "bedtime", action: function() { app.sleepTimerOpen = true }},
-                {text: i18n.t("nav.settings"), icon: "settings", action: function() { app.replacePage("settings", 0) }}
-            ]
-            if (settings.has("desktopLyricEnabled")) items.push({text: i18n.t("settings.desktopLyric.title"), icon: "subtitles", action: function() { settings.setValue("desktopLyricEnabled", !settings.value("desktopLyricEnabled")) }})
-            for (var i = 0; i < app.playerPluginActions.length; i++) {
-                var entry = app.playerPluginActions[i]
-                items.push({text: entry.label, icon: entry.icon, action: compactMenu.pluginAction(entry.pluginId, entry.id)})
-            }
-            return items
-        }
-
     }
 
 
@@ -710,9 +629,8 @@ Rectangle {
                 sourceComponent: Component {
                     PlaylistDetailPage {
                         bottomContentInset: app.bottomContentInset
-                        onHome: app.goHome()
                         onBack: app.popPage()
-                        onOpenQueue: app.replacePage("queue", 0)
+                        onOpenQueue: app.pushPage("queue", 0)
                     }
                 }
             }
@@ -725,9 +643,8 @@ Rectangle {
                 sourceComponent: Component {
                     LocalPlaylistPage {
                         bottomContentInset: app.bottomContentInset
-                        onHome: app.goHome()
                         onBack: app.popPage()
-                        onOpenQueue: app.replacePage("queue", 0)
+                        onOpenQueue: app.pushPage("queue", 0)
                     }
                 }
             }
@@ -740,7 +657,6 @@ Rectangle {
                 sourceComponent: Component {
                     ArtistDetailPage {
                         bottomContentInset: app.bottomContentInset
-                        onHome: app.goHome()
                         onBack: app.popPage()
                     }
                 }
@@ -754,7 +670,6 @@ Rectangle {
                 sourceComponent: Component {
                     AlbumDetailPage {
                         bottomContentInset: app.bottomContentInset
-                        onHome: app.goHome()
                         onBack: app.popPage()
                     }
                 }
@@ -768,7 +683,6 @@ Rectangle {
                 sourceComponent: Component {
                     QueuePage {
                         bottomContentInset: app.bottomContentInset
-                        onHome: app.goHome()
                         onBack: app.popPage()
                     }
                 }
@@ -782,7 +696,6 @@ Rectangle {
                 sourceComponent: Component {
                     RecentPlaybackPage {
                         bottomContentInset: app.bottomContentInset
-                        onHome: app.goHome()
                         onBack: app.popPage()
                     }
                 }
@@ -796,7 +709,6 @@ Rectangle {
                 sourceComponent: Component {
                     SettingsPage {
                         bottomContentInset: app.bottomContentInset
-                        onHome: app.goHome()
                         onBack: app.popPage()
                         onOpenDebugLog: app.showLog = true
                     }
@@ -811,7 +723,6 @@ Rectangle {
                 sourceComponent: Component {
                     AccountPage {
                         bottomContentInset: app.bottomContentInset
-                        onHome: app.goHome()
                         onBack: app.popPage()
                         onRequestLogin: app.loginOpen = true
                     }
@@ -827,7 +738,6 @@ Rectangle {
                     PluginSettingsPage {
                         bottomContentInset: app.bottomContentInset
                         pluginId: player.pluginSettingsId
-                        onHome: app.goHome()
                         onBack: app.popPage()
                     }
                 }
@@ -841,7 +751,6 @@ Rectangle {
                 sourceComponent: Component {
                     CachedSongsDialog {
                         bottomContentInset: app.bottomContentInset
-                        onHome: app.goHome()
                         onBack: app.popPage()
                     }
                 }
@@ -856,11 +765,13 @@ Rectangle {
     // binding. The prompt must use the final navigation footprint.
     SourceSetupPrompt {
         x: settings.leftInset
-           + (app.width >= 840 ? 216 : (app.width >= 600 ? 80 : 0))
+           + (app.width >= Ui.expandedMin ? Ui.sidebarWide
+              : (app.width >= Ui.compactMax ? Ui.sidebarNarrow : 0))
         y: settings.topInset
            + (app.currentOverlay === "" ? rootTopChrome.height : 0)
         width: Math.max(0, app.width - settings.leftInset - settings.rightInset
-                        - (app.width >= 840 ? 216 : (app.width >= 600 ? 80 : 0)))
+                        - (app.width >= Ui.expandedMin ? Ui.sidebarWide
+                           : (app.width >= Ui.compactMax ? Ui.sidebarNarrow : 0)))
         height: Math.max(0, mini.y - y)
         visible: app.showSourceSetupPrompt
         z: 3000
@@ -874,8 +785,8 @@ Rectangle {
         anchors.leftMargin: app.floatingBottomChrome ? 24 : 12
         anchors.rightMargin: settings.rightInset + (app.floatingBottomChrome ? 24 : 12)
         anchors.bottom: bottomNav.top
-        anchors.bottomMargin: 8
-        height: 80
+        anchors.bottomMargin: app.wide ? 12 : 8
+        height: implicitHeight
         liquidGlass: app.floatingBottomChrome
         onLyricsRequested: app.pushPage("lyrics", 0)
     }
@@ -960,22 +871,41 @@ Rectangle {
     property int updateProgWatch: player.updateProgress
     onUpdateProgWatchChanged: if (player.updateProgress === -2) app.showToast(i18n.t("update.downloadFailed"))
 
+    // Floating pill above the player bar while an update downloads.
     Rectangle {
+        objectName: "updateProgressPill"
         visible: player.updateProgress >= 0 && player.updateProgress < 100
-        anchors.left: rail.right
-        anchors.right: parent.right
-        anchors.rightMargin: settings.rightInset
-        anchors.bottom: parent.bottom
-        height: 48 + settings.bottomInset
-        color: Theme.color.surfaceContainerHigh
+        width: Math.min(320, mini.width)
+        height: 44
+        radius: height / 2
+        x: mini.x + (mini.width - width) / 2
+        y: mini.y - height - 10
+        color: Ui.surfaceRaised
+        border.width: 1
+        border.color: Ui.hairline
         z: 9000
         Text {
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.top: parent.top
-            anchors.topMargin: 14
+            x: 20
+            y: 8
+            width: parent.width - 40
             text: i18n.t("update.downloading", player.updateProgress)
-            color: Theme.color.onSurfaceColor
-            fontSize: 14
+            color: Ui.textPrimary
+            elide: Text.ElideRight
+            font.pixelSize: Ui.textCallout
+        }
+        Rectangle {
+            x: 20
+            y: parent.height - 12
+            width: parent.width - 40
+            height: 3
+            radius: 1.5
+            color: Ui.surfaceSunken
+            Rectangle {
+                width: parent.width * Math.max(0, Math.min(100, player.updateProgress)) / 100
+                height: parent.height
+                radius: parent.radius
+                color: Ui.accent
+            }
         }
     }
 
@@ -1031,49 +961,9 @@ Rectangle {
         z: 10000
     }
 
-    // --- debug log overlay ---------------------------------------------
-    Rectangle {
+    DebugLogOverlay {
         visible: app.showLog
         anchors.fill: parent
-        color: Theme.color.surfaceContainerHighest
-
-        ColumnLayout {
-            anchors.fill: parent
-            spacing: 0
-
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.margins: 8
-                spacing: 4
-                Text {
-                    Layout.fillWidth: true
-                    text: i18n.t("log.title")
-                    color: Theme.color.onSurfaceColor
-                    fontSize: 18
-                }
-                IconButton { type: "standard"; icon: "delete"; onClicked: player.clearLog() }
-                IconButton { type: "standard"; icon: "close"; onClicked: app.showLog = false }
-            }
-
-            Flickable {
-                id: logScroller
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                Layout.margins: 12
-                clip: true
-                contentHeight: logText.height
-                Text {
-                    id: logText
-                    width: parent.width
-                    text: player.logText
-                    color: Theme.color.onSurfaceColor
-                    fontSize: 12
-                    wrapMode: Text.WrapAnywhere
-                }
-                ViewportScrollBar {
-                    target: logScroller
-                }
-            }
-        }
+        onCloseRequested: app.showLog = false
     }
 }

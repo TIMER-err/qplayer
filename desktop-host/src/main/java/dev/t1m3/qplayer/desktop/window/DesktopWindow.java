@@ -79,7 +79,11 @@ public final class DesktopWindow {
     private final ConcurrentLinkedQueue<Runnable> mainTasks = new ConcurrentLinkedQueue<>();
 
     private long window;
+    // Effective logical-to-framebuffer scale: the display's content scale times the
+    // user's interface zoom. Layout, input, IME and title-bar hit testing all read it.
     private volatile float uiScale = 1f;
+    private volatile float contentScale = 1f;
+    private volatile float userScale = 1f;
     private volatile java.util.function.DoubleConsumer scaleListener;
     // Framebuffer size cached from the main-thread callback so the render thread
     // never has to call GLFW.
@@ -1068,7 +1072,8 @@ public final class DesktopWindow {
             java.nio.FloatBuffer sx = stack.mallocFloat(1), sy = stack.mallocFloat(1);
             GLFW.glfwGetWindowContentScale(window, sx, sy);
             float s = sx.get(0);
-            uiScale = s > 0 ? s : 1f;
+            contentScale = s > 0 ? s : 1f;
+            uiScale = contentScale * userScale;
         }
         notifyScale();
     }
@@ -1088,6 +1093,15 @@ public final class DesktopWindow {
             GLFW.glfwSetWindowSizeLimits(window, minWidth, minHeight,
                     GLFW.GLFW_DONT_CARE, GLFW.GLFW_DONT_CARE);
         }
+    }
+
+    /** Main thread: apply the interface zoom setting on top of the display scale. */
+    public void setUserScale(float factor) {
+        if (!(factor > 0f) || factor == userScale) return;
+        userScale = factor;
+        uiScale = contentScale * userScale;
+        notifyScale();
+        if (window != 0L) updateWindowSizeLimits();
     }
 
     private void notifyScale() {
@@ -1121,7 +1135,8 @@ public final class DesktopWindow {
         });
         GLFW.glfwSetWindowContentScaleCallback(window, (win, sx, sy) -> {
             if (sx > 0) {
-                uiScale = sx;
+                contentScale = sx;
+                uiScale = contentScale * userScale;
                 notifyScale();
                 updateWindowSizeLimits();
             }

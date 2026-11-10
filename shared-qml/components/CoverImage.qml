@@ -15,6 +15,9 @@ Item {
     property real radius: 8
     property string icon: "music_note"
     property int iconSize: 26
+    // Crop instead of letterboxing. Defaults on for circular covers (artist
+    // avatars), where a letterboxed photo reads as a broken circle.
+    property bool crop: cover.width > 0 && cover.radius * 2 >= cover.width - 0.5
     // Cross-fade the art in when the source changes (e.g. the lyric page on a track
     // switch): the old art fades out to the placeholder, the new one fades in once
     // decoded. Off by default so list rows / cards keep swapping instantly.
@@ -81,7 +84,9 @@ Item {
         // artwork whose aspect ratio isn't exactly square overflows its box by a
         // different amount. PreserveAspectFit + clip never overflows; the small
         // letterbox bar an off-ratio cover gets is far less visible than that.
-        fillMode: "PreserveAspectFit"
+        // A round avatar cannot letterbox (the bars read as a broken circle), so
+        // circular covers crop instead. Everything square-ish keeps Fit.
+        fillMode: cover.crop ? "PreserveAspectCrop" : "PreserveAspectFit"
         // Without this, qml4j's decoder (ImageLoader.decodeRaster) has no target
         // size to shrink to at LOAD time, so it keeps the full source resolution
         // (now up to 1024px for playlist/album covers) and the draw-time scale

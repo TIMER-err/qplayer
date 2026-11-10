@@ -22,3 +22,7 @@ Local compatibility patch: SuperDropdown releases its hidden overlay's focus.
 Keyboard selection restores focus only to a visible anchor; hidden anchors cannot
 open a menu. Space is consumed inside the open popup. Its root-reparented overlay
 exposes consumeBack for QPlayer's host-dispatched Back/Escape.
+
+Local compatibility patch: Menu's root-reparented overlay exposes consumeBack,
+so host-dispatched Back/Escape closes an open menu instead of navigating the
+page underneath.

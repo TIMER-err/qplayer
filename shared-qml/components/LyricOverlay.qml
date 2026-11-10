@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Effects
 import miuix.Core
+import design
 import "."
 
 // QML chrome for the lyric page, composited on top of the host-drawn fluid
@@ -36,7 +37,7 @@ Item {
         // Synchronize once on entry. Do not feed every player property change back
         // into Slider.value while its MouseArea is dragging: that re-entrant write
         // interrupts qml4j's active gesture as soon as the thumb moves one step.
-        if (offsetPanelOpen) offsetSlider.value = player.lyricOffsetMs
+        if (offsetPanelOpen) offsetPanel.syncFromPlayer()
     }
     // Host actions can also close the lyric page, so clear the local panel when
     // the authoritative page state changes. Mirror it with a plain binding, not
@@ -52,6 +53,14 @@ Item {
         overlay.offsetPanelOpen = false
         return true
     }
+
+    // Chrome palette. The page always sits on the host's dark fluid backdrop
+    // (cover-tinted, darkened), so its controls are white in both themes.
+    readonly property color chromeFg: "#FFFFFFFF"
+    readonly property color chromeFgSecondary: "#B3FFFFFF"
+    readonly property color chromeFgTertiary: "#80FFFFFF"
+    // Translucent white disc behind a toggled-on top-row button.
+    readonly property color chromeActiveFill: "#2EFFFFFF"
 
     function fmt(ms) {
         if (ms <= 0) return "0:00";
@@ -131,7 +140,7 @@ Item {
         anchors.leftMargin: 6
         type: "standard"
         icon: "expand_more"
-        contentColor: "#FFFFFFFF"
+        contentColor: overlay.chromeFg
         onClicked: overlay.closeRequested()
     }
 
@@ -155,7 +164,9 @@ Item {
         anchors.rightMargin: 6
         type: "standard"
         icon: "sync"
-        contentColor: "#FFFFFFFF"
+        containerColor: overlay.offsetPanelOpen || player.lyricOffsetMs !== 0
+                        ? overlay.chromeActiveFill : "transparent"
+        contentColor: overlay.chromeFg
         onClicked: overlay.offsetPanelOpen = !overlay.offsetPanelOpen
     }
 
@@ -173,7 +184,7 @@ Item {
         anchors.rightMargin: 6
         type: "standard"
         icon: "image"
-        contentColor: "#FFFFFFFF"
+        contentColor: overlay.chromeFg
         onClicked: player.setCoverMode(true)
     }
 
@@ -195,7 +206,8 @@ Item {
         // and a property of that name fails to parse.
         property bool wide: settings.value("lyricFullWidth") === true
         icon: fullWidthBtn.wide ? "fullscreen_exit" : "fullscreen"
-        contentColor: fullWidthBtn.wide ? "#FF82B1FF" : "#FFFFFFFF"
+        containerColor: fullWidthBtn.wide ? overlay.chromeActiveFill : "transparent"
+        contentColor: overlay.chromeFg
         // No confirmation toast: the page rearranging itself IS the feedback, and
         // a snackbar for it would cover the progress bar it just moved down there.
         onClicked: settings.setValue("lyricFullWidth", !fullWidthBtn.wide)
@@ -211,136 +223,14 @@ Item {
 
     // Fixed-step slider: one control scales cleanly down to phone width, unlike the
     // previous row of four buttons which could overflow this card.
-    SmoothRectangle {
+    LyricOffsetPanel {
         id: offsetPanel
-        // Keep painting until the exit fade reaches zero; binding visible directly
-        // to offsetPanelOpen would cut the zoom-out off on its first frame.
-        visible: overlay.offsetPanelOpen || opacity > 0.01
-        opacity: overlay.offsetPanelOpen ? 1 : 0
-        scale: overlay.offsetPanelOpen ? 1 : 0.8
-        transformOrigin: Item.Center
-        Behavior on opacity {
-            NumberAnimation { duration: 150 }
-        }
-        Behavior on scale {
-            NumberAnimation {
-                duration: overlay.offsetPanelOpen ? 200 : 150
-                easing.type: overlay.offsetPanelOpen ? Easing.OutCubic : Easing.InCubic
-            }
-        }
+        open: overlay.offsetPanelOpen
         z: 2
         anchors.top: offsetBtn.bottom
         anchors.topMargin: 8
         anchors.right: parent.right
         anchors.rightMargin: 6
-        width: Math.min(320, parent.width - 24)
-        height: 176
-        radius: 20
-        color: Theme.color.surfaceContainerHigh
-        borderWidth: 1
-        borderColor: Theme.color.outlineVariant
-
-        MouseArea { anchors.fill: parent }
-
-        Text {
-            id: offsetTitle
-            anchors.top: parent.top
-            anchors.topMargin: 18
-            anchors.left: parent.left
-            anchors.leftMargin: 18
-            text: i18n.t("lyric.offset.title")
-            color: Theme.color.onSurfaceColor
-            font.family: Theme.typography.titleSmall.family
-            font.pixelSize: Theme.typography.titleSmall.size
-        }
-        Text {
-            anchors.top: parent.top
-            anchors.topMargin: 16
-            anchors.right: parent.right
-            anchors.rightMargin: 18
-            text: (offsetSlider.value > 0 ? "+" : "") + offsetSlider.value + " ms"
-            color: Theme.color.primary
-            font.family: Theme.typography.titleMedium.family
-            font.pixelSize: Theme.typography.titleMedium.size
-            font.weight: Theme.typography.titleMedium.weight
-        }
-        Text {
-            id: offsetCaption
-            anchors.top: offsetTitle.bottom
-            anchors.topMargin: 4
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.leftMargin: 18
-            anchors.rightMargin: 18
-            text: i18n.t("lyric.offset.desc")
-            color: Theme.color.onSurfaceVariantColor
-            font.family: Theme.typography.bodySmall.family
-            font.pixelSize: Theme.typography.bodySmall.size
-            elide: Text.ElideRight
-        }
-
-        Slider {
-            id: offsetSlider
-            anchors.top: offsetCaption.bottom
-            anchors.topMargin: 10
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.leftMargin: 18
-            anchors.rightMargin: 18
-            from: -5000
-            to: 5000
-            stepSize: 50
-            snapMode: true
-            value: 0
-            // Keep dragging entirely local. Updating PlayerController on every 50 ms
-            // step re-enters the QML tree (lyric index + persistence) during the
-            // pointer callback and interrupts the gesture in qml4j.
-            onEditingFinished: player.setLyricOffset(value)
-        }
-
-        Text {
-            anchors.top: offsetSlider.bottom
-            anchors.topMargin: 1
-            anchors.left: parent.left
-            anchors.leftMargin: 18
-            text: i18n.t("lyric.offset.earlier")
-            color: Theme.color.onSurfaceVariantColor
-            font.family: Theme.typography.labelSmall.family
-            font.pixelSize: Theme.typography.labelSmall.size
-        }
-        Text {
-            anchors.top: offsetSlider.bottom
-            anchors.topMargin: 1
-            anchors.horizontalCenter: parent.horizontalCenter
-            text: "0"
-            color: Theme.color.onSurfaceVariantColor
-            font.family: Theme.typography.labelSmall.family
-            font.pixelSize: Theme.typography.labelSmall.size
-        }
-        Text {
-            anchors.top: offsetSlider.bottom
-            anchors.topMargin: 1
-            anchors.right: parent.right
-            anchors.rightMargin: 18
-            text: i18n.t("lyric.offset.later")
-            color: Theme.color.onSurfaceVariantColor
-            font.family: Theme.typography.labelSmall.family
-            font.pixelSize: Theme.typography.labelSmall.size
-        }
-        Button {
-            id: resetBtn
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: 8
-            anchors.right: parent.right
-            anchors.rightMargin: 10
-            type: "text"
-            text: i18n.t("lyric.offset.reset")
-            enabled: offsetSlider.value !== 0
-            onClicked: {
-                offsetSlider.value = 0
-                player.resetLyricOffset()
-            }
-        }
     }
 
     MarqueeText {
@@ -353,9 +243,9 @@ Item {
         anchors.leftMargin: 28
         anchors.rightMargin: 28
         text: player.title
-        textColor: "#FFFFFFFF"
-        fontFamily: Theme.typography.titleLarge.family
-        fontSize: 22
+        textColor: overlay.chromeFg
+        fontSize: Ui.textTitle1
+        fontWeight: Ui.weightBold
     }
     MarqueeText {
         id: artistText
@@ -367,8 +257,8 @@ Item {
         anchors.leftMargin: 28
         anchors.rightMargin: 28
         text: player.artist
-        textColor: "#B3FFFFFF"
-        fontSize: 14
+        textColor: overlay.chromeFgSecondary
+        fontSize: Ui.textBody
     }
     // Jump to the artist's page. Main.qml's page stack keeps the lyric route
     // underneath and closes its separately-rendered host layer while the artist
@@ -427,23 +317,23 @@ Item {
             anchors.top: progress.bottom
             anchors.topMargin: 6
             text: overlay.fmt(player.positionMs)
-            color: "#B3FFFFFF"
-            fontSize: 11
+            color: overlay.chromeFgTertiary
+            font.pixelSize: Ui.textMicro
         }
         Text {
             anchors.right: parent.right
             anchors.top: progress.bottom
             anchors.topMargin: 6
             text: overlay.fmt(player.durationMs)
-            color: "#B3FFFFFF"
-            fontSize: 11
+            color: overlay.chromeFgTertiary
+            font.pixelSize: Ui.textMicro
         }
 
         LyricTransportRow {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
-            anchors.bottomMargin: 14
+            anchors.bottomMargin: 8
             gap: 18
         }
     }
@@ -532,9 +422,9 @@ Item {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 text: player.title
-                textColor: "#FFFFFFFF"
-                fontFamily: Theme.typography.titleLarge.family
-                fontSize: 20
+                textColor: overlay.chromeFg
+                fontSize: Ui.textTitle2 + 2
+                fontWeight: Ui.weightBold
                 centered: true
             }
             MarqueeText {
@@ -544,8 +434,8 @@ Item {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 text: player.artist
-                textColor: "#B3FFFFFF"
-                fontSize: 13
+                textColor: overlay.chromeFgSecondary
+                fontSize: Ui.textCallout
                 centered: true
             }
             MouseArea {
@@ -580,16 +470,16 @@ Item {
                 anchors.top: lProgress.bottom
                 anchors.topMargin: 6
                 text: overlay.fmt(player.positionMs)
-                color: "#B3FFFFFF"
-                fontSize: 11
+                color: overlay.chromeFgTertiary
+                font.pixelSize: Ui.textMicro
             }
             Text {
                 anchors.right: parent.right
                 anchors.top: lProgress.bottom
                 anchors.topMargin: 6
                 text: overlay.fmt(player.durationMs)
-                color: "#B3FFFFFF"
-                fontSize: 11
+                color: overlay.chromeFgTertiary
+                font.pixelSize: Ui.textMicro
             }
             LyricTransportRow {
                 anchors.left: parent.left
@@ -632,9 +522,9 @@ Item {
             anchors.topMargin: 18
             width: Math.max(140, parent.width * 0.24)
             text: player.title
-            textColor: "#FFFFFFFF"
-            fontFamily: Theme.typography.titleLarge.family
-            fontSize: 19
+            textColor: overlay.chromeFg
+            fontSize: Ui.textTitle2
+            fontWeight: Ui.weightBold
         }
         MarqueeText {
             id: wArtist
@@ -643,8 +533,8 @@ Item {
             anchors.topMargin: 3
             width: wTitle.width
             text: player.artist
-            textColor: "#B3FFFFFF"
-            fontSize: 13
+            textColor: overlay.chromeFgSecondary
+            fontSize: Ui.textCallout
         }
         MouseArea {
             anchors.fill: wArtist
@@ -671,8 +561,8 @@ Item {
             anchors.rightMargin: 28
             anchors.verticalCenter: wTransport.verticalCenter
             text: overlay.fmt(player.positionMs) + " / " + overlay.fmt(player.durationMs)
-            color: "#B3FFFFFF"
-            fontSize: 12
+            color: overlay.chromeFgTertiary
+            font.pixelSize: Ui.textCaption
         }
 
         LyricProgress {

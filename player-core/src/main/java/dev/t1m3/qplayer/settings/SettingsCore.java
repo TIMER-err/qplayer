@@ -327,6 +327,15 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
         return v instanceof Number ? ((Number) v).intValue() : 0;
     }
 
+    /** User interface zoom as a multiplier of the display scale. Out-of-range
+     *  persisted values (hand-edited or from another build) are clamped. */
+    public float uiScaleFactor() {
+        Object v = peek(SettingsCatalog.UI_SCALE_KEY);
+        int percent = v instanceof Number ? ((Number) v).intValue() : SettingsCatalog.UI_SCALE_DEFAULT;
+        return Math.max(SettingsCatalog.UI_SCALE_MIN,
+                Math.min(SettingsCatalog.UI_SCALE_MAX, percent)) / 100f;
+    }
+
     public String str(String key) {
         Object v = peek(key);
         return v instanceof String ? (String) v : "";

@@ -1,41 +1,36 @@
 import QtQuick
-import QtQuick.Layouts
 import miuix.Core
+import design
 import "."
 
-SettingCard {
-    id: card
+// One installable catalog plugin on the settings Plugins tab: the row and its
+// button both open the plugin's page, where installation is confirmed.
+Item {
+    id: row
+    property var pluginData: null
+    property bool separator: false
 
-    required property var pluginData
+    implicitHeight: frame.implicitHeight
 
-    RowLayout {
-        Layout.fillWidth: true
-        spacing: 12
+    SettingRowFrame {
+        id: frame
+        width: row.width
+        height: row.height
+        icon: "download"
+        iconColor: Ui.accent
+        title: row.pluginData ? row.pluginData.name : ""
+        summary: row.pluginData ? row.pluginData.version + " · " + row.pluginData.description : ""
+        separator: row.separator
+        controlWidth: viewButton.width
+        onClicked: if (row.pluginData) player.requestPluginSettings(row.pluginData.id)
+    }
 
-        Text {
-            text: "download"
-            font.family: Theme.iconFont.name
-            font.pixelSize: 26
-            color: Theme.color.primary
-        }
-
-        ColumnLayout {
-            Layout.fillWidth: true
-            spacing: 2
-
-            SettingTitle {
-                text: card.pluginData.name
-            }
-            SettingDesc {
-                text: card.pluginData.version + " · " + card.pluginData.description
-            }
-        }
-
-        Button {
-            type: "filledTonal"
-            icon: "download"
-            text: i18n.t("plugin.catalog.view")
-            onClicked: player.requestPluginSettings(card.pluginData.id)
-        }
+    Button {
+        id: viewButton
+        x: row.width - Ui.space4 - width
+        y: (row.height - height) / 2
+        type: "filledTonal"
+        text: i18n.t("plugin.catalog.view")
+        onClicked: if (row.pluginData) player.requestPluginSettings(row.pluginData.id)
     }
 }

@@ -1,5 +1,6 @@
 import QtQuick
 import miuix.Core
+import design
 import "."
 
 // Two-column playlist grid via absolute positioning inside a Flickable — the
@@ -25,8 +26,14 @@ Flickable {
     onEnabledChanged: if (!grid.enabled) grid._cancelDrag()
     onReorderableChanged: if (!grid.reorderable) grid._cancelDrag()
     onListChanged: grid._cancelDrag()
-    property real gap: 16
-    property real pad: width >= 840 ? 28 : 16
+    // Card gap and side padding. The side padding defaults to the page gutter so
+    // the first card's cover lines up with the header title (PlaylistCard draws
+    // its cover flush with the card box). Top/bottom padding are separate, as a
+    // grid under a toolbar needs much less air above it than at the sides.
+    property real gap: width >= Ui.expandedMin ? Ui.space6 : Ui.space4
+    property real pad: Ui.gutter(width)
+    property real topPadding: pad
+    property real bottomPadding: Ui.space6
     property var pendingPlaylist
     signal openPlaylist()
     // Card-menu actions. Like openPlaylist they publish the target through
@@ -78,11 +85,11 @@ Flickable {
         return grid.pad + (index % grid.cols) * (grid.tile + grid.gap)
     }
     function _indexToY(index) {
-        return grid.pad + Math.floor(index / grid.cols) * (grid.cardH + grid.gap)
+        return grid.topPadding + Math.floor(index / grid.cols) * (grid.cardH + grid.gap)
     }
     function _indexAt(cx, cy) {
         var col = Math.floor((cx - grid.pad) / (grid.tile + grid.gap))
-        var row = Math.floor((cy - grid.pad) / grid.cardRowH)
+        var row = Math.floor((cy - grid.topPadding) / grid.cardRowH)
         col = Math.max(0, Math.min(grid.cols - 1, col))
         if (row < 0) row = 0
         var index = row * grid.cols + col
@@ -176,7 +183,7 @@ Flickable {
         return Math.min(rows, Math.max(0, vis))
     }
     property int firstRow: {
-        var f = Math.floor((contentY - pad) / cardRowH) - 1
+        var f = Math.floor((contentY - grid.topPadding) / cardRowH) - 1
         var maxF = Math.max(0, Math.ceil(count / Math.max(1, cols)) - rowWindow)
         if (f > maxF) f = maxF
         if (f < 0) f = 0
@@ -187,7 +194,7 @@ Flickable {
 
     clip: true
     contentWidth: width
-    contentHeight: (count > 0 ? Math.ceil(count / cols) * cardRowH - gap + 2 * pad : 0) + bottomContentInset
+    contentHeight: (count > 0 ? Math.ceil(count / cols) * cardRowH - gap + topPadding + bottomPadding : 0) + bottomContentInset
     onContentHeightChanged: contentY = Math.max(0, Math.min(contentY, Math.max(0, contentHeight - height)))
 
     Item {
@@ -206,8 +213,6 @@ Flickable {
                 objectName: "virtualPlaylistCard"
                 playlistId: modelData.id
                 scrollView: grid
-                textAnimationEnabled: grid.pageActive && grid.visible
-                    && y + height >= grid.contentY && y <= grid.contentY + grid.height
                 tile: grid.tile
                 // While a drag is live, every card between the lifted slot and the
                 // current drop target renders one slot closer to where it started —
@@ -298,7 +303,6 @@ Flickable {
             visible: grid._dragFrom >= 0 && grid._dragRow !== null
             z: 5
             tile: grid.tile
-            textAnimationEnabled: grid.pageActive && grid.visible
             width: grid.tile
             height: grid.cardH
             x: grid._dragFloatX

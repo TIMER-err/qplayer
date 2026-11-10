@@ -1,10 +1,12 @@
 import QtQuick
 import miuix.Core
+import design
 import "."
 
-// Outlined playlist card shared by the home and library grids. Two pointer
-// handlers, mutually exclusive on `reorderable`: the plain Ripple (unchanged,
-// used everywhere reorderable is off — home, recommendations, artist pages)
+// Playlist tile shared by the home, search and library grids: a flush rounded
+// cover with the name (two lines at most) and a count caption underneath, and a
+// hover wash that frames the whole tile. Two pointer handlers, mutually
+// exclusive on `reorderable`: the plain Ripple (home, search, artist pages)
 // opens the context menu on a long-press/right-click; the drag-capable one
 // (library grids only) uses that same gesture to pick the card up instead,
 // since the overflow button below is the guaranteed, unambiguous way into the
@@ -33,7 +35,6 @@ Item {
     // reorderable, never at risk of the long-press ambiguity) stays exactly as
     // it was rather than growing a button nobody there asked for.
     property bool showOverflow: false
-    property bool textAnimationEnabled: true
     property real tile: 160
     property bool _menuArmed: false
     onPlaylistIdChanged: {
@@ -71,15 +72,42 @@ Item {
     scale: card.dragging ? 1.05 : 1.0
     Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
 
-    // Scale names/counts with the card. 200dp is the settings default; a floor
-    // keeps a 100dp tile readable rather than shrinking to 8px type.
+    // Type follows the tile (200 = the libraryCardSize default); the floors keep
+    // a 100px tile readable rather than shrinking to 8px type.
     readonly property real _scale: tile / 200
-    readonly property int titleSize: Math.max(12, Math.round(16 * _scale))
-    readonly property int subtitleSize: Math.max(10, Math.round(12 * _scale))
-    readonly property int titleH: Math.max(28, Math.round(36 * _scale))
-    readonly property int subtitleH: Math.max(16, Math.round(20 * _scale))
+    readonly property int titleSize: Math.max(12, Math.min(20, Math.round(15 * _scale)))
+    readonly property int subtitleSize: Math.max(10, Math.min(14, Math.round(12 * _scale)))
     readonly property int coverIconSize: Math.max(28, Math.round(44 * _scale))
+    // Caption slot under the cover. PlaylistGrid and the home grid derive their
+    // row height from this exact formula, so it stays a pure function of tile.
     readonly property real textSlot: Math.max(52, Math.round(72 * _scale))
+    readonly property int textGap: Math.max(6, Math.round(8 * _scale))
+    // Line boxes come from probes with fixed one-line content: they are measured
+    // when the card is created or resized, so they stay right under cachedLayout.
+    readonly property real titleLineH: titleProbe.implicitHeight
+    readonly property real subtitleLineH: subtitleLabel.implicitHeight
+    // A second title line only when it, the caption and the gap all fit the slot.
+    readonly property int titleLines: textGap + 2 * titleLineH + 2 + subtitleLineH <= textSlot ? 2 : 1
+    // How many lines this name takes. Estimated from the characters, not read
+    // from the title's implicitHeight: grids keep their cards in cachedLayout
+    // containers, which do not re-measure a recycled card whose name changed,
+    // so a measured height would go stale while scrolling. The title is capped
+    // at the same count, so a short estimate elides instead of overlapping.
+    readonly property int nameLines: titleLines > 1 && estimateWidth(name, titleSize) > width ? 2 : 1
+    // Rough advance of a line in the bundled UI face: CJK and full-width forms
+    // are one em, Latin about half to two thirds of one.
+    function estimateWidth(s, px) {
+        var w = 0
+        for (var i = 0; i < s.length; i++) {
+            var c = s.charCodeAt(i)
+            if (c >= 0x2E80) w += px
+            else if (c === 32) w += px * 0.3
+            else if (c >= 65 && c <= 90) w += px * 0.68
+            else w += px * 0.56
+        }
+        return w
+    }
+    readonly property bool hovered: cardRipple.containsMouse || dragArea.containsMouse
 
     // Explicit geometry, not implicitWidth: a card first realized hidden (the
     // floating copy of a drag, under cachedLayout) never gets the measure pass
@@ -99,75 +127,70 @@ Item {
         return i18n.t("common.songCountEmpty")
     }
 
-    SmoothRectangle {
-        id: container
-        x: 0
-        y: 0
-        width: card.width
-        height: card.height
-        radius: 20
-        color: card.dragging ? Theme.color.surfaceContainerHighest
-             : (cardRipple.containsMouse ? Theme.color.surfaceContainerHigh : Theme.color.surfaceContainer)
-        borderWidth: card.dragging ? 2 : 0
-        borderColor: Theme.color.primary
-
-        // A quiet state layer makes the whole tile read as interactive before the
-        // press ripple starts, without washing out the cover artwork.
-        Rectangle {
-            anchors.fill: parent
-            radius: parent.radius
-            color: Theme.color.onSurfaceColor
-            opacity: card.dragging ? 0 : (cardRipple.containsMouse ? 0.04 : 0)
-            Behavior on opacity {
-                NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
-            }
-        }
+    // Hover / carried state: a wash that frames cover and caption together. It
+    // paints a few pixels outside the card (into the grid gap) so the flush
+    // cover keeps its edge aligned with the page gutter; no input lives there.
+    Rectangle {
+        x: -6
+        y: -6
+        width: card.width + 12
+        height: card.height + 10
+        radius: Ui.radiusLg
+        color: card.dragging ? Ui.surfaceRaised : Ui.surfaceHover
+        border.width: card.dragging ? 2 : 0
+        border.color: Ui.accent
+        opacity: card.dragging || card.hovered ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
     }
 
     CoverImage {
         id: cover
         objectName: "playlistCardCover"
-        x: 8
-        y: 8
-        width: card.width - 16
-        height: card.width - 16
-        radius: 16
+        x: 0
+        y: 0
+        width: card.width
+        height: card.width
+        radius: Ui.radiusMd
         icon: "queue_music"
         iconSize: card.coverIconSize
         fadeIn: !card.dragging
         source: card.coverThumbPath || card.coverUrl
     }
 
-    // Fixed slot height (independent of name length) so every card in a row
-    // keeps the count label at the same y and the grid never reflows around a
-    // long neighbour; an overflowing name marquee-scrolls instead of eliding.
-    MarqueeText {
+    Text {
+        id: titleProbe
+        visible: false
+        text: "Ag"
+        font.pixelSize: card.titleSize
+    }
+    Text {
         id: nameLabel
         objectName: "playlistCardTitle"
-        x: 12
-        y: cover.y + cover.height + 6
-        width: card.width - 24
-        height: card.titleH
+        x: 0
+        y: card.width + card.textGap
+        width: card.width
         text: card.name
-        textColor: Theme.color.onSurfaceColor
-        fontSize: card.titleSize
-        fontWeight: Font.Medium
-        scrollingEnabled: card.textAnimationEnabled
+        color: Ui.textPrimary
+        wrapMode: Text.Wrap
+        maximumLineCount: card.nameLines
+        elide: Text.ElideRight
+        font.pixelSize: card.titleSize
+        font.weight: Ui.weightRegular
     }
 
-    // Count is kept in a fixed row (including the zero case) so cards do not
-    // reflow when an asynchronously refreshed playlist gains its first song.
+    // Sits right under the title's lines; the grid row itself never reflows
+    // because the card height is fixed by the tile.
     Text {
+        id: subtitleLabel
         objectName: "playlistCardSubtitle"
-        x: 12
-        y: nameLabel.y + nameLabel.height - 1
-        width: card.width - 24
-        height: card.subtitleH
-        verticalAlignment: Text.AlignVCenter
+        x: 0
+        y: nameLabel.y + card.nameLines * card.titleLineH + 2
+        width: card.width
         text: card.subtitle + (card.sourceName ? " · " + card.sourceName : "")
-        color: Theme.color.onSurfaceVariantColor
-        fontSize: card.subtitleSize
+        color: Ui.textSecondary
+        maximumLineCount: 1
         elide: Text.ElideRight
+        font.pixelSize: card.subtitleSize
     }
 
     Ripple {
@@ -178,8 +201,8 @@ Item {
         height: card.height
         visible: !card.reorderable
         enabled: !card.reorderable
-        clipRadius: 20
-        rippleColor: Theme.color.onSurfaceColor
+        clipRadius: Ui.radiusMd
+        rippleColor: Ui.textPrimary
         longPressEnabled: true
         onClicked: {
             if (card._menuArmed) {
@@ -214,6 +237,7 @@ Item {
         height: card.height
         visible: card.reorderable
         enabled: card.reorderable
+        hoverEnabled: card.reorderable
         // Steal only after the long-press has committed to a drag. A press-time
         // steal (the previous true) ate the gesture before Flickable could
         // scroll, so even a short press-and-slide on a card locked the page.
@@ -309,24 +333,21 @@ Item {
         objectName: "playlistCardOverflowButton"
         width: 32
         height: 32
-        x: card.width - width - 10
-        y: 10
+        x: card.width - width - Ui.space2
+        y: Ui.space2
         z: 3
         visible: card.showOverflow && !card.dragging
 
         Rectangle {
             anchors.fill: parent
             radius: width / 2
-            color: Theme.color.scrim
-            opacity: 0.45
+            color: Ui.scrim
         }
-        Text {
-            width: parent.width
-            height: parent.height
-            horizontalAlignment: Text.AlignHCenter
-            text: "more_vert"
-            font.family: Theme.iconFont.name
-            font.pixelSize: 18
+        Glyph {
+            x: (parent.width - size) / 2
+            y: (parent.height - size) / 2
+            name: "more_vert"
+            size: 18
             color: "white"
         }
         MouseArea {

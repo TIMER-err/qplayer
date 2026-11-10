@@ -1,5 +1,6 @@
 import QtQuick
 import miuix.Core
+import design
 
 // Top-level desktop affordance for the deliberate hold-to-exit gesture.
 // Visibility is retained through the exit animation instead of being bound
@@ -115,10 +116,10 @@ Item {
 
     Surface {
         anchors.fill: parent
-        radius: 28
+        radius: Ui.radiusXl
         containerColor: Theme.color.surfaceContainerHigh
         borderWidth: 1
-        borderColor: Theme.color.outlineVariant
+        borderColor: Ui.hairline
         shadowElevation: 6
     }
 
@@ -129,14 +130,14 @@ Item {
         width: 52
         height: 52
         radius: 26
-        color: Theme.color.primaryContainer
+        color: Ui.accentSoft
 
         Icon {
             anchors.centerIn: parent
             name: "fullscreen_exit"
             width: 24
             height: 24
-            color: Theme.color.onPrimaryContainerColor
+            color: Ui.accent
         }
     }
 
@@ -156,9 +157,9 @@ Item {
         width: parent.width - 32
         height: 24
         text: i18n.t("fullscreen.exitHint")
-        color: Theme.color.onSurfaceColor
-        font.pixelSize: 16
-        font.weight: Font.DemiBold
+        color: Ui.textPrimary
+        font.pixelSize: Ui.textHeadline
+        font.weight: Ui.weightBold
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight
@@ -173,8 +174,8 @@ Item {
         width: parent.width - 32
         height: 18
         text: i18n.t("fullscreen.releaseHint")
-        color: Theme.color.onSurfaceVariantColor
-        font.pixelSize: 12
+        color: Ui.textSecondary
+        font.pixelSize: Ui.textCaption
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
         opacity: control.holding ? 1 : 0

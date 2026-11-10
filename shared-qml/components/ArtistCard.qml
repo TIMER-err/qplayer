@@ -1,10 +1,11 @@
 import QtQuick
 import miuix.Core
+import design
 import "."
 
-// Compact artist tile for SearchPage's artist-mode grid. Same card shape as
-// AlbumCard/PlaylistCard (playlist-cover style), just a "person" placeholder
-// and a song-count line instead of a track count.
+// Artist tile for the artist search grid: a round avatar with the name and
+// song count centred underneath. Shares PlaylistCard's geometry (tile +
+// textSlot) and hover wash so mixed grids line up.
 Item {
     id: card
 
@@ -16,59 +17,76 @@ Item {
     property real tile: 130
     signal clicked()
 
-    width: tile
-    height: tile + 56
-    implicitWidth: tile
-    implicitHeight: tile + 56
+    readonly property real _scale: tile / 200
+    readonly property int titleSize: Math.max(12, Math.min(20, Math.round(15 * _scale)))
+    readonly property int subtitleSize: Math.max(10, Math.min(14, Math.round(12 * _scale)))
+    readonly property real textSlot: Math.max(52, Math.round(72 * _scale))
+    readonly property int textGap: Math.max(6, Math.round(8 * _scale))
 
-    SmoothRectangle {
-        x: 0; y: 0
-        width: card.width; height: card.height
-        radius: 20
-        color: cardRipple.containsMouse ? Theme.color.surfaceContainerHigh : Theme.color.surfaceContainer
+    width: tile
+    height: tile + textSlot
+    implicitWidth: tile
+    implicitHeight: tile + textSlot
+
+    Rectangle {
+        x: -6
+        y: -6
+        width: card.width + 12
+        height: card.height + 10
+        radius: Ui.radiusLg
+        color: Ui.surfaceHover
+        opacity: cardRipple.containsMouse ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
     }
 
     CoverImage {
         id: cover
-        x: 6; y: 6
-        width: card.width - 12
-        height: card.width - 12
-        radius: width / 2
+        x: 0
+        y: 0
+        width: card.width
+        height: card.width
+        radius: card.width / 2
         icon: "person"
-        iconSize: 32
+        iconSize: Math.max(28, Math.round(44 * card._scale))
         fadeIn: true
         source: card.coverThumbPath || card.coverUrl
     }
 
-    MarqueeText {
-        x: 8
-        y: card.width - 2
-        width: card.width - 16
-        height: 32
+    Text {
+        id: nameLabel
+        x: 0
+        y: card.width + card.textGap
+        width: card.width
         text: card.name
-        textColor: Theme.color.onSurfaceColor
-        fontSize: 15
-        fontWeight: Font.Medium
+        color: Ui.textPrimary
+        horizontalAlignment: Text.AlignHCenter
+        maximumLineCount: 1
+        elide: Text.ElideRight
+        font.pixelSize: card.titleSize
+        font.weight: Ui.weightBold
     }
 
     Text {
-        x: 8
-        y: card.width + 30
-        width: card.width - 16
-        height: 18
-        verticalAlignment: Text.AlignVCenter
-        text: card.count > 0 ? i18n.t("common.songCount", card.count) : ""
-        color: Theme.color.onSurfaceVariantColor
-        fontSize: 12
+        x: 0
+        y: nameLabel.y + nameLabel.implicitHeight + 2
+        width: card.width
+        visible: card.count > 0
+        text: i18n.t("common.songCount", card.count)
+        color: Ui.textSecondary
+        horizontalAlignment: Text.AlignHCenter
+        maximumLineCount: 1
         elide: Text.ElideRight
+        font.pixelSize: card.subtitleSize
     }
 
     Ripple {
         id: cardRipple
-        x: 0; y: 0
-        width: card.width; height: card.height
-        clipRadius: 20
-        rippleColor: Theme.color.onSurfaceColor
+        x: 0
+        y: 0
+        width: card.width
+        height: card.height
+        clipRadius: Ui.radiusMd
+        rippleColor: Ui.textPrimary
         onClicked: card.clicked()
     }
 }

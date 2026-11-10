@@ -1,72 +1,75 @@
 import QtQuick
 import QtQuick.Layouts
 import miuix.Core
+import design
 import "."
 
-ColumnLayout {
+// One catalog group: a caption and a raised card whose rows are generated from
+// the group's SettingSpecs. Rows are separated by hairlines; the first VISIBLE
+// row (dependsOn can hide leading rows) draws none.
+Item {
     id: section
     property var groupData
     function rowVisible(spec) {
         return spec && (spec.dependsOn.length === 0
                         || settings.value(spec.dependsOn) === true)
     }
-    property bool hasVisibleRows: {
+    property int firstVisibleRow: {
         var specs = section.groupData ? section.groupData.rows : null
-        if (!specs) return false
+        if (!specs) return -1
         for (var i = 0; i < specs.length; i++) {
-            if (section.rowVisible(specs[i])) return true
+            if (section.rowVisible(specs[i])) return i
         }
-        return false
+        return -1
     }
-    visible: hasVisibleRows
-    spacing: 8
-    SmallTitle {
-        Layout.fillWidth: true
-        text: i18n.t("settings.group." + section.groupData.id)
+    readonly property real captionHeight: 30
+    visible: firstVisibleRow >= 0
+    implicitHeight: visible ? captionHeight + card.height : 0
+
+    SettingCaption {
+        x: Ui.space4
+        y: 2
+        width: Math.max(0, section.width - Ui.space8)
+        text: section.groupData ? i18n.t("settings.group." + section.groupData.id) : ""
     }
-    Card {
-        Layout.fillWidth: true
-        implicitHeight: rows.implicitHeight
-        radius: 20
-        ColumnLayout {
-            id: rows
-            width: parent.width
-            spacing: 0
-            Repeater {
-                model: section.groupData.rows
-                Loader {
-                    Layout.fillWidth: true
-                    property var rowSpec: modelData
-                    property bool preferenceRow: rowSpec.type === "switch" || rowSpec.type === "dropdown" || rowSpec.type === "action" || rowSpec.type === "path" || rowSpec.type === "color"
-                    Layout.leftMargin: preferenceRow ? 0 : 16
-                    Layout.rightMargin: preferenceRow ? 0 : 16
-                    Layout.topMargin: preferenceRow ? 0 : 16
-                    Layout.bottomMargin: preferenceRow ? 0 : 16
-                    visible: section.rowVisible(rowSpec)
-                    sourceComponent: rowSpec.type === "switch" ? switchRow
-                        : rowSpec.type === "stepper" ? stepperRow
-                        : rowSpec.type === "slider" ? sliderRow
-                        : rowSpec.type === "segmented" ? segmentedRow
-                        : rowSpec.type === "radio" ? radioRow
-                        : rowSpec.type === "dropdown" ? dropdownRow
-                        : rowSpec.type === "text" ? textRow
-                        : rowSpec.type === "color" ? colorRow
-                        : rowSpec.type === "path" ? pathRow : actionRow
-                }
+
+    SettingCard {
+        id: card
+        y: section.captionHeight
+        width: section.width
+        height: implicitHeight
+
+        Repeater {
+            model: section.groupData ? section.groupData.rows : null
+            Loader {
+                Layout.fillWidth: true
+                property var rowSpec: modelData
+                property bool rowSeparator: index > section.firstVisibleRow
+                visible: section.rowVisible(rowSpec)
+                sourceComponent: rowSpec.type === "switch" ? switchRow
+                    : rowSpec.type === "stepper" ? stepperRow
+                    : rowSpec.type === "slider" ? sliderRow
+                    : rowSpec.type === "segmented" ? segmentedRow
+                    : rowSpec.type === "radio" ? radioRow
+                    : rowSpec.type === "dropdown" ? dropdownRow
+                    : rowSpec.type === "text" ? textRow
+                    : rowSpec.type === "color" ? colorRow
+                    : rowSpec.type === "path" ? pathRow : actionRow
             }
         }
     }
+
     Item {
         visible: false
-        Component { id: switchRow; SettingSwitchRow { spec: rowSpec } }
-        Component { id: stepperRow; SettingStepperRow { spec: rowSpec } }
-        Component { id: sliderRow; SettingSliderRow { spec: rowSpec } }
-        Component { id: segmentedRow; SettingSegmentedRow { spec: rowSpec } }
-        Component { id: radioRow; SettingRadioRow { spec: rowSpec } }
-        Component { id: dropdownRow; SettingDropdownRow { spec: rowSpec } }
-        Component { id: textRow; SettingTextRow { spec: rowSpec } }
-        Component { id: colorRow; SettingColorRow { spec: rowSpec } }
-        Component { id: pathRow; SettingPathRow { spec: rowSpec } }
-        Component { id: actionRow; SettingActionRow { spec: rowSpec } }
+        Component { id: switchRow; SettingSwitchRow { spec: rowSpec; separator: rowSeparator } }
+        Component { id: stepperRow; SettingStepperRow { spec: rowSpec; separator: rowSeparator } }
+        Component { id: sliderRow; SettingSliderRow { spec: rowSpec; separator: rowSeparator } }
+        Component { id: segmentedRow; SettingSegmentedRow { spec: rowSpec; separator: rowSeparator } }
+        Component { id: radioRow; SettingRadioRow { spec: rowSpec; separator: rowSeparator } }
+        Component { id: dropdownRow; SettingDropdownRow { spec: rowSpec; separator: rowSeparator } }
+        Component { id: textRow; SettingTextRow { spec: rowSpec; separator: rowSeparator } }
+        Component { id: colorRow; SettingColorRow { spec: rowSpec; separator: rowSeparator } }
+        Component { id: pathRow; SettingPathRow { spec: rowSpec; separator: rowSeparator } }
+        Component { id: actionRow; SettingActionRow { spec: rowSpec; separator: rowSeparator } }
     }
 }
