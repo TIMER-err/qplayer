@@ -23,13 +23,19 @@ Item {
 
     function _ratioAt(px) { return Math.max(0, Math.min(1, px / Math.max(1, bar.width))) }
 
+    // 0..1 emphasis while hovered or scrubbing: the track thickens and the knob
+    // grows out of the playhead instead of popping in.
+    property real _focus: (area.containsMouse || bar.scrubbing) && bar.interactive && !bar.sweeping ? 1 : 0
+    Behavior on _focus { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+    property real _grip: bar.scrubbing ? 1 : 0
+    Behavior on _grip { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+
     Rectangle {
         id: track
         x: 0
         y: (bar.height - height) / 2
         width: bar.width
-        height: (area.containsMouse || bar.scrubbing) && bar.interactive
-                ? bar.trackHeight + 2 : bar.trackHeight
+        height: bar.trackHeight + 2 * bar._focus
         radius: height / 2
         color: Ui.dark ? "#26FFFFFF" : "#17000000"
         clip: true
@@ -55,12 +61,13 @@ Item {
 
     Rectangle {
         objectName: "seekBarKnob"
-        visible: bar.interactive && !bar.sweeping && (area.containsMouse || bar.scrubbing)
+        visible: bar._focus > 0.01
         width: 12
         height: 12
         radius: 6
         x: Math.max(0, Math.min(bar.width - width, bar.width * bar.shownValue - width / 2))
         y: (bar.height - height) / 2
+        scale: bar._focus * (1 + 0.2 * bar._grip)
         color: Ui.accent
     }
 

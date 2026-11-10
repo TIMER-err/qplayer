@@ -1,6 +1,7 @@
 import QtQuick
 import miuix.Core
 import design
+import "."
 
 // Lyric-page transport. Drawn over the host's dark fluid backdrop in every
 // theme, so content is white and the play button is a solid white disc with a
@@ -48,7 +49,7 @@ Item {
         containerColor: row.fg
         contentColor: "#E6000000"
         icon: player.playing ? "pause" : "play_arrow"
-        onClicked: player.toggle()
+        onClicked: { pausePop.restart(); player.toggle() }
     }
     IconButton {
         id: prevBtn
@@ -87,6 +88,7 @@ Item {
         onClicked: player.cyclePlayMode()
     }
     IconButton {
+        id: likeBtn
         objectName: "lyricLikeButton"
         width: row.btnSize; height: row.btnSize
         anchors.left: nextBtn.right
@@ -97,6 +99,9 @@ Item {
         icon: player.currentLiked ? "favorite" : "favorite_border"
         contentColor: !player.currentLikeable ? "#40FFFFFF"
                       : (player.currentLiked ? Ui.like : row.fgMuted)
-        onClicked: player.toggleLike()
+        onClicked: { likePop.restart(); player.toggleLike() }
     }
+
+    Pop { id: pausePop; target: pauseBtn; peak: 0.88 }
+    Pop { id: likePop; target: likeBtn; peak: 1.3 }
 }

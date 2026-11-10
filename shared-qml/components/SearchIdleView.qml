@@ -206,7 +206,9 @@ Item {
                 id: toggleIcon
                 x: Ui.space2
                 y: (parent.height - size) / 2
-                name: view.historyExpanded ? "expand_less" : "expand_more"
+                name: "expand_more"
+                rotation: view.historyExpanded ? 180 : 0
+                Behavior on rotation { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
                 size: 18
                 color: Ui.textSecondary
             }

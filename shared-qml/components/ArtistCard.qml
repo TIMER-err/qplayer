@@ -16,6 +16,8 @@ Item {
     property string coverThumbPath: ""
     property real tile: 130
     signal clicked()
+    scale: cardRipple.pressed ? 0.97 : 1.0
+    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
 
     readonly property real _scale: tile / 200
     readonly property int titleSize: Math.max(12, Math.min(20, Math.round(15 * _scale)))

@@ -88,7 +88,9 @@ Rectangle {
     Flickable {
         id: scroller
         anchors.fill: parent
-        visible: !player.artistLoading
+        visible: opacity > 0.01
+        opacity: player.artistLoading ? 0 : 1
+        Behavior on opacity { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
         clip: true
         contentWidth: width
         contentHeight: page.contentBottom + page.bottomContentInset

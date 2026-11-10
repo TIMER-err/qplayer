@@ -69,7 +69,8 @@ Item {
         dragArea.cancelGesture()
     }
 
-    scale: card.dragging ? 1.05 : 1.0
+    // Lifts while carried; dips slightly under a press.
+    scale: card.dragging ? 1.05 : (cardRipple.pressed ? 0.97 : 1.0)
     Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
 
     // Type follows the tile (200 = the libraryCardSize default); the floors keep

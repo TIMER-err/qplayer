@@ -199,7 +199,9 @@ Rectangle {
             color: Ui.surfaceSunken
             // Always drawn: it is the loading state until the art decodes on top
             // (decoding only advances while painted, so a reused row can sit
-            // undecoded for a few frames).
+            // undecoded for a few frames). The glyph is only for rows without
+            // art: under a cover it would be one more text draw per visible row
+            // on every scrolled frame.
             // Sized to the box via reactive width/height bindings — NOT anchors,
             // which run in the layout pass that cachedLayout skips for a row first
             // realized off-screen. With a real box size the glyph self-centres at
@@ -209,7 +211,7 @@ Rectangle {
                 height: parent.height
                 size: 22
                 name: "music_note"
-                visible: !row.highlighted
+                visible: !row.highlighted && row.coverThumbPath === ""
                 color: Ui.textTertiary
             }
         }
@@ -345,11 +347,13 @@ Rectangle {
 
     // Unconstrained shaping probe for the real rendered glyph width. The visible
     // Text spans the column so it can elide, therefore its own width is the
-    // available column width rather than the artist text's painted width.
+    // available column width rather than the artist text's painted width. Only
+    // the desktop artist link needs it; touch rows skip the extra shaping that
+    // every recycled row would otherwise pay.
     Text {
         id: artistProbe
         visible: false
-        text: row.rowArtist
+        text: artistArea.enabled ? row.rowArtist : ""
         font.pixelSize: artistText.font.pixelSize
     }
 

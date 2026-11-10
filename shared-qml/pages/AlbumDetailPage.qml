@@ -54,7 +54,9 @@ Rectangle {
     VirtualSongList {
         id: tracks
         anchors.fill: parent
-        visible: !player.albumLoading
+        visible: opacity > 0.01
+        opacity: player.albumLoading ? 0 : 1
+        Behavior on opacity { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
         rowInset: page.gutter
         scrollBarTopInset: Ui.headerHeight
         bottomContentInset: page.bottomContentInset + 8

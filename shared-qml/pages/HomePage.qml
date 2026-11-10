@@ -227,6 +227,9 @@ Item {
             // Cards/rows have fixed index-derived positions; skip re-measuring the
             // whole page on unrelated version bumps (the play clock) once laid out.
             cachedLayout: true
+            // Replaces the skeleton with a fade rather than a hard cut.
+            opacity: page.hasContent ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
 
             Text {
                 objectName: "homeGreeting"

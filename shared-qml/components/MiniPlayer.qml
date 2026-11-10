@@ -191,6 +191,7 @@ SmoothRectangle {
             onClicked: volumePopup.open(compactVolume)
         }
         IconButton {
+            id: compactLike
             visible: compactCluster.showLike
             x: mini.desktopVolumeControl ? 40 : 0
             y: 2
@@ -198,9 +199,10 @@ SmoothRectangle {
             enabled: player.currentLikeable
             icon: player.currentLiked ? "favorite" : "favorite_border"
             contentColor: player.currentLiked ? Ui.like : Theme.color.onSurfaceVariantColor
-            onClicked: player.toggleLike()
+            onClicked: { compactLikePop.restart(); player.toggleLike() }
         }
         IconButton {
+            id: compactPlay
             objectName: "miniPlayerPlayButton"
             x: compactCluster.width - 44 - 40 - 8
             y: 0
@@ -208,7 +210,7 @@ SmoothRectangle {
             height: 44
             type: "filled"
             icon: player.playing ? "pause" : "play_arrow"
-            onClicked: player.toggle()
+            onClicked: { compactPlayPop.restart(); player.toggle() }
         }
         IconButton {
             x: compactCluster.width - 40 - 4
@@ -267,12 +269,13 @@ SmoothRectangle {
                 onClicked: player.prev()
             }
             IconButton {
+                id: widePlay
                 objectName: "miniPlayerWidePlayButton"
                 width: 44
                 height: 44
                 type: "filled"
                 icon: player.playing ? "pause" : "play_arrow"
-                onClicked: player.toggle()
+                onClicked: { widePlayPop.restart(); player.toggle() }
             }
             IconButton {
                 y: 2
@@ -281,12 +284,13 @@ SmoothRectangle {
                 onClicked: player.next()
             }
             IconButton {
+                id: wideLike
                 y: 2
                 type: "standard"
                 enabled: player.currentLikeable
                 icon: player.currentLiked ? "favorite" : "favorite_border"
                 contentColor: player.currentLiked ? Ui.like : Theme.color.onSurfaceVariantColor
-                onClicked: player.toggleLike()
+                onClicked: { wideLikePop.restart(); player.toggleLike() }
             }
         }
 
@@ -371,4 +375,11 @@ SmoothRectangle {
             onClicked: mini.lyricsRequested()
         }
     }
+
+    // Click feedback pulses; kept at the root because children declared on a
+    // miuix IconButton instance are not reliably instantiated.
+    Pop { id: compactLikePop; target: compactLike; peak: 1.3 }
+    Pop { id: compactPlayPop; target: compactPlay; peak: 0.86 }
+    Pop { id: widePlayPop; target: widePlay; peak: 0.86 }
+    Pop { id: wideLikePop; target: wideLike; peak: 1.3 }
 }

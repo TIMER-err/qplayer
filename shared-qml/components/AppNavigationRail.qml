@@ -89,6 +89,22 @@ Item {
                 y: 4
                 width: parent.width
                 height: rail.pageManager.navItems.length * 48
+                // One selection pill shared by the root destinations: it glides
+                // to the new entry instead of each item cross-fading its own.
+                Rectangle {
+                    id: rootSelection
+                    objectName: "navRailSelection"
+                    x: rail.expanded ? 12 : (rootList.width - width) / 2
+                    y: rail.pageManager.nextPage * 48 + 2
+                    width: rail.expanded ? rootList.width - 24 : 56
+                    height: 40
+                    radius: Ui.radiusMd
+                    color: Ui.accentSoft
+                    opacity: rail.pageManager.currentOverlay === "" ? 1 : 0
+                    visible: opacity > 0.01
+                    Behavior on y { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
+                    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                }
                 Repeater {
                     model: rail.pageManager.navItems
                     SidebarItem {
@@ -101,6 +117,7 @@ Item {
                         text: modelData.text
                         selected: rail.pageManager.currentOverlay === ""
                                   && rail.pageManager.nextPage === index
+                        pillDrawnByParent: true
                         onClicked: rail.pageManager.switchTo(index)
                     }
                 }

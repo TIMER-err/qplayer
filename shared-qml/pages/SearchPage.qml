@@ -174,6 +174,9 @@ Item {
                                   : page.mode === "album" ? albumGrid.count
                                   : page.mode === "artist" ? artistGrid.count
                                   : playlistGrid.count
+        // Results fade in as they arrive and out when a new query clears them.
+        property real contentReveal: resultCount > 0 ? 1 : 0
+        Behavior on contentReveal { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
 
         // One unified, always-scrollable list (providers first, then local;
         // player.searchRows is built in that order by
@@ -188,6 +191,7 @@ Item {
             height: resultsView.height
             bottomContentInset: page.bottomContentInset
             visible: page.mode === "song"
+            opacity: resultsView.contentReveal
             list: page.mode === "song" ? player.searchRows : null
             songMenu: true
             menuEligibilityFromModel: true
@@ -211,6 +215,7 @@ Item {
             onContentHeightChanged: contentY = Math.min(contentY, Math.max(0, contentHeight - height))
             anchors.fill: parent
             visible: page.mode === "album"
+            opacity: resultsView.contentReveal
             clip: true
             contentWidth: width
             property var results: player.sourceContentActive
@@ -257,6 +262,7 @@ Item {
             onContentHeightChanged: contentY = Math.min(contentY, Math.max(0, contentHeight - height))
             anchors.fill: parent
             visible: page.mode === "artist"
+            opacity: resultsView.contentReveal
             clip: true
             contentWidth: width
             property var results: player.sourceContentActive
@@ -298,6 +304,7 @@ Item {
             objectName: "searchPlaylistGrid"
             anchors.fill: parent
             visible: page.mode === "playlist"
+            opacity: resultsView.contentReveal
             clip: true
             contentWidth: width
             property var results: player.searchPlaylistResults

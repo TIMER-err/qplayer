@@ -20,6 +20,9 @@ Item {
     readonly property real frontX: width - inset - coverSize
     readonly property real backX: frontX - 0.62 * coverSize
     readonly property real textWidth: Math.max(0, backX - Ui.space4 - inset)
+    // 0..1: the cover fan opens slightly while the panel is hovered.
+    property real spread: bodyArea.containsMouse ? 1 : 0
+    Behavior on spread { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
 
     function coverOf(i) {
         if (hero.songCount <= i || !hero.songs || !hero.songs[i]) return ""
@@ -63,7 +66,7 @@ Item {
         visible: hero.songCount > 2
         width: Math.round(hero.coverSize * 0.74)
         height: width
-        x: hero.backX
+        x: hero.backX - hero.spread * 0.08 * hero.coverSize
         y: (hero.height - height) / 2
         radius: Ui.radiusSm
         icon: "music_note"
@@ -82,7 +85,7 @@ Item {
         visible: hero.songCount > 1
         width: Math.round(hero.coverSize * 0.87)
         height: width
-        x: hero.frontX - 0.33 * hero.coverSize
+        x: hero.frontX - 0.33 * hero.coverSize - hero.spread * 0.04 * hero.coverSize
         y: (hero.height - height) / 2
         radius: Ui.radiusMd
         icon: "music_note"

@@ -19,6 +19,8 @@ Item {
     property string coverThumbPath: ""
     property real tile: 130
     signal clicked()
+    scale: cardRipple.pressed ? 0.97 : 1.0
+    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
 
     // Same scale, caption slot and line budget as PlaylistCard, so every grid
     // of the app shares one row height formula: tile + textSlot.
