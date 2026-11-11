@@ -223,6 +223,7 @@ public final class BundledQmlSmoke {
                         settle(view);
                         require(light.equals(surface.color.peek()), "Reopened scene did not restore its visible light theme");
                     }
+                    downloadQualityChoices(view, player);
                 } else {
                     Item locked = view.findByObjectName("desktopLyricLockedControl");
                     require(locked != null && !Boolean.TRUE.equals(locked.visible.peek()), "Initial lyric lock state");
@@ -234,6 +235,36 @@ public final class BundledQmlSmoke {
                 view.dispose();
             }
         }
+    }
+
+    private static void downloadQualityChoices(QmlView view, PlayerController player) {
+        view.root().width.set(430);
+        view.root().height.set(900);
+        player.downloadQualityTitle.set("Download quality");
+        player.downloadQualityOpen.set(true);
+        settle(view);
+        long start = System.nanoTime();
+        view.tickAnimations(start);
+        view.tickAnimations(start + 1_000_000_000L);
+        settle(view);
+        float previousBottom = 0;
+        for (String quality : new String[]{"standard", "higher", "exhigh", "lossless", "hires"}) {
+            Item button = view.findByObjectName("downloadQuality_" + quality);
+            require(button != null, "Missing packaged download quality choice: " + quality);
+            var position = view.root().mapFromItem(button, 0, 0);
+            float x = ((Number) position.get("x")).floatValue();
+            float y = ((Number) position.get("y")).floatValue();
+            float width = button.width.peekFloat();
+            float height = button.height.peekFloat();
+            require(width > 0 && height > 0 && x >= 0 && x + width <= view.root().width.peekFloat()
+                            && y >= previousBottom && y + height <= view.root().height.peekFloat(),
+                    "Packaged download quality choice is collapsed, overlapping or offscreen: " + quality);
+            previousBottom = y + height;
+        }
+        player.cancelDownloadQuality();
+        settle(view);
+        view.tickAnimations(start + 2_000_000_000L);
+        settle(view);
     }
 
     private static void settle(QmlView view) {

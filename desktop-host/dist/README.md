@@ -60,6 +60,10 @@ integration step loads both real scene manifests through `BundledQml`, without
 QML source access. It checks visible theme changes, theme ownership after scene
 reopening, a reactive lyric lock control, and native image decoding. Scene layout
 also uses the production font-loading path.
+The same smoke opens the download quality dialog and checks that all five choices
+have nonzero sizes and remain separated and on-screen after the dialog overlay
+is reparented. It repeats this check when the main scene is reopened.
+
 It also reads synthetic ID3v2.2 and ID3v2.3 MP3 files, checks their converted
 recording dates and original-release years, and scans them through the production
 `LibraryScanner` and `DesktopMetadataReader`. This covers legacy

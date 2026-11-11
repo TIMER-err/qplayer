@@ -680,6 +680,11 @@ to avoid ambiguous assets/version display. The parser accepts a tag without
 `v`; a tag/manifest version mismatch is logged, not rejected. The signed
 manifest determines the installed version.
 
+Both hosts refresh the catalog asynchronously after the first painted frame,
+using the saved network settings. This runs in development and release builds,
+independently of the app update check. The source setup dialog and Settings
+share the fetched entries; Settings also provides a manual refresh action.
+
 Plugins can release independently of QPlayer. Adding a catalog source requires
 a host resource change and release, not a downloaded/user-editable catalog.
 Publisher key rotation requires updating the host pin; already-released hosts

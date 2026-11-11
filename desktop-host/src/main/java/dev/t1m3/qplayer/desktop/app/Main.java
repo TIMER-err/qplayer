@@ -333,6 +333,7 @@ public final class Main {
             startLibraryScan(controller, reader, window, settings.str("musicFolder"));
             startLibraryWatcher(watcher, settings.str("musicFolder"));
             if (PACKAGED) controller.checkForUpdate();
+            controller.refreshPluginCatalog();
             if (!"false".equals(System.getProperty("qplayer.tray", "true"))) {
                 // NSStatusItem must be created on the GLFW/AppKit main thread.
                 // Windows/Linux tray backends own their own pump threads.

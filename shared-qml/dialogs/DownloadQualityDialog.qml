@@ -7,12 +7,6 @@ import design
 // QML handler that calls Java with a quality token. Very high (exhigh) is the
 // filled default; the others are tonal.
 Item {
-    id: control
-
-    readonly property var qualities: ["standard", "higher", "exhigh", "lossless", "hires"]
-    readonly property real buttonHeight: 48
-    readonly property real gap: Ui.space2
-
     property bool openWatch: player.downloadQualityOpen
     onOpenWatchChanged: {
         if (player.downloadQualityOpen) dialog.open()
@@ -22,6 +16,16 @@ Item {
     Dialog {
         id: dialog
         objectName: "downloadQualityDialog"
+        readonly property var qualities: ["standard", "higher", "exhigh", "lossless", "hires"]
+        readonly property real buttonHeight: 48
+        readonly property real gap: Ui.space2
+
+        // Repeater delegates must resolve state on the root-reparented dialog itself.
+        function chooseQuality(quality) {
+            player.confirmDownloadQuality(quality)
+            dialog.close()
+        }
+
         topInset: settings.topInset
         bottomInset: settings.bottomInset
         icon: "download"
@@ -36,19 +40,19 @@ Item {
 
         Item {
             width: dialog.contentWidth
-            height: control.qualities.length * (control.buttonHeight + control.gap)
+            height: dialog.qualities.length * (dialog.buttonHeight + dialog.gap)
 
             // Placed by index: qml4j does not position Repeater children.
             Repeater {
-                model: control.qualities
+                model: dialog.qualities
                 Button {
                     objectName: "downloadQuality_" + modelData
-                    y: index * (control.buttonHeight + control.gap)
+                    y: index * (dialog.buttonHeight + dialog.gap)
                     width: parent.width
-                    height: control.buttonHeight
+                    height: dialog.buttonHeight
                     type: modelData === "exhigh" ? "filled" : "filledTonal"
                     text: i18n.t("menu.download." + modelData)
-                    onClicked: { player.confirmDownloadQuality(modelData); dialog.close() }
+                    onClicked: dialog.chooseQuality(modelData)
                 }
             }
         }
