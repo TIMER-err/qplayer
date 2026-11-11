@@ -162,7 +162,8 @@ jobs:
       - name: Install Linux WebView build dependencies
         if: runner.os == 'Linux'
         run: |
-          # The Azure mirror can take many minutes per package. Use Ubuntu's
+          packages=(cmake pkg-config build-essential zlib1g-dev libgtk-3-dev libwebkit2gtk-4.1-dev libx11-dev)
+          # The Azure mirror can take many minutes per package. Prefer Ubuntu's
           # HTTPS archives without changing the runner's system source files.
           sources="$RUNNER_TEMP/qplayer-ubuntu.list"
           printf '%s\n' \
@@ -170,8 +171,16 @@ jobs:
             'deb https://archive.ubuntu.com/ubuntu jammy-updates main universe' \
             'deb https://security.ubuntu.com/ubuntu jammy-security main universe' > "$sources"
           apt_options=(-o "Dir::Etc::sourcelist=$sources" -o 'Dir::Etc::sourceparts=-')
-          sudo apt-get "${apt_options[@]}" update
-          sudo apt-get "${apt_options[@]}" install -y --no-install-recommends cmake pkg-config build-essential zlib1g-dev libgtk-3-dev libwebkit2gtk-4.1-dev libx11-dev
+          # Plain `update` exits 0 even when every index fails to download, which
+          # only surfaces later as "Unable to locate package". When the archives
+          # are unreachable (runner DNS outages), fall back to the default mirror.
+          if sudo apt-get "${apt_options[@]}" update --error-on=any; then
+            sudo apt-get "${apt_options[@]}" install -y --no-install-recommends "${packages[@]}"
+          else
+            echo "::warning::Ubuntu archives unreachable; using the runner's default mirror"
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends "${packages[@]}"
+          fi
 
       - name: Set up Windows C++ toolchain
         if: runner.os == 'Windows'
