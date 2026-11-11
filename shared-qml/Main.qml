@@ -909,13 +909,15 @@ Rectangle {
         }
     }
 
-    ToastStack {
+    NoticeStack {
         id: snack
         visible: player.lyricSlide <= 0.001
         anchors.left: rail.right
         anchors.right: parent.right
         anchors.leftMargin: 16
         anchors.rightMargin: settings.rightInset + 16
+        // Above the floating player bar (and bottom navigation), never over it.
+        bottomInset: app.bottomContentInset + 4
         z: 20000
     }
 

@@ -109,10 +109,12 @@ public class ResponsiveNavigationTest {
         withShell(480, 806, (view, player) -> {
             click(view, view.findByObjectName("miuixNavigationItem1"));
             settle(view);
+            // Song lists own menus too; take the overflow menu's own overlay
+            // before open() reparents it to the scene root.
+            Item overlay = findIn(view.findByObjectName("compactOverflowMenu"), "miuixMenuOverlay");
+            assertNotNull(overlay);
             click(view, view.findByObjectName("compactOverflowAction"));
             settle(view);
-            Item overlay = view.findByObjectName("miuixMenuOverlay");
-            assertNotNull(overlay);
             assertTrue("overflow menu must open", overlay.visible.peek());
 
             player.pressBack();
@@ -220,5 +222,15 @@ public class ResponsiveNavigationTest {
         float y = ((Number) mapped.get("y")).floatValue();
         view.dispatchPointerDown(x, y);
         view.dispatchPointerUp(x, y);
+    }
+
+    private static Item findIn(Item item, String name) {
+        if (item == null) return null;
+        if (name.equals(item.objectName.peek())) return item;
+        for (Item child : item.children) {
+            Item found = findIn(child, name);
+            if (found != null) return found;
+        }
+        return null;
     }
 }

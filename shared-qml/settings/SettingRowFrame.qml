@@ -19,6 +19,8 @@ Item {
     property color iconColor: Ui.textSecondary
     // Trailing text drawn by the frame (current dropdown choice, "选择目录" ...).
     property string value: ""
+    // Action rows ("设为主音源") tint their trailing text with the accent.
+    property color valueColor: Ui.textSecondary
     // Trailing glyph: "chevron_right", "unfold_more", "" for none.
     property string indicator: ""
     property color indicatorColor: Ui.textTertiary
@@ -122,7 +124,7 @@ Item {
         width: frame.valueWidth
         visible: frame.value.length > 0
         text: frame.value
-        color: Ui.textSecondary
+        color: frame.valueColor
         elide: Text.ElideRight
         maximumLineCount: 1
         font.pixelSize: Ui.textCallout

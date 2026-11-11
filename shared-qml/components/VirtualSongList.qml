@@ -54,6 +54,16 @@ Flickable {
         for (var i = 0; i < parts.length; i++) if (parts[i] !== "") n++
         return n
     }
+    // True only when every selected row is one of the account's liked songs:
+    // the batch "unlike" action is offered for that selection alone. Same row id
+    // the per-row heart uses; likedRevision makes the liked set observable.
+    readonly property bool selectionAllLiked: {
+        if (view.selectedKey === "" || player.likedRevision < 0) return false
+        var parts = view.selectedKey.split("\n")
+        for (var i = 0; i < parts.length; i++)
+            if (parts[i] !== "" && !player.isMediaLiked(parts[i])) return false
+        return true
+    }
     // Every real song row gets the same right-click/long-press menu. Callers can
     // still turn it off for a deliberately read-only list; ownedPlaylist unlocks
     // "remove from playlist" inside a playlist the user owns.
@@ -390,6 +400,7 @@ Flickable {
                              && (!view.menuEligibilityFromModel || !!modelData.menuEnabled)
                 inOwnedPlaylist: view.ownedPlaylist
                 inCacheList: view.cacheList
+                sharedMenu: songMenuShared
                 selectMode: view.selectMode
                 selected: view.selectMode && view.selectedKey !== ""
                           && (("\n" + view.selectedKey + "\n").indexOf(
@@ -456,6 +467,15 @@ Flickable {
                 onReorderReleased: view._endDrag()
                 onReorderCanceled: view._cancelDrag()
             }
+        }
+
+        // The one context menu every row of this list opens (SongRow.sharedMenu).
+        // Created with the list, so opening a playlist no longer builds a Menu
+        // per visible row.
+        SongContextMenu {
+            id: songMenuShared
+            onClosed: if (menuRow) menuRow._menuArmed = false
+            onDownloadChosen: view.downloadClicked()
         }
 
         // The carried row, lifted out of the list. A separate item rather than the

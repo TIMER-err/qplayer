@@ -81,7 +81,10 @@ public class LyricNotificationInputTest {
             assertNotNull(dismiss);
             Item slot = dismiss.parent.peek().parent.peek();
             assertTrue(slot.isVisible());
-            Map<String, Object> centre = view.root().mapFromItem(dismiss, 18, 18);
+            // The whole pill dismisses. Tap its right end, which overlaps the
+            // landscape lyric column (the right half of the page).
+            Map<String, Object> centre = view.root().mapFromItem(dismiss,
+                    dismiss.width.peekFloat() - 10, dismiss.height.peekFloat() / 2);
             float x = ((Number) centre.get("x")).floatValue();
             float y = ((Number) centre.get("y")).floatValue();
             assertTrue("control: nearby bare lyrics remain scrollable",

@@ -7,10 +7,10 @@ Item {
     
     // API
     property var model: [] // Array of objects: { text, icon, trailingText, trailingIcon, type: "item"|"separator", action: func, enabled: bool, subItems: [] }
-    property int menuPadding: 12
+    property int menuPadding: 6
     // Cap the popup width so a long item label (e.g. a playlist name in a submenu)
     // can't stretch the menu nearly across the screen; the item text elides instead.
-    property real maxWidth: 288
+    property real maxWidth: 264
     // Cap the popup height; a longer list (many playlists) scrolls inside.
     property real maxHeight: 420
     // A submenu belongs to its parent popup and therefore must not evict it from
@@ -137,20 +137,20 @@ Item {
                : control.targetY
             
             // Continue from current values when an open interrupts a pending close.
-            scale: 0.8
+            scale: 0.92
             opacity: 0
             transformOrigin: Item.TopLeft
 
             ParallelAnimation {
                 id: enterAnim
-                NumberAnimation { target: popupContainer; property: "scale"; to: 1.0; duration: 200; easing.type: Easing.OutCubic }
-                NumberAnimation { target: popupContainer; property: "opacity"; to: 1.0; duration: 150 }
+                NumberAnimation { target: popupContainer; property: "scale"; to: 1.0; duration: 180; easing.type: Easing.OutCubic }
+                NumberAnimation { target: popupContainer; property: "opacity"; to: 1.0; duration: 140 }
             }
             ParallelAnimation {
                 id: exitAnim
                 onFinished: control._finishClose()
-                NumberAnimation { target: popupContainer; property: "opacity"; to: 0.0; duration: 150 }
-                NumberAnimation { target: popupContainer; property: "scale"; to: 0.8; duration: 150; easing.type: Easing.InCubic }
+                NumberAnimation { target: popupContainer; property: "opacity"; to: 0.0; duration: 120 }
+                NumberAnimation { target: popupContainer; property: "scale"; to: 0.95; duration: 120; easing.type: Easing.InCubic }
             }
 
             // Shadow Source
@@ -168,9 +168,9 @@ Item {
                 anchors.fill: shadowSource
                 shadowEnabled: true
                 shadowColor: _colors.shadow
-                shadowBlur: _elevation.level2 * 0.5
+                shadowBlur: _elevation.level3 * 0.6
                 shadowVerticalOffset: _elevation.level2
-                shadowOpacity: 0.2
+                shadowOpacity: 0.28
                 z: 0
                 // Opacity is inherited from parent (popupContainer), no need to double apply
             }
@@ -181,7 +181,9 @@ Item {
                 z: 1
                 anchors.fill: parent
                 color: control.outlined ? _colors.surfaceContainerLow : _colors.surfaceContainer
-                radius: control.outlined ? 12 : 16
+                radius: control.outlined ? 14 : 18
+                border.width: 1
+                border.color: _colors.outlineVariant
                 clip: true
                 
                 Flickable {
@@ -283,11 +285,12 @@ Item {
         id: separatorComponent
         Item {
             implicitWidth: 112
-            implicitHeight: 17 // 1px + 16dp padding
+            implicitHeight: 9
             Layout.fillWidth: true
             Rectangle {
-                anchors.centerIn: parent
-                width: parent.width
+                x: 14
+                y: 4
+                width: Math.max(0, parent.width - 28)
                 height: 1
                 color: _colors.outlineVariant
             }
@@ -298,8 +301,8 @@ Item {
         id: itemComponent
         Item {
             id: menuItem
-            implicitWidth: Math.max(112, row.implicitWidth + 24)
-            implicitHeight: 56
+            implicitWidth: Math.max(112, row.implicitWidth + 32)
+            implicitHeight: 44
             objectName: "miuixMenuItem" + parent.itemIndex
             Layout.fillWidth: true
             
@@ -320,9 +323,14 @@ Item {
                 }
             }
             
-            // State Layer
+            // Inset rounded highlight for keyboard selection; the Ripple below
+            // draws hover/press inside the same rounded shape.
             Rectangle {
-                anchors.fill: parent
+                x: 6
+                y: 2
+                width: Math.max(0, parent.width - 12)
+                height: Math.max(0, parent.height - 4)
+                radius: 10
                 color: _colors.onSurfaceColor
                 opacity: {
                     if (!itemEnabled) return 0
@@ -337,7 +345,11 @@ Item {
             // taps never reached this Ripple; removed. Submenus open on tap below.
             Ripple {
                 id: itemRipple
-                anchors.fill: parent
+                x: 6
+                y: 2
+                width: Math.max(0, parent.width - 12)
+                height: Math.max(0, parent.height - 4)
+                clipRadius: 10
                 enabled: itemEnabled
                 rippleColor: _colors.onSurfaceColor
                 onClicked: menuItem.activate()
@@ -345,7 +357,7 @@ Item {
             function activate() {
                 if (!itemEnabled) return
                 if (hasSubMenu) {
-                    if (subMenuLoader.item) subMenuLoader.item.open(menuItem, menuItem.width, -12)
+                    if (subMenuLoader.item) subMenuLoader.item.open(menuItem, menuItem.width - 6, -6)
                 } else {
                     if (typeof itemData.action === "function") itemData.action()
                     var menu = control
@@ -357,8 +369,8 @@ Item {
             RowLayout {
                 id: row
                 anchors.fill: parent
-                anchors.leftMargin: 12
-                anchors.rightMargin: 12
+                anchors.leftMargin: 16
+                anchors.rightMargin: 14
                 spacing: 12
                 
                 // Icon
@@ -366,8 +378,8 @@ Item {
                     visible: !!itemData.icon
                     text: itemData.icon || ""
                     font.family: Theme.iconFont.name
-                    font.pixelSize: 24
-                    color: _colors.onSurfaceColor
+                    font.pixelSize: 20
+                    color: _colors.onSurfaceVariantColor
                     opacity: itemEnabled ? 1 : 0.38
                     Layout.alignment: Qt.AlignVCenter
                 }
@@ -376,7 +388,7 @@ Item {
                 Text {
                     text: itemData.text || ""
                     font.family: _typography.labelLarge.family
-                    font.pixelSize: 16
+                    font.pixelSize: 15
                     font.weight: Font.Normal
                     color: _colors.onSurfaceColor
                     opacity: itemEnabled ? 1 : 0.38
@@ -391,22 +403,22 @@ Item {
                     visible: !!itemData.trailingText
                     text: itemData.trailingText || ""
                     font.family: _typography.labelLarge.family
-                    font.pixelSize: 16
+                    font.pixelSize: 14
                     font.weight: Font.Normal
-                    color: _colors.onSurfaceColor
+                    color: _colors.onSurfaceVariantColor
                     opacity: itemEnabled ? 1 : 0.38
                     horizontalAlignment: Text.AlignRight
                     Layout.alignment: Qt.AlignVCenter
                 }
                 
-                // Trailing Icon (or Arrow for submenu)
+                // Trailing Icon (or chevron for submenu)
                 Text {
                     visible: !!itemData.trailingIcon || hasSubMenu
-                    text: hasSubMenu ? "arrow_right" : (itemData.trailingIcon || "")
+                    text: hasSubMenu ? "chevron_right" : (itemData.trailingIcon || "")
                     font.family: Theme.iconFont.name
-                    font.pixelSize: 24
+                    font.pixelSize: 18
                     color: _colors.onSurfaceVariantColor
-                    opacity: itemEnabled ? 1 : 0.38
+                    opacity: itemEnabled ? 0.8 : 0.3
                     Layout.alignment: Qt.AlignVCenter
                 }
             }

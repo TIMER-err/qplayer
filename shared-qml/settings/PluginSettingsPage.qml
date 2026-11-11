@@ -312,8 +312,13 @@ Rectangle {
                     Layout.fillWidth: true
                     visible: page.pluginEnabled
                     implicitHeight: primaryFrame.implicitHeight
+                    // A plain action row like the other rows on this page, not
+                    // a tonal button that outgrew the row: tap anywhere to make
+                    // this plugin the primary source; the current one shows a
+                    // check instead.
                     SettingRowFrame {
                         id: primaryFrame
+                        objectName: "pluginPrimaryRow"
                         width: primaryRow.width
                         height: primaryRow.height
                         icon: "star"
@@ -321,25 +326,12 @@ Rectangle {
                         title: i18n.t("plugin.entry.primary")
                         summary: page.pluginPrimary ? i18n.t("plugin.page.primary.current") : ""
                         separator: true
-                        clickable: false
-                        controlWidth: page.pluginPrimary ? 22 : primaryButton.width
-                    }
-                    Glyph {
-                        x: primaryRow.width - Ui.space4 - width
-                        y: (primaryRow.height - height) / 2
-                        visible: page.pluginPrimary
-                        name: "check_circle"
-                        color: Ui.accent
-                    }
-                    Button {
-                        id: primaryButton
-                        objectName: "pluginPrimaryButton"
-                        x: primaryRow.width - Ui.space4 - width
-                        y: (primaryRow.height - height) / 2
-                        visible: !page.pluginPrimary
-                        enabled: !player.pluginInstallBusy
-                        type: "filledTonal"
-                        text: i18n.t("plugin.page.primary.set")
+                        clickable: !page.pluginPrimary
+                        rowEnabled: page.pluginPrimary || !player.pluginInstallBusy
+                        value: page.pluginPrimary ? "" : i18n.t("plugin.page.primary.set")
+                        valueColor: Ui.accent
+                        indicator: page.pluginPrimary ? "check_circle" : "chevron_right"
+                        indicatorColor: page.pluginPrimary ? Ui.accent : Ui.textTertiary
                         onClicked: player.setPrimarySourcePlugin(page.pluginId)
                     }
                 }

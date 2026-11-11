@@ -365,7 +365,8 @@ Rectangle {
                 objectName: "playlistDetailUnlikeSelected"
                 type: "standard"
                 icon: "heart_minus"
-                enabled: tracks.selectedN > 0
+                // Only for a selection that is entirely liked songs.
+                visible: tracks.selectionAllLiked
                 onClicked: {
                     player.unlikeMediaMany(tracks.selectedKey)
                     page.exitSelectMode()

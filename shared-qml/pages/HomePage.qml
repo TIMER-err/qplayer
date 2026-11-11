@@ -174,15 +174,13 @@ Item {
         return f
     }
     property int firstCard: firstGridRow * cols
-    property int cardWindow: {
-        var gridBottom = gridTop + gridH
-        if (gridBottom < homeFlick.scrollOffset - cardRowH) return 0
-        return gridWindowRows * cols
-    }
-    property int songWindow: {
-        if (dailyTop > homeFlick.scrollOffset + homeFlick.height + 2 * rowH) return 0
-        return Math.min(dailyCount, Math.ceil(homeFlick.height / rowH) + 10)
-    }
+    // Window sizes never depend on the scroll position: a window that grows from
+    // 0 when its section scrolls into view builds every delegate (rows plus their
+    // covers) in one frame, which stalled the animated scroll to the daily list.
+    // A fixed count builds them once when the data lands; scrolling only rebinds
+    // the recycled delegates.
+    property int cardWindow: gridWindowRows * cols
+    property int songWindow: Math.min(dailyCount, Math.ceil(homeFlick.height / rowH) + 10)
     property int firstSong: {
         var f = Math.floor((homeFlick.scrollOffset - dailyTop) / rowH) - 4
         var maxF = dailyCount - songWindow
@@ -345,8 +343,13 @@ Item {
                     rowArtistNamesCsv: modelData.artistNamesCsv || ""
                     coverThumbPath: modelData.coverThumbPath || ""
                     song: modelData
+                    sharedMenu: homeSongMenu
                     onActivated: player.playRecommendation(index)
                 }
+            }
+            SongContextMenu {
+                id: homeSongMenu
+                onClosed: if (menuRow) menuRow._menuArmed = false
             }
         }
     }

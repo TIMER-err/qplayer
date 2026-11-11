@@ -2,12 +2,12 @@ import QtQuick
 import miuix.Core
 import "."
 
-// Long-press context menu for a song row. "add to playlist" fans the user's own
-// playlists out as a submenu; "remove from playlist" appears only inside a playlist
-// the user owns. Every
-// action routes through the global `player` bridge, so the row only feeds this the
-// song object + a little context — no cross-file signal plumbing. Built lazily (one
-// per row, via a Loader) so idle lists don't pay for a menu subtree per track.
+// Context menu for a song row. "add to playlist" fans the user's own playlists
+// out as a submenu; "remove from playlist" appears only inside a playlist the
+// user owns. Every action routes through the global `player` bridge, so the row
+// only feeds this the song object + a little context. Lists own ONE instance and
+// hand it to their rows (SongRow.sharedMenu); the row fills song/context and
+// menuRow right before open(). A standalone row builds its own through a Loader.
 Menu {
     id: menu
 
@@ -16,6 +16,8 @@ Menu {
     // Cached-songs list mode: the cache entry flips to "remove cache" (right-click
     // on CachedSongsDialog rows), so you can drop a song's offline copy on disk.
     property bool inCacheList: false
+    // Row that opened a shared instance; null for a row-owned menu.
+    property var menuRow: null
     signal downloadChosen()
 
     // Rebuild the model from the current song + the live playlist list, so it reflects

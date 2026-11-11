@@ -87,6 +87,11 @@ Rectangle {
     // Cached-songs list mode (see SongContextMenu.inCacheList): flips the menu's
     // cache entry to "remove cache".
     property bool inCacheList: false
+    // One SongContextMenu owned by the containing list. Rows given one build no
+    // menu of their own: a Menu per row was a third of every row's scene nodes,
+    // and every opened playlist rebuilt them all.
+    property var sharedMenu: null
+    readonly property var _menu: row.sharedMenu !== null ? row.sharedMenu : menuLoader.item
     // Desktop pointer users get a visible "more" button for the same menu (it
     // fades in on hover); touch keeps long-press. Reorderable rows need it most:
     // there a right-click reveals the drag grip instead of the menu.
@@ -112,7 +117,7 @@ Rectangle {
     signal menuDownloadRequested()
     onSongChanged: {
         row._menuArmed = false
-        if (menuLoader.item && menuLoader.item.opened) menuLoader.item.dismissImmediately()
+        if (row._menuOpen) row._menu.dismissImmediately()
     }
     signal activated()
     signal removeRequested()
@@ -466,14 +471,13 @@ Rectangle {
         }
     }
 
-    // Context menu, built only for rows that opt in (menuEnabled). Loaded eagerly
-    // for those rows — qml4j's Loader is async, so `item` isn't available the
-    // instant you flip `active`; instantiating up front guarantees it's ready when
-    // the long-press fires. Idle cost stays low: the menu's model is empty until
-    // rebuild() runs on open, so no submenu delegates exist until then.
+    // Row-owned context menu, only for rows outside a list that shares one
+    // (sharedMenu). Loaded eagerly for those rows: qml4j's Loader is async, and a
+    // menu created after the row exists also disturbs the row's hit-testing, so
+    // it must be ready from the start. The model stays empty until rebuild().
     Loader {
         id: menuLoader
-        active: row.menuEnabled
+        active: row.menuEnabled && row.sharedMenu === null
         sourceComponent: SongContextMenu {
             song: row.song
             inOwnedPlaylist: row.inOwnedPlaylist
@@ -482,11 +486,21 @@ Rectangle {
             onDownloadChosen: row.menuDownloadRequested()
         }
     }
-    readonly property bool _menuOpen: menuLoader.item !== null && menuLoader.item.opened
+    // A shared menu counts as this row's only while this row opened it.
+    readonly property bool _menuOpen: row._menu !== null && row._menu.opened
+                                      && (row.sharedMenu === null || row.sharedMenu.menuRow === row)
     function _openMenu(anchor, ax, ay) {
-        if (row.song === null || menuLoader.item === null) return
-        menuLoader.item.rebuild()
-        menuLoader.item.open(anchor, ax, ay)
+        if (row.song === null || row._menu === null) return
+        if (row.sharedMenu !== null) {
+            var m = row.sharedMenu
+            if (m.opened) m.dismissImmediately()
+            m.song = row.song
+            m.inOwnedPlaylist = row.inOwnedPlaylist
+            m.inCacheList = row.inCacheList
+            m.menuRow = row
+        }
+        row._menu.rebuild()
+        row._menu.open(anchor, ax, ay)
     }
 
     // Reorder grip. Explicit geometry, like every other child here: anchors do

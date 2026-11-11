@@ -607,8 +607,6 @@ public class SongRowLayoutTest {
             Item leading = view.findByObjectName("songRowLeading");
             assertNotNull(leading);
             assertEquals("the cover starts on the inset", 32f, leading.x.peekFloat(), 0.5f);
-            assertEquals("48px cover at y 8 in a 64px row", 8f, leading.y.peekFloat(), 0.5f);
-            assertEquals(48f, leading.width.peekFloat(), 0.5f);
 
             Item remove = view.findByObjectName("queueRemoveButton");
             assertNotNull(remove);

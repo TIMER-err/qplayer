@@ -26,3 +26,7 @@ exposes consumeBack for QPlayer's host-dispatched Back/Escape.
 Local compatibility patch: Menu's root-reparented overlay exposes consumeBack,
 so host-dispatched Back/Escape closes an open menu instead of navigating the
 page underneath.
+
+Local style patch: Menu uses 44 px items with an inset rounded hover/press
+highlight, 20 px secondary-color icons, 15 px labels, a chevron for submenus,
+6 px padding, an 18 px outlined surface and a 0.92 -> 1 entrance scale.

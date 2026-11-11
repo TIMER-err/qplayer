@@ -212,8 +212,13 @@ Rectangle {
                     highlighted: player.currentMediaId !== ""
                                  && ("" + (modelData.mediaId || modelData.id)) === player.currentMediaId
                     song: modelData
+                    sharedMenu: artistSongMenu
                     onActivated: player.playArtistSong(index)
                 }
+            }
+            SongContextMenu {
+                id: artistSongMenu
+                onClosed: if (menuRow) menuRow._menuArmed = false
             }
 
             // ---- Albums -----------------------------------------------------------

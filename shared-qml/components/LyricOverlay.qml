@@ -592,7 +592,7 @@ Item {
 
     // The lyric page is composited in a separate host pass, above Main.qml's
     // normal scene. Mirror transient notifications here so they remain visible.
-    ToastStack {
+    NoticeStack {
         id: lyricSnack
         z: 100
     }
