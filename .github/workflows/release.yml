@@ -163,24 +163,27 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           packages=(cmake pkg-config build-essential zlib1g-dev libgtk-3-dev libwebkit2gtk-4.1-dev libx11-dev)
-          # The Azure mirror can take many minutes per package. Prefer Ubuntu's
-          # HTTPS archives without changing the runner's system source files.
+          # The runner's Azure mirror can take many minutes per package. Prefer
+          # Ubuntu's HTTPS archive, then kernel.org's Fastly mirror (a separate
+          # domain, so a DNS outage rarely hits both), without changing the
+          # runner's system source files. Plain `update` exits 0 even when every
+          # index fails, so --error-on=any makes an unreachable mirror fail here
+          # rather than later as "Unable to locate package".
           sources="$RUNNER_TEMP/qplayer-ubuntu.list"
-          printf '%s\n' \
-            'deb https://archive.ubuntu.com/ubuntu jammy main universe' \
-            'deb https://archive.ubuntu.com/ubuntu jammy-updates main universe' \
-            'deb https://security.ubuntu.com/ubuntu jammy-security main universe' > "$sources"
-          apt_options=(-o "Dir::Etc::sourcelist=$sources" -o 'Dir::Etc::sourceparts=-')
-          # Plain `update` exits 0 even when every index fails to download, which
-          # only surfaces later as "Unable to locate package". When the archives
-          # are unreachable (runner DNS outages), fall back to the default mirror.
-          if sudo apt-get "${apt_options[@]}" update --error-on=any; then
-            sudo apt-get "${apt_options[@]}" install -y --no-install-recommends "${packages[@]}"
-          else
-            echo "::warning::Ubuntu archives unreachable; using the runner's default mirror"
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends "${packages[@]}"
-          fi
+          apt_options=(-o "Dir::Etc::sourcelist=$sources" -o 'Dir::Etc::sourceparts=-'
+                       -o Acquire::Retries=2 -o Acquire::https::Timeout=20)
+          for base in https://archive.ubuntu.com/ubuntu https://mirrors.edge.kernel.org/ubuntu; do
+            printf 'deb %s %s main universe\n' \
+              "$base" jammy "$base" jammy-updates "$base" jammy-security > "$sources"
+            if sudo apt-get "${apt_options[@]}" update --error-on=any; then
+              sudo apt-get "${apt_options[@]}" install -y --no-install-recommends "${packages[@]}"
+              exit 0
+            fi
+            echo "::warning::$base unreachable"
+          done
+          echo "::warning::Using the runner's default mirror"
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends "${packages[@]}"
 
       - name: Set up Windows C++ toolchain
         if: runner.os == 'Windows'
