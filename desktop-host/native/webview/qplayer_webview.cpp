@@ -1,5 +1,8 @@
 // QPlayer standalone hosts for the MIT-licensed swingwebview 1.10.0 engines.
 // The upstream Java Swing layer is deliberately not used or loaded.
+#ifdef __APPLE__
+#import <Cocoa/Cocoa.h>
+#endif
 #ifdef _WIN32
 #include "upstream/windows/webview_embed.cc"
 #else
@@ -27,6 +30,32 @@ static std::string string(JNIEnv *env, jstring value) {
     if (p) env->ReleaseStringUTFChars(value, p);
     return result;
 }
+
+#ifdef __APPLE__
+namespace mac_input {
+static IMP original_first_rect = nullptr;
+static std::atomic<bool> ime_active{false};
+static std::atomic<double> ime_left{0}, ime_top{0}, ime_right{0}, ime_bottom{0};
+
+static NSRect first_rect(id view, SEL selector, NSRange range, NSRangePointer actual) {
+    if (!ime_active.load(std::memory_order_acquire)) {
+        using Original = NSRect (*)(id, SEL, NSRange, NSRangePointer);
+        return original_first_rect
+                ? reinterpret_cast<Original>(original_first_rect)(view, selector, range, actual)
+                : NSZeroRect;
+    }
+    if (actual) *actual = range;
+    NSRect bounds = [view bounds];
+    double x = ime_left.load(std::memory_order_relaxed);
+    double top = ime_top.load(std::memory_order_relaxed);
+    double right = ime_right.load(std::memory_order_relaxed);
+    double bottom = ime_bottom.load(std::memory_order_relaxed);
+    NSRect local = NSMakeRect(x, bounds.size.height - bottom,
+            std::max(1.0, right - x), std::max(1.0, bottom - top));
+    return [[view window] convertRectToScreen:[view convertRect:local toView:nil]];
+}
+}
+#endif
 static void error(JNIEnv *env, const char *text) {
     jclass cls = env->FindClass("java/lang/IllegalStateException");
     if (cls) env->ThrowNew(cls, text);
@@ -64,6 +93,43 @@ struct ProfileOverride {
 
 #define API(name) Java_dev_t1m3_qplayer_desktop_app_DesktopNativeBrowser_##name
 extern "C" {
+#ifdef __APPLE__
+JNIEXPORT jboolean JNICALL
+Java_dev_t1m3_qplayer_desktop_window_MacInput_installImeNative(
+        JNIEnv *, jclass, jlong cocoaWindow) {
+    id view = [reinterpret_cast<id>(cocoaWindow) contentView];
+    if (!view) return JNI_FALSE;
+    SEL selector = @selector(firstRectForCharacterRange:actualRange:);
+    Class cls = object_getClass(view);
+    Method method = class_getInstanceMethod(cls, selector);
+    if (!method) return JNI_FALSE;
+    if (!qplayer::mac_input::original_first_rect) {
+        qplayer::mac_input::original_first_rect = method_getImplementation(method);
+        class_replaceMethod(cls, selector, reinterpret_cast<IMP>(qplayer::mac_input::first_rect),
+                method_getTypeEncoding(method));
+    }
+    return JNI_TRUE;
+}
+
+JNIEXPORT void JNICALL
+Java_dev_t1m3_qplayer_desktop_window_MacInput_updateImeNative(
+        JNIEnv *, jclass, jboolean active, jdouble left, jdouble top,
+        jdouble right, jdouble bottom) {
+    qplayer::mac_input::ime_left.store(left, std::memory_order_relaxed);
+    qplayer::mac_input::ime_top.store(top, std::memory_order_relaxed);
+    qplayer::mac_input::ime_right.store(right, std::memory_order_relaxed);
+    qplayer::mac_input::ime_bottom.store(bottom, std::memory_order_relaxed);
+    qplayer::mac_input::ime_active.store(active == JNI_TRUE, std::memory_order_release);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_dev_t1m3_qplayer_desktop_window_MacInput_currentScrollIsPreciseNative(
+        JNIEnv *, jclass) {
+    NSEvent *event = [[NSApplication sharedApplication] currentEvent];
+    return event && event.type == NSEventTypeScrollWheel && event.hasPreciseScrollingDeltas
+            ? JNI_TRUE : JNI_FALSE;
+}
+#endif
 JNIEXPORT jlong JNICALL API(create)(JNIEnv *env, jclass, jboolean visible,
         jstring title, jstring dataDirectory, jobject bridge) {
     auto *b = new qplayer::Browser();
