@@ -50,6 +50,7 @@ final class InputBridge {
     // content); the engine applies WHEEL_STEP internally via dispatchWheel. >1 covers
     // more distance per detent (faster) while keeping the same glide curve.
     private static final float WHEEL_GAIN = 1.8f;
+    private final MacInput macInput = new MacInput();
 
     private volatile double cursorX;
     private volatile double cursorY;
@@ -79,6 +80,7 @@ final class InputBridge {
     }
 
     void install(long window) {
+        macInput.install(window);
         GLFW.glfwSetCursorPosCallback(window, (w, x, y) -> {
             cursorX = x;
             cursorY = y;
@@ -103,6 +105,11 @@ final class InputBridge {
             }
         });
         GLFW.glfwSetScrollCallback(window, (w, dx, dy) -> {
+            if (macInput.currentScrollIsPrecise()) {
+                double gain = MacInput.preciseScrollGain();
+                win.postRenderTask(() -> dispatchImmediateScroll(dx * gain, dy * gain));
+                return;
+            }
             final double adx = dx * WHEEL_GAIN, ady = dy * WHEEL_GAIN;
             // Accumulate notches on the render thread; tickScroll() eases them out.
             win.postRenderTask(() -> {
@@ -265,8 +272,30 @@ final class InputBridge {
 
     /** Called once per rendered frame. */
     void tick() {
+        macInput.updateIme(win);
         tickFullscreenExitHold();
         tickScroll();
+    }
+
+    private void dispatchImmediateScroll(double dx, double dy) {
+        if (primaryPressed) return;
+        QmlView view = win.view();
+        if (view == null) return;
+        float scale = pointerScale();
+        float x = (float) cursorX / scale;
+        float y = (float) cursorY / scale;
+        LyricCompositor compositor = win.compositor();
+        PlayerController controller = win.controller();
+        boolean offsetPanelOpen = controller != null
+                && Boolean.TRUE.equals(controller.lyricOffsetPanelOpen.peek());
+        float uiScale = win.uiScale();
+        boolean overLyrics = !win.temperaPageVisible() && !offsetPanelOpen && compositor != null
+                && compositor.lyricsScrollable(x, y,
+                        win.framebufferSize()[0] / uiScale,
+                        win.framebufferSize()[1] / uiScale,
+                        win.settings() == null ? 0f : win.settings().topInset());
+        if (overLyrics) compositor.lyricRenderer().scrollByWheel((float) dy);
+        else view.dispatchWheel(x, y, (float) dx, (float) dy);
     }
 
     private void tickFullscreenExitHold() {

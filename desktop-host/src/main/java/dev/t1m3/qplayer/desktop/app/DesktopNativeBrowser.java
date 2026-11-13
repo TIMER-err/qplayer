@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /** Standalone JNI hosting of swingwebview's native engines, without its AWT layer. */
-final class DesktopNativeBrowser implements AutoCloseable {
+public final class DesktopNativeBrowser implements AutoCloseable {
     private static volatile Thread eventThread;
     static final ScheduledExecutorService EVENTS = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread thread = new Thread(r, "qplayer-native-browser");
@@ -219,6 +219,11 @@ final class DesktopNativeBrowser implements AutoCloseable {
                 throw new IllegalStateException("cannot load standalone WebView native backend", error);
             }
         }
+    }
+
+    /** Loads the shared native desktop helpers without creating a browser. */
+    public static void ensureNativeLibraryLoaded() {
+        Library.ensureLoaded();
     }
 
     private static native long create(boolean visible, String title, String dataDirectory, Bridge bridge);
