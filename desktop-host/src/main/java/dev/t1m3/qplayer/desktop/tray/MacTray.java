@@ -40,6 +40,8 @@ final class MacTray {
         void objc_registerClassPair(Pointer cls);
         boolean class_addMethod(Pointer cls, Pointer selector, Callback implementation,
                                 String types);
+        Pointer class_replaceMethod(Pointer cls, Pointer selector, Callback implementation,
+                                    String types);
     }
 
     interface ActionCallback extends Callback {
@@ -48,6 +50,10 @@ final class MacTray {
 
     interface ReopenCallback extends Callback {
         byte invoke(Pointer self, Pointer selector, Pointer sender, byte hasVisibleWindows);
+    }
+
+    interface TerminateCallback extends Callback {
+        long invoke(Pointer self, Pointer selector, Pointer sender);
     }
 
     private static final class Item {
@@ -153,6 +159,7 @@ final class MacTray {
             sendVoid(statusItem, "setMenu:", menu);
             sendVoid(statusItem, "setToolTip:", nsString(tooltip));
             installApplicationQuitAction();
+            installApplicationTerminateAction();
             installApplicationReopenAction();
             applyIcon();
             installed = true;
@@ -251,6 +258,38 @@ final class MacTray {
             if (replaceTerminateAction(send(menuItem, "submenu"))) return true;
         }
         return false;
+    }
+
+    /**
+     * Dock's context-menu Quit command sends {@code terminate:} directly to
+     * {@code NSApplication}; it does not use the application menu item rewritten
+     * above. GLFW's delegate turns that request into a window-close callback,
+     * which QPlayer deliberately vetoes in order to hide the window to the tray.
+     * Replace that delegate method so Dock Quit enters QPlayer's explicit,
+     * orderly shutdown path instead.
+     */
+    private void installApplicationTerminateAction() {
+        if (applicationQuitAction == null) return;
+        Pointer app = send(cls("NSApplication"), "sharedApplication");
+        Pointer delegate = send(app, "delegate");
+        Pointer delegateClass = delegate == null ? null : objc.object_getClass(delegate);
+        if (delegateClass == null) {
+            Logger.warn("macOS application delegate unavailable; Dock Quit disabled");
+            return;
+        }
+        TerminateCallback terminate = (self, selector, sender) -> {
+            try {
+                applicationQuitAction.run();
+            } catch (Throwable t) {
+                Logger.warn("macOS Dock Quit action failed: {}", t);
+            }
+            // NSTerminateCancel: QPlayer completes its own asynchronous cleanup
+            // and exits explicitly once the main event loop has stopped.
+            return 0L;
+        };
+        keepAlive.add(terminate);
+        objc.class_replaceMethod(delegateClass, sel("applicationShouldTerminate:"),
+                terminate, "q@:@");
     }
 
     /**
