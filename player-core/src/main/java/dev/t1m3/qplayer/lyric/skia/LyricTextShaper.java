@@ -167,7 +167,7 @@ final class LyricTextShaper implements AutoCloseable {
             }
             WordSpan[] words = buildWordSpans(rowText, offsets, line);
             return new ShapedRow(from, to, line.getTextBlob(), line.getWidth(),
-                    line.getCoordAtOffset(visibleOffset), x, words);
+                    line.getCoordAtOffset(visibleOffset), font.getSize(), x, words);
         }
     }
 
@@ -301,6 +301,8 @@ final class LyricTextShaper implements AutoCloseable {
         final TextBlob blob;
         final float width;
         final float leadingWidth;
+        /** Font size the row was shaped at; motion distances scale with it. */
+        final float em;
         final float[] syllableX;
         final WordSpan[] words;
         Image highResImage;
@@ -310,14 +312,19 @@ final class LyricTextShaper implements AutoCloseable {
         float rasterWidth;
         float rasterHeight;
         boolean rasterWithShadow;
+        /** Blurred raster of only the sustained words in {@link #glowWords}. */
+        Image glowImage;
+        Shader glowImageShader;
+        long glowWords;
 
         ShapedRow(int from, int to, TextBlob blob, float width, float leadingWidth,
-                  float[] syllableX, WordSpan[] words) {
+                  float em, float[] syllableX, WordSpan[] words) {
             this.from = from;
             this.to = to;
             this.blob = blob;
             this.width = width;
             this.leadingWidth = leadingWidth;
+            this.em = em;
             this.syllableX = syllableX;
             this.words = words;
         }
@@ -329,6 +336,7 @@ final class LyricTextShaper implements AutoCloseable {
         }
 
         void closeRaster() {
+            closeGlow();
             if (highResImageShader != null) {
                 highResImageShader.close();
                 highResImageShader = null;
@@ -337,6 +345,18 @@ final class LyricTextShaper implements AutoCloseable {
                 highResImage.close();
                 highResImage = null;
             }
+        }
+
+        void closeGlow() {
+            if (glowImageShader != null) {
+                glowImageShader.close();
+                glowImageShader = null;
+            }
+            if (glowImage != null) {
+                glowImage.close();
+                glowImage = null;
+            }
+            glowWords = 0L;
         }
     }
 

@@ -19,6 +19,8 @@ final class LyricScrollController {
     private static final float MIN_FLING_VELOCITY = 60f;
     private static final long IDLE_RETURN_NS = 4_000_000_000L;
     private static final float WHEEL_STEP_PX = 48f;
+    /** Same feel as automatic line following, so handing back is seamless. */
+    private static final LyricSpring RETURN_SPRING = new LyricSpring(65.0, 11.0);
 
     private boolean active;
     private boolean dragging;
@@ -38,6 +40,8 @@ final class LyricScrollController {
     private float maximum;
     private final PointerVelocityTracker velocity = new PointerVelocityTracker();
     private float lastPointerY;
+    private final float[] returnPosition = new float[1];
+    private final float[] returnVelocity = new float[1];
 
     boolean isActive() {
         return active;
@@ -143,7 +147,7 @@ final class LyricScrollController {
         interactionPending = true;
     }
 
-    float step(float targetOffset, long nowNs, int anchorIndex, SpringAnim returnSpring) {
+    float step(float targetOffset, long nowNs, int anchorIndex) {
         if (interactionPending) {
             lastInteractionNs = nowNs;
             interactionPending = false;
@@ -176,17 +180,23 @@ final class LyricScrollController {
             return offset;
         }
         if (returning) {
-            float value = (float) returnSpring.animate(targetOffset);
-            if (Math.abs(value - targetOffset) < 0.5f) {
+            double dt = Math.min(0.05, Math.max(0.0, (nowNs - lastStepNs) / 1_000_000_000d));
+            lastStepNs = nowNs;
+            RETURN_SPRING.step(returnPosition, returnVelocity, 0, targetOffset, dt);
+            if (Math.abs(returnPosition[0] - targetOffset) < 0.5f
+                    && Math.abs(returnVelocity[0]) < 5f) {
                 returning = false;
                 active = false;
+                return targetOffset;
             }
-            return value;
+            return returnPosition[0];
         }
         if ((nowNs - lastInteractionNs) > IDLE_RETURN_NS && anchorIndex != holdAnchor) {
             returning = true;
-            returnSpring.setValue(offset);
-            return (float) returnSpring.animate(targetOffset);
+            returnPosition[0] = offset;
+            returnVelocity[0] = 0f;
+            lastStepNs = nowNs;
+            return offset;
         }
         return offset;
     }

@@ -1,0 +1,85 @@
+// The complete HarfBuzz row is rasterized once into a 2x transparent texture.
+// Playback only changes the vertical displacement field evaluated here, so
+// shaping and source rasterization never happen on the frame path.
+//
+// The field is continuous along x:
+//  * every timed syllable has its own rise, and neighbouring rises cross-fade
+//    over a short distance around the shared edge instead of stepping;
+//  * a held word carries a ribbon: a raised-cosine crest riding the karaoke edge,
+//    faded in and out at the word's edges, so the glyphs under it flow like one
+//    ribbon instead of moving letter by letter.
+// Runtime effects only allow loop-index array subscripts, so every lookup below
+// happens inside the loop that owns the index.
+uniform shader content;          // row glyphs (+ drop shadow), 2x
+uniform shader glow;             // blurred copy of the held words only, 2x
+uniform float4 segments[128];    // logical x0, x1, rise offset, unused
+uniform int segmentCount;
+uniform float riseBlend;         // half-width of the cross-fade between rises
+uniform float4 ribbons[16];      // word x0, x1, crest x, crest half-width
+uniform float4 ribbonShapes[16]; // offset at the crest, glow alpha, edge softness, halo reach
+uniform int ribbonCount;
+uniform float2 sourceOrigin;     // logical top-left of the cached textures
+uniform float sourceScale;       // logical -> source pixels (currently 2.0)
+uniform float sweepX;            // logical karaoke edge
+uniform float sweepFeather;      // logical width of the karaoke edge
+
+float riseAt(float x) {
+    for (int i = 0; i < 128; ++i) {
+        if (i >= segmentCount) break;
+        float4 s = segments[i];
+        if (x >= s.x && x < s.y) {
+            float halfWidth = 0.5 * (s.y - s.x);
+            if (i > 0) {
+                float4 a = segments[i - 1];
+                float b = min(riseBlend, min(halfWidth, 0.5 * (a.y - a.x)));
+                if (b > 0.0 && x - s.x < b) {
+                    return mix(a.z, s.z, smoothstep(-b, b, x - s.x));
+                }
+            }
+            if (i + 1 < segmentCount) {
+                float4 c = segments[i + 1];
+                float b = min(riseBlend, min(halfWidth, 0.5 * (c.y - c.x)));
+                if (b > 0.0 && s.y - x < b) {
+                    return mix(s.z, c.z, smoothstep(-b, b, x - s.y));
+                }
+            }
+            return s.z;
+        }
+    }
+    return 0.0;
+}
+
+half4 main(float2 p) {
+    float lift = riseAt(p.x);
+    float glowAlpha = 0.0;
+    for (int j = 0; j < 16; ++j) {
+        if (j >= ribbonCount) break;
+        float4 r = ribbons[j];
+        float4 shape = ribbonShapes[j];
+        float window = smoothstep(r.x - shape.z, r.x + shape.z, p.x)
+                * (1.0 - smoothstep(r.y - shape.z, r.y + shape.z, p.x));
+        // The halo's blur tail reaches past the word; the glow texture holds only
+        // held words, so this never lights a neighbour's glyphs.
+        float haloWindow = smoothstep(r.x - shape.w, r.x, p.x)
+                * (1.0 - smoothstep(r.y, r.y + shape.w, p.x));
+        if (haloWindow <= 0.0) continue;
+        float s = (p.x - r.z) / r.w;
+        float crest = abs(s) < 1.0 ? 0.5 + 0.5 * cos(3.14159265 * s) : 0.0;
+        lift += shape.x * crest * window;
+        // The halo is brightest at the crest and stays softly lit behind it.
+        glowAlpha += shape.y * (0.35 + 0.65 * crest) * haloWindow;
+    }
+
+    // Negative lift moves output upward: an output pixel samples a lower point of
+    // the 2x source. LINEAR sampling keeps the fractional offset continuous.
+    float2 source = (float2(p.x, p.y - lift) - sourceOrigin) * sourceScale;
+    half4 color = content.eval(source);
+    if (glowAlpha > 0.0) {
+        // Only sung text glows; the halo ends at the karaoke edge.
+        float sung = 1.0 - smoothstep(sweepX - sweepFeather * 0.5,
+                                      sweepX + sweepFeather * 0.5, p.x);
+        half4 halo = glow.eval(source);
+        color = color + halo * half(min(glowAlpha, 1.0) * sung) * (1.0 - color.a);
+    }
+    return color;
+}

@@ -53,21 +53,21 @@ public class LyricScrollControllerTest {
 
         assertTrue("Cancel must not jump back into automatic lyric following", controller.isActive());
         long now = 0L;
-        assertEquals(300f, controller.step(0f, now, 0, null), 0.001f);
-        assertEquals(300f, controller.step(0f, now + 1_000_000_000L, 0, null), 0.001f);
+        assertEquals(300f, controller.step(0f, now, 0), 0.001f);
+        assertEquals(300f, controller.step(0f, now + 1_000_000_000L, 0), 0.001f);
     }
 
     @Test
     public void coalescedInputKeepsTheSameLyricFlingAcrossRefreshRates() {
         for (long frame : new long[]{8_333_333L, 16_666_667L, 33_333_333L, 2_000_000_000L}) {
             LyricScrollController controller = flingingController();
-            assertEquals(700f, controller.step(0f, 0L, 0, null), 0.001f);
+            assertEquals(700f, controller.step(0f, 0L, 0), 0.001f);
             for (long time = frame; time < 2_000_000_000L; time += frame) {
-                controller.step(0f, time, 0, null);
+                controller.step(0f, time, 0);
             }
             // The input clock starts at 1s, independently of this render clock.
             // 2000px/s, friction 4.2/s and a 5px/s stop threshold travel 475px.
-            assertEquals(1175f, controller.step(0f, 2_000_000_000L, 0, null), 0.03f);
+            assertEquals(1175f, controller.step(0f, 2_000_000_000L, 0), 0.03f);
         }
     }
 
@@ -86,8 +86,8 @@ public class LyricScrollControllerTest {
             controller.pointerUp(1_104_000_000L);
 
             float releasedOffset = 5000f - direction * 200f;
-            assertEquals(releasedOffset, controller.step(0f, 0L, 0, null), 0.001f);
-            float flungOffset = controller.step(0f, 100_000_000L, 0, null);
+            assertEquals(releasedOffset, controller.step(0f, 0L, 0), 0.001f);
+            float flungOffset = controller.step(0f, 100_000_000L, 0);
             assertTrue("Release must continue scrolling in the MOVE direction",
                     (flungOffset - releasedOffset) * -direction > 0f);
         }
@@ -102,21 +102,21 @@ public class LyricScrollControllerTest {
         controller.pointerMove(200f, 1_100_000_000L);
         controller.pointerUp(1_250_000_000L);
 
-        assertEquals(700f, controller.step(0f, 0L, 0, null), 0.001f);
-        assertEquals(700f, controller.step(0f, 1_000_000_000L, 0, null), 0.001f);
+        assertEquals(700f, controller.step(0f, 0L, 0), 0.001f);
+        assertEquals(700f, controller.step(0f, 1_000_000_000L, 0), 0.001f);
     }
 
     @Test
     public void cancelingAnActiveLyricFlingPinsItsDisplayedPosition() {
         LyricScrollController controller = flingingController();
-        controller.step(0f, 0L, 0, null);
-        float displayed = controller.step(0f, 100_000_000L, 0, null);
+        controller.step(0f, 0L, 0);
+        float displayed = controller.step(0f, 100_000_000L, 0);
         controller.pointerCancel();
         controller.pointerUp(1_500_000_000L);
 
         assertTrue(controller.isActive());
-        assertEquals(displayed, controller.step(0f, 200_000_000L, 0, null), 0.001f);
-        assertEquals(displayed, controller.step(0f, 2_000_000_000L, 0, null), 0.001f);
+        assertEquals(displayed, controller.step(0f, 200_000_000L, 0), 0.001f);
+        assertEquals(displayed, controller.step(0f, 2_000_000_000L, 0), 0.001f);
     }
 
     private static LyricScrollController flingingController() {

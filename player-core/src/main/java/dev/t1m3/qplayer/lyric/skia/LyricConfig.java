@@ -23,20 +23,17 @@ public final class LyricConfig {
     public final Val<Float> lineSpacing = new Val<>(2.00f);
     public final Val<Boolean> showRomaji = new Val<>(Boolean.TRUE);
     public final Val<Boolean> showTranslation = new Val<>(Boolean.TRUE);
-    /** Apple-style spring physics for scroll + per-syllable lift. When off, the
-     *  scroll uses a stiffer near-critically-damped spring and the lift a fixed
-     *  cubic ease (the pre-0.4 tuning). */
+    /** Spring physics for scroll + per-syllable rise. When off, lines follow with a
+     *  critically damped spring (no overshoot, no cascade) and the rise a cubic ease. */
     public final Val<Boolean> springPhysics = new Val<>(Boolean.TRUE);
-    /** Active-line depth scaling (1.14× emphasis / 0.98× deselected). Off = no
-     *  scaling, full-width wrap, no layout reflow. */
+    /** Focus scaling (active group 1.14×, other lines 0.97×). Off = no scaling,
+     *  full-width wrap, no layout reflow. */
     public final Val<Boolean> scaleEmphasis = new Val<>(Boolean.TRUE);
-    /** White glow behind every display word. Real per-syllable sources only;
-     * synthetic plain-LRC timing never enables it. While {@link #dropShadow} is
-     * on, only words held at least 1.5s glow; with it off, every word does,
-     * regardless of duration. */
+    /** Word glow: words held at least one second carry a ribbon crest that rides the
+     *  karaoke edge, with a soft halo on their sung part. Real per-syllable sources
+     *  only; synthetic plain-LRC timing never enables it. */
     public final Val<Boolean> glow = new Val<>(Boolean.TRUE);
-    /** Soft drop shadow behind lyric, background-vocal and sub-line glyphs. Also
-     * gates {@link #glow}'s 1.5s minimum sustain duration -- see its doc. */
+    /** Soft drop shadow behind lyric, background-vocal and sub-line glyphs. */
     public final Val<Boolean> dropShadow = new Val<>(Boolean.TRUE);
     /** Apple-Music depth of field: blur lyric lines progressively toward the edges
      *  (the focused line stays sharp). Off by default — it adds a per-line blur layer. */
