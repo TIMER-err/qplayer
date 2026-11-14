@@ -133,6 +133,10 @@ final class RenderThread extends Thread {
 
                         if (renderFrame) {
                             failureStage = FailureStage.BACKEND_FRAME;
+                            if (backend instanceof GLBackend gl) {
+                                gl.setBackdropCapture(win.settings() != null
+                                        && win.settings().bool("liquidGlassNavigation"));
+                            }
                             Canvas canvas = backend.acquireCanvas();
                             failureStage = FailureStage.APPLICATION_FRAME;
                             Renderer renderer = view.renderer();

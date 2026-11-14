@@ -9,6 +9,10 @@ import dev.t1m3.qplayer.i18n.I18n;
 import dev.t1m3.qplayer.plugin.SourceAccountRow;
 import dev.t1m3.qplayer.settings.SettingsCatalog;
 import dev.t1m3.qplayer.settings.SettingsCore;
+import io.github.humbleui.skija.Bitmap;
+import io.github.humbleui.skija.EncodedImageFormat;
+import io.github.humbleui.skija.ImageInfo;
+import io.github.humbleui.skija.Surface;
 import dev.t1m3.qplayer.store.AppDirs;
 import io.github.timer_err.qml4j.engine.QmlEngine;
 import io.github.timer_err.qml4j.engine.binding.DirtyQueue;
@@ -348,6 +352,58 @@ public class QmlReviewRegressionTest {
             assertEquals("", property(image, "source").peek());
             scene.set("testAction", 3);
             assertEquals("next.png", property(image, "source").peek());
+        }
+    }
+
+    @Test
+    public void decodedCoverDoesNotRevealItsPlaceholderDuringPageFade() throws Exception {
+        Path cover = temporary.getRoot().toPath().resolve("opaque-cover.png");
+        try (Surface pixels = Surface.makeRaster(ImageInfo.makeN32Premul(64, 64))) {
+            pixels.getCanvas().clear(0xFFFF2040);
+            try (var image = pixels.makeImageSnapshot();
+                 var png = image.encodeToData(EncodedImageFormat.PNG)) {
+                java.nio.file.Files.write(cover, png.getBytes());
+            }
+        }
+        try (Scene scene = new Scene(temporary.newFolder().toPath());
+             Surface frame = Surface.makeRaster(ImageInfo.makeN32Premul(480, 806))) {
+            scene.load("""
+                    import QtQuick
+                    import "components"
+                    Item { width: 480; height: 806
+                        CoverImage { width: 64; height: 64; radius: 0; opacity: 0.5; source: "%s" }
+                        Image { objectName: "reference"; x: 80; width: 64; height: 64
+                            opacity: 0.5; source: "%s"
+                        }
+                    }
+                    """.formatted(cover, cover));
+            var art = (io.github.timer_err.qml4j.render.items.core.Image)
+                    scene.view.findByObjectName("coverArtImage");
+            var reference = (io.github.timer_err.qml4j.render.items.core.Image)
+                    scene.view.findByObjectName("reference");
+            long deadline = System.nanoTime() + 5_000_000_000L;
+            while (System.nanoTime() < deadline) {
+                scene.frames(1);
+                frame.getCanvas().clear(0xFF102030);
+                scene.view.renderer().render(frame.getCanvas(), scene.view.root());
+                if (art.status.peekInt() == 1 && reference.status.peekInt() == 1) break;
+                Thread.sleep(5);
+            }
+            assertEquals("cover decoded", 1, art.status.peekInt());
+            assertEquals("reference decoded", 1, reference.status.peekInt());
+            scene.frames(2);
+            frame.getCanvas().clear(0xFF102030);
+            scene.view.renderer().render(frame.getCanvas(), scene.view.root());
+            try (Bitmap result = new Bitmap()) {
+                assertTrue(result.allocPixels(ImageInfo.makeN32Premul(480, 806)));
+                assertTrue(frame.readPixels(result, 0, 0));
+                for (int y = 8; y < 56; y += 8) {
+                    for (int x = 8; x < 56; x += 8) {
+                        assertEquals("loaded art must fade without a second placeholder layer",
+                                result.getColor(x + 80, y), result.getColor(x, y));
+                    }
+                }
+            }
         }
     }
 

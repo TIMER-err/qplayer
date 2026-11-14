@@ -55,6 +55,9 @@ Item {
     // the card lifts. See SongRow's placeholder and CLAUDE.md's cachedLayout note.
     Rectangle {
         objectName: "coverPlaceholder"
+        // A ready image must be the only layer during page-opacity transitions.
+        // Keeping its placeholder underneath makes the glyph bleed through the art.
+        visible: img.status !== Image.Ready
         width: cover.width
         height: cover.height
         radius: cover.radius

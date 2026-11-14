@@ -1,11 +1,13 @@
 package dev.t1m3.qplayer.desktop.window;
 
 import io.github.humbleui.skija.BackendRenderTarget;
+import io.github.humbleui.skija.BlendMode;
 import io.github.humbleui.skija.Canvas;
 import io.github.humbleui.skija.ColorSpace;
 import io.github.humbleui.skija.ColorType;
 import io.github.humbleui.skija.DirectContext;
 import io.github.humbleui.skija.FramebufferFormat;
+import io.github.humbleui.skija.Paint;
 import io.github.humbleui.skija.Surface;
 import io.github.humbleui.skija.SurfaceOrigin;
 
@@ -14,10 +16,10 @@ import org.lwjgl.opengl.GL;
 
 /**
  * OpenGL graphics backend: a GLFW GL context wrapped by a Skija
- * {@code DirectContext} rendering into the window's default framebuffer. A near
- * 1:1 port of the qml4j demo's {@code GlfwSurfaceBackend} (and the Android
- * shell's {@code SkijaGlSurface}), with context-current handling kept inside the
- * backend so the render thread only has to call {@link #init}.
+ * {@code DirectContext}. Ordinary frames draw into the window's default
+ * framebuffer; backdrop-capturing frames use an owned GPU surface and draw it
+ * into the window only at presentation. The window system may replace default
+ * framebuffer attachments during resize, independently of the render thread.
  *
  * <p>All methods run on the render thread; the GL context is current on that
  * thread between {@link #init} and {@link #dispose}.
@@ -31,6 +33,9 @@ final class GLBackend implements GraphicsBackend {
     private DirectContext context;
     private BackendRenderTarget target;
     private Surface surface;
+    private Surface sceneSurface;
+    private Paint presentPaint;
+    private boolean backdropCapture;
     private FrameDiagnostics diagnostics;
 
     GLBackend(long window) {
@@ -72,7 +77,7 @@ final class GLBackend implements GraphicsBackend {
         // Clear through Skija, not a raw glClear: a bare glClear is invisible to
         // Skija's DirectContext and drops the frame's first draw (the root's full
         // fill), leaving the background black.
-        Canvas canvas = surface.getCanvas();
+        Canvas canvas = (sceneSurface != null ? sceneSurface : surface).getCanvas();
         canvas.clear(transparent ? 0x00000000 : 0xFF000000);
         return canvas;
     }
@@ -82,9 +87,30 @@ final class GLBackend implements GraphicsBackend {
         return context;
     }
 
+    /**
+     * Backdrop copies must not read FBO 0: its native attachments can resize
+     * between recording a Skia copy and submitting it. Keep their source owned
+     * by Skia until submission, without CPU readback or per-frame surface allocation.
+     * Called before acquiring the frame canvas, on the render thread.
+     */
+    void setBackdropCapture(boolean enabled) {
+        if (backdropCapture == enabled) return;
+        backdropCapture = enabled;
+        if (enabled) {
+            sceneSurface = surface.makeSurface(width, height);
+            presentPaint = new Paint().setBlendMode(BlendMode.SRC);
+        } else {
+            sceneSurface.close();
+            sceneSurface = null;
+            presentPaint.close();
+            presentPaint = null;
+        }
+    }
+
     @Override
     public void present() {
-        if (diagnostics != null) diagnostics.draw(surface);
+        if (diagnostics != null) diagnostics.draw(sceneSurface != null ? sceneSurface : surface);
+        if (sceneSurface != null) sceneSurface.draw(surface.getCanvas(), 0, 0, presentPaint);
         // Submit pending Skia work before handing the back buffer to GLFW.
         context.flushAndSubmit(surface);
         if (diagnostics != null) diagnostics.readback(surface);
@@ -114,6 +140,8 @@ final class GLBackend implements GraphicsBackend {
     @Override
     public void dispose() {
         if (diagnostics != null) { diagnostics.close(); diagnostics = null; }
+        if (sceneSurface != null) { sceneSurface.close(); sceneSurface = null; }
+        if (presentPaint != null) { presentPaint.close(); presentPaint = null; }
         if (surface != null) { surface.close(); surface = null; }
         if (target != null) { target.close(); target = null; }
         if (context != null) { context.close(); context = null; }
@@ -123,6 +151,7 @@ final class GLBackend implements GraphicsBackend {
     }
 
     private void rebuildSurface() {
+        if (sceneSurface != null) { sceneSurface.close(); sceneSurface = null; }
         if (surface != null) surface.close();
         if (target != null) target.close();
         target = BackendRenderTarget.makeGL(width, height, 0, 8, 0,
@@ -133,5 +162,6 @@ final class GLBackend implements GraphicsBackend {
                 ColorType.RGBA_8888,
                 ColorSpace.getSRGB()
         );
+        if (backdropCapture) sceneSurface = surface.makeSurface(width, height);
     }
 }
