@@ -775,10 +775,7 @@ public final class LyricCompositor {
                 lyricRenderer.render(canvas, colLeft + pad, colTopY, colW, colH, pos);
             }
             canvas.restoreToCount(zc);
-            lyMaskPaint.setShader(lyFadeShader);
-            lyMaskPaint.setBlendMode(BlendMode.DST_IN);
-            canvas.drawRect(colRect, lyMaskPaint);
-            lyMaskPaint.setShader(null);
+            applyColumnMask(canvas, lyFadeShader);
             canvas.restoreToCount(lc);
         }
 
@@ -803,20 +800,23 @@ public final class LyricCompositor {
         // Build the band from THIS frame's lit lines (render just refreshed them), so
         // the sharp plateau covers the whole active group rather than one anchor line.
         ensureBandShaders(colTopY, colH, lyricRenderer.litBandBounds());
-        lyMaskPaint.setShader(blurBandShader);
-        lyMaskPaint.setBlendMode(BlendMode.DST_IN);
-        canvas.drawRect(colRect, lyMaskPaint);
-        lyMaskPaint.setShader(null);
+        applyColumnMask(canvas, blurBandShader);
         canvas.restoreToCount(mb);
 
         // Sharp copy, kept only across the focus band (complementary mask, no overlap).
         int ms = canvas.saveLayer(colRect, null);
         lyricRenderer.render(canvas, leftX, colTopY, colW, colH, pos);
-        lyMaskPaint.setShader(sharpBandShader);
-        lyMaskPaint.setBlendMode(BlendMode.DST_IN);
-        canvas.drawRect(colRect, lyMaskPaint);
-        lyMaskPaint.setShader(null);
+        applyColumnMask(canvas, sharpBandShader);
         canvas.restoreToCount(ms);
+    }
+
+    void applyColumnMask(Canvas canvas, Shader shader) {
+        lyMaskPaint.setShader(shader).setBlendMode(BlendMode.DST_IN);
+        // A rect's antialiased edge only partially applies DST_IN at fractional
+        // device coordinates, leaving a bright one-pixel fringe. Mask the whole
+        // current layer instead; its bounds already constrain the work.
+        canvas.drawPaint(lyMaskPaint);
+        lyMaskPaint.setShader(null);
     }
 
     private void ensureBlurFilter(float sigma) {
