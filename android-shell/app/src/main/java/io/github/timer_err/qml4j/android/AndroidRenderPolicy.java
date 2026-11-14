@@ -63,9 +63,7 @@ final class AndroidRenderPolicy {
 
         if (item instanceof Image) {
             Image image = (Image) item;
-            String loaded = image.loadedSource;
-            if (loaded != null && !loaded.isEmpty()
-                    && image.decodeGen != image.adoptedGen) {
+            if (image.hasPendingDecode()) {
                 return true;
             }
         }

@@ -73,12 +73,11 @@ public class AndroidRenderPolicyTest {
         Item root = new Item();
         Image image = new Image();
         root.children.add(image);
-        image.loadedSource = "https://example.test/cover.jpg";
-        image.decodeGen = 3;
-        image.adoptedGen = 2;
+        long gen = image.startDecode("https://example.test/cover.jpg");
 
         assertTrue(AndroidRenderPolicy.hasActiveQmlWork(root));
-        image.adoptedGen = 3;
+        image.publishDecode(gen, null, 0, 0);
+        image.adoptDecode();
         assertFalse(AndroidRenderPolicy.hasActiveQmlWork(root));
     }
 
@@ -88,9 +87,7 @@ public class AndroidRenderPolicyTest {
         Item hiddenPage = new Item();
         hiddenPage.visible.set(false);
         Image image = new Image();
-        image.loadedSource = "https://example.test/cover.jpg";
-        image.decodeGen = 1;
-        image.adoptedGen = 0;
+        image.startDecode("https://example.test/cover.jpg");
         hiddenPage.children.add(image);
         root.children.add(hiddenPage);
 
