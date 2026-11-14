@@ -47,6 +47,11 @@ on:
         required: false
         default: ''
         type: string
+      android_perf:
+        description: Build the side-by-side QPlayer (perf) APK as an artifact instead of the release APK
+        required: false
+        default: false
+        type: boolean
 
 # Push-a-tag and publish-a-release can both fire for the same version; collapse
 # them into one run per ref instead of building everything twice.
@@ -65,6 +70,7 @@ jobs:
       QPLAYER_STORE_PASSWORD: ${{ secrets.QPLAYER_STORE_PASSWORD }}
       QPLAYER_KEY_ALIAS: ${{ secrets.QPLAYER_KEY_ALIAS }}
       QPLAYER_KEY_PASSWORD: ${{ secrets.QPLAYER_KEY_PASSWORD }}
+      ANDROID_VARIANT: ${{ github.event_name == 'workflow_dispatch' && inputs.android_perf && 'perf' || 'release' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -105,22 +111,25 @@ jobs:
             echo "::warning::QPLAYER_KEYSTORE_BASE64 not set — release will be UNSIGNED."
           fi
 
-      - name: Build release APK
+      - name: Build Android APK
         run: |
           chmod +x android-shell/gradlew
-          cd android-shell && ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleRelease
+          cd android-shell && ./gradlew --no-daemon :app:testDebugUnitTest ":app:assemble${ANDROID_VARIANT^}"
 
       - name: Stage APK
         run: |
           mkdir -p out
-          dir=android-shell/app/build/outputs/apk/release
-          apk="$dir/app-release.apk"
-          [ -f "$apk" ] || apk="$dir/app-release-unsigned.apk"
-          cp "$apk" "out/QPlayer-android.apk"
+          dir="android-shell/app/build/outputs/apk/$ANDROID_VARIANT"
+          apk="$dir/app-$ANDROID_VARIANT.apk"
+          [ -f "$apk" ] || apk="$dir/app-$ANDROID_VARIANT-unsigned.apk"
+          name=QPlayer-android
+          [ "$ANDROID_VARIANT" = release ] || name="$name-$ANDROID_VARIANT"
+          cp "$apk" "out/$name.apk"
+          echo "ARTIFACT_NAME=$name" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v6
         with:
-          name: QPlayer-android
+          name: ${{ env.ARTIFACT_NAME }}
           path: out/*
 
   desktop:
@@ -286,13 +295,15 @@ jobs:
     # from the UI (lands as refs/heads/master instead of refs/tags/<tag>), so check
     # the event name and pass the release tag explicitly. A manual run publishes
     # only when given a release_tag; an android_only run then ships just the APK.
+    # A perf APK is a separate debug-signed test package and never publishes.
     if: >-
       !cancelled()
       && needs.android.result == 'success'
       && (needs.desktop.result == 'success'
           || (github.event_name == 'workflow_dispatch' && inputs.android_only))
       && (github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
-          || (github.event_name == 'workflow_dispatch' && inputs.release_tag != ''))
+          || (github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+              && !inputs.android_perf))
     runs-on: ubuntu-latest
     permissions:
       contents: write

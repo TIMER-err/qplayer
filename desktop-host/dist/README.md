@@ -278,6 +278,9 @@ version retain the suffix; macOS bundle and Windows binary version fields use th
 numeric version required by their platforms.
 For a desktop-only manual packaging preflight, set `desktop_only` to `true` and
 pass the intended RC in `version`; this does not rebuild Android or publish assets.
+For an Android frame-time build, set `android_only` and `android_perf` to `true`.
+The run uploads `QPlayer-android-perf` as a workflow artifact and never publishes it.
+The APK installs beside the release app as `QPlayer (perf)` and uses the debug key.
 
 CI produces an Apple Silicon DMG on `macos-15`. Intel Mac users build locally;
 the Maven OS profiles select native dependencies for the current architecture.
