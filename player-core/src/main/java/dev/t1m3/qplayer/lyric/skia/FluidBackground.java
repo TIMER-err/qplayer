@@ -73,7 +73,7 @@ public final class FluidBackground {
 
     private static int normalizeStyle(int style) {
         return style >= STYLE_PIXI_RENDERER && style <= STYLE_CLASSIC
-                ? style : STYLE_PIXI_RENDERER;
+                ? style : STYLE_MESH_GRADIENT;
     }
 
     private final long startNs;

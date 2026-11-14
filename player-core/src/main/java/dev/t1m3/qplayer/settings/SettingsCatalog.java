@@ -71,15 +71,6 @@ public final class SettingsCatalog {
     public static final String COVER_STYLE_KEY = "lyricCoverStyle";
     public static final int COVER_STYLE_ORIGINAL = 0;
     public static final int COVER_STYLE_VINYL = 1;
-    /** Immersive lyric layout: 0 stacked column, 1 scattered lyric cloud. */
-    public static final String LAYOUT_STYLE_KEY = "lyricLayoutStyle";
-    public static final int LAYOUT_STYLE_COLUMN = 0;
-    public static final int LAYOUT_STYLE_CLOUD = 1;
-    /** How many nearby lines the lyric-cloud layout keeps on screen. */
-    public static final String CLOUD_WINDOW_KEY = "lyricCloudWindow";
-    public static final int CLOUD_WINDOW_MIN = 3;
-    public static final int CLOUD_WINDOW_MAX = 100;
-    public static final int CLOUD_WINDOW_DEFAULT = 12;
     /** Android overlay lyrics: TYPE_APPLICATION_OVERLAY, no root. */
     public static final String OVERLAY_LYRIC_KEY = "overlayLyricEnabled";
     public static final String OVERLAY_LYRIC_LOCKED_KEY = "overlayLyricLocked";
@@ -265,18 +256,6 @@ public final class SettingsCatalog {
                 .desc("settings.lyricCoverStyle.desc")
                 .group("lyricDisplay")
                 .build());
-        out.add(SettingSpec.radio(LAYOUT_STYLE_KEY, LYRIC, "settings.lyricLayoutStyle.title",
-                        LAYOUT_STYLE_COLUMN,
-                        "settings.lyricLayoutStyle.column",
-                        "settings.lyricLayoutStyle.cloud")
-                .desc("settings.lyricLayoutStyle.desc")
-                .group("lyricDisplay")
-                .build());
-        out.add(SettingSpec.slider(CLOUD_WINDOW_KEY, LYRIC, "settings.lyricCloudWindow.title",
-                        CLOUD_WINDOW_DEFAULT, CLOUD_WINDOW_MIN, CLOUD_WINDOW_MAX, 1)
-                .desc("settings.lyricCloudWindow.desc")
-                .group("lyricDisplay")
-                .build());
         out.add(SettingSpec.segmented("lyricProgressStyle", LYRIC,
                         "settings.lyricProgressStyle.title", 1,
                         "settings.lyricProgressStyle.wave",
@@ -289,7 +268,7 @@ public final class SettingsCatalog {
                 .group("background")
                 .build());
         out.add(SettingSpec.dropdown(BG_STYLE_KEY, LYRIC, "settings.lyricBgStyle.title",
-                        BG_STYLE_PIXI_RENDERER,
+                        BG_STYLE_MESH_GRADIENT,
                         "settings.lyricBgStyle.pixi", "settings.lyricBgStyle.mesh",
                         "settings.lyricBgStyle.classic")
                 .desc("settings.lyricBgStyle.desc")
