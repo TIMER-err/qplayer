@@ -150,6 +150,10 @@ public final class SettingsCatalog {
     /** Grid of cover cards (false, default) vs. a compact row list. */
     public static final String LIBRARY_LIST_VIEW_KEY = "libraryListView";
 
+    /** Android: hold the screen awake while the lyric (now-playing) page is
+     *  open, the one surface people leave up for a whole song. */
+    public static final String KEEP_SCREEN_ON_KEY = "keepScreenOnPlayerPage";
+
     private SettingsCatalog() {}
 
     public static List<SettingSpec> specs() {
@@ -243,6 +247,18 @@ public final class SettingsCatalog {
         out.add(SettingSpec.toggle("highQuality", PLAYBACK, "settings.highQuality.title", true)
                 .desc("settings.highQuality.desc")
                 .group("audio")
+                .build());
+        // 播放页常亮: the value says how the PAGE behaves while a track plays, and
+        // the lyric page toggles it from its own top row (LyricOverlay's
+        // keepAwakeBtn) -- but it also keeps a row here, because people look for
+        // it under 设置 → 播放 first. Android only: a desktop window has no
+        // display timeout to defeat, so settings.has() is false there and the
+        // page button never appears.
+        out.add(SettingSpec.toggle(KEEP_SCREEN_ON_KEY, PLAYBACK,
+                        "settings.keepScreenOn.title", true)
+                .desc("settings.keepScreenOn.desc")
+                .onlyOn(ANDROID)
+                .group("screen")
                 .build());
 
         // ---- 歌词 -----------------------------------------------------------

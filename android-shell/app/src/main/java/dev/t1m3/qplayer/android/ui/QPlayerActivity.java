@@ -99,6 +99,8 @@ public final class QPlayerActivity extends Activity {
      *  insets to re-dispatch after the system bars are hidden/shown. */
     private android.view.View rootView;
     private Consumer<Boolean> lyricsOpenListener;
+    private Consumer<Boolean> playingListener;
+    private Consumer<Boolean> temperaOpenListener;
     private Consumer<Boolean> systemBarsListener;
     private BroadcastReceiver debugReceiver;
     private java.util.concurrent.CompletableFuture<PlayerController> initializing;
@@ -282,11 +284,26 @@ public final class QPlayerActivity extends Activity {
         // portrait too (a dedicated immersive surface). Fires off the render thread, so
         // hop to the main thread before touching the window.
         lyricsOpenListener = open -> {
-            runOnUiThread(QPlayerActivity.this::updateImmersive);
+            runOnUiThread(() -> {
+                updateImmersive();
+                updateKeepScreenOn();
+            });
         };
         // Property listener lists are owned by the QML runtime lock (see QmlGLSurfaceView).
         synchronized (dev.t1m3.qplayer.qml.QmlRuntimeLock.MONITOR) {
             controller.lyricsOpen.addListener(lyricsOpenListener);
+        }
+        // 播放页常亮 follows playback, not just the page: a paused player page is the
+        // one people walk away from, so it has to sleep like any other screen.
+        playingListener = playing -> runOnUiThread(this::updateKeepScreenOn);
+        synchronized (dev.t1m3.qplayer.qml.QmlRuntimeLock.MONITOR) {
+            controller.playing.addListener(playingListener);
+        }
+        // 凝彩 (the host-drawn AI lyric artwork page) is a second full-screen
+        // surface on the same rule, so its open state drives the flag too.
+        temperaOpenListener = open -> runOnUiThread(this::updateKeepScreenOn);
+        synchronized (dev.t1m3.qplayer.qml.QmlRuntimeLock.MONITOR) {
+            controller.temperaOpen.addListener(temperaOpenListener);
         }
 
         // Settings: the catalog, the value plumbing and every side effect live in
@@ -312,6 +329,10 @@ public final class QPlayerActivity extends Activity {
         registerSettingsHook(SettingsCatalog.OVERLAY_LYRIC_KEY, value -> runOnUiThread(() -> {
             if (!destroyed && Boolean.TRUE.equals(value)) requestOverlayLyricPermission();
         }));
+        // 播放页常亮: flipping the switch while the page is already open has to take
+        // effect now, not on the next time the page opens.
+        registerSettingsHook(SettingsCatalog.KEEP_SCREEN_ON_KEY,
+                value -> runOnUiThread(this::updateKeepScreenOn));
 
 
         // Learning a font file's family name means parsing it, so the ~200 files
@@ -362,6 +383,7 @@ public final class QPlayerActivity extends Activity {
         });
         applySystemBars(settings.resolvedDarkValue());
         updateImmersive();
+        updateKeepScreenOn();
 
         controller.loadHome();
         registerDebugReceiver();
@@ -1072,6 +1094,29 @@ public final class QPlayerActivity extends Activity {
         }, 400);
     }
 
+    /** Keep the screen awake while a full-screen playback surface is open AND a
+     *  track is playing -- the lyric page, or 凝彩 (the host-drawn lyric artwork
+     *  page) -- and let it sleep as soon as playback pauses. The switches are the
+     *  settings row and the two page buttons, all writing one value.
+     *  The window flag is the whole mechanism: Android only honours it while this
+     *  window is visible, so backgrounding the app drops it without any extra
+     *  bookkeeping. Main-thread only (window flags are main-thread). */
+    private void updateKeepScreenOn() {
+        android.view.Window w = getWindow();
+        if (w == null) return;
+        boolean awakeSurface = controller != null
+                && (Boolean.TRUE.equals(controller.lyricsOpen.peek())
+                    || Boolean.TRUE.equals(controller.temperaOpen.peek()));
+        boolean keep = awakeSurface
+                && Boolean.TRUE.equals(controller.playing.peek())
+                && settings != null && settings.bool(SettingsCatalog.KEEP_SCREEN_ON_KEY);
+        if (keep) {
+            w.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        } else {
+            w.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        }
+    }
+
     private void applySystemBars(boolean dark) {
         android.view.Window w = getWindow();
         // The dark listener can fire during settings.load(), before setContentView
@@ -1138,6 +1183,7 @@ public final class QPlayerActivity extends Activity {
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         updateImmersive();
+        updateKeepScreenOn();
         if (glView != null) {
             glView.onSystemNightChanged(isSystemDark(this));
         }
@@ -1157,6 +1203,7 @@ public final class QPlayerActivity extends Activity {
         // System overlays (permission dialogs, PiP, the install grant) can reset the
         // bar visibility; re-apply the immersive state (and re-sync the insets).
         updateImmersive();
+        updateKeepScreenOn();
         // Returning from the unknown-sources grant: resume the parked install (no
         // re-download) now that the permission is in place.
         if (pendingInstallApk != null
@@ -1206,6 +1253,18 @@ public final class QPlayerActivity extends Activity {
                 controller.lyricsOpen.removeListener(lyricsOpenListener);
             }
             lyricsOpenListener = null;
+        }
+        if (controller != null && playingListener != null) {
+            synchronized (dev.t1m3.qplayer.qml.QmlRuntimeLock.MONITOR) {
+                controller.playing.removeListener(playingListener);
+            }
+            playingListener = null;
+        }
+        if (controller != null && temperaOpenListener != null) {
+            synchronized (dev.t1m3.qplayer.qml.QmlRuntimeLock.MONITOR) {
+                controller.temperaOpen.removeListener(temperaOpenListener);
+            }
+            temperaOpenListener = null;
         }
         if (webAuthScript != null) {
             webAuthScript.shutdown();
