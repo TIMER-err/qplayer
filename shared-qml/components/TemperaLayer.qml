@@ -33,6 +33,23 @@ Item {
             spacing: Ui.space1
 
             IconButton {
+                id: temperaKeepAwake
+                type: "standard"
+                objectName: "temperaKeepAwake"
+                // 常亮 for this artwork page: the same setting the lyric page's
+                // top-row button writes, so the two surfaces never disagree.
+                // Android only -- settings.has() is false on the desktop host.
+                visible: settings.has("keepScreenOnPlayerPage")
+                anchors.verticalCenter: parent.verticalCenter
+                // Read the derived value for the pre-toggle state only, then
+                // compute the new one before writing (bindings flush later).
+                property bool awake: settings.value("keepScreenOnPlayerPage") === true
+                icon: "light_mode"
+                containerColor: awake ? Ui.accentSoft : "transparent"
+                contentColor: awake ? Ui.accent : Ui.textPrimary
+                onClicked: settings.setValue("keepScreenOnPlayerPage", !temperaKeepAwake.awake)
+            }
+            IconButton {
                 type: "standard"
                 objectName: "temperaClose"
                 anchors.verticalCenter: parent.verticalCenter

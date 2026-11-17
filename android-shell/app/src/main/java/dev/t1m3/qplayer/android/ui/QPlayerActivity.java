@@ -100,6 +100,7 @@ public final class QPlayerActivity extends Activity {
     private android.view.View rootView;
     private Consumer<Boolean> lyricsOpenListener;
     private Consumer<Boolean> playingListener;
+    private Consumer<Boolean> temperaOpenListener;
     private Consumer<Boolean> systemBarsListener;
     private BroadcastReceiver debugReceiver;
     private java.util.concurrent.CompletableFuture<PlayerController> initializing;
@@ -297,6 +298,12 @@ public final class QPlayerActivity extends Activity {
         playingListener = playing -> runOnUiThread(this::updateKeepScreenOn);
         synchronized (dev.t1m3.qplayer.qml.QmlRuntimeLock.MONITOR) {
             controller.playing.addListener(playingListener);
+        }
+        // 凝彩 (the host-drawn AI lyric artwork page) is a second full-screen
+        // surface on the same rule, so its open state drives the flag too.
+        temperaOpenListener = open -> runOnUiThread(this::updateKeepScreenOn);
+        synchronized (dev.t1m3.qplayer.qml.QmlRuntimeLock.MONITOR) {
+            controller.temperaOpen.addListener(temperaOpenListener);
         }
 
         // Settings: the catalog, the value plumbing and every side effect live in
@@ -1087,17 +1094,20 @@ public final class QPlayerActivity extends Activity {
         }, 400);
     }
 
-    /** Keep the screen awake while the lyric page (the app's now-playing page) is
-     *  open AND a track is playing; a paused page sleeps like any other screen.
-     *  The page-top button (LyricOverlay.keepAwakeBtn) turns the whole thing off.
+    /** Keep the screen awake while a full-screen playback surface is open AND a
+     *  track is playing -- the lyric page, or 凝彩 (the host-drawn lyric artwork
+     *  page) -- and let it sleep as soon as playback pauses. The switches are the
+     *  settings row and the two page buttons, all writing one value.
      *  The window flag is the whole mechanism: Android only honours it while this
      *  window is visible, so backgrounding the app drops it without any extra
      *  bookkeeping. Main-thread only (window flags are main-thread). */
     private void updateKeepScreenOn() {
         android.view.Window w = getWindow();
         if (w == null) return;
-        boolean keep = controller != null
-                && Boolean.TRUE.equals(controller.lyricsOpen.peek())
+        boolean awakeSurface = controller != null
+                && (Boolean.TRUE.equals(controller.lyricsOpen.peek())
+                    || Boolean.TRUE.equals(controller.temperaOpen.peek()));
+        boolean keep = awakeSurface
                 && Boolean.TRUE.equals(controller.playing.peek())
                 && settings != null && settings.bool(SettingsCatalog.KEEP_SCREEN_ON_KEY);
         if (keep) {
@@ -1249,6 +1259,12 @@ public final class QPlayerActivity extends Activity {
                 controller.playing.removeListener(playingListener);
             }
             playingListener = null;
+        }
+        if (controller != null && temperaOpenListener != null) {
+            synchronized (dev.t1m3.qplayer.qml.QmlRuntimeLock.MONITOR) {
+                controller.temperaOpen.removeListener(temperaOpenListener);
+            }
+            temperaOpenListener = null;
         }
         if (webAuthScript != null) {
             webAuthScript.shutdown();
