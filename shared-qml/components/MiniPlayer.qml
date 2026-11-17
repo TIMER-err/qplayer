@@ -52,6 +52,18 @@ SmoothRectangle {
         border.color: Ui.hairline
     }
 
+    // The whole bar opens the lyric (now-playing) page, not just its cover and
+    // title: a tap on the slack space around the transport used to do nothing,
+    // which read as "only the cover works". Declared before the controls so they
+    // stay above it in the hit test -- a tap a button, the seek bar, the cover or
+    // the volume popup consumes never reaches this.
+    MouseArea {
+        objectName: "miniPlayerBarTapArea"
+        anchors.fill: parent
+        cursorShape: Qt.PointingHandCursor
+        onClicked: mini.lyricsRequested()
+    }
+
     // ---- Progress state (host-driven loading clock) ---------------------------
     // The host's frame-driven clock finishes the current loading cycle before
     // returning to the actual play position, without a loop-restart pause.
