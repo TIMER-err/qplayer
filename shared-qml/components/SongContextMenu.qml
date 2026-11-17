@@ -16,9 +16,25 @@ Menu {
     // Cached-songs list mode: the cache entry flips to "remove cache" (right-click
     // on CachedSongsDialog rows), so you can drop a song's offline copy on disk.
     property bool inCacheList: false
+    // Live-queue row: adds 移到顶部 / 移到末尾, using the row's queue position.
+    property bool inQueue: false
+    property int queueIndex: -1
     // Row that opened a shared instance; null for a row-owned menu.
     property var menuRow: null
     signal downloadChosen()
+
+    // Queue-only menu tail: jump the row to either end of the live queue. Not
+    // offered when the row is already there, so the menu never shows a no-op.
+    function _pushQueueMoves(items) {
+        if (!menu.inQueue || menu.queueIndex < 0) return
+        var last = player.queueTracks ? player.queueTracks.length - 1 : 0
+        if (menu.queueIndex > 0)
+            items.push({ text: i18n.t("menu.moveToTop"), icon: "vertical_align_top",
+                         action: function() { player.moveQueueItem(menu.queueIndex, 0) } })
+        if (menu.queueIndex < last)
+            items.push({ text: i18n.t("menu.moveToBottom"), icon: "vertical_align_bottom",
+                         action: function() { player.moveQueueItem(menu.queueIndex, player.queueTracks.length - 1) } })
+    }
 
     // Rebuild the model from the current song + the live playlist list, so it reflects
     // a playlist just created. Called by the row right before open().
@@ -32,6 +48,7 @@ Menu {
         if (s.filePath) {
             items.push({ text: i18n.t("menu.playNext"), icon: "playlist_play",
                          action: function() { player.playNextLocalFile(s.filePath) } })
+            menu._pushQueueMoves(items)
             items.push({ text: i18n.t("playlist.local.addTo"), icon: "playlist_add",
                          subItems: menu._localSubItems("local", s.filePath) })
             items.push({ text: i18n.t("menu.downloadSong"), icon: "download",
@@ -63,6 +80,7 @@ Menu {
             }
             items.push({ text: i18n.t("menu.playNext"), icon: "playlist_play",
                          action: function() { player.playNextMedia("" + songId) } })
+            menu._pushQueueMoves(items)
             if (sourceSubs.length > 0)
                 items.push({ text: i18n.t("menu.addToPlaylist"), icon: "playlist_add", subItems: sourceSubs })
             if (menu.inOwnedPlaylist && player.openSourcePlaylistId !== ""
@@ -90,6 +108,7 @@ Menu {
         }
         items.push({ text: i18n.t("menu.playNext"), icon: "playlist_play",
                      action: function() { player.playNextMedia("" + songId) } })
+        menu._pushQueueMoves(items)
         if (player.loggedIn) {
             var pls = player.myPlaylists
             var n = pls ? pls.length : 0

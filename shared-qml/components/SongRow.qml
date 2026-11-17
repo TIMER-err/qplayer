@@ -87,6 +87,8 @@ Rectangle {
     // Cached-songs list mode (see SongContextMenu.inCacheList): flips the menu's
     // cache entry to "remove cache".
     property bool inCacheList: false
+    // Live-queue rows (see SongContextMenu.inQueue): adds 移到顶部 / 移到末尾.
+    property bool inQueue: false
     // One SongContextMenu owned by the containing list. Rows given one build no
     // menu of their own: a Menu per row was a third of every row's scene nodes,
     // and every opened playlist rebuilt them all.
@@ -482,6 +484,8 @@ Rectangle {
             song: row.song
             inOwnedPlaylist: row.inOwnedPlaylist
             inCacheList: row.inCacheList
+            inQueue: row.inQueue
+            queueIndex: row.index
             onClosed: row._menuArmed = false
             onDownloadChosen: row.menuDownloadRequested()
         }
@@ -497,6 +501,8 @@ Rectangle {
             m.song = row.song
             m.inOwnedPlaylist = row.inOwnedPlaylist
             m.inCacheList = row.inCacheList
+            m.inQueue = row.inQueue
+            m.queueIndex = row.index
             m.menuRow = row
         }
         row._menu.rebuild()
