@@ -144,6 +144,38 @@ Item {
         onClicked: overlay.closeRequested()
     }
 
+    // 播放页常亮 (Android only): the screen stays awake while a track is playing
+    // and is allowed to sleep as soon as playback pauses. It describes how THIS
+    // page behaves, so it is toggled here rather than from the settings list --
+    // same reasoning as the full-width layout button below, and the catalog keeps
+    // it as a hidden setting for that reason. Left of the top row, next to the
+    // dismiss button (the right cluster belongs to view switching), because the
+    // right-hand buttons come and go with cover mode and a slot anchored to a
+    // hidden sibling would leave a hole. `settings.has` is false on the desktop
+    // host, where there is no display timeout to defeat.
+    IconButton {
+        id: keepAwakeBtn
+        objectName: "lyricKeepAwakeBtn"
+        visible: settings.has("keepScreenOnPlayerPage")
+        anchors.top: parent.top
+        anchors.topMargin: overlay.topPad
+        anchors.left: backBtn.right
+        anchors.leftMargin: 6
+        type: "standard"
+        // Derived binding: read it in a handler only for the pre-toggle state,
+        // and compute the new value before writing so the toast cannot be built
+        // from a not-yet-flushed binding (DirtyQueue flushes later).
+        property bool awake: settings.value("keepScreenOnPlayerPage") === true
+        icon: "light_mode"
+        containerColor: keepAwakeBtn.awake ? overlay.chromeActiveFill : "transparent"
+        contentColor: overlay.chromeFg
+        onClicked: {
+            var next = !keepAwakeBtn.awake
+            settings.setValue("keepScreenOnPlayerPage", next)
+            overlay.showToast(i18n.t(next ? "lyric.keepAwake.on" : "lyric.keepAwake.off"))
+        }
+    }
+
     // Quick lyric-timing offset adjust: some LRC files don't quite line up with the
     // audio, so this lets the offset be nudged without leaving the lyric page. A
     // local panel, NOT a root Dialog: Dialog.open() reparents to the true QML root,
