@@ -83,7 +83,7 @@ public class TemperaSmokeTest {
         renderer.setLyricsFontScale(1f);
 
 
-        Surface surface = Surface.makeRasterN32Premul(W, H);
+        Surface surface = TemperaTestSurface.makeBgra(W, H);
         Canvas canvas = surface.getCanvas();
 
         List<Double> shots = new ArrayList<>();
@@ -142,7 +142,7 @@ public class TemperaSmokeTest {
                 "#F2F0E8", "#5A5470", "#3A3550", "#B9B3CC");
         TemperaPalette.Palette palette = TemperaPalette.resolve(theme, "duo", new String[]{"#5A5470"});
 
-        Surface surface = Surface.makeRasterN32Premul(W, H);
+        Surface surface = TemperaTestSurface.makeBgra(W, H);
         Canvas canvas = surface.getCanvas();
 
         List<String> blank = new ArrayList<>();
@@ -247,7 +247,7 @@ public class TemperaSmokeTest {
                 "#F2F0E8", "#5A5470", "#3A3550", "#B9B3CC");
         double paperLuminance = 0.2126 * 0xF2 + 0.7152 * 0xF0 + 0.0722 * 0xE8;
 
-        Surface surface = Surface.makeRasterN32Premul(W, H);
+        Surface surface = TemperaTestSurface.makeBgra(W, H);
         Canvas canvas = surface.getCanvas();
 
         // 1) 整首歌没有歌词：以前这里什么都不画，整帧透出黑板。
@@ -298,8 +298,8 @@ public class TemperaSmokeTest {
             TemperaPageRenderer renderer = new TemperaPageRenderer();
             renderer.setTuning(tuning);
             renderer.setProgram(program, theme, null);
-            try (Surface actual = Surface.makeRasterN32Premul(W, H);
-                 Surface expected = Surface.makeRasterN32Premul(W, H)) {
+            try (Surface actual = TemperaTestSurface.makeBgra(W, H);
+                 Surface expected = TemperaTestSurface.makeBgra(W, H)) {
                 byte[] previous = null;
                 byte[] first = null;
                 for (double time : new double[]{0, 5, 19.9, 20}) {

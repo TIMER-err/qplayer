@@ -27,14 +27,15 @@ public class CorePluginHostApiPlaybackDownloadTest {
         HttpServer origin = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         HttpServer cdn;
         try {
-            cdn = HttpServer.create(new InetSocketAddress("127.0.0.2", 0), 0);
+            // Keep a distinct URL host for the grant check without requiring a second loopback IP.
+            cdn = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
         } catch (Exception error) {
             origin.stop(0);
             throw error;
         }
         origin.createContext("/start", exchange -> {
             exchange.getResponseHeaders().set("Location",
-                    "http://127.0.0.2:" + cdn.getAddress().getPort() + "/song.mp3");
+                    "http://localhost:" + cdn.getAddress().getPort() + "/song.mp3");
             exchange.sendResponseHeaders(302, -1);
             exchange.close();
         });
@@ -67,7 +68,7 @@ public class CorePluginHostApiPlaybackDownloadTest {
                 Throwable root = error;
                 while (root.getCause() != null && root.getCause() != root) root = root.getCause();
                 assertTrue(root.getMessage(),
-                        root.getMessage().contains("network domain is not declared: 127.0.0.2"));
+                        root.getMessage().contains("network domain is not declared: localhost"));
             }
         } finally {
             origin.stop(0);
