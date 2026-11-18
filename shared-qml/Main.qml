@@ -447,6 +447,47 @@ Rectangle {
         }
     }
 
+    // ---- Idle prewarm -----------------------------------------------------------
+    // A destination's Loader builds its QML tree on the render thread the first
+    // time it is activated: qplayer.frame measured 12469 property changes and a
+    // 280 ms frame gap on the first tap of 已下载, while revisiting the same page
+    // stays at 110-120 fps. Activating the lazy Loaders one at a time, a beat
+    // apart, moves that construction into idle time. The flags are the same ones
+    // the tap would set, so nothing is prewarmed that would not have been built
+    // anyway; a page the user already opened simply skips its turn.
+    property int prewarmStep: 0
+    Timer {
+        id: prewarmTimer
+        interval: 260
+        repeat: true
+        running: false
+        onTriggered: {
+            app.prewarmStep = app.prewarmStep + 1
+            if (app.prewarmStep === 1) app.searchLoaded = true
+            else if (app.prewarmStep === 2) app.libraryLoaded = true
+            else if (app.prewarmStep === 3 && app.showLocalTab) app.localLoaded = true
+            else if (app.prewarmStep === 4) app.recentLoaded = true
+            else if (app.prewarmStep === 5) {
+                // 已下载 also re-reads the downloaded list when it opens
+                // (AppActions: player.refreshCachedSongs() then replacePage), and
+                // that read was the remaining 258 ms on its first visit.
+                app.cacheListLoaded = true
+                player.refreshCachedSongs()
+            }
+            else if (app.prewarmStep >= 6) prewarmTimer.stop()
+        }
+    }
+    // Late enough that the first painted frames and the initial data fetch are
+    // done: starting this immediately just moved the same hitch earlier (cold
+    // start already stalls ~740 ms on GC and JIT).
+    Timer {
+        id: prewarmKick
+        interval: 900
+        repeat: false
+        running: true
+        onTriggered: prewarmTimer.start()
+    }
+
     // Root destinations use the same configurable exit/swap/entry sequence as
     // route-backed pages. Keeping only one page painted avoids two expensive QML
     // trees being laid out during the transition.
