@@ -447,6 +447,27 @@ Rectangle {
         }
     }
 
+    // Deferred destination load, started by switchTo(). One pending choice only:
+    // a second tap before it fires simply replaces the target.
+    property int pendingLoadIndex: -1
+    Timer {
+        id: railLoadTimer
+        interval: 200
+        repeat: false
+        onTriggered: {
+            var idx = app.pendingLoadIndex
+            app.pendingLoadIndex = -1
+            if (idx === 1) {
+                app.searchLoaded = true
+            } else if (idx === app.libraryPageIndex) {
+                app.libraryLoaded = true
+                player.loadMyPlaylists()
+            } else if (idx === app.localPageIndex) {
+                app.localLoaded = true
+            }
+        }
+    }
+
     // ---- Idle prewarm -----------------------------------------------------------
     // A destination's Loader builds its QML tree on the render thread the first
     // time it is activated: qplayer.frame measured 12469 property changes and a
@@ -505,13 +526,17 @@ Rectangle {
                 rootPageMotion.restore()
             return
         }
-        if (idx === 1) app.searchLoaded = true
-        if (idx === app.libraryPageIndex) app.libraryLoaded = true
-        if (idx === app.localPageIndex) app.localLoaded = true
         app.nextPage = idx;
-        if (idx === app.libraryPageIndex) player.loadMyPlaylists();
         rootPageMotion.direction = idx > app.page ? 1 : -1;
         rootPageMotion.transition();
+        // Click first, content second. Building a destination's tree (and its
+        // first list) can cost 200-700 ms on the render thread the first time it
+        // is shown; doing that inside the tap handler froze the highlight
+        // mid-hop, which is what "不跟手" was. The flag flips after the pill has
+        // landed (160 ms motion plus a margin), so the tap frame only paints the
+        // selection and the load lands behind it.
+        app.pendingLoadIndex = idx
+        railLoadTimer.restart()
     }
 
     PageMotion {
