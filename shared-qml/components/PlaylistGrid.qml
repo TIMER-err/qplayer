@@ -239,10 +239,10 @@ Flickable {
                 x: grid._indexToX(index) + _reorderOffsetX
                 y: grid._indexToY(index) + _reorderOffsetY
                 Behavior on _reorderOffsetX {
-                    NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeMove }
+                    NumberAnimation { duration: 140; easing.type: Easing.InOutCubic }
                 }
                 Behavior on _reorderOffsetY {
-                    NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeMove }
+                    NumberAnimation { duration: 140; easing.type: Easing.InOutCubic }
                 }
                 // The carried card is drawn once, by the floating copy below, so
                 // its slot in the grid simply empties out.

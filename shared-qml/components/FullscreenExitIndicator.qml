@@ -164,7 +164,7 @@ Item {
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight
         Behavior on y {
-            NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeMove }
+            NumberAnimation { duration: 140; easing.type: Easing.InOutCubic }
         }
     }
 
@@ -180,7 +180,7 @@ Item {
         verticalAlignment: Text.AlignVCenter
         opacity: control.holding ? 1 : 0
         Behavior on opacity {
-            NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeEnter }
+            NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
         }
         elide: Text.ElideRight
     }

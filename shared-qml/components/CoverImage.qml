@@ -116,7 +116,7 @@ Item {
         opacity: (!cover.fadeIn || cover.source !== "") ? 1 : 0
         Behavior on opacity {
             enabled: cover.fadeIn
-            NumberAnimation { duration: Ui.motionSlow; easing.type: Ui.easeEnter }
+            NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
         }
     }
 }

@@ -24,7 +24,7 @@ Item {
         radius: Ui.radiusSm
         color: ripple.pressed ? Ui.surfacePressed : Ui.surfaceHover
         opacity: ripple.containsMouse || ripple.pressed ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeEnter } }
+        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
     }
 
     Rectangle {

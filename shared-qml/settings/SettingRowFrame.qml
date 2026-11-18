@@ -63,7 +63,7 @@ Item {
         visible: frame.clickable && frame.rowEnabled
         color: frame.pressed ? Ui.surfacePressed
                : (frame.hovered ? Ui.surfaceHover : "transparent")
-        Behavior on color { ColorAnimation { duration: Ui.motionFast; easing.type: Ui.easeEnter } }
+        Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
     }
 
     Rectangle {

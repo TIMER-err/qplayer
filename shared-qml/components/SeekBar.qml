@@ -26,9 +26,9 @@ Item {
     // 0..1 emphasis while hovered or scrubbing: the track thickens and the knob
     // grows out of the playhead instead of popping in.
     property real _focus: (area.containsMouse || bar.scrubbing) && bar.interactive && !bar.sweeping ? 1 : 0
-    Behavior on _focus { NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeEnter } }
+    Behavior on _focus { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
     property real _grip: bar.scrubbing ? 1 : 0
-    Behavior on _grip { NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeEnter } }
+    Behavior on _grip { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
 
     Rectangle {
         id: track

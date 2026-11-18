@@ -141,7 +141,7 @@ Item {
                         radius: height / 2
                         color: openArea.pressed ? Ui.surfacePressed : Ui.surfaceHover
                         opacity: openArea.containsMouse || openArea.pressed ? 1 : 0
-                        Behavior on opacity { NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeEnter } }
+                        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
                     }
                     Text {
                         id: chipLabel
@@ -200,7 +200,7 @@ Item {
                 radius: Ui.radiusSm
                 color: Ui.surfaceHover
                 opacity: toggleArea.containsMouse ? 1 : 0
-                Behavior on opacity { NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeEnter } }
+                Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
             }
             Glyph {
                 id: toggleIcon
@@ -208,7 +208,7 @@ Item {
                 y: (parent.height - size) / 2
                 name: "expand_more"
                 rotation: view.historyExpanded ? 180 : 0
-                Behavior on rotation { NumberAnimation { duration: Ui.motionBase; easing.type: Ui.easeEnter } }
+                Behavior on rotation { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
                 size: 18
                 color: Ui.textSecondary
             }
@@ -256,7 +256,7 @@ Item {
                     radius: Ui.radiusSm
                     color: hotArea.pressed ? Ui.surfacePressed : Ui.surfaceHover
                     opacity: hotArea.containsMouse || hotArea.pressed ? 1 : 0
-                    Behavior on opacity { NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeEnter } }
+                    Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
                 }
                 Text {
                     id: rank

@@ -39,28 +39,28 @@ Loader {
     Behavior on opacity {
         enabled: pageLoader.animateChange && motion.duration > 0
         NumberAnimation {
-            duration: pageLoader.present ? motion.duration : motion.exitDuration
+            duration: 200
             easing.type: pageLoader.present ? Ui.easeEnter : Ui.easeLeave
         }
     }
     Behavior on scale {
         enabled: pageLoader.animateChange && motion.duration > 0
         NumberAnimation {
-            duration: pageLoader.present ? motion.duration : motion.exitDuration
+            duration: 200
             easing.type: pageLoader.present ? Ui.easeEnter : Ui.easeLeave
         }
     }
     Behavior on x {
         enabled: pageLoader.animateChange && motion.duration > 0
         NumberAnimation {
-            duration: pageLoader.present ? motion.duration : motion.exitDuration
+            duration: 200
             easing.type: pageLoader.present ? Ui.easeEnter : Ui.easeLeave
         }
     }
     Behavior on y {
         enabled: pageLoader.animateChange && motion.duration > 0
         NumberAnimation {
-            duration: pageLoader.present ? motion.duration : motion.exitDuration
+            duration: 200
             easing.type: pageLoader.present ? Ui.easeEnter : Ui.easeLeave
         }
     }

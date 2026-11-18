@@ -18,14 +18,14 @@ Item {
         color: pill.selected ? Ui.accentSoft : "transparent"
         border.width: pill.selected ? 0 : 1
         border.color: Ui.hairline
-        Behavior on color { ColorAnimation { duration: Ui.motionBase; easing.type: Ui.easeEnter } }
+        Behavior on color { ColorAnimation { duration: 200; easing.type: Easing.OutCubic } }
     }
     Rectangle {
         anchors.fill: parent
         radius: height / 2
         color: area.pressed ? Ui.surfacePressed : Ui.surfaceHover
         opacity: !pill.selected && (area.containsMouse || area.pressed) ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeEnter } }
+        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
     }
     Text {
         id: label

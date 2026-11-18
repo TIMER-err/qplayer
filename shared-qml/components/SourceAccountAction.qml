@@ -22,7 +22,7 @@ Item {
         radius: Ui.radiusMd
         color: area.pressed ? Ui.surfacePressed
                : (area.containsMouse ? Ui.surfaceHover : "transparent")
-        Behavior on color { ColorAnimation { duration: Ui.motionFast; easing.type: Ui.easeEnter } }
+        Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
     }
     Glyph {
         x: Ui.space4

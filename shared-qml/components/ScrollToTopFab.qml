@@ -28,7 +28,7 @@ FAB {
     visible: opacity > 0.01
     enabled: revealed
     Behavior on opacity {
-        NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeEnter }
+        NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
     }
 
     onClicked: {

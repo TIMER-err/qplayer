@@ -68,11 +68,11 @@ Rectangle {
      */
     property real reorderShift: 0
     Behavior on reorderShift {
-        NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeMove }
+        NumberAnimation { duration: 140; easing.type: Easing.InOutCubic }
     }
     // The lift itself. Small on purpose — this is a 64px row, not a card.
     scale: row.dragging ? 1.03 : 1.0
-    Behavior on scale { NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeEnter } }
+    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
     signal reorderPressed()
     signal reorderDragged()
     signal reorderReleased()
@@ -179,7 +179,7 @@ Rectangle {
         opacity: (row.dragging || row._emphasized) ? 1 : 0
         border.width: row.dragging ? 2 : 0
         border.color: Ui.accent
-        Behavior on opacity { NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeEnter } }
+        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
     }
 
     // Cover sits 4px inside the wash; radius 10 inside the wash's 14 keeps the
@@ -250,7 +250,7 @@ Rectangle {
             // advances the decode). A reused row whose source swaps path→path
             // keeps opacity 1, so scrolling doesn't re-fade every cover.
             opacity: coverImg.source !== "" ? 1 : 0
-            Behavior on opacity { NumberAnimation { duration: Ui.motionBase; easing.type: Ui.easeEnter } }
+            Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
         }
 
         // Now-playing veil: the page surface at 60% over the art with an accent
@@ -579,7 +579,7 @@ Rectangle {
         icon: "more_horiz"
         contentColor: Ui.textSecondary
         opacity: (ripple.containsMouse || moreButton.hovered || row._menuOpen) ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeEnter } }
+        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
         onClicked: row._openMenu(moreButton, 0, moreButton.height)
     }
 

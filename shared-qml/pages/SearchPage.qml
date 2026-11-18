@@ -176,7 +176,7 @@ Item {
                                   : playlistGrid.count
         // Results fade in as they arrive and out when a new query clears them.
         property real contentReveal: resultCount > 0 ? 1 : 0
-        Behavior on contentReveal { NumberAnimation { duration: Ui.motionBase; easing.type: Ui.easeEnter } }
+        Behavior on contentReveal { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
 
         // One unified, always-scrollable list (providers first, then local;
         // player.searchRows is built in that order by

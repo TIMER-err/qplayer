@@ -32,7 +32,7 @@ Rectangle {
     property bool dragging: false
     property real reorderShift: 0
     Behavior on reorderShift {
-        NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeMove }
+        NumberAnimation { duration: 140; easing.type: Easing.InOutCubic }
     }
     signal reorderPressed()
     signal reorderDragged()
@@ -50,7 +50,7 @@ Rectangle {
     }
 
     scale: row.dragging ? 1.03 : 1.0
-    Behavior on scale { NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeEnter } }
+    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
 
     implicitHeight: 64
     color: "transparent"
