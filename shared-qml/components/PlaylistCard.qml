@@ -21,6 +21,9 @@ Item {
     // (NetEase's home blocks, QQ's anonymous recommendations).
     property real playCount: 0
     property string coverUrl: ""
+    // Passed down to CoverImage so a grid opening decodes one cover per frame
+    // instead of all of them on the first one.
+    property int coverDeferMs: 0
     property string coverThumbPath: ""
     // Set only where one grid mixes several sources (the library), so a card says which
     // account it came from.
@@ -155,6 +158,7 @@ Item {
         icon: "queue_music"
         iconSize: card.coverIconSize
         fadeIn: !card.dragging
+        deferMs: card.coverDeferMs
         source: card.coverThumbPath || card.coverUrl
     }
 

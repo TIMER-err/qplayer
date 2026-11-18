@@ -212,6 +212,9 @@ Flickable {
                 id: playlistCard
                 objectName: "virtualPlaylistCard"
                 playlistId: modelData.id
+                // One cover decode per ~24 ms instead of the whole first window on
+                // a single frame: opening 我的 froze for 744 ms decoding them all.
+                coverDeferMs: Math.min(index * 24, 480)
                 scrollView: grid
                 tile: grid.tile
                 // While a drag is live, every card between the lifted slot and the

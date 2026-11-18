@@ -30,6 +30,12 @@ Item {
     // at display resolution; refresh only on a real resize.
     property int decodeW: 0
     property int decodeH: 0
+    // Stagger the first decode across a grid of covers. Cards that all receive
+    // their source on the same frame decode every cover in one frame: opening 我的
+    // measured a 744 ms frame gap, a 29 MB burst and a 410 ms GC. A card sets this
+    // to a small multiple of its index so the decodes land on different frames.
+    property int deferMs: 0
+    property bool deferred: deferMs > 0
     // A non-empty source waiting for layout stays in source until decodeW is
     // ready. An explicitly empty source clears the Image instead of retaining
     // the artwork of the previous entity.
@@ -74,13 +80,20 @@ Item {
         }
     }
 
+    Timer {
+        interval: cover.deferMs
+        running: cover.deferred
+        repeat: false
+        onTriggered: cover.deferred = false
+    }
+
     Image {
         id: img
         objectName: "coverArtImage"
         width: cover.width
         height: cover.height
         clip: true
-        source: cover.decodeW > 0 ? cover.source : ""
+        source: (cover.decodeW > 0 && !cover.deferred) ? cover.source : ""
         radius: cover.radius
         // PreserveAspectCrop is broken on non-square source images in this engine
         // (see CLAUDE.md's qml4j gotchas): it miscomputes the crop offset, so the
