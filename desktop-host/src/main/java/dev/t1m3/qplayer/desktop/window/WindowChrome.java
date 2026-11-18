@@ -7,7 +7,7 @@ import org.lwjgl.glfw.GLFW;
 /**
  * QML-facing desktop window bridge. Every desktop platform receives a live
  * instance so shared QML can observe exclusive-fullscreen state; {@link
- * #available} remains true only for the Windows custom title bar. Android
+ * #available} indicates an integrated desktop title bar. Android
  * registers {@link dev.t1m3.qplayer.bridge.WindowChromeStub} with the same
  * field/method shape because qml4j rejects unknown context identifiers while
  * compiling, even on unreachable branches.
@@ -24,6 +24,7 @@ public final class WindowChrome {
     static final double BUTTON_WIDTH_LOGICAL_PX = 46;
     static final int BUTTON_COUNT = 3;
 
+    public final Property<Double> nativeButtonsEnd = new Property<>(0.0);
     public final Property<Boolean> available;
     public final Property<Boolean> maximized = new Property<>(Boolean.FALSE);
     public final Property<Boolean> focused = new Property<>(Boolean.TRUE);

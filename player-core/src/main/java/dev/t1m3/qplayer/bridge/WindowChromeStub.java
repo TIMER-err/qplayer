@@ -10,6 +10,7 @@ import io.github.timer_err.qml4j.engine.binding.Property;
  * so Android keeps the same field/method shape with inert values.
  */
 public final class WindowChromeStub {
+    public final Property<Double> nativeButtonsEnd = new Property<>(0.0);
     public final Property<Boolean> available = new Property<>(Boolean.FALSE);
     public final Property<Boolean> maximized = new Property<>(Boolean.FALSE);
     public final Property<Boolean> focused = new Property<>(Boolean.TRUE);

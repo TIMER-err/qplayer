@@ -134,6 +134,7 @@ public final class DesktopWindow {
     // WinFrameless is created per createWindow() call (see its own javadoc for why).
     private WindowChrome windowChrome;
     private WinFrameless frameless;
+    private MacWindowChrome macChrome;
     // 确保nudgeResizeOnce只调用一次，避免从托盘恢复时累积增加窗口尺寸
     private boolean nudgeApplied = false;
     private static volatile Boolean windows11OrLater;
@@ -358,6 +359,10 @@ public final class DesktopWindow {
         Logger.info("left exclusive fullscreen");
     }
 
+    private double titleBarHeight() {
+        return macChrome == null ? TITLE_BAR_HEIGHT : macChrome.height / userScale;
+    }
+
     private void publishFullscreenState(boolean active) {
         postRenderTask(() -> {
             WindowChrome chrome = windowChrome;
@@ -371,7 +376,7 @@ public final class DesktopWindow {
             if (settings != null && chrome != null
                     && Boolean.TRUE.equals(chrome.available.peek())) {
                 Double bottom = settings.bottomInset.peek();
-                settings.setInsets(active ? 0.0 : TITLE_BAR_HEIGHT,
+                settings.setInsets(active ? 0.0 : titleBarHeight(),
                         bottom != null ? bottom : 0.0);
             }
         });
@@ -705,7 +710,7 @@ public final class DesktopWindow {
             DesktopLyricWindow target = lyricWindow;
             if (target != null && target.isEnabled()) target.startRenderThread();
         });
-        if (windowChrome != null && Boolean.TRUE.equals(windowChrome.available.peek())) {
+        if (frameless != null) {
             postMainTask(this::nudgeResizeOnce);
         }
         Runnable r = firstFrameListener;
@@ -833,7 +838,11 @@ public final class DesktopWindow {
         applyWindowsDwmChrome();
         boolean customWindowsTitleBar = isWindows()
                 && (settings == null || !settings.bool("windowDecorated"));
-        if (windowChrome == null) windowChrome = new WindowChrome(this, customWindowsTitleBar);
+        macChrome = MacWindowChrome.install(window);
+        boolean integrated = customWindowsTitleBar || macChrome != null;
+        if (windowChrome == null) windowChrome = new WindowChrome(this, integrated);
+        else windowChrome.available.set(integrated);
+        windowChrome.nativeButtonsEnd.set(macChrome == null ? 0.0 : macChrome.buttonsEnd / userScale);
         if (customWindowsTitleBar) {
             // Keep GLFW's decorated HWND and replace only its non-client layout.
             // WS_CAPTION | WS_THICKFRAME therefore continue to provide DWM shadow,
@@ -844,9 +853,11 @@ public final class DesktopWindow {
             frameless = new WinFrameless();
             frameless.install(this, TITLE_BAR_HEIGHT, !windows11);
             if (settings != null) {
-                settings.setInsets(fullscreen ? 0.0 : TITLE_BAR_HEIGHT,
+                settings.setInsets(fullscreen ? 0.0 : titleBarHeight(),
                         settings.bottomInset.peek());
             }
+        } else if (macChrome != null && settings != null) {
+            settings.setInsets(fullscreen ? 0.0 : titleBarHeight(), settings.bottomInset.peek());
         } else if (isWindows() && settings != null) {
             settings.setInsets(0, settings.bottomInset.peek());
         }
@@ -863,7 +874,7 @@ public final class DesktopWindow {
         input = new InputBridge(this);
         input.install(window);
         Logger.info("desktop window created ({}x{}), graphics backend = {}, title bar = {}",
-                fbW, fbH, kind, customWindowsTitleBar ? "qplayer" : "system");
+                fbW, fbH, kind, integrated ? "qplayer" : "system");
 
         // Disabled desktop lyrics stay fully lazy. Persistently enabled lyrics need
         // their native shell now, but their QML renderer still starts after the main
@@ -1099,6 +1110,10 @@ public final class DesktopWindow {
     public void setUserScale(float factor) {
         if (!(factor > 0f) || factor == userScale) return;
         userScale = factor;
+        if (macChrome != null) {
+            windowChrome.nativeButtonsEnd.set(macChrome.buttonsEnd / factor);
+            if (settings != null) settings.setInsets(fullscreen ? 0.0 : titleBarHeight(), settings.bottomInset.peek());
+        }
         uiScale = contentScale * userScale;
         notifyScale();
         if (window != 0L) updateWindowSizeLimits();
@@ -1342,6 +1357,9 @@ public final class DesktopWindow {
                 } catch (Throwable t) {
                     Logger.warn("main task failed: {}", t);
                 }
+            }
+            if (macChrome != null && controller != null) {
+                macChrome.setHidden(fullscreen || controller.lyricsOpen.peek() || controller.lyricSlide.peek() > 0.001);
             }
             if (lyricWindow != null) lyricWindow.updateMousePassthroughRegion();
             publishDesktopLyricsWithoutMainRenderer();

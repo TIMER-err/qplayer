@@ -94,6 +94,42 @@ struct ProfileOverride {
 #define API(name) Java_dev_t1m3_qplayer_desktop_app_DesktopNativeBrowser_##name
 extern "C" {
 #ifdef __APPLE__
+JNIEXPORT jdoubleArray JNICALL
+Java_dev_t1m3_qplayer_desktop_window_MacWindowChrome_installNative(
+        JNIEnv *env, jclass, jlong handle) {
+    NSWindow *window = reinterpret_cast<NSWindow *>(handle);
+    NSButton *zoom = [window standardWindowButton:NSWindowZoomButton];
+    if (!zoom || !window.contentView) return 0;
+    window.styleMask |= NSWindowStyleMaskFullSizeContentView;
+    window.titleVisibility = NSWindowTitleHidden;
+    window.titlebarAppearsTransparent = YES;
+    if (@available(macOS 11.0, *)) window.titlebarSeparatorStyle = NSTitlebarSeparatorStyleNone;
+    // The unified compact toolbar puts traffic lights on a toolbar baseline.
+    // AppKit owns their layout, tracking and hit targets throughout a live resize.
+    NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier:@"QPlayerWindowControls"];
+    toolbar.showsBaselineSeparator = NO;
+    if (@available(macOS 11.0, *)) window.toolbarStyle = NSWindowToolbarStyleUnifiedCompact;
+    window.toolbar = toolbar;
+    [toolbar release];
+    [window.contentView.superview layoutSubtreeIfNeeded];
+    NSRect button = [zoom convertRect:zoom.bounds toView:nil];
+    NSRect frame = [window convertRectFromScreen:window.frame];
+    jdouble metrics[] = {NSMaxX(button), 2.0 * (NSMaxY(frame) - NSMidY(button))};
+    jdoubleArray result = env->NewDoubleArray(2);
+    if (result) env->SetDoubleArrayRegion(result, 0, 2, metrics);
+    return result;
+}
+
+JNIEXPORT void JNICALL
+Java_dev_t1m3_qplayer_desktop_window_MacWindowChrome_setHiddenNative(
+        JNIEnv *, jclass, jlong handle, jboolean hidden) {
+    NSWindow *window = reinterpret_cast<NSWindow *>(handle);
+    window.toolbar.visible = !hidden;
+    for (auto button : {NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton}) {
+        [window standardWindowButton:button].hidden = hidden;
+    }
+}
+
 JNIEXPORT jboolean JNICALL
 Java_dev_t1m3_qplayer_desktop_window_MacInput_installImeNative(
         JNIEnv *, jclass, jlong cocoaWindow) {

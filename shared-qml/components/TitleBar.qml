@@ -3,15 +3,7 @@ import miuix.Core
 import design
 import "."
 
-// Windows-only custom title bar (see WinFrameless.java / WindowChrome.java on the
-// desktop host). Drag and resize are entirely native: WinFrameless's WM_NCHITTEST
-// reports HTCAPTION over this bar's empty space before qml4j's own input pipeline
-// ever sees those clicks (confirmed -- GLFW's mouse-button callback simply doesn't
-// fire for a non-HTCLIENT click), so nothing here needs a MouseArea for dragging --
-// only the three caption buttons are real click targets. Height is driven by
-// settings.topInset (set once, Windows-only, from DesktopWindow.TITLE_BAR_HEIGHT),
-// not a local constant, so it can never drift out of sync with the native
-// hit-test math that reserves the same strip.
+// AppKit supplies the macOS controls. Windows uses the caption buttons below.
 Rectangle {
     id: bar
     color: Ui.background
@@ -25,7 +17,7 @@ Rectangle {
         width: 18
         height: 18
         anchors.left: parent.left
-        anchors.leftMargin: 12
+        anchors.leftMargin: hostWindow.nativeButtonsEnd > 0 ? hostWindow.nativeButtonsEnd + 10 : 12
         anchors.verticalCenter: parent.verticalCenter
         sourceSize.width: Math.round(18 * player.pixelRatio)
         sourceSize.height: Math.round(18 * player.pixelRatio)
@@ -42,6 +34,7 @@ Rectangle {
 
     Row {
         id: buttons
+        visible: hostWindow.nativeButtonsEnd <= 0
         anchors.right: parent.right
         anchors.top: parent.top
         height: parent.height
