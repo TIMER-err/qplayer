@@ -63,9 +63,27 @@ QtObject {
     readonly property int heroCoverCompact: 148
 
     // ---- Motion -------------------------------------------------------------------
-    readonly property int durationShort: 120
-    readonly property int durationMedium: 200
-    readonly property int durationLong: 320
+    // One timing scale for the whole app, so a hover, a popup and a page transition
+    // read as the same material instead of five unrelated speeds. Durations sit on a
+    // 20 ms grid and only grow in steps the eye resolves; curves are limited to what
+    // qml4j implements (Quad/Cubic/Quart/Sine/Back -- there is no Bezier or Expo).
+    readonly property int motionInstant: 90     // a state flips; no sense of travel
+    readonly property int motionFast: 140       // hover, press, ripples, small fades
+    readonly property int motionBase: 200       // popups, rows, expanding chrome
+    readonly property int motionSlow: 260       // sheets, page content, big surfaces
+    readonly property int motionEmphasized: 420 // hero and cover expansions
+
+    // Arriving decelerates, leaving accelerates, anything that starts and stops on
+    // screen uses the symmetric curve: those are the three shapes the eye reads as
+    // one continuous movement rather than a constant-speed slide.
+    readonly property int easeEnter: Easing.OutCubic
+    readonly property int easeLeave: Easing.InCubic
+    readonly property int easeMove: Easing.InOutCubic
+    readonly property int easeEmphasize: Easing.OutQuart
+    // Overshoot for a pop, and constant speed for a loop: easing an indicator that
+    // runs forever would visibly stall at each end of its cycle.
+    readonly property int easePop: Easing.OutBack
+    readonly property int easeLoop: Easing.Linear
 
     // ---- Semantic colours -----------------------------------------------------------
     readonly property bool dark: Theme.dark

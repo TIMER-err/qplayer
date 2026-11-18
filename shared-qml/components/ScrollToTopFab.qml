@@ -28,7 +28,7 @@ FAB {
     visible: opacity > 0.01
     enabled: revealed
     Behavior on opacity {
-        NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+        NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeEnter }
     }
 
     onClicked: {
@@ -42,7 +42,7 @@ FAB {
         target: control.target
         property: "contentY"
         to: 0
-        duration: 220
-        easing.type: Easing.OutCubic
+        duration: Ui.motionBase
+        easing.type: Ui.easeEnter
     }
 }

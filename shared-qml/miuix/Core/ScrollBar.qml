@@ -66,8 +66,8 @@ Rectangle {
         onTriggered: scrollBarTrack.recentlyScrolled = false
     }
 
-    Behavior on implicitWidth { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
-    Behavior on implicitHeight { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
+    Behavior on implicitWidth { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+    Behavior on implicitHeight { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
 
     // Drag displacement uses scene coordinates, independent of the viewport's
     // compensating content translation. Local mouse coordinates can be stale
@@ -95,10 +95,10 @@ Rectangle {
         
         opacity: (isHovered || isPressed || isMoving || recentlyScrolled) ? thumbOpacity : 0.0
         
-        Behavior on opacity { NumberAnimation { duration: fadeDuration } }
-        Behavior on color { ColorAnimation { duration: 150 } }
-        Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
-        Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
+        Behavior on opacity { NumberAnimation { duration: fadeDuration; easing.type: Easing.OutCubic } }
+        Behavior on color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
+        Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+        Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
 
         function calculateSize() {
             if (!target) return 40

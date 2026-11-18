@@ -90,7 +90,7 @@ Rectangle {
         anchors.fill: parent
         visible: opacity > 0.01
         opacity: player.artistLoading ? 0 : 1
-        Behavior on opacity { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+        Behavior on opacity { NumberAnimation { duration: Ui.motionSlow; easing.type: Ui.easeEnter } }
         clip: true
         contentWidth: width
         contentHeight: page.contentBottom + page.bottomContentInset

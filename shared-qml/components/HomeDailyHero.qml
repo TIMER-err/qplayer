@@ -22,7 +22,7 @@ Item {
     readonly property real textWidth: Math.max(0, backX - Ui.space4 - inset)
     // 0..1: the cover fan opens slightly while the panel is hovered.
     property real spread: bodyArea.containsMouse ? 1 : 0
-    Behavior on spread { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+    Behavior on spread { NumberAnimation { duration: Ui.motionBase; easing.type: Ui.easeMove } }
 
     function coverOf(i) {
         if (hero.songCount <= i || !hero.songs || !hero.songs[i]) return ""
@@ -48,7 +48,7 @@ Item {
         radius: Ui.radiusLg
         color: Ui.surfaceHover
         opacity: bodyArea.containsMouse ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+        Behavior on opacity { NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeEnter } }
     }
 
     MouseArea {

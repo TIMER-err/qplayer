@@ -66,7 +66,7 @@ Item {
         id: completeTimer; interval: 500
         onTriggered: { root._completed = false; if (!root.refreshing) root.animateTo(root.maximumPull) }
     }
-    NumberAnimation { id: completionFade; target: root; property: "_completion"; to: 1; duration: 350 }
+    NumberAnimation { id: completionFade; target: root; property: "_completion"; to: 1; duration: 350; easing.type: Easing.OutCubic }
     NumberAnimation { id: rebound; target: viewport; property: "contentY"; duration: 260; easing.type: Easing.OutCubic }
     Flickable {
         id: viewport

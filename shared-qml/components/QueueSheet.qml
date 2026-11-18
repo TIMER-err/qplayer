@@ -41,16 +41,16 @@ Item {
         target: sheet
         property: "k"
         to: 1
-        duration: 260
-        easing.type: Easing.OutCubic
+        duration: Ui.motionSlow
+        easing.type: Ui.easeEnter
     }
     NumberAnimation {
         id: slideOut
         target: sheet
         property: "k"
         to: 0
-        duration: 200
-        easing.type: Easing.InCubic
+        duration: Ui.motionBase
+        easing.type: Ui.easeLeave
     }
     onOpenChanged: {
         if (sheet.open) {

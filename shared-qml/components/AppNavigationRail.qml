@@ -33,7 +33,7 @@ Item {
     anchors.bottom: parent.bottom
     visible: pageManager.wide
     width: pageManager.wide ? (pageManager.expanded ? Ui.sidebarWide : Ui.sidebarNarrow) : 0
-    Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+    Behavior on width { NumberAnimation { duration: Ui.motionBase; easing.type: Ui.easeEnter } }
 
     Rectangle { anchors.fill: parent; color: Ui.background }
     Rectangle {
@@ -102,8 +102,8 @@ Item {
                     color: Ui.accentSoft
                     opacity: rail.pageManager.currentOverlay === "" ? 1 : 0
                     visible: opacity > 0.01
-                    Behavior on y { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
-                    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                    Behavior on y { NumberAnimation { duration: Ui.motionSlow; easing.type: Ui.easeMove } }
+                    Behavior on opacity { NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeEnter } }
                 }
                 Repeater {
                     model: rail.pageManager.navItems

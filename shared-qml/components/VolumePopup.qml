@@ -79,8 +79,8 @@ Item {
 
             ParallelAnimation {
                 id: enterAnim
-                NumberAnimation { target: popupContainer; property: "scale"; to: 1; duration: 200; easing.type: Easing.OutCubic }
-                NumberAnimation { target: popupContainer; property: "opacity"; to: 1; duration: 150 }
+                NumberAnimation { target: popupContainer; property: "scale"; to: 1; duration: Ui.motionBase; easing.type: Ui.easeEnter }
+                NumberAnimation { target: popupContainer; property: "opacity"; to: 1; duration: Ui.motionFast; easing.type: Ui.easeEnter }
             }
             ParallelAnimation {
                 id: exitAnim
@@ -89,8 +89,8 @@ Item {
                     overlayLayer.visible = false
                     control.anchorItem = null
                 }
-                NumberAnimation { target: popupContainer; property: "scale"; to: 0.8; duration: 150; easing.type: Easing.InCubic }
-                NumberAnimation { target: popupContainer; property: "opacity"; to: 0; duration: 150 }
+                NumberAnimation { target: popupContainer; property: "scale"; to: 0.8; duration: Ui.motionFast; easing.type: Ui.easeLeave }
+                NumberAnimation { target: popupContainer; property: "opacity"; to: 0; duration: Ui.motionFast; easing.type: Ui.easeLeave }
             }
 
             MouseArea { anchors.fill: parent }

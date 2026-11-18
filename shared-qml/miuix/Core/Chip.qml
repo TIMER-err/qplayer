@@ -83,8 +83,8 @@ Item {
         border.width: (type === "filter" && selected) ? 0 : 1
         border.color: outlineColor
 
-        Behavior on color { ColorAnimation { duration: 150 } }
-        Behavior on border.color { ColorAnimation { duration: 150 } }
+        Behavior on color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
+        Behavior on border.color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
 
         // State Layer
         Rectangle {
@@ -96,7 +96,7 @@ Item {
                 if (hovered) return _state.hoverStateLayerOpacity
                 return 0
             }
-            Behavior on opacity { NumberAnimation { duration: 150 } }
+            Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
         }
 
         // Ripple

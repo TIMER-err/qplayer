@@ -24,7 +24,7 @@ Item {
         anchors.fill: parent
         color: Ui.background
         opacity: header.elevated ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 160 } }
+        Behavior on opacity { NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeEnter } }
     }
     Rectangle {
         x: 0

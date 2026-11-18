@@ -45,15 +45,15 @@ Item {
 
     ParallelAnimation {
         id: showAnim
-        NumberAnimation { target: slot; property: "opacity"; to: 1; duration: 160; easing.type: Easing.OutCubic }
-        NumberAnimation { target: slot; property: "_offsetY"; to: 0; duration: 240; easing.type: Easing.OutCubic }
-        NumberAnimation { target: pill; property: "scale"; to: 1; duration: 240; easing.type: Easing.OutBack }
+        NumberAnimation { target: slot; property: "opacity"; to: 1; duration: Ui.motionFast; easing.type: Ui.easeEnter }
+        NumberAnimation { target: slot; property: "_offsetY"; to: 0; duration: Ui.motionSlow; easing.type: Ui.easeEnter }
+        NumberAnimation { target: pill; property: "scale"; to: 1; duration: Ui.motionSlow; easing.type: Ui.easePop }
     }
     ParallelAnimation {
         id: hideAnim
         onFinished: { slot.entry = null; slot.visible = false }
-        NumberAnimation { target: slot; property: "opacity"; to: 0; duration: 140; easing.type: Easing.InCubic }
-        NumberAnimation { target: slot; property: "_offsetY"; to: 6; duration: 140; easing.type: Easing.InCubic }
+        NumberAnimation { target: slot; property: "opacity"; to: 0; duration: Ui.motionFast; easing.type: Ui.easeLeave }
+        NumberAnimation { target: slot; property: "_offsetY"; to: 6; duration: Ui.motionFast; easing.type: Ui.easeLeave }
     }
     Timer {
         id: lifeTimer

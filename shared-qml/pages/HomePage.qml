@@ -158,7 +158,7 @@ Item {
         target: homeFlick.flickable
         property: "contentY"
         duration: 320
-        easing.type: Easing.OutCubic
+        easing.type: Ui.easeEnter
     }
 
     property int gridWindowRows: {
@@ -227,7 +227,7 @@ Item {
             cachedLayout: true
             // Replaces the skeleton with a fade rather than a hard cut.
             opacity: page.hasContent ? 1 : 0
-            Behavior on opacity { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
+            Behavior on opacity { NumberAnimation { duration: Ui.motionSlow; easing.type: Ui.easeEnter } }
 
             Text {
                 objectName: "homeGreeting"

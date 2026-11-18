@@ -20,7 +20,7 @@ Item {
     property real tile: 130
     signal clicked()
     scale: cardRipple.pressed ? 0.97 : 1.0
-    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+    Behavior on scale { NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeEnter } }
 
     // Same scale, caption slot and line budget as PlaylistCard, so every grid
     // of the app shares one row height formula: tile + textSlot.
@@ -61,7 +61,7 @@ Item {
         radius: Ui.radiusLg
         color: Ui.surfaceHover
         opacity: cardRipple.containsMouse ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+        Behavior on opacity { NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeEnter } }
     }
 
     CoverImage {

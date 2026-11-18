@@ -66,6 +66,7 @@ Item {
     NumberAnimation { id: showAnim; target: control; property: "opacity"; to: 1; duration: 200; easing.type: Easing.OutCubic }
     NumberAnimation {
         id: hideAnim; target: control; property: "opacity"; to: 0; duration: 150
+        easing.type: Easing.InCubic
         onFinished: { control.visible = false; if (control._owner) control.parent = control._owner; control._owner = null; control._closing = false; control.closed() }
     }
     Keys.onEscapePressed: { close(); event.accepted = true }

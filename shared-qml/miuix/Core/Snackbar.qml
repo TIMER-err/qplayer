@@ -46,6 +46,7 @@ Item {
     NumberAnimation { id: showAnim; target: control; property: "opacity"; to: 1; duration: 200; easing.type: Easing.OutCubic }
     NumberAnimation {
         id: hideAnim; target: control; property: "opacity"; to: 0; duration: 150
+        easing.type: Easing.InCubic
         onFinished: { control.visible = false; control._closing = false; control.closed() }
     }
     SmoothRectangle { anchors.fill: parent; radius: 16; color: control.containerColor }

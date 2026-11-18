@@ -1,5 +1,6 @@
 import QtQuick
 import miuix.Core
+import design
 
 // Rounded album-cover image with a glyph placeholder shown until the cover
 // decodes. `source` accepts a local asset path or an http(s) URL — the engine
@@ -115,7 +116,7 @@ Item {
         opacity: (!cover.fadeIn || cover.source !== "") ? 1 : 0
         Behavior on opacity {
             enabled: cover.fadeIn
-            NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: Ui.motionSlow; easing.type: Ui.easeEnter }
         }
     }
 }

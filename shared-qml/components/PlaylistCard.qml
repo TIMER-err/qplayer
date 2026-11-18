@@ -141,7 +141,7 @@ Item {
         border.width: card.dragging ? 2 : 0
         border.color: Ui.accent
         opacity: card.dragging || card.hovered ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+        Behavior on opacity { NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeEnter } }
     }
 
     CoverImage {

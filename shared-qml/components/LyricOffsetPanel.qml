@@ -18,7 +18,7 @@ Item {
     scale: panel.open ? 1 : 0.8
     transformOrigin: Item.Center
     Behavior on opacity {
-        NumberAnimation { duration: 150 }
+        NumberAnimation { duration: Ui.motionFast; easing.type: Ui.easeEnter }
     }
     Behavior on scale {
         NumberAnimation {

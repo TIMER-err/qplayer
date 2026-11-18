@@ -55,7 +55,7 @@ Item {
                         radius: Ui.radiusMd
                         color: tileArea.pressed ? Ui.surfacePressed
                                : (tileArea.containsMouse ? Ui.accentSoft : Ui.surfaceRaised)
-                        Behavior on color { ColorAnimation { duration: 120 } }
+                        Behavior on color { ColorAnimation { duration: Ui.motionFast; easing.type: Ui.easeEnter } }
                     }
                     Text {
                         id: tileValue
