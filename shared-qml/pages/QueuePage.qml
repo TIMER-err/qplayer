@@ -19,8 +19,15 @@ import "../components"
 Rectangle {
     id: page
     property real bottomContentInset: 0
+    // Sheet form (see Main.qml's queueSheet): the page is hosted in a rounded
+    // panel that slides up over the current page, so the route header would only
+    // duplicate the sheet's own header block -- a grab handle replaces it, and the
+    // panel's top corners come from this root's radius.
+    property bool sheetMode: false
+    readonly property real sheetHandleHeight: page.sheetMode ? 20 : 0
     signal back()
     color: Ui.background
+    radius: page.sheetMode ? Ui.radiusXl : 0
 
     readonly property real gutter: Ui.gutter(page.width)
     readonly property real listInset: Math.max(0, page.gutter - 12)
@@ -35,8 +42,29 @@ Rectangle {
     // Swallow taps on empty areas so they don't reach the page beneath.
     MouseArea { anchors.fill: parent }
 
+    // Grab handle for the sheet form: signals "this panel can be dismissed" the
+    // same way a bottom sheet does, without claiming the drag that row reordering
+    // needs. Tapping it closes, like the scrim.
+    Rectangle {
+        objectName: "queueSheetGrabber"
+        visible: page.sheetMode
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: 8
+        width: 36
+        height: 4
+        radius: 2
+        color: Ui.textTertiary
+        MouseArea {
+            anchors.fill: parent
+            anchors.margins: -10
+            onClicked: page.back()
+        }
+    }
+
     RouteHeader {
         id: header
+        objectName: "queueRouteHeader"
+        visible: !page.sheetMode
         x: 0
         y: 0
         width: page.width
@@ -65,7 +93,7 @@ Rectangle {
                 id: blockTitle
                 x: 12
                 y: 0
-                width: Math.max(0, locateButton.x - x - Ui.space3)
+                width: Math.max(0, clearButton.x - x - Ui.space3)
                 text: i18n.t("nav.queue")
                 color: Ui.textPrimary
                 elide: Text.ElideRight
@@ -98,6 +126,20 @@ Rectangle {
                 enabled: player.index >= 0
                 onClicked: page.locateCurrent()
             }
+
+            // 清空播放列表: destructive, so it asks first (same Dialog pattern the
+            // playlist pages use for 删除歌单).
+            IconButton {
+                id: clearButton
+                objectName: "queueClearButton"
+                x: locateButton.x - width - 6
+                y: locateButton.y
+                width: Ui.iconButton
+                height: Ui.iconButton
+                type: "standard"
+                icon: "delete_sweep"
+                onClicked: clearDialog.open()
+            }
         }
     }
 
@@ -105,7 +147,7 @@ Rectangle {
         id: q
         objectName: "queueSongList"
         x: page.listInset
-        y: header.height
+        y: (page.sheetMode ? page.sheetHandleHeight : header.height)
         width: Math.max(0, page.width - 2 * page.listInset)
         height: Math.max(0, page.height - y)
         bottomContentInset: page.bottomContentInset
@@ -119,23 +161,45 @@ Rectangle {
         list: page.visible ? player.queueTracks : null
         isLocal: true
         removable: true
+        // Drag-to-reorder: this list IS the live queue, so a drop reorders
+        // playback order in place; the controller keeps the playing track's
+        // index right (see moveQueueItem).
+        reorderable: true
+        queueList: true
         // Long-press → add to a local playlist (+ provider actions for online
         // sourced rows); a local file sitting in the live queue gets the smaller
         // local-only menu — see SongContextMenu's filePath branch.
         songMenu: true
         onActivated: player.playQueueIndex(q.activatedIndex)
         onRemoveRequested: player.removeFromQueue(q.removeIndex)
+        onMoveRequested: player.moveQueueItem(q.moveFrom, q.moveTo)
     }
 
     EmptyState {
         objectName: "queueEmptyState"
         x: 0
-        y: header.height
+        y: (page.sheetMode ? page.sheetHandleHeight : header.height)
         width: page.width
         height: Math.max(0, page.height - y - page.bottomContentInset)
         visible: page.empty
         icon: "queue_music"
         title: i18n.t("queue.empty.title")
         message: i18n.t("queue.empty.desc")
+    }
+
+    // Confirmation for 清空播放列表: emptying the queue also stops playback, so it
+    // is not something to do on a single stray tap.
+    Dialog {
+        id: clearDialog
+        topInset: settings.topInset
+        bottomInset: settings.bottomInset
+        icon: "delete_sweep"
+        title: i18n.t("queue.clear.title")
+        text: i18n.t("queue.clear.body", page.trackCount)
+        acceptText: i18n.t("queue.clear.action")
+        rejectText: i18n.t("common.cancel")
+        // Stay on the page: it falls through to the empty state, which is the
+        // clearest confirmation that the queue is gone.
+        onAccepted: player.clearQueue()
     }
 }

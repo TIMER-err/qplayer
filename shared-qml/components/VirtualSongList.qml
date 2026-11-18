@@ -45,6 +45,9 @@ Flickable {
     // numbers no longer line up with the queue's.
     property bool highlightByFilePath: false
     property bool removable: false
+    // This list is the live queue: rows get the queue-only menu actions
+    // (移到顶部 / 移到末尾) and the drag handle reorders playback order.
+    property bool queueList: false
     property bool selectMode: false
     property string selectedKey: ""
     readonly property int selectedN: {
@@ -400,6 +403,7 @@ Flickable {
                              && (!view.menuEligibilityFromModel || !!modelData.menuEnabled)
                 inOwnedPlaylist: view.ownedPlaylist
                 inCacheList: view.cacheList
+                inQueue: view.queueList
                 sharedMenu: songMenuShared
                 selectMode: view.selectMode
                 selected: view.selectMode && view.selectedKey !== ""

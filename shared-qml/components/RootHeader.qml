@@ -10,7 +10,6 @@ Item {
     property string title: ""
     property bool compact: width < Ui.compactMax
     property var appActions
-    signal queueRequested()
     signal volumeRequested()
 
     height: Ui.headerHeight
@@ -50,12 +49,6 @@ Item {
             icon: settings.appVolume === 0 ? "volume_off"
                   : (settings.appVolume < 50 ? "volume_down" : "volume_up")
             onClicked: header.volumeRequested()
-        }
-        IconButton {
-            objectName: "rootQueueAction"
-            type: "standard"
-            icon: "queue_music"
-            onClicked: header.queueRequested()
         }
         IconButton {
             id: overflowAction

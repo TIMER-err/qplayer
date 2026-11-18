@@ -19,8 +19,8 @@ SmoothRectangle {
     id: mini
 
     signal lyricsRequested()
+    signal queueRequested()
     property bool liquidGlass: false
-
     implicitHeight: liquidGlass ? 80 : Ui.playerBarHeight
     radius: liquidGlass ? height / 2 : Ui.radiusLg
     color: liquidGlass ? "transparent" : Ui.surfaceRaised
@@ -28,6 +28,10 @@ SmoothRectangle {
     readonly property bool wideLayout: !liquidGlass && width >= 720
     readonly property bool desktopVolumeControl: settings.has("desktopLyricEnabled")
     readonly property real coverSize: liquidGlass ? 60 : (wideLayout ? 52 : 48)
+    // Width the 播放列表 button claims at the far right of the bar. The clusters
+    // that used to end at the right edge stop short of it (see compactCluster.x
+    // and wideVolume.x), so the button is always the outermost control.
+    readonly property real queueSlot: 44
 
     // Drawn before the ordinary controls: their hit regions and playback state
     // stay in QML while the host samples only this capsule's live backdrop.
@@ -185,10 +189,10 @@ SmoothRectangle {
         enabled: visible
         // Mobile keeps like at compact-phone widths. Desktop reserves the volume
         // control, so the optional like yields sooner as the window narrows.
-        readonly property bool showLike: mini.width >= (mini.desktopVolumeControl ? 380 : 280)
+        readonly property bool showLike: mini.width >= (mini.desktopVolumeControl ? 380 : 280) + mini.queueSlot
         width: (mini.desktopVolumeControl ? 40 : 0) + (showLike ? 40 : 0) + 44 + 40 + 8
         height: 44
-        x: mini.width - width - 6
+        x: mini.width - width - 6 - mini.queueSlot
         y: (mini.height - height) / 2
 
         IconButton {
@@ -349,12 +353,26 @@ SmoothRectangle {
         id: wideVolume
         objectName: "miniPlayerWideVolumeButton"
         visible: mini.wideLayout && mini.desktopVolumeControl
-        x: mini.width - width - 12
+        x: mini.width - width - 12 - mini.queueSlot
         y: (mini.height - height) / 2
         type: "standard"
         icon: settings.appVolume === 0 ? "volume_off"
               : (settings.appVolume < 50 ? "volume_down" : "volume_up")
         onClicked: volumePopup.open(wideVolume)
+    }
+
+    // 播放列表: the queue entry point. Lives at the far right of the bar on every
+    // layout (it used to be an icon in the page header), so it sits where the
+    // thumb already is while the bar is being used.
+    IconButton {
+        id: queueButton
+        objectName: "miniPlayerQueueButton"
+        anchors.right: parent.right
+        anchors.rightMargin: mini.wideLayout ? 12 : 6
+        y: (mini.height - 44) / 2 + 2
+        type: "standard"
+        icon: "queue_music"
+        onClicked: mini.queueRequested()
     }
 
     // ---- Title / artist: tap to open the lyric page ------------------------------

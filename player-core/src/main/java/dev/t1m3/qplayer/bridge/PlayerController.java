@@ -4095,6 +4095,70 @@ public final class PlayerController {
         }
     }
 
+    /** Reorder one slot in the live queue (drag-to-reorder on the queue page).
+     *  The track that is playing keeps playing: only its queue index moves, so
+     *  the highlight and "next" stay correct across the drop. */
+    public void moveQueueItem(int from, int to) {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            List<Track> queue = playbackSession.queue;
+            int size = queue.size();
+            if (size < 2) return;
+            if (from < 0 || from >= size || to < 0 || to >= size || from == to) return;
+            Track moved = queue.remove(from);
+            queue.add(to, moved);
+            int current = playbackSession.index;
+            if (current >= 0) {
+                if (current == from) {
+                    playbackSession.index = to;
+                } else if (from < current && to >= current) {
+                    playbackSession.index = current - 1;
+                } else if (from > current && to <= current) {
+                    playbackSession.index = current + 1;
+                }
+                index.set(playbackSession.index);
+            }
+            queueTracks.set(new ArrayList<>(queue));
+            saveQueue();
+        }
+    }
+
+    /** Empty the queue and end playback. Same teardown as dropping the last
+     *  slot, plus the store is rewritten so the queue doesn't come back. */
+    public void clearQueue() {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (playbackSession.queue.isEmpty()) return;
+            playbackSession.queue.clear();
+            playbackSession.invalidate();
+            playbackSession.index = -1;
+            playbackSession.playing = false;
+            backend.pause();
+            playing.set(false);
+            loading.set(false);
+            shuffleHistory.clear();
+            index.set(-1);
+            currentFilePath.set("");
+            currentMediaId.set("");
+            title.set("");
+            artist.set("");
+            album.set("");
+            durationMs.set(0L);
+            positionMs.set(0L);
+            currentLiked.set(false);
+            currentLikeable.set(false);
+            coverUrl.set("");
+            coverPath.set("");
+            applyCover(null, coverRevision.incrementAndGet());
+            pendingResumeIndex = -1;
+            pendingResumeMs = 0L;
+            needsReplay = false;
+            beginLyricClockLoad(0L);
+            applyLyrics(Collections.emptyList());
+            queueTracks.set(new ArrayList<>());
+            saveQueue();
+            notifyPlayback();
+        }
+    }
+
     // --- Custom playlist (local "play later" list, independent of the live queue) --
 
     /**
