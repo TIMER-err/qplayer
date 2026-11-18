@@ -14,6 +14,13 @@
     "publisherKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAED7z1yYQ9a5UVpOPUict1ShkKH26NnbEMMAHsxy5zJEPeDd3J2etP1PRKXylO2KWWZgib2KB5/yZ0Xgmj+36TBg=="
   },
   {
+    "id": "qqmusic",
+    "name": "QQ 音乐（日推增强）",
+    "description": "由独立项目维护的 QQ 音乐音源插件，提供每日30首、雷达推荐歌曲、搜索、歌单、歌词、登录与播放。",
+    "repo": "hanson828/qplayer-qqmusic-plugin",
+    "publisherKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE2MbUwK+cUuPJW/s2YHU0PWu6VRT2fhOUTJqb8MIkMf6CXZEIP7zWtdhqO+mtRKIJsMO6jYwU5GAr8NS5P7mmHw=="
+  },
+  {
     "id": "kuwo",
     "name": "酷我音乐",
     "description": "由独立项目维护的酷我音乐音源插件，提供搜索、播放、歌词与 Cookie 登录。",
