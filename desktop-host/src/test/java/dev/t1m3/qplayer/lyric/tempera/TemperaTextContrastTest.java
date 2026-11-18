@@ -26,7 +26,7 @@ public class TemperaTextContrastTest {
 
     @Test
     public void invertedHanLyricRemainsVisible() throws Exception {
-        try (Surface surface = Surface.makeRasterN32Premul(WIDTH, HEIGHT)) {
+        try (Surface surface = TemperaTestSurface.makeBgra(WIDTH, HEIGHT)) {
             Canvas canvas = surface.getCanvas();
             canvas.clear(0xFF5C8A96);
             TemperaTextView.View glyph = new TemperaTextView.View();
@@ -72,7 +72,7 @@ public class TemperaTextContrastTest {
                         darkTheme ? "#0B0B10" : "#F2F0E8", "#8C86A8", "#6A6470", "#B9B3CC"), "duo");
                 for (int background : new int[]{0xFF000000, 0xFFFFFFFF}) {
                     for (String kind : new String[]{"lyric", "title", "fragment"}) {
-                        try (Surface surface = Surface.makeRasterN32Premul(WIDTH, HEIGHT)) {
+                        try (Surface surface = TemperaTestSurface.makeBgra(WIDTH, HEIGHT)) {
                             Canvas canvas = surface.getCanvas();
                             canvas.clear(background);
                             draw(canvas, palette, kind);
