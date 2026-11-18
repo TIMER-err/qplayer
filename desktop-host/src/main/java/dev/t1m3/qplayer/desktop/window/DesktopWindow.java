@@ -1120,6 +1120,10 @@ public final class DesktopWindow {
     private void installCallbacks() {
         GLFW.glfwSetFramebufferSizeCallback(window, (win, w, h) -> {
             onNativeFramebufferResize(w, h);
+            // Cocoa enters a nested event loop during a live resize. Paint the
+            // new size here as the normal event loop may not run until release.
+            if (renderOnEventThread() && renderThread != null && w > 0 && h > 0)
+                renderThread.frameOnEventThread(true);
         });
         GLFW.glfwSetWindowPosCallback(window, (win, x, y) -> {
             if (!canCacheWindowedBounds(win)) return;
@@ -1227,17 +1231,27 @@ public final class DesktopWindow {
         }
     }
 
+    private boolean renderOnEventThread() {
+        return org.lwjgl.system.Platform.get() == org.lwjgl.system.Platform.MACOSX
+                && kind == GraphicsBackend.Kind.GL;
+    }
+
     public void spawnRenderThread() {
         RenderThread rt = renderThread;
-        if (rt != null && rt.isAlive()) return;
+        if (rt != null && (renderOnEventThread() || rt.isAlive())) return;
         rt = new RenderThread(this);
         renderThread = rt;
-        rt.start();
+        if (!renderOnEventThread()) rt.start();
     }
 
     void stopRenderThread() {
         RenderThread rt = renderThread;
         if (rt == null) return;
+        if (renderOnEventThread()) {
+            renderThread = null;
+            rt.stopOnEventThread();
+            return;
+        }
         rt.shutdown();
         // A timeout must never let GLFW destroy a display still used by the GPU thread.
         boolean interrupted = false;
@@ -1313,7 +1327,14 @@ public final class DesktopWindow {
         while (!quitRequested) {
             // Block briefly so a hidden-to-tray window doesn't spin the CPU, but stay
             // responsive to tray actions posted to the main-task queue.
-            GLFW.glfwWaitEventsTimeout(0.05);
+            RenderThread rt = renderThread;
+            double wait = 0.05;
+            if (renderOnEventThread() && rt != null) {
+                rt.frameOnEventThread(false);
+                wait = rt.eventWaitSeconds();
+            }
+            if (wait > 0) GLFW.glfwWaitEventsTimeout(wait);
+            else GLFW.glfwPollEvents();
             Runnable r;
             while ((r = mainTasks.poll()) != null) {
                 try {
@@ -1334,7 +1355,7 @@ public final class DesktopWindow {
      */
     private void publishDesktopLyricsWithoutMainRenderer() {
         RenderThread rt = renderThread;
-        if ((rt != null && rt.isAlive()) || lyricWindow == null || !lyricWindow.isEnabled()) {
+        if ((rt != null && (renderOnEventThread() || rt.isAlive())) || lyricWindow == null || !lyricWindow.isEnabled()) {
             return;
         }
         synchronized (QmlRuntimeLock.MONITOR) {
