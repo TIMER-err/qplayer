@@ -51,7 +51,7 @@ Item {
                 height: 16
                 color: control.enabled ? _colors.onPrimary : _colors.disabledOnPrimary
                 opacity: control._visualChecked ? 1 : 0
-                Behavior on opacity { NumberAnimation { duration: 80 } }
+                Behavior on opacity { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
             }
 
             MouseArea {

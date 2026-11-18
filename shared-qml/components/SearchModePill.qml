@@ -25,7 +25,7 @@ Item {
         radius: height / 2
         color: area.pressed ? Ui.surfacePressed : Ui.surfaceHover
         opacity: !pill.selected && (area.containsMouse || area.pressed) ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
     }
     Text {
         id: label

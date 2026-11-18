@@ -52,14 +52,14 @@ Item {
             target: row
             property: "_offsetY"
             to: 0
-            duration: 220
+            duration: 200
             easing.type: Easing.OutCubic
         }
         NumberAnimation {
             target: card
             property: "scale"
             to: 1
-            duration: 220
+            duration: 200
             easing.type: Easing.OutBack
         }
     }
@@ -100,6 +100,9 @@ Item {
         from: 0
         to: 1
         duration: row.timeout
+        // Lifetime is a clock, not a transition: easing it would read as the toast
+        // hanging at the end instead of leaving on time.
+        easing.type: Easing.Linear
         onFinished: row.beginDismiss()
     }
 

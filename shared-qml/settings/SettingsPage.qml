@@ -72,7 +72,7 @@ Rectangle {
         id: categoryAnim
         NumberAnimation {
             target: page; property: "panelOpacity"; to: 0
-            duration: 90; easing.type: Easing.OutCubic
+            duration: Ui.motionInstant; easing.type: Ui.easeEnter
         }
         ScriptAction {
             onTrigger: {
@@ -84,11 +84,11 @@ Rectangle {
         ParallelAnimation {
             NumberAnimation {
                 target: page; property: "panelOpacity"; from: 0; to: 1
-                duration: 220; easing.type: Easing.OutCubic
+                duration: Ui.motionBase; easing.type: Ui.easeEnter
             }
             NumberAnimation {
                 target: page; property: "panelShift"; from: 24; to: 0
-                duration: 220; easing.type: Easing.OutCubic
+                duration: Ui.motionBase; easing.type: Ui.easeEnter
             }
         }
     }

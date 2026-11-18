@@ -61,7 +61,7 @@ Item {
         radius: Ui.radiusLg
         color: Ui.surfaceHover
         opacity: cardRipple.containsMouse ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
     }
 
     CoverImage {

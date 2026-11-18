@@ -68,7 +68,7 @@ Rectangle {
      */
     property real reorderShift: 0
     Behavior on reorderShift {
-        NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+        NumberAnimation { duration: 140; easing.type: Easing.InOutCubic }
     }
     // The lift itself. Small on purpose — this is a 64px row, not a card.
     scale: row.dragging ? 1.03 : 1.0
@@ -179,7 +179,7 @@ Rectangle {
         opacity: (row.dragging || row._emphasized) ? 1 : 0
         border.width: row.dragging ? 2 : 0
         border.color: Ui.accent
-        Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
     }
 
     // Cover sits 4px inside the wash; radius 10 inside the wash's 14 keeps the
@@ -579,7 +579,7 @@ Rectangle {
         icon: "more_horiz"
         contentColor: Ui.textSecondary
         opacity: (ripple.containsMouse || moreButton.hovered || row._menuOpen) ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
         onClicked: row._openMenu(moreButton, 0, moreButton.height)
     }
 

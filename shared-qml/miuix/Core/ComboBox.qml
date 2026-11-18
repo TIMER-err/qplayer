@@ -104,7 +104,7 @@ Item {
             opacity: (control.type === "outlined" && control.isFocused) ? 1 : 0
             visible: control.type === "outlined"
             
-            Behavior on opacity { NumberAnimation { duration: 150 } }
+            Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
         }
 
         // Bottom Line for Filled
@@ -117,7 +117,7 @@ Item {
             color: control.isFocused ? _colors.primary : _colors.onSurfaceVariantColor
 
             Behavior on height { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
-            Behavior on color { ColorAnimation { duration: 150 } }
+            Behavior on color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
         }
     }
 
@@ -185,7 +185,7 @@ Item {
             Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
             Behavior on y { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
             Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-            Behavior on color { ColorAnimation { duration: 150 } }
+            Behavior on color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
             
         }
         
@@ -219,7 +219,7 @@ Item {
             opacity: control.enabled ? 1 : 0.38
             
             rotation: control.menuOpen ? 180 : 0
-            Behavior on rotation { NumberAnimation { duration: 200 } }
+            Behavior on rotation { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
         }
     }
     

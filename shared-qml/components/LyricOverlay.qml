@@ -119,8 +119,8 @@ Item {
         property bool shown: overlay.coverOnly && player.lyricSlide > 0.25
         opacity: shown ? 1 : 0
         baseScale: shown ? 1 : 0.95
-        Behavior on opacity { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
-        Behavior on baseScale { NumberAnimation { duration: 300; easing.type: Easing.OutBack } }
+        Behavior on opacity { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
+        Behavior on baseScale { NumberAnimation { duration: 260; easing.type: Easing.OutBack } }
 
         // Tap the cover to switch back to lyrics. A no-op when lyricsCoverOnly (no
         // lyrics for this track) is what's actually forcing cover view — there's
@@ -392,12 +392,12 @@ Item {
         anchors.top: parent.top
         anchors.bottom: parent.bottom
         width: overlay.coverOnly ? overlay.width : overlay.width / 2
-        Behavior on width { NumberAnimation { duration: 500; easing.type: Easing.OutBack } }
+        Behavior on width { NumberAnimation { duration: 420; easing.type: Easing.OutBack } }
 
         readonly property real targetCoverSize:
             Math.max(120, Math.min(width - 96, overlay.height - 248, 360))
         property real coverSize: targetCoverSize
-        Behavior on coverSize { NumberAnimation { duration: 500; easing.type: Easing.OutBack } }
+        Behavior on coverSize { NumberAnimation { duration: 420; easing.type: Easing.OutBack } }
         // Transport row spans the column; floor keeps prev/pause/next hittable.
         readonly property real transportMinWidth: 280
 

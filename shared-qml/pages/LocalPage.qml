@@ -231,7 +231,7 @@ Item {
                         radius: height / 2
                         color: active ? Ui.accentSoft
                                       : (sortArea.containsMouse ? Ui.surfacePressed : Ui.surfaceSunken)
-                        Behavior on color { ColorAnimation { duration: 120 } }
+                        Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
                         Text {
                             id: sortLabelProbe
                             text: modelData
@@ -303,7 +303,7 @@ Item {
                         radius: height / 2
                         color: active ? Ui.accentSoft
                                       : (groupArea.containsMouse ? Ui.surfacePressed : Ui.surfaceSunken)
-                        Behavior on color { ColorAnimation { duration: 120 } }
+                        Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
                         Text {
                             id: groupLabelProbe
                             text: modelData

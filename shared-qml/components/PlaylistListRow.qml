@@ -32,7 +32,7 @@ Rectangle {
     property bool dragging: false
     property real reorderShift: 0
     Behavior on reorderShift {
-        NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+        NumberAnimation { duration: 140; easing.type: Easing.InOutCubic }
     }
     signal reorderPressed()
     signal reorderDragged()

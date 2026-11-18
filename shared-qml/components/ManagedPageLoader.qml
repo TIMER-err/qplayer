@@ -1,4 +1,5 @@
 import QtQuick
+import design
 
 // One route-backed full-screen page. PageStack logic stays in Main.qml, while
 // this component owns the repeated painting, z-order and transition policy.
@@ -38,29 +39,29 @@ Loader {
     Behavior on opacity {
         enabled: pageLoader.animateChange && motion.duration > 0
         NumberAnimation {
-            duration: motion.duration
-            easing.type: pageLoader.present ? Easing.OutCubic : Easing.InCubic
+            duration: 200
+            easing.type: pageLoader.present ? Ui.easeEnter : Ui.easeLeave
         }
     }
     Behavior on scale {
         enabled: pageLoader.animateChange && motion.duration > 0
         NumberAnimation {
-            duration: motion.duration
-            easing.type: pageLoader.present ? Easing.OutCubic : Easing.InCubic
+            duration: 200
+            easing.type: pageLoader.present ? Ui.easeEnter : Ui.easeLeave
         }
     }
     Behavior on x {
         enabled: pageLoader.animateChange && motion.duration > 0
         NumberAnimation {
-            duration: motion.duration
-            easing.type: pageLoader.present ? Easing.OutCubic : Easing.InCubic
+            duration: 200
+            easing.type: pageLoader.present ? Ui.easeEnter : Ui.easeLeave
         }
     }
     Behavior on y {
         enabled: pageLoader.animateChange && motion.duration > 0
         NumberAnimation {
-            duration: motion.duration
-            easing.type: pageLoader.present ? Easing.OutCubic : Easing.InCubic
+            duration: 200
+            easing.type: pageLoader.present ? Ui.easeEnter : Ui.easeLeave
         }
     }
 }

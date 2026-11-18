@@ -92,7 +92,7 @@ Item {
                 radius: height / 2
                 color: pill.active ? Ui.accentSoft
                                    : (pillArea.containsMouse ? Ui.surfacePressed : Ui.surfaceSunken)
-                Behavior on color { ColorAnimation { duration: 120 } }
+                Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
 
                 Text {
                     id: labelProbe

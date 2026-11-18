@@ -1,4 +1,5 @@
 import QtQuick
+import design
 
 // Short scale pulse for a control the user just acted on (like, play/pause):
 // out to `peak`, then back to 1. Call restart() from the click handler.
@@ -10,14 +11,14 @@ SequentialAnimation {
         target: pop.target
         property: "scale"
         to: pop.peak
-        duration: 110
-        easing.type: Easing.OutCubic
+        duration: Ui.motionInstant
+        easing.type: Ui.easeEnter
     }
     NumberAnimation {
         target: pop.target
         property: "scale"
         to: 1
-        duration: 220
-        easing.type: Easing.OutCubic
+        duration: Ui.motionBase
+        easing.type: Ui.easeEnter
     }
 }

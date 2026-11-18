@@ -122,7 +122,7 @@ Item {
         property: "_progress"
         to: 0
         duration: 150
-        easing.type: Easing.OutCubic
+        easing.type: Easing.InCubic
         onFinished: {
             var restoreFocus = superDropdownRoot._restoreFocusOnClose && overlayLayer.activeFocus
                 && superDropdownRoot.anchorVisible()

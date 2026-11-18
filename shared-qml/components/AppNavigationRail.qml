@@ -84,27 +84,58 @@ Item {
             width: navScroll.width
             height: rootList.height + libraryLabel.height + toolList.height + 12
 
+            // One highlight for every destination in the rail -- the four root
+            // pages AND the tools under 更多 -- so the eight entries behave as one
+            // list: selecting 已下载 slides the same pill down out of 我的 instead of
+            // fading in a second, differently-timed pill of its own. Declared first
+            // so the items paint on top of it.
+            Rectangle {
+                id: navSelection
+                objectName: "navRailSelection"
+                readonly property int rootCount: rail.pageManager.navItems.length
+                readonly property var tools: rail.appActions.items
+                // Combined index, -1 while a route page (detail/lyrics/…) owns the
+                // screen and no destination is current.
+                readonly property int index: {
+                    var pm = rail.pageManager
+                    if (pm.currentOverlay === "")
+                        return pm.nextPage
+                    for (var i = 0; i < navSelection.tools.length; i++) {
+                        if (navSelection.tools[i].route !== ""
+                                && navSelection.tools[i].route === pm.currentOverlay)
+                            return navSelection.rootCount + i
+                    }
+                    return -1
+                }
+                readonly property real targetY: navSelection.index < 0
+                    ? rootList.y + 2
+                    : (navSelection.index < navSelection.rootCount
+                       ? rootList.y + navSelection.index * 48 + 2
+                       : toolList.y + (navSelection.index - navSelection.rootCount) * 48 + 2)
+                x: rail.expanded ? 12 : (navContent.width - width) / 2
+                y: navSelection.targetY
+                width: rail.expanded ? navContent.width - 24 : 56
+                height: 40
+                radius: Ui.radiusMd
+                color: Ui.accentSoft
+                opacity: navSelection.index >= 0 ? 1 : 0
+                visible: opacity > 0.01
+                // 160 ms, not 90: at 60 Hz a 90 ms glide is five frames, and with a
+                // decelerate curve the first frame already covers half the distance,
+                // so the eye reads it as a jump followed by a nudge -- "卡" without a
+                // single dropped frame. 160 ms gives ~10 frames, still snappier than
+                // the 260 ms that felt laggy. Literal values because a Behavior reads
+                // its template's duration/easing once, before bindings are evaluated
+                // (a Ui.* token there is silently ignored).
+                Behavior on y { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+            }
+
             Item {
                 id: rootList
                 y: 4
                 width: parent.width
                 height: rail.pageManager.navItems.length * 48
-                // One selection pill shared by the root destinations: it glides
-                // to the new entry instead of each item cross-fading its own.
-                Rectangle {
-                    id: rootSelection
-                    objectName: "navRailSelection"
-                    x: rail.expanded ? 12 : (rootList.width - width) / 2
-                    y: rail.pageManager.nextPage * 48 + 2
-                    width: rail.expanded ? rootList.width - 24 : 56
-                    height: 40
-                    radius: Ui.radiusMd
-                    color: Ui.accentSoft
-                    opacity: rail.pageManager.currentOverlay === "" ? 1 : 0
-                    visible: opacity > 0.01
-                    Behavior on y { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
-                    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
-                }
                 Repeater {
                     model: rail.pageManager.navItems
                     SidebarItem {
@@ -164,6 +195,10 @@ Item {
                         text: modelData.text
                         selected: modelData.route !== ""
                                   && rail.pageManager.currentOverlay === modelData.route
+                        // The highlight is the rail's shared pill, so a tool entry
+                        // slides out of whichever destination was current instead of
+                        // cross-fading a pill of its own.
+                        pillDrawnByParent: true
                         onClicked: rail.appActions.run(modelData)
                     }
                 }

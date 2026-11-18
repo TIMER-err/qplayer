@@ -80,15 +80,15 @@ Item {
             target: control
             property: "opacity"
             to: 1
-            duration: 160
-            easing.type: Easing.OutCubic
+            duration: Ui.motionFast
+            easing.type: Ui.easeEnter
         }
         NumberAnimation {
             target: control
             property: "scale"
             to: 1
-            duration: 220
-            easing.type: Easing.OutBack
+            duration: Ui.motionBase
+            easing.type: Ui.easePop
         }
     }
 
@@ -102,15 +102,15 @@ Item {
             target: control
             property: "opacity"
             to: 0
-            duration: 130
-            easing.type: Easing.InCubic
+            duration: Ui.motionFast
+            easing.type: Ui.easeLeave
         }
         NumberAnimation {
             target: control
             property: "scale"
             to: 0.94
-            duration: 130
-            easing.type: Easing.InCubic
+            duration: Ui.motionFast
+            easing.type: Ui.easeLeave
         }
     }
 
@@ -164,7 +164,7 @@ Item {
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight
         Behavior on y {
-            NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: 140; easing.type: Easing.InOutCubic }
         }
     }
 
@@ -180,7 +180,7 @@ Item {
         verticalAlignment: Text.AlignVCenter
         opacity: control.holding ? 1 : 0
         Behavior on opacity {
-            NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
         }
         elide: Text.ElideRight
     }

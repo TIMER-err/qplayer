@@ -110,7 +110,7 @@ SmoothRectangle {
         target: mini
         property: "_visualProgress"
         duration: 450
-        easing.type: Easing.OutCubic
+        easing.type: Ui.easeEnter
         onFinished: {
             mini._catchingUp = false
             mini._visualProgress = mini._targetProgress

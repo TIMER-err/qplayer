@@ -159,7 +159,7 @@ Rectangle {
         // Fades in once the tracks arrive instead of popping over the spinner;
         // an in-place reload that keeps rows on screen does not blink.
         opacity: player.playlistLoading && (!page.filteredTracks || page.filteredTracks.length === 0) ? 0 : 1
-        Behavior on opacity { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+        Behavior on opacity { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
         rowInset: page.gutter
         scrollBarTopInset: Ui.headerHeight
         // The floating select bar covers the last rows otherwise.
@@ -237,7 +237,7 @@ Rectangle {
                         radius: Ui.radiusLg
                         color: Ui.surfaceAlpha(0.65)
                         opacity: coverArea.containsMouse ? 1 : 0
-                        Behavior on opacity { NumberAnimation { duration: 120 } }
+                        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
                         Glyph {
                             width: parent.width
                             height: parent.height

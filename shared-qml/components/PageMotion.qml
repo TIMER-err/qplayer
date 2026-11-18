@@ -1,14 +1,21 @@
 import QtQuick
+import design
 
 // Shared state machine for root-page transitions. Keeping the animation objects
 // out of Main.qml avoids qml4j's 64KB generated-constructor limit and gives both
 // root navigation and ManagedPageLoader one source of motion parameters.
+//
+// Timing is deliberately asymmetric: the outgoing page leaves in about three
+// quarters of the time the incoming one takes to settle. Equal halves read as two
+// separate movements with a beat in the middle, because the eye follows the exit
+// to a full stop before the entry starts.
 Item {
     id: motion
 
     // SettingsCatalog.PAGE_TRANSITION_*.
     property int preset: 0
-    property int duration: preset === 4 ? 0 : 220
+    property int duration: preset === 4 ? 0 : Ui.motionSlow
+    readonly property int exitDuration: Math.round(motion.duration * 0.72)
     // Slide presets also cross-fade. Pure translation left an abruptly opaque
     // page moving over its source and looked disconnected from the other presets.
     property real hiddenOpacity: 0
@@ -82,19 +89,19 @@ Item {
         ParallelAnimation {
             NumberAnimation {
                 target: motion; property: "contentOpacity"; to: motion.hiddenOpacity
-                duration: motion.duration; easing.type: Easing.InCubic
+                duration: motion.exitDuration; easing.type: Ui.easeLeave
             }
             NumberAnimation {
                 target: motion; property: "contentScale"; to: motion.hiddenScale
-                duration: motion.duration; easing.type: Easing.InCubic
+                duration: motion.exitDuration; easing.type: Ui.easeLeave
             }
             NumberAnimation {
                 target: motion; property: "contentX"; to: motion.exitX
-                duration: motion.duration; easing.type: Easing.InCubic
+                duration: motion.exitDuration; easing.type: Ui.easeLeave
             }
             NumberAnimation {
                 target: motion; property: "contentY"; to: motion.exitY
-                duration: motion.duration; easing.type: Easing.InCubic
+                duration: motion.exitDuration; easing.type: Ui.easeLeave
             }
         }
         ScriptAction {
@@ -111,19 +118,19 @@ Item {
         ParallelAnimation {
             NumberAnimation {
                 target: motion; property: "contentOpacity"; to: 1
-                duration: motion.duration; easing.type: Easing.OutCubic
+                duration: motion.duration; easing.type: Ui.easeEnter
             }
             NumberAnimation {
                 target: motion; property: "contentScale"; to: 1
-                duration: motion.duration; easing.type: Easing.OutCubic
+                duration: motion.duration; easing.type: Ui.easeEnter
             }
             NumberAnimation {
                 target: motion; property: "contentX"; to: 0
-                duration: motion.duration; easing.type: Easing.OutCubic
+                duration: motion.duration; easing.type: Ui.easeEnter
             }
             NumberAnimation {
                 target: motion; property: "contentY"; to: 0
-                duration: motion.duration; easing.type: Easing.OutCubic
+                duration: motion.duration; easing.type: Ui.easeEnter
             }
         }
     }
@@ -132,19 +139,19 @@ Item {
         id: entryAnim
         NumberAnimation {
             target: motion; property: "contentOpacity"; to: 1
-            duration: motion.duration; easing.type: Easing.OutCubic
+            duration: motion.duration; easing.type: Ui.easeEnter
         }
         NumberAnimation {
             target: motion; property: "contentScale"; to: 1
-            duration: motion.duration; easing.type: Easing.OutCubic
+            duration: motion.duration; easing.type: Ui.easeEnter
         }
         NumberAnimation {
             target: motion; property: "contentX"; to: 0
-            duration: motion.duration; easing.type: Easing.OutCubic
+            duration: motion.duration; easing.type: Ui.easeEnter
         }
         NumberAnimation {
             target: motion; property: "contentY"; to: 0
-            duration: motion.duration; easing.type: Easing.OutCubic
+            duration: motion.duration; easing.type: Ui.easeEnter
         }
     }
 
@@ -152,19 +159,19 @@ Item {
         id: exitAnim
         NumberAnimation {
             target: motion; property: "contentOpacity"; to: motion.hiddenOpacity
-            duration: motion.duration; easing.type: Easing.InCubic
+            duration: motion.exitDuration; easing.type: Ui.easeLeave
         }
         NumberAnimation {
             target: motion; property: "contentScale"; to: motion.hiddenScale
-            duration: motion.duration; easing.type: Easing.InCubic
+            duration: motion.exitDuration; easing.type: Ui.easeLeave
         }
         NumberAnimation {
             target: motion; property: "contentX"; to: motion.hiddenX
-            duration: motion.duration; easing.type: Easing.InCubic
+            duration: motion.exitDuration; easing.type: Ui.easeLeave
         }
         NumberAnimation {
             target: motion; property: "contentY"; to: motion.hiddenY
-            duration: motion.duration; easing.type: Easing.InCubic
+            duration: motion.exitDuration; easing.type: Ui.easeLeave
         }
     }
 }

@@ -75,9 +75,9 @@ Item {
         
         ParallelAnimation {
             id: enterAnimation
-            NumberAnimation { target: scrim; property: "opacity"; from: 0.0; to: 0.32; duration: 150; easing.type: Easing.OutQuad }
-            NumberAnimation { target: animationWrapper; property: "scale"; from: 0.9; to: 1.0; duration: 250; easing.type: Easing.OutBack; easing.overshoot: 1.0 }
-            NumberAnimation { target: animationWrapper; property: "opacity"; from: 0.0; to: 1.0; duration: 150 }
+            NumberAnimation { target: scrim; property: "opacity"; from: 0.0; to: 0.32; duration: 150; easing.type: Easing.OutCubic }
+            NumberAnimation { target: animationWrapper; property: "scale"; from: 0.9; to: 1.0; duration: 240; easing.type: Easing.OutBack; easing.overshoot: 1.0 }
+            NumberAnimation { target: animationWrapper; property: "opacity"; from: 0.0; to: 1.0; duration: 150; easing.type: Easing.OutCubic }
         }
         
         ParallelAnimation {
@@ -86,9 +86,9 @@ Item {
                 overlayLayer.visible = false
                 control.closed()
             }
-            NumberAnimation { target: scrim; property: "opacity"; from: 0.32; to: 0.0; duration: 150 }
-            NumberAnimation { target: animationWrapper; property: "opacity"; from: 1.0; to: 0.0; duration: 100 }
-            NumberAnimation { target: animationWrapper; property: "scale"; from: 1.0; to: 0.95; duration: 100 }
+            NumberAnimation { target: scrim; property: "opacity"; from: 0.32; to: 0.0; duration: 150; easing.type: Easing.InCubic }
+            NumberAnimation { target: animationWrapper; property: "opacity"; from: 1.0; to: 0.0; duration: 100; easing.type: Easing.InCubic }
+            NumberAnimation { target: animationWrapper; property: "scale"; from: 1.0; to: 0.95; duration: 100; easing.type: Easing.InCubic }
         }
         
         Rectangle {
@@ -109,7 +109,7 @@ Item {
             width: 324 // MD3 Time Picker width
             height: pickerContainer.height
             
-            Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
+            Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
 
             Rectangle {
                 id: pickerContainer
@@ -119,7 +119,7 @@ Item {
                 color: _colors.surfaceContainerHigh
                 clip: true 
                 
-                Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
+                Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
                 
                 // Block clicks from passing through to scrim
                 MouseArea {
@@ -318,10 +318,11 @@ Item {
                                     Behavior on rotation {
                                         RotationAnimation {
                                             duration: 150
+                                            easing.type: Easing.OutCubic
                                             direction: RotationAnimation.Shortest
                                         }
                                     }
-                                    Behavior on radius { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
+                                    Behavior on radius { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
                                     
                                     // Line
                                     Rectangle {

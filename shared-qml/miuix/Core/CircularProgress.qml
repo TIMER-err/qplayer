@@ -68,8 +68,8 @@ Item {
     SequentialAnimation {
         running: control.indeterminate && control.visible && !control.wavy
         loops: Animation.Infinite
-        NumberAnimation { target: control; property: "_arcSweep"; from: 30; to: 120; duration: 800 }
-        NumberAnimation { target: control; property: "_arcSweep"; from: 120; to: 30; duration: 800 }
+        NumberAnimation { target: control; property: "_arcSweep"; from: 30; to: 120; duration: 800; easing.type: Easing.Linear }
+        NumberAnimation { target: control; property: "_arcSweep"; from: 120; to: 30; duration: 800; easing.type: Easing.Linear }
     }
     onStrokeWidthChanged: canvas.requestPaint()
     // Wavy Indeterminate Animation (Just rotation)
@@ -79,6 +79,7 @@ Item {
         from: 0
         to: 360
         duration: 6000
+        easing.type: Easing.Linear
         loops: Animation.Infinite
         running: control.indeterminate && control.visible && control.wavy
     }

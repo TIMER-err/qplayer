@@ -141,7 +141,7 @@ Item {
                         radius: height / 2
                         color: openArea.pressed ? Ui.surfacePressed : Ui.surfaceHover
                         opacity: openArea.containsMouse || openArea.pressed ? 1 : 0
-                        Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+                        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
                     }
                     Text {
                         id: chipLabel
@@ -200,7 +200,7 @@ Item {
                 radius: Ui.radiusSm
                 color: Ui.surfaceHover
                 opacity: toggleArea.containsMouse ? 1 : 0
-                Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+                Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
             }
             Glyph {
                 id: toggleIcon
@@ -256,7 +256,7 @@ Item {
                     radius: Ui.radiusSm
                     color: hotArea.pressed ? Ui.surfacePressed : Ui.surfaceHover
                     opacity: hotArea.containsMouse || hotArea.pressed ? 1 : 0
-                    Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+                    Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
                 }
                 Text {
                     id: rank

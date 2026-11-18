@@ -87,9 +87,9 @@ Item {
         // Animations (Copied from Dialog)
         ParallelAnimation {
             id: enterAnimation
-            NumberAnimation { target: scrim; property: "opacity"; from: 0.0; to: 0.32; duration: 150; easing.type: Easing.OutQuad }
-            NumberAnimation { target: animationWrapper; property: "scale"; from: 0.9; to: 1.0; duration: 250; easing.type: Easing.OutBack; easing.overshoot: 1.0 }
-            NumberAnimation { target: animationWrapper; property: "opacity"; from: 0.0; to: 1.0; duration: 150 }
+            NumberAnimation { target: scrim; property: "opacity"; from: 0.0; to: 0.32; duration: 150; easing.type: Easing.OutCubic }
+            NumberAnimation { target: animationWrapper; property: "scale"; from: 0.9; to: 1.0; duration: 240; easing.type: Easing.OutBack; easing.overshoot: 1.0 }
+            NumberAnimation { target: animationWrapper; property: "opacity"; from: 0.0; to: 1.0; duration: 150; easing.type: Easing.OutCubic }
         }
         
         ParallelAnimation {
@@ -98,8 +98,8 @@ Item {
                 overlayLayer.visible = false
                 control.closed()
             }
-            NumberAnimation { target: scrim; property: "opacity"; from: 0.32; to: 0.0; duration: 150 }
-            NumberAnimation { target: animationWrapper; property: "opacity"; from: 1.0; to: 0.0; duration: 100 }
+            NumberAnimation { target: scrim; property: "opacity"; from: 0.32; to: 0.0; duration: 150; easing.type: Easing.InCubic }
+            NumberAnimation { target: animationWrapper; property: "opacity"; from: 1.0; to: 0.0; duration: 100; easing.type: Easing.InCubic }
         }
         
         // Scrim
@@ -135,7 +135,7 @@ Item {
                     anchors.fill: parent
                 }
                 
-                Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
+                Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
 
                 ColumnLayout {
                     id: mainColumn

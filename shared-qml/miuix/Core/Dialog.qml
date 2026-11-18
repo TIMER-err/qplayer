@@ -81,7 +81,7 @@ Item {
         property: "_progress"
         to: 0
         duration: 260
-        easing.type: Easing.OutCubic
+        easing.type: Easing.InCubic
         onFinished: {
             overlayLayer.visible = false
             overlayLayer.anchors.fill = undefined

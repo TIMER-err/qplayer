@@ -69,7 +69,7 @@ Item {
                 }
                 Behavior on x { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                 Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
-                Behavior on color { ColorAnimation { duration: 180 } }
+                Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
             }
 
             MouseArea {

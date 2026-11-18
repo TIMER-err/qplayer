@@ -51,7 +51,7 @@ Item {
         height: 28
         radius: height / 2
         color: valueSlider.pressed ? Ui.accent : Ui.accentSoft
-        Behavior on color { ColorAnimation { duration: 120 } }
+        Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
         Text {
             id: valueLabel
             x: (parent.width - implicitWidth) / 2

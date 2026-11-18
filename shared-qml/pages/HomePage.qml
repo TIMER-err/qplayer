@@ -158,7 +158,7 @@ Item {
         target: homeFlick.flickable
         property: "contentY"
         duration: 320
-        easing.type: Easing.OutCubic
+        easing.type: Ui.easeEnter
     }
 
     property int gridWindowRows: {

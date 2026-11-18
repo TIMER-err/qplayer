@@ -144,12 +144,12 @@ Item {
             ParallelAnimation {
                 id: enterAnim
                 NumberAnimation { target: popupContainer; property: "scale"; to: 1.0; duration: 180; easing.type: Easing.OutCubic }
-                NumberAnimation { target: popupContainer; property: "opacity"; to: 1.0; duration: 140 }
+                NumberAnimation { target: popupContainer; property: "opacity"; to: 1.0; duration: 140; easing.type: Easing.OutCubic }
             }
             ParallelAnimation {
                 id: exitAnim
                 onFinished: control._finishClose()
-                NumberAnimation { target: popupContainer; property: "opacity"; to: 0.0; duration: 120 }
+                NumberAnimation { target: popupContainer; property: "opacity"; to: 0.0; duration: 120; easing.type: Easing.InCubic }
                 NumberAnimation { target: popupContainer; property: "scale"; to: 0.95; duration: 120; easing.type: Easing.InCubic }
             }
 
@@ -337,7 +337,7 @@ Item {
                     if (control.currentIndex === menuItem.parent.itemIndex) return 0.08
                     return 0
                 }
-                Behavior on opacity { NumberAnimation { duration: 150 } }
+                Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
             }
 
             // Ripple — the sole pointer handler. The desktop hover MouseArea that used

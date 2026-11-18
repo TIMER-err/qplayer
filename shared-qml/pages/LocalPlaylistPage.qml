@@ -192,7 +192,7 @@ Rectangle {
                         radius: Ui.radiusLg
                         color: Ui.surfaceAlpha(0.65)
                         opacity: coverArea.containsMouse ? 1 : 0
-                        Behavior on opacity { NumberAnimation { duration: 120 } }
+                        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
                         Glyph {
                             width: parent.width
                             height: parent.height
