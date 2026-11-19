@@ -1,6 +1,7 @@
 package dev.t1m3.qplayer.desktop.audio;
 
 import com.sun.net.httpserver.HttpServer;
+import dev.t1m3.qplayer.util.Logger;
 import org.junit.Assume;
 import org.junit.Test;
 
@@ -11,6 +12,9 @@ import java.nio.file.Path;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BooleanSupplier;
 
 import static org.junit.Assert.*;
 
@@ -103,6 +107,55 @@ public class DesktopAudioBackendStreamingTest {
             tail.countDown();
             server.stop(0);
         }
+    }
+
+    @Test(timeout = 12_000)
+    public void sameNameRouteChangeRecoversPlayingTrackAndPreservesPause() throws Exception {
+        Assume.assumeTrue("requires the OpenAL Soft null output", "null".equals(System.getenv("ALSOFT_DRIVERS")));
+        AtomicLong generation = new AtomicLong(System.nanoTime());
+        DesktopAudioBackend backend = new DesktopAudioBackend(generation::get);
+        AtomicInteger starts = new AtomicInteger();
+        AtomicBoolean ended = new AtomicBoolean();
+        backend.setOnStarted(starts::incrementAndGet);
+        backend.setOnComplete(() -> ended.set(true));
+        backend.setOnError(() -> ended.set(true));
+        Path local = Files.createTempFile("qplayer-reconnect-", ".wav");
+        Files.write(local, ProgressiveAudioTest.wav(32_000 * 12));
+        try {
+            backend.play(local.toString(), 1000);
+            await(() -> starts.get() == 1 && backend.position() > 1200);
+            long before = backend.position();
+            // Two notifications inside one poll, with exactly the same device name.
+            long roundTrip = generation.addAndGet(2);
+            await(() -> reopened(roundTrip));
+            await(() -> backend.position() > before + 500);
+            assertEquals(1, starts.get());
+
+            backend.pause();
+            long pausedRoute = generation.incrementAndGet();
+            await(() -> reopened(pausedRoute));
+            long pausedAt = backend.position();
+            Thread.sleep(150);
+            assertEquals(pausedAt, backend.position());
+            assertFalse(backend.isPlaying());
+            backend.resume();
+            await(() -> backend.position() > pausedAt + 100);
+            assertFalse(ended.get());
+        } finally {
+            backend.release();
+            Files.deleteIfExists(local);
+        }
+    }
+
+    private static boolean reopened(long generation) {
+        return Logger.snapshot().stream().anyMatch(line ->
+                line.contains("reopened default output") && line.contains("(route " + generation + ","));
+    }
+
+    private static void await(BooleanSupplier predicate) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+        while (!predicate.getAsBoolean() && System.nanoTime() < deadline) Thread.sleep(20);
+        assertTrue("timed out waiting for playback or output recovery", predicate.getAsBoolean());
     }
 
     private static HttpServer delayedServer(byte[] payload, int firstBytes,

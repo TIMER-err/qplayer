@@ -15,6 +15,7 @@ import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.function.LongSupplier;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -90,6 +91,9 @@ public final class DesktopAudioBackend implements AudioBackend {
     private boolean outputNeedsReprime;
     private String lastDefaultDevice = "";
     private long lastDeviceCheckNanos;
+    private final LongSupplier outputGeneration;
+    private long openedGeneration;
+    private boolean routeRetryPending;
     private ByteBuffer nativeChunk;
     private final byte[] stagingChunk = new byte[CHUNK_BYTES];
     private final ArrayDeque<Integer> queuedFrames = new ArrayDeque<>();
@@ -100,6 +104,14 @@ public final class DesktopAudioBackend implements AudioBackend {
     private long framesSinceBase = 0L;
     private volatile String cachePendingPath;
     private volatile String cacheCompletePath;
+
+    public DesktopAudioBackend() {
+        this(MacOutputRoute::generation);
+    }
+
+    DesktopAudioBackend(LongSupplier outputGeneration) {
+        this.outputGeneration = outputGeneration;
+    }
 
     @Override
     public void play(String src, long startMs) {
@@ -603,6 +615,8 @@ public final class DesktopAudioBackend implements AudioBackend {
     }
 
     private void initOpenAl() {
+        // Subscribe before opening so a change during device initialization isn't lost.
+        openedGeneration = outputGeneration.getAsLong();
         device = alcOpenDevice((ByteBuffer) null);
         if (device == NULL) throw new IllegalStateException("OpenAL: no audio device");
         ALCCapabilities alcCaps = ALC.createCapabilities(device);
@@ -614,6 +628,8 @@ public final class DesktopAudioBackend implements AudioBackend {
         reopenDeviceSupported = alcCaps.ALC_SOFT_reopen_device;
         disconnectSupported = alcCaps.ALC_EXT_disconnect;
         lastDefaultDevice = defaultPlaybackDevice();
+        Logger.info("audio: opened default output {}, route generation {}, reopen supported {}",
+                lastDefaultDevice, openedGeneration, reopenDeviceSupported);
         sourceId = alGenSources();
         buffers = new int[NUM_BUFFERS];
         for (int i = 0; i < NUM_BUFFERS; i++) buffers[i] = alGenBuffers();
@@ -637,16 +653,27 @@ public final class DesktopAudioBackend implements AudioBackend {
         }
         if (!reopenDeviceSupported || device == NULL) return connected;
         long now = System.nanoTime();
-        if (now - lastDeviceCheckNanos < DEVICE_CHECK_NANOS) return connected;
+        if (now - lastDeviceCheckNanos < DEVICE_CHECK_NANOS) return connected && !routeRetryPending;
         lastDeviceCheckNanos = now;
         String current = defaultPlaybackDevice();
-        if (connected && (current.isEmpty() || current.equals(lastDefaultDevice))) return true;
+        long generation = outputGeneration.getAsLong();
+        boolean routeChanged = generation != openedGeneration;
+        if (connected && !routeChanged && (current.isEmpty() || current.equals(lastDefaultDevice))) return true;
         if (!SOFTReopenDevice.alcReopenDeviceSOFT(device, (ByteBuffer) null, (IntBuffer) null)) {
-            if (connected) Logger.warn("audio: failed to reopen OpenAL on {}", current);
-            return isOutputConnected();
+            if (!routeRetryPending) {
+                Logger.warn("audio: could not reopen output {} (route {}, ALC error {}); retrying",
+                        current, generation, alcGetError(device));
+            }
+            routeRetryPending = routeChanged;
+            return !routeRetryPending && isOutputConnected();
         }
+        // Even a same-name reconnect can leave the old source stopped with its
+        // entire queue marked processed. Refill from the last known playhead.
+        if (routeChanged) outputNeedsReprime = true;
+        openedGeneration = generation;
+        routeRetryPending = false;
         lastDefaultDevice = current;
-        Logger.info("audio: reopened OpenAL on {}", current);
+        Logger.info("audio: reopened default output {} (route {}, position {} ms)", current, generation, positionMs);
         return isOutputConnected();
     }
 
