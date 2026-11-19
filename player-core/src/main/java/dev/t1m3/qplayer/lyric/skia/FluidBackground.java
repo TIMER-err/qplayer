@@ -35,6 +35,9 @@ public final class FluidBackground {
     public static final int STYLE_CLASSIC = 2;
 
     private static final int TEX_SIZE = 32;
+    /** Live backdrop render scale: 0.5 = half resolution per axis, a quarter of
+     *  the pixels. The image is a smooth gradient, so the upscale is invisible. */
+    private static final float LIVE_RENDER_SCALE = 0.5f;
 
     private static final String SHADER_ROOT = "/shaders/fluid/";
     private static final String[][] SHADER_FILES = {
@@ -123,6 +126,10 @@ public final class FluidBackground {
     // device resolution) and then blitted each frame, so static mode pays a single
     // full-screen SkSL pass per track/size instead of one every frame. Rebuilt when
     // the cover or the device size changes.
+    // Cached half-resolution target for the per-frame live pass.
+    private Surface liveSurface;
+    private int liveW = -1, liveH = -1;
+    private Rect liveRect;
     private Image staticImage;
     private int staticW = -1;
     private int staticH = -1;
@@ -239,7 +246,55 @@ public final class FluidBackground {
             // build failed -> fall through to the live shader this frame
         }
 
-        drawFluid(canvas, fullRect, w, h, time, fadeProgress(nowNs));
+        // Live pass at half resolution, then upscaled. The backdrop is a smooth
+        // gradient sampled bilinearly anyway, so half-res is indistinguishable at
+        // panel density, and this is the largest per-pixel cost on the page (a
+        // full-screen SkSL pass every frame). Rendering it at 1/4 of the pixels is
+        // what leaves fill rate for the system compositor's own blurs when the
+        // notification shade or recents comes down over the app.
+        float fade = fadeProgress(nowNs);
+        if (ctx != null) {
+            int dw = Math.max(1, Math.round(w * uiScale * LIVE_RENDER_SCALE));
+            int dh = Math.max(1, Math.round(h * uiScale * LIVE_RENDER_SCALE));
+            if (drawFluidScaled(canvas, ctx, fullRect, dw, dh, time, fade)) return;
+        }
+        drawFluid(canvas, fullRect, w, h, time, fade);
+    }
+
+    /** Render the live fluid into a cached 1/{@link #LIVE_RENDER_SCALE} surface and
+     *  blit it up. Returns false when the offscreen surface is unavailable, in which
+     *  case the caller draws at full resolution. */
+    private boolean drawFluidScaled(Canvas canvas, DirectContext ctx, Rect dstRect,
+                                    int dw, int dh, float time, float fade) {
+        if (liveSurface == null || liveW != dw || liveH != dh) {
+            releaseLive();
+            try {
+                liveSurface = Surface.makeRenderTarget(ctx, false, ImageInfo.makeN32Premul(dw, dh));
+            } catch (Throwable e) {
+                liveSurface = null;
+            }
+            if (liveSurface == null) return false;
+            liveW = dw;
+            liveH = dh;
+            liveRect = Rect.makeWH(dw, dh);
+        }
+        Canvas off = liveSurface.getCanvas();
+        off.clear(0);
+        drawFluid(off, liveRect, dw, dh, time, fade);
+        try (Image image = liveSurface.makeImageSnapshot()) {
+            canvas.drawImageRect(image, liveRect, dstRect, SamplingMode.LINEAR, null, true);
+        }
+        return true;
+    }
+
+    private void releaseLive() {
+        if (liveSurface != null) {
+            liveSurface.close();
+            liveSurface = null;
+        }
+        liveW = -1;
+        liveH = -1;
+        liveRect = null;
     }
 
     // Fade progress 0..1 since the last cover swap; releases the previous cover once done.
@@ -377,6 +432,7 @@ public final class FluidBackground {
      * and will be uploaded again when the next context lazily rebuilds caches.
      */
     public void invalidateGpuContext() {
+        releaseLive();
         invalidateStatic();
     }
 
@@ -400,6 +456,7 @@ public final class FluidBackground {
             coverAdjusted = null;
         }
         releasePrev();
+        releaseLive();
         invalidateStatic();
         if (saturationFilter != null) { saturationFilter.close(); saturationFilter = null; }
         fluidPaint.close();
