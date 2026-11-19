@@ -2,6 +2,16 @@
 // The upstream Java Swing layer is deliberately not used or loaded.
 #ifdef __APPLE__
 #import <Cocoa/Cocoa.h>
+
+@interface QPlayerWindowDragView : NSView
+@end
+
+@implementation QPlayerWindowDragView
+- (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
+- (void)mouseDown:(NSEvent *)event {
+    [self.window performWindowDragWithEvent:event];
+}
+@end
 #endif
 #ifdef _WIN32
 #include "upstream/windows/webview_embed.cc"
@@ -118,6 +128,30 @@ Java_dev_t1m3_qplayer_desktop_window_MacWindowChrome_installNative(
     jdoubleArray result = env->NewDoubleArray(2);
     if (result) env->SetDoubleArrayRegion(result, 0, 2, metrics);
     return result;
+}
+
+JNIEXPORT void JNICALL
+Java_dev_t1m3_qplayer_desktop_window_MacWindowChrome_setDragRegionNative(
+        JNIEnv *, jclass, jlong handle, jdouble left, jdouble right, jdouble height) {
+    NSView *content = reinterpret_cast<NSWindow *>(handle).contentView;
+    QPlayerWindowDragView *region = nil;
+    for (NSView *child in content.subviews) {
+        if ([child isKindOfClass:[QPlayerWindowDragView class]]) {
+            region = (QPlayerWindowDragView *)child;
+            break;
+        }
+    }
+    if (!region) {
+        region = [[[QPlayerWindowDragView alloc] initWithFrame:NSZeroRect] autorelease];
+        [content addSubview:region];
+    }
+    region.hidden = height <= 2;
+    if (region.hidden) return;
+    // A narrow outer rim remains available to AppKit for edge resizing.
+    NSRect bounds = content.bounds;
+    CGFloat top = content.isFlipped ? NSMinY(bounds) + 2 : NSMaxY(bounds) - height;
+    region.frame = NSMakeRect(left, top, std::max(0.0, NSWidth(bounds) - left - right), height - 2);
+    region.autoresizingMask = NSViewWidthSizable | (content.isFlipped ? NSViewMaxYMargin : NSViewMinYMargin);
 }
 
 JNIEXPORT void JNICALL

@@ -10,6 +10,7 @@ final class MacWindowChrome {
     final double buttonsEnd;
     final double height;
     private boolean hidden;
+    private double dragLeft = -1, dragRight, dragHeight;
 
     private MacWindowChrome(long cocoaWindow, double[] metrics) {
         this.cocoaWindow = cocoaWindow;
@@ -36,6 +37,15 @@ final class MacWindowChrome {
         hidden = value;
     }
 
+    void setDragRegion(double left, double right, double height) {
+        if (left == dragLeft && right == dragRight && height == dragHeight) return;
+        setDragRegionNative(cocoaWindow, left, right, height);
+        dragLeft = left;
+        dragRight = right;
+        dragHeight = height;
+    }
+
+    private static native void setDragRegionNative(long cocoaWindow, double left, double right, double height);
     private static native double[] installNative(long cocoaWindow);
     private static native void setHiddenNative(long cocoaWindow, boolean hidden);
 }
