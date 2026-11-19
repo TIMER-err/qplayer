@@ -2,6 +2,7 @@ package io.github.timer_err.qml4j.android;
 
 import android.app.Activity;
 import android.content.Context;
+import android.os.Build;
 import android.opengl.GLSurfaceView;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -772,6 +773,17 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                         || Boolean.TRUE.equals(controller.lyricsOpen.peek())
                         || (controller.lyricSlide.peek() != null
                             && controller.lyricSlide.peek() > 0.001)));
+                // The lyric page animates every vsync, but its content is a text sweep
+                // over a slowly morphing backdrop: 60 Hz reads the same and leaves the
+                // other 60 vacated vsyncs, GPU bandwidth and CPU time to the system
+                // compositor (notification shade, recents, split-screen). Ask for that
+                // explicitly instead of quietly taking the whole panel.
+                boolean lyricPageOn = controller != null && (
+                        Boolean.TRUE.equals(controller.lyricsOpen.peek())
+                        || (controller.lyricSlide.peek() != null
+                            && controller.lyricSlide.peek() > 0.001)
+                        || compositor.temperaVisible(controller));
+                requestFrameRate(lyricPageOn ? 60f : 0f);
                 boolean needContinuous = AndroidRenderPolicy.shouldRenderContinuously(
                         hostAnimation, frameChanges > 0, consumeWakeSettleFrame(), view.root());
                 if (!needContinuous && compositor.skippedLayout()) {
@@ -798,6 +810,32 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                     dq.uninstall();
                 }
             }
+        }
+    }
+
+    // Surface.setFrameRate hint: -1 = nothing requested yet, 0 = no preference.
+    private float requestedFrameRate = -1f;
+
+    /** Ask the display pipeline for the cadence this page needs (0 = clear the hint).
+     *  Surfaced through {@code android.view.Surface} because {@code Surface} in this
+     *  file already means the Skija one. */
+    private void requestFrameRate(float fps) {
+        if (Build.VERSION.SDK_INT < 30 || requestedFrameRate == fps) return;
+        requestedFrameRate = fps;
+        try {
+            android.view.Surface holderSurface = getHolder().getSurface();
+            if (holderSurface == null || !holderSurface.isValid()) {
+                requestedFrameRate = -1f;
+                return;
+            }
+            if (fps <= 0f) {
+                holderSurface.setFrameRate(0f, android.view.Surface.FRAME_RATE_COMPATIBILITY_DEFAULT);
+            } else {
+                holderSurface.setFrameRate(fps, android.view.Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE);
+            }
+        } catch (Throwable t) {
+            // No frame-rate hint on this device/panel; the render loop still works.
+            requestedFrameRate = -1f;
         }
     }
 

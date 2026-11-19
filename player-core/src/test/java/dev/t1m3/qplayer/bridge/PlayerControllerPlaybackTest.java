@@ -1240,6 +1240,42 @@ public class PlayerControllerPlaybackTest {
         }
     }
 
+    @Test
+    public void switchingTracksHoldsTheLayoutUntilTheNewLyricsAreKnown() throws Exception {
+        String oldBase = AppDirs.base();
+        String oldCacheBase = AppDirs.cacheBase();
+        PlayerController controller = null;
+        try {
+            Path base = temporaryFolder.newFolder("lyric-layout-hold").toPath();
+            AppDirs.setBase(base.toString());
+            AppDirs.setCacheBase(base.resolve("cache").toString());
+            Files.write(base.resolve("queue.json"), ("{\"playIndex\":0,\"positionMs\":0,"
+                    + "\"playMode\":0,\"tracks\":[{\"source\":\"LOCAL\",\"title\":\"a\","
+                    + "\"durationMs\":120000,\"filePath\":\"a.mp3\"}]}")
+                    .getBytes(StandardCharsets.UTF_8));
+            controller = new PlayerController(new FakeAudioBackend(), track -> { }, NeteaseClient.INSTANCE);
+
+            // The page is in lyric layout for the outgoing track (cover at the side).
+            controller.lyrics.set(dev.t1m3.qplayer.lyric.LrcParser.parse(
+                    "[00:01.00]line one\n[00:04.00]line two\n[00:09.00]line three"));
+            controller.lyricsCoverOnly.set(false);
+
+            // A track switch clears the column but must NOT decide the layout yet:
+            // deciding here is what made the cover fly to the centre and back while
+            // the new track's lyrics were still being fetched.
+            controller.clearLyricsPending();
+
+            assertTrue("new track's column is blank until its lyrics arrive",
+                    controller.lyrics.peek().isEmpty());
+            assertFalse("layout must hold, not flip to cover-only, until the fetch resolves",
+                    controller.lyricsCoverOnly.peek());
+        } finally {
+            if (controller != null) lifecycle.close(controller);
+            AppDirs.setBase(oldBase);
+            AppDirs.setCacheBase(oldCacheBase);
+        }
+    }
+
     private static dev.t1m3.qplayer.media.Playlist playlist(String id, String name) {
         dev.t1m3.qplayer.media.Playlist playlist = new dev.t1m3.qplayer.media.Playlist();
         playlist.id = id;
