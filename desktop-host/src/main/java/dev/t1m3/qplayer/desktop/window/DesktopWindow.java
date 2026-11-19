@@ -1338,7 +1338,17 @@ public final class DesktopWindow {
                 }
             }
             if (macChrome != null && controller != null) {
-                macChrome.setHidden(fullscreen || controller.lyricsOpen.peek() || controller.lyricSlide.peek() > 0.001);
+                boolean playback = controller.lyricsOpen.peek() || controller.lyricSlide.peek() > 0.001;
+                macChrome.setHidden(fullscreen || playback);
+                if (fullscreen || controller.temperaOpen.peek() || controller.temperaOpacity.peek() > 0.001
+                        || controller.lyricOffsetPanelOpen.peek()) {
+                    macChrome.setDragRegion(0, 0, 0);
+                } else if (playback) {
+                    // Leave the dismiss button and the three lyric actions to QML.
+                    macChrome.setDragRegion(52 * userScale, 154 * userScale, 52 * userScale);
+                } else {
+                    macChrome.setDragRegion(macChrome.buttonsEnd + 4, 3, macChrome.height);
+                }
             }
             if (lyricWindow != null) lyricWindow.updateMousePassthroughRegion();
             publishDesktopLyricsWithoutMainRenderer();
