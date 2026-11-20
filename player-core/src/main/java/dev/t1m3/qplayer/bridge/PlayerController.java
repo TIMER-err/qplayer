@@ -6720,7 +6720,10 @@ public final class PlayerController {
                                                     || stream == null
                                                     || stream.url == null
                                                     || stream.url.isEmpty();
-                                            if (failed && !"standard".equals(requestedLevel)) {
+                                            // A superseded request (track changed or replayed
+                                            // meanwhile) must not spend another provider call.
+                                            if (failed && !"standard".equals(requestedLevel)
+                                                    && playbackSession.accepts(request, track)) {
                                                 Logger.info(
                                                         "plugin {} resolve failed at {}, retrying at standard",
                                                         id.provider(), requestedLevel);
