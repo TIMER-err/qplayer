@@ -178,6 +178,9 @@ Rectangle {
     Component.onCompleted: {
         app.localTabLayout = app.showLocalTab
         player.setWideLayout(wide)
+        // The controller fetches the playlists during startup, so the list starts fresh:
+        // the first visit must not pay for a re-publish (see libraryRefreshedAt).
+        app.libraryRefreshedAt = Date.now()
     }
 
     // Shared nav model for both the bottom bar and the rail.
@@ -450,21 +453,62 @@ Rectangle {
     // Deferred destination load, started by switchTo(). One pending choice only:
     // a second tap before it fires simply replaces the target.
     property int pendingLoadIndex: -1
+    // When 我的 last asked the controller to re-publish its playlists, and the TTL that
+    // gates it. Refreshing on EVERY visit froze the render thread for ~700-800 ms
+    // (screenrecord: the picture sat still from the end of the page motion until 2.3 s
+    // after the tap, with the GL thread at 55% CPU) because the publish re-evaluates
+    // every playlist card. The list is already published at startup and kept current by
+    // the account/source events, so a visit only re-fetches when the data is stale.
+    property real libraryRefreshedAt: 0
+    readonly property real libraryRefreshTtl: 300000   // 5 min
+    // Set when a visit finds the list stale; cleared by publishLibraryIfPending(),
+    // which the page calls once its chrome has painted (LibraryPage.chromeReady).
+    property bool libraryPublishPending: false
+    // LibraryPage signals chromeReady once, on the visit that builds it. Later visits
+    // run buildPendingDestination after the page motion has landed with the chrome
+    // already on screen, so a stale list publishes right there instead of waiting
+    // for a signal that never comes again.
+    property bool libraryChromePainted: false
+
+    function publishLibraryIfPending() {
+        app.libraryChromePainted = true
+        if (!app.libraryPublishPending) return
+        app.libraryPublishPending = false
+        app.libraryRefreshedAt = Date.now()
+        player.loadMyPlaylists()
+    }
     Timer {
         id: railLoadTimer
-        interval: 200
+        // Wait out the WHOLE transition, not just the pill: a first visit builds the
+        // destination's tree and its first row of delegates, which costs 200-700 ms on
+        // the render thread. At 200 ms that work landed inside the incoming page's
+        // entry animation (exit 187 + enter 260 = 447 ms at Ui.motionSlow) and the
+        // motion stuttered - "点我的页面时，歌单加载和动画一起了". With the idle prewarm
+        // off this is the first tap's only chance to run that work somewhere quiet, so
+        // it runs after the motion has landed. Stop the tap's feedback from waiting on
+        // it: the pill still paints on the tap frame.
+        interval: rootPageMotion.duration + rootPageMotion.exitDuration + 40
         repeat: false
-        onTriggered: {
-            var idx = app.pendingLoadIndex
-            app.pendingLoadIndex = -1
-            if (idx === 1) {
-                app.searchLoaded = true
-            } else if (idx === app.libraryPageIndex) {
-                app.libraryLoaded = true
-                player.loadMyPlaylists()
-            } else if (idx === app.localPageIndex) {
-                app.localLoaded = true
+        onTriggered: app.buildPendingDestination()
+    }
+
+    function buildPendingDestination() {
+        var idx = app.pendingLoadIndex
+        app.pendingLoadIndex = -1
+        if (idx === 1) {
+            app.searchLoaded = true
+        } else if (idx === app.libraryPageIndex) {
+            app.libraryLoaded = true
+            // Do not publish here: the page tells us when its chrome is on screen
+            // (chromeReady), because the publish itself blocks the render thread for
+            // ~700 ms and must not land on the page motion or on the first layout.
+            if (app.libraryRefreshedAt <= 0
+                    || Date.now() - app.libraryRefreshedAt > app.libraryRefreshTtl) {
+                app.libraryPublishPending = true
+                if (app.libraryChromePainted) app.publishLibraryIfPending()
             }
+        } else if (idx === app.localPageIndex) {
+            app.localLoaded = true
         }
     }
 
@@ -532,10 +576,13 @@ Rectangle {
         // Click first, content second. Building a destination's tree (and its
         // first list) can cost 200-700 ms on the render thread the first time it
         // is shown; doing that inside the tap handler froze the highlight
-        // mid-hop, which is what "不跟手" was. The flag flips after the pill has
-        // landed (160 ms motion plus a margin), so the tap frame only paints the
-        // selection and the load lands behind it.
+        // mid-hop, which is what "不跟手" was. railLoadTimer waits out the whole
+        // page motion (see its interval), so the tap frame only paints the
+        // selection and the destination builds behind a settled screen.
         app.pendingLoadIndex = idx
+        // Set, don't rely on the binding: qml4j reads a Timer's interval when it is
+        // started, and the preset's duration can change before this tap.
+        railLoadTimer.interval = rootPageMotion.duration + rootPageMotion.exitDuration + 40
         railLoadTimer.restart()
     }
 
@@ -672,6 +719,7 @@ Rectangle {
                         LibraryPage {
                             bottomContentInset: app.bottomContentInset
                             id: libraryPage
+                            onChromeReady: app.publishLibraryIfPending()
                             visible: app.page === app.libraryPageIndex
                             onOpenPlaylist: {
                                 player.openMediaPlaylist("" + libraryPage.pendingPlaylist.id)
