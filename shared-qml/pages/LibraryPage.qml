@@ -21,6 +21,34 @@ Item {
     signal openLocalPlaylist()
     signal requestLogin()
 
+    // The page signals once its chrome (title area, tab row, toolbar) has actually been
+    // laid out and painted. Publishing the playlist list is what blocks the render
+    // thread for ~700 ms, so Main waits for this instead of guessing a delay: the top
+    // bar is on screen first, the list lands after it.
+    signal chromeReady()
+    property bool _chromeSignalled: false
+    Timer {
+        id: chromeReadyTimer
+        // The page first draws with the chrome only (the grid is held back, see
+        // contentArea), so the entry animation runs over a real page instead of a blank
+        // one. This fires after that animation has landed - Ui.motionSlow + a margin -
+        // and only then may the cards be built and the list be published.
+        interval: 300
+        repeat: false
+        running: false
+        onTriggered: {
+            if (page.visible && !page._chromeSignalled) {
+                page._chromeSignalled = true
+                page.chromeReady()
+                // Chrome is on screen; now the grid may build. One frame later keeps
+                // the card construction off the frame that first draws the page.
+                contentArea.ensureViewLoaded()
+            }
+        }
+    }
+    onVisibleChanged: if (page.visible) chromeReadyTimer.restart()
+    Component.onCompleted: if (page.visible) chromeReadyTimer.restart()
+
     readonly property real gutter: Ui.gutter(page.width)
     readonly property bool compact: page.width < Ui.compactMax
 
@@ -188,7 +216,12 @@ Item {
             else contentArea.gridLoaded = true
         }
         onListViewChanged: ensureViewLoaded()
-        Component.onCompleted: ensureViewLoaded()
+        // NOT at Component.onCompleted: with the idle prewarm the page is created while
+        // invisible, and attaching the list there means the whole grid (20 cards) is
+        // built in the same frame as the page's first layout - which is the ~400 ms of
+        // blank screen measured between the page motion and the first drawn frame.
+        // The grid is loaded from chromeReadyTimer instead, one frame after the chrome
+        // itself has been painted.
 
         PlaylistGrid {
             id: localGrid
