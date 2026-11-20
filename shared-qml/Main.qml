@@ -178,6 +178,9 @@ Rectangle {
     Component.onCompleted: {
         app.localTabLayout = app.showLocalTab
         player.setWideLayout(wide)
+        // The controller fetches the playlists during startup, so the list starts fresh:
+        // the first visit must not pay for a re-publish (see libraryRefreshedAt).
+        app.libraryRefreshedAt = Date.now()
     }
 
     // Shared nav model for both the bottom bar and the rail.
@@ -450,6 +453,24 @@ Rectangle {
     // Deferred destination load, started by switchTo(). One pending choice only:
     // a second tap before it fires simply replaces the target.
     property int pendingLoadIndex: -1
+    // When 我的 last asked the controller to re-publish its playlists, and the TTL that
+    // gates it. Refreshing on EVERY visit froze the render thread for ~700-800 ms
+    // (screenrecord: the picture sat still from the end of the page motion until 2.3 s
+    // after the tap, with the GL thread at 55% CPU) because the publish re-evaluates
+    // every playlist card. The list is already published at startup and kept current by
+    // the account/source events, so a visit only re-fetches when the data is stale.
+    property real libraryRefreshedAt: 0
+    readonly property real libraryRefreshTtl: 300000   // 5 min
+    // Set when a visit finds the list stale; cleared by publishLibraryIfPending(),
+    // which the page calls once its chrome has painted (LibraryPage.chromeReady).
+    property bool libraryPublishPending: false
+
+    function publishLibraryIfPending() {
+        if (!app.libraryPublishPending) return
+        app.libraryPublishPending = false
+        app.libraryRefreshedAt = Date.now()
+        player.loadMyPlaylists()
+    }
     Timer {
         id: railLoadTimer
         // Wait out the WHOLE transition, not just the pill: a first visit builds the
@@ -472,7 +493,13 @@ Rectangle {
             app.searchLoaded = true
         } else if (idx === app.libraryPageIndex) {
             app.libraryLoaded = true
-            player.loadMyPlaylists()
+            // Do not publish here: the page tells us when its chrome is on screen
+            // (chromeReady), because the publish itself blocks the render thread for
+            // ~700 ms and must not land on the page motion or on the first layout.
+            if (app.libraryRefreshedAt <= 0
+                    || Date.now() - app.libraryRefreshedAt > app.libraryRefreshTtl) {
+                app.libraryPublishPending = true
+            }
         } else if (idx === app.localPageIndex) {
             app.localLoaded = true
         }
@@ -701,6 +728,7 @@ Rectangle {
                         LibraryPage {
                             bottomContentInset: app.bottomContentInset
                             id: libraryPage
+                            onChromeReady: app.publishLibraryIfPending()
                             visible: app.page === app.libraryPageIndex
                             onOpenPlaylist: {
                                 player.openMediaPlaylist("" + libraryPage.pendingPlaylist.id)
