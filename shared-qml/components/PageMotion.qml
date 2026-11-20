@@ -52,6 +52,12 @@ Item {
         exitAnim.stop()
     }
 
+    // A function, not a derived binding: callers may ask in the same tick an
+    // animation starts, before a binding would have been re-evaluated.
+    function isRunning() {
+        return transitionAnim.running || entryAnim.running || exitAnim.running
+    }
+
     function showImmediately() {
         motion.stopAnimations()
         motion.contentOpacity = 1

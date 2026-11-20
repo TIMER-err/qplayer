@@ -46,7 +46,9 @@ Flickable {
     property bool highlightByFilePath: false
     property bool removable: false
     // This list is the live queue: rows get the queue-only menu actions
-    // (移到顶部 / 移到末尾) and the drag handle reorders playback order.
+    // (移到顶部 / 移到末尾) and the drag handle reorders playback order. Its drag
+    // handle and remove button stay on instead of being revealed by a hold, so a
+    // long-press keeps opening the row menu (the only way to it on touch).
     property bool queueList: false
     property bool selectMode: false
     property string selectedKey: ""
@@ -110,9 +112,10 @@ Flickable {
     // rows meant fifty of those.
     property bool reorderable: false
     // Global index whose drag handle/remove button are revealed (see SongRow's
-    // controlsRevealed) — right-click/long-press toggles it. -1 when nothing is
-    // revealed. Reset whenever reordering stops being possible or the list
-    // itself changes shape, so it never keeps pointing at a stale row.
+    // controlsRevealed) — right-click/long-press toggles it, except in the queue
+    // list, which keeps them always on. -1 when nothing is revealed. Reset
+    // whenever reordering stops being possible or the list itself changes shape,
+    // so it never keeps pointing at a stale row.
     property int revealedIndex: -1
     onReorderableChanged: view._cancelDrag()
     onCountChanged: view._cancelDrag()
@@ -413,7 +416,9 @@ Flickable {
                 onActivated: { view.activatedIndex = index; view.activated() }
                 onRemoveRequested: { view.removeIndex = index; view.removeRequested() }
                 reorderable: view.reorderable && !view.selectMode
-                controlsRevealed: view.reorderable ? (view.revealedIndex === index) : true
+                revealOnHold: !view.queueList
+                controlsRevealed: view.reorderable
+                                  ? (view.queueList || view.revealedIndex === index) : true
                 onRevealToggled: view.revealedIndex = (view.revealedIndex === index) ? -1 : index
                 showLikeButton: view.showLikeButton
                 likeable: view.showLikeButton && player.isMediaLikeable(view.rowId(modelData))

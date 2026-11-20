@@ -146,9 +146,9 @@ Item {
 
     // 播放页常亮 (Android only): the screen stays awake while a track is playing
     // and is allowed to sleep as soon as playback pauses. It describes how THIS
-    // page behaves, so it is toggled here rather than from the settings list --
-    // same reasoning as the full-width layout button below, and the catalog keeps
-    // it as a hidden setting for that reason. Left of the top row, next to the
+    // page behaves, so it can be toggled right here as well as from its Android-only
+    // toggle in the 播放 settings list (same reasoning as the full-width layout
+    // button below). Left of the top row, next to the
     // dismiss button (the right cluster belongs to view switching), because the
     // right-hand buttons come and go with cover mode and a slot anchored to a
     // hidden sibling would leave a hole. `settings.has` is false on the desktop

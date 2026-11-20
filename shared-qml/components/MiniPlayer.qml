@@ -52,11 +52,13 @@ SmoothRectangle {
         border.color: Ui.hairline
     }
 
-    // The whole bar opens the lyric (now-playing) page, not just its cover and
-    // title: a tap on the slack space around the transport used to do nothing,
-    // which read as "only the cover works". Declared before the controls so they
-    // stay above it in the hit test -- a tap a button, the seek bar, the cover or
-    // the volume popup consumes never reaches this.
+    // The whole bar opens the lyric (now-playing) page, cover and title included:
+    // a tap on the slack space around the transport used to do nothing, which
+    // read as "only the cover works". Declared before the controls so they stay
+    // above it in the hit test -- a tap a button, the seek bar, the progress ring
+    // or the volume popup consumes never reaches this. A disabled control's
+    // MouseArea is transparent to presses, so disabled buttons need their own
+    // swallowing area (see the like buttons).
     MouseArea {
         objectName: "miniPlayerBarTapArea"
         anchors.fill: parent
@@ -137,13 +139,6 @@ SmoothRectangle {
         radius: mini.liquidGlass ? width / 2 : Ui.radiusSm
         // Prefer the on-disk cached cover (shows offline) over the network url.
         source: player.coverPath !== "" ? player.coverPath : player.coverUrl
-
-        MouseArea {
-            anchors.fill: parent
-            enabled: !mini.liquidGlass
-            cursorShape: Qt.PointingHandCursor
-            onClicked: mini.lyricsRequested()
-        }
     }
 
     Item {
@@ -216,6 +211,12 @@ SmoothRectangle {
             icon: player.currentLiked ? "favorite" : "favorite_border"
             contentColor: player.currentLiked ? Ui.like : Theme.color.onSurfaceVariantColor
             onClicked: { compactLikePop.restart(); player.toggleLike() }
+        }
+        // A disabled IconButton lets the press through to the bar beneath, which
+        // would open the lyric page; a tap on the greyed-out heart does nothing.
+        MouseArea {
+            anchors.fill: compactLike
+            visible: compactLike.visible && !compactLike.enabled
         }
         IconButton {
             id: compactPlay
@@ -309,6 +310,16 @@ SmoothRectangle {
                 onClicked: { wideLikePop.restart(); player.toggleLike() }
             }
         }
+        // Same as compactLike's: a tap on the disabled heart must not open the
+        // lyric page through the bar's MouseArea. Outside the Row so the Row does
+        // not lay it out as a transport button.
+        MouseArea {
+            x: transportRow.x + wideLike.x
+            y: transportRow.y + wideLike.y
+            width: wideLike.width
+            height: wideLike.height
+            visible: !wideLike.enabled
+        }
 
         Text {
             id: positionText
@@ -375,7 +386,7 @@ SmoothRectangle {
         onClicked: mini.queueRequested()
     }
 
-    // ---- Title / artist: tap to open the lyric page ------------------------------
+    // ---- Title / artist (a tap opens the lyric page through the bar) -------------
     Item {
         id: info
         x: cover.x + cover.width + 12
@@ -398,11 +409,6 @@ SmoothRectangle {
             text: player.artist
             textColor: Ui.textSecondary
             fontSize: Ui.textCaption
-        }
-        MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            onClicked: mini.lyricsRequested()
         }
     }
 

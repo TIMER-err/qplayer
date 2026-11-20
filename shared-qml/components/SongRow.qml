@@ -47,10 +47,16 @@ Rectangle {
     property bool reorderable: false
     // Gates the drag handle / remove button while reorderable: sitting right next
     // to each other at the row's edge, they were an easy misclick during normal
-    // scrolling. While reorderable, they only show once revealed (see
-    // revealToggled below); every other list keeps them always on.
+    // scrolling. While reorderable and revealOnHold, they only show once revealed
+    // (see revealToggled below); every other list keeps them always on.
     property bool controlsRevealed: true
     signal revealToggled()
+    // Whether a long-press/right-click on a reorderable row toggles the reveal
+    // instead of opening the context menu. Lists that keep their controls always
+    // on (the live queue) turn it off so the hold still reaches the menu, which
+    // touch users have no other way to open.
+    property bool revealOnHold: true
+    readonly property bool _holdReveals: row.reorderable && row.revealOnHold
     /** Finger position in the list's content coordinates, published for the list
      *  to turn into a target row (it owns rowH and the model). */
     property real reorderContentY: 0
@@ -95,8 +101,8 @@ Rectangle {
     property var sharedMenu: null
     readonly property var _menu: row.sharedMenu !== null ? row.sharedMenu : menuLoader.item
     // Desktop pointer users get a visible "more" button for the same menu (it
-    // fades in on hover); touch keeps long-press. Reorderable rows need it most:
-    // there a right-click reveals the drag grip instead of the menu.
+    // fades in on hover); touch keeps long-press. Reveal-on-hold rows need it
+    // most: there a right-click reveals the drag grip instead of the menu.
     property bool showMoreButton: settings.has("desktopLyricEnabled")
     // Latched when a long-press fired, so the release's click doesn't also play the
     // song; cleared when the menu closes (or on the guarded click).
@@ -426,7 +432,7 @@ Rectangle {
         height: Math.max(0, row.height - 8)
         clipRadius: rowBackground.radius
         rippleColor: Ui.textPrimary
-        longPressEnabled: row.reorderable || (row.menuEnabled && row.song !== null)
+        longPressEnabled: row._holdReveals || (row.menuEnabled && row.song !== null)
         onClicked: {
             if (row._menuArmed) { row._menuArmed = false; return }
             if (row.selectMode) row.selectionToggled()
@@ -435,15 +441,15 @@ Rectangle {
         onLongPressed: {
             if (row.selectMode) { row.selectionToggled(); return }
             row._menuArmed = true
-            // While reorderable, a long-press/right-click reveals the drag handle
-            // and remove button instead of the context menu — see controlsRevealed.
-            if (row.reorderable) row.revealToggled()
+            // Reveal-on-hold rows reveal the drag handle and remove button instead
+            // of opening the context menu — see controlsRevealed.
+            if (row._holdReveals) row.revealToggled()
             else row._openMenu(ripple, ripple.pressX, ripple.pressY)
         }
         onContextMenuRequested: {
             if (row.selectMode) { row.selectionToggled(); return }
             row._menuArmed = true
-            if (row.reorderable) row.revealToggled()
+            if (row._holdReveals) row.revealToggled()
             else row._openMenu(ripple, ripple.pressX, ripple.pressY)
         }
     }

@@ -4,14 +4,13 @@ import design
 import "."
 import "../components"
 
-// The now-playing queue. The current track is highlighted (VirtualSongList
-// highlights index === player.index, which is the queue position). Tap a row to
-// jump; the trailing close button drops it from the queue.
+// The now-playing queue, hosted in QueueSheet's floating panel. The current track
+// is highlighted (VirtualSongList highlights index === player.index, which is the
+// queue position). Tap a row to jump; the trailing close button drops it from the
+// queue and the grip beside it drags it to a new position.
 //
-// Layout: a RouteHeader (single Back) over the list; the list's scrolling header
-// is a compact title block (title, track count, "jump to current"). The header
-// title fades in once that block has scrolled away, and the locate action moves
-// up into the RouteHeader at the same moment so it stays reachable.
+// Layout: a grab handle over the list; the list's scrolling header is a compact
+// title block (title, track count, clear, "jump to current").
 //
 // This page used to carry a second tab holding the single custom "play later"
 // list. That list became the first of the user's local playlists (see
@@ -19,15 +18,11 @@ import "../components"
 Rectangle {
     id: page
     property real bottomContentInset: 0
-    // Sheet form (see Main.qml's queueSheet): the page is hosted in a rounded
-    // panel that slides up over the current page, so the route header would only
-    // duplicate the sheet's own header block -- a grab handle replaces it, and the
-    // panel's top corners come from this root's radius.
-    property bool sheetMode: false
-    readonly property real sheetHandleHeight: page.sheetMode ? 20 : 0
+    readonly property real handleHeight: 20
     signal back()
     color: Ui.background
-    radius: page.sheetMode ? Ui.radiusXl : 0
+    // The sheet panel's top corners.
+    radius: Ui.radiusXl
 
     readonly property real gutter: Ui.gutter(page.width)
     readonly property real listInset: Math.max(0, page.gutter - 12)
@@ -35,19 +30,17 @@ Rectangle {
     readonly property int trackCount: player.queueTracks ? player.queueTracks.length : 0
     readonly property bool empty: page.trackCount === 0
     readonly property real blockHeight: page.compact ? 76 : 88
-    readonly property real blockProgress: Math.max(0, Math.min(1, (q.contentY - 16) / 28))
 
     function locateCurrent() { q.scrollToIndex(player.index) }
 
     // Swallow taps on empty areas so they don't reach the page beneath.
     MouseArea { anchors.fill: parent }
 
-    // Grab handle for the sheet form: signals "this panel can be dismissed" the
-    // same way a bottom sheet does, without claiming the drag that row reordering
-    // needs. Tapping it closes, like the scrim.
+    // Grab handle: signals "this panel can be dismissed" the same way a bottom
+    // sheet does, without claiming the drag that row reordering needs. Tapping it
+    // closes, like the scrim.
     Rectangle {
         objectName: "queueSheetGrabber"
-        visible: page.sheetMode
         anchors.horizontalCenter: parent.horizontalCenter
         y: 8
         width: 36
@@ -58,28 +51,6 @@ Rectangle {
             anchors.fill: parent
             anchors.margins: -10
             onClicked: page.back()
-        }
-    }
-
-    RouteHeader {
-        id: header
-        objectName: "queueRouteHeader"
-        visible: !page.sheetMode
-        x: 0
-        y: 0
-        width: page.width
-        title: i18n.t("nav.queue")
-        titleOpacity: page.empty ? 1 : page.blockProgress
-        elevated: q.contentY > 1
-        onBack: page.back()
-
-        IconButton {
-            objectName: "queueLocateHeaderButton"
-            visible: !page.empty && page.blockProgress > 0.5
-            type: "standard"
-            icon: "my_location"
-            enabled: player.index >= 0
-            onClicked: page.locateCurrent()
         }
     }
 
@@ -147,7 +118,7 @@ Rectangle {
         id: q
         objectName: "queueSongList"
         x: page.listInset
-        y: (page.sheetMode ? page.sheetHandleHeight : header.height)
+        y: page.handleHeight
         width: Math.max(0, page.width - 2 * page.listInset)
         height: Math.max(0, page.height - y)
         bottomContentInset: page.bottomContentInset
@@ -178,7 +149,7 @@ Rectangle {
     EmptyState {
         objectName: "queueEmptyState"
         x: 0
-        y: (page.sheetMode ? page.sheetHandleHeight : header.height)
+        y: page.handleHeight
         width: page.width
         height: Math.max(0, page.height - y - page.bottomContentInset)
         visible: page.empty

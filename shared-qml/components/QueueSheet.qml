@@ -22,9 +22,15 @@ Item {
 
     // Left edge of the page content pane (i.e. right of the navigation rail). The
     // panel is docked to that edge and the scrim stops there too, so the rail is
-    // neither covered nor dimmed and stays usable while the queue is open.
+    // neither covered nor dimmed and stays usable while the queue is open. The
+    // right system inset (landscape navigation bar) is left clear the same way.
     property real contentLeft: 0
-    readonly property real paneWidth: Math.max(0, width - sheet.contentLeft)
+    readonly property real paneWidth: Math.max(0, width - sheet.contentLeft - settings.rightInset)
+    // Everything below the top inset. On desktop that strip is the custom title
+    // bar, whose caption buttons must keep their clicks (TitleBar sits at a lower
+    // z than this sheet); on Android it is the status bar.
+    readonly property real paneTop: settings.topInset
+    readonly property real paneHeight: Math.max(0, height - sheet.paneTop)
 
     // 0 closed .. 1 fully open: the panel's y and the scrim's alpha ride this one
     // eased value. Driven by the two animations below, NOT by a binding plus a
@@ -66,9 +72,9 @@ Item {
         id: scrim
         objectName: "queueSheetScrim"
         x: sheet.contentLeft
-        y: 0
+        y: sheet.paneTop
         width: sheet.paneWidth
-        height: parent.height
+        height: sheet.paneHeight
         color: "#000000"
         opacity: 0.45 * sheet.k
         MouseArea {
@@ -85,8 +91,9 @@ Item {
         // the rail on the left stays visible.
         x: sheet.contentLeft
         width: sheet.paneWidth
-        // Tall enough to browse a real queue; the page behind stays visible above.
-        height: Math.min(parent.height - 24, Math.max(320, parent.height * 0.86))
+        // Tall enough to browse a real queue; the page behind stays visible above,
+        // and the panel never reaches into the top inset.
+        height: Math.min(sheet.paneHeight - 24, Math.max(320, parent.height * 0.86))
         y: parent.height - height * sheet.k
         // Docked to the right and bottom edges, so only the top corners round.
         radius: Ui.radiusXl
@@ -104,8 +111,7 @@ Item {
             // QueuePage holds its row delegates only while it is visible, so a
             // closed sheet must not keep every SongRow in the queue alive.
             visible: sheet.active
-            sheetMode: true
-            bottomContentInset: 0
+            bottomContentInset: settings.bottomInset
             onBack: sheet.dismissRequested()
         }
     }

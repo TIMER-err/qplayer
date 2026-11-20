@@ -36,7 +36,16 @@ Rectangle {
         page.playFrom(Math.floor(Math.random() * page.rows.length))
     }
 
-    Component.onCompleted: player.loadPlaybackHistory()
+    // The idle prewarm builds this page invisibly at startup; reading the history
+    // there would cost every launch disk IO for a page the user may never open.
+    property bool historyRequested: false
+    function requestHistoryOnce() {
+        if (!page.visible || page.historyRequested) return
+        page.historyRequested = true
+        player.loadPlaybackHistory()
+    }
+    onVisibleChanged: page.requestHistoryOnce()
+    Component.onCompleted: page.requestHistoryOnce()
 
     MouseArea { anchors.fill: parent }
 

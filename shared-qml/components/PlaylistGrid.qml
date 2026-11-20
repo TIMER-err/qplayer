@@ -214,7 +214,9 @@ Flickable {
                 playlistId: modelData.id
                 // One cover decode per ~24 ms instead of the whole first window on
                 // a single frame: opening 我的 froze for 744 ms decoding them all.
-                coverDeferMs: Math.min(index * 24, 480)
+                // Relative to the window, so a full rebuild (cols change) far down
+                // the list staggers from 0 instead of delaying every cover 480 ms.
+                coverDeferMs: Math.min(Math.max(0, index - grid.firstCard) * 24, 480)
                 scrollView: grid
                 tile: grid.tile
                 // While a drag is live, every card between the lifted slot and the

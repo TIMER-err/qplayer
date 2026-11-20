@@ -107,11 +107,14 @@ Item {
                     }
                     return -1
                 }
-                readonly property real targetY: navSelection.index < 0
-                    ? rootList.y + 2
-                    : (navSelection.index < navSelection.rootCount
-                       ? rootList.y + navSelection.index * 48 + 2
-                       : toolList.y + (navSelection.index - navSelection.rootCount) * 48 + 2)
+                // Last destination the pill marked. While a route page hides the
+                // pill it stays parked here and only fades, instead of sliding to
+                // 推荐 on the way out and back down again on return.
+                property int shownIndex: 0
+                onIndexChanged: if (navSelection.index >= 0) navSelection.shownIndex = navSelection.index
+                readonly property real targetY: navSelection.shownIndex < navSelection.rootCount
+                    ? rootList.y + navSelection.shownIndex * 48 + 2
+                    : toolList.y + (navSelection.shownIndex - navSelection.rootCount) * 48 + 2
                 x: rail.expanded ? 12 : (navContent.width - width) / 2
                 y: navSelection.targetY
                 width: rail.expanded ? navContent.width - 24 : 56
