@@ -6699,19 +6699,47 @@ public final class PlayerController {
         }
         playbackSession.resolving = true;
         final long request = playbackSession.request();
+        requestPluginStream(id, playLevel, request, track, expectedCoverRevision);
+    }
+
+    /**
+     * Resolve one plugin stream. A provider may refuse the *requested quality* while
+     * still serving the same track at a lower one — QQ Music answers "no playable
+     * address" for VIP-only tracks at exhigh but plays them at standard — so a failed
+     * resolve at any level is retried once at "standard" before the track is skipped.
+     */
+    private void requestPluginStream(MediaId id, String level, long request, Track track,
+                                     long expectedCoverRevision) {
+        final String requestedLevel = level == null || level.isEmpty() ? "standard" : level;
         pluginProviders
-                .resolveStream(id, playLevel)
+                .resolveStream(id, requestedLevel)
                 .whenComplete(
                         (stream, error) ->
                                 onMain(
-                                        () ->
-                                                completePluginResolution(
-                                                        request,
-                                                        track,
-                                                        id,
-                                                        stream,
-                                                        error,
-                                                        expectedCoverRevision)));
+                                        () -> {
+                                            boolean failed = error != null
+                                                    || stream == null
+                                                    || stream.url == null
+                                                    || stream.url.isEmpty();
+                                            // A superseded request (track changed or replayed
+                                            // meanwhile) must not spend another provider call.
+                                            if (failed && !"standard".equals(requestedLevel)
+                                                    && playbackSession.accepts(request, track)) {
+                                                Logger.info(
+                                                        "plugin {} resolve failed at {}, retrying at standard",
+                                                        id.provider(), requestedLevel);
+                                                requestPluginStream(id, "standard", request, track,
+                                                        expectedCoverRevision);
+                                                return;
+                                            }
+                                            completePluginResolution(
+                                                    request,
+                                                    track,
+                                                    id,
+                                                    stream,
+                                                    error,
+                                                    expectedCoverRevision);
+                                        }));
     }
 
     private void completePluginResolution(
