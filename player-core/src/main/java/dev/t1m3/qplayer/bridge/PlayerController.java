@@ -65,6 +65,7 @@ import dev.t1m3.qplayer.plugin.VerifiedPluginPackage;
 import dev.t1m3.qplayer.qml.QmlRuntimeLock;
 import dev.t1m3.qplayer.store.AppDirs;
 import dev.t1m3.qplayer.store.StorageFiles;
+import java.nio.file.Files;
 import dev.t1m3.qplayer.util.GitHubDownloadUrls;
 import dev.t1m3.qplayer.util.Logger;
 import dev.t1m3.qplayer.util.QrMatrix;
@@ -7984,6 +7985,15 @@ public final class PlayerController {
      *  sections it also returns are extra and are not counted against this. */
     private volatile int homePlaylistLimit = 12;
     private boolean homeRequested;
+    /** Provider, playlist limit and start time of the home request in flight (see loadHome). */
+    private volatile String homeInFlightProvider;
+    private volatile int homeInFlightLimit;
+    private volatile long homeInFlightStartNs;
+    /** Home generation whose network payload / cached payload is on screen. Both are
+     *  only touched from posted UI tasks, so a late cache read cannot replace the
+     *  fresh result, and a failed refresh keeps the cached page it was replacing. */
+    private long homeNetworkGeneration = -1L;
+    private long homeCachedGeneration = -1L;
 
     public void setHomePlaylistLimit(int value) {
         synchronized (QmlRuntimeLock.MONITOR) {
@@ -8016,6 +8026,19 @@ public final class PlayerController {
     /** Load the home content: recommended songs (login) + recommended playlists. */
     public void loadHome() {
         synchronized (QmlRuntimeLock.MONITOR) {
+            // Start-up asks for the home feed twice - the controller's init and the
+            // Activity's onStart - and each call is a ~6 s provider round trip whose
+            // first result is thrown away by the generation guard below. Collapse the
+            // duplicate only while a request is still young, so an explicit refresh
+            // (pull-to-refresh, source switch) still supersedes an old in-flight one.
+            PluginManifest wanted = primaryProviderWith(ProviderCapability.HOME);
+            if (wanted != null
+                    && wanted.id.equals(homeInFlightProvider)
+                    && homeInFlightLimit == homePlaylistLimit
+                    && System.nanoTime() - homeInFlightStartNs < 1_000_000_000L) {
+                Logger.info("home: duplicate request for {} ignored", wanted.id);
+                return;
+            }
             post(() -> homeLoading.set(true));
             // Switching away and back fast would otherwise let the first source's
             // in-flight result land on top of the second one's.
@@ -8023,12 +8046,40 @@ public final class PlayerController {
             homeRequested = true;
             PluginManifest provider = primaryProviderWith(ProviderCapability.HOME);
             if (provider != null) {
+                // Content first, network second: the provider's home call takes seconds
+                // on a cold start (measured: 5.9 s request-to-callback on the pad, one
+                // 1 s HTTP leg logged inside it), which the page can only spend showing
+                // a skeleton. The last payload is published from disk immediately and the
+                // refresh replaces it when it lands.
+                final long generationForCache = generation;
+                // Its own thread, not the shared ioWorker: on a cold start that queue is
+                // behind the plugin/catalog work and the cache landed 1.3 s after the
+                // request, with the scene build running on the same cores. Reading one
+                // small JSON does not need to wait for anything else.
+                Thread cacheRead = new Thread(
+                        () -> publishCachedHome(provider.id, generationForCache),
+                        "qplayer-home-cache");
+                cacheRead.setDaemon(true);
+                cacheRead.start();
+                final long homeStartNs = System.nanoTime();
+                homeInFlightProvider = provider.id;
+                homeInFlightLimit = homePlaylistLimit;
+                homeInFlightStartNs = homeStartNs;
+                Logger.info("home: request {} limit={}", provider.id, homePlaylistLimit);
                 pluginProviders
                         .home(provider.id, homePlaylistLimit)
                         .whenComplete(
                                 (home, error) ->
                                         post(
                                                 () -> {
+                                                    Logger.info(
+                                                            "home: response in {} ms (error={})",
+                                                            (System.nanoTime() - homeStartNs) / 1_000_000L,
+                                                            error == null ? "none" : safeMessage(error));
+                                                    if (provider.id.equals(homeInFlightProvider)) {
+                                                        homeInFlightProvider = null;
+                                                    }
+                                                    long publishStartNs = System.nanoTime();
                                                     if (generation != homeGeneration.get()) return;
                                                     if (!provider.id.equals(
                                                             pluginRegistry.primaryProvider()))
@@ -8039,6 +8090,9 @@ public final class PlayerController {
                                                                 "plugin {} home failed: {}",
                                                                 provider.id,
                                                                 safeMessage(error));
+                                                        // Offline or a flaky provider: the cached
+                                                        // page already on screen beats an empty one.
+                                                        if (homeCachedGeneration == generation) return;
                                                         clearHomeSections();
                                                         sourceRecommendPlaylists.set(
                                                                 Collections.<Playlist>emptyList());
@@ -8046,6 +8100,7 @@ public final class PlayerController {
                                                                 Collections.<Song>emptyList());
                                                         return;
                                                     }
+                                                    homeNetworkGeneration = generation;
                                                     ProviderHome value =
                                                             home != null
                                                                     ? home
@@ -8058,6 +8113,13 @@ public final class PlayerController {
                                                     sourceRecommendations.set(
                                                             Collections.unmodifiableList(
                                                                     new ArrayList<>(value.songs)));
+                                                    Logger.info(
+                                                            "home: published in {} ms (sections={}, playlists={}, songs={})",
+                                                            (System.nanoTime() - publishStartNs) / 1_000_000L,
+                                                            value.sections.size(),
+                                                            value.playlists.size(),
+                                                            value.songs.size());
+                                                    saveHomeCache(provider.id, value);
                                                 }));
                 return;
             }
@@ -8072,6 +8134,67 @@ public final class PlayerController {
             homeLoading.set(false);
             return;
         }
+    }
+
+    /** Cache of the last provider home payload, kept so a warm start can paint the
+     *  recommendation page before its network call answers (see publishCachedHome). */
+    private static final Gson HOME_GSON = new Gson();
+    private static final String HOME_CACHE_VERSION = "v1";
+
+    private static final class CachedHome {
+        String version;
+        String provider;
+        ProviderHome home;
+    }
+
+    private static java.nio.file.Path homeCacheFile() {
+        return AppDirs.indexFile("home-cache.json");
+    }
+
+    /** Publish the cached home payload on the UI queue, if it is still current. */
+    private void publishCachedHome(String providerId, long generation) {
+        long startNs = System.nanoTime();
+        try {
+            CachedHome cached = HOME_GSON.fromJson(
+                    StorageFiles.readUtf8(homeCacheFile()), CachedHome.class);
+            if (cached == null || cached.home == null
+                    || !HOME_CACHE_VERSION.equals(cached.version)
+                    || !providerId.equals(cached.provider)) {
+                return;
+            }
+            final ProviderHome home = cached.home;
+            post(() -> {
+                if (generation != homeGeneration.get() || homeNetworkGeneration == generation) return;
+                homeCachedGeneration = generation;
+                publishHomeSections(home.sections);
+                sourceRecommendPlaylists.set(Collections.unmodifiableList(
+                        new ArrayList<>(home.playlists)));
+                sourceRecommendations.set(Collections.unmodifiableList(
+                        new ArrayList<>(home.songs)));
+                homeLoading.set(false);
+                Logger.info("home: cached published ({} playlists, {} songs) in {} ms",
+                        home.playlists.size(), home.songs.size(),
+                        (System.nanoTime() - startNs) / 1_000_000L);
+            });
+        } catch (Throwable ignored) {
+            // Missing, stale or unreadable cache: the network request is the answer.
+        }
+    }
+
+    private void saveHomeCache(String providerId, ProviderHome home) {
+        ioWorker.execute(() -> {
+            try {
+                CachedHome cached = new CachedHome();
+                cached.version = HOME_CACHE_VERSION;
+                cached.provider = providerId;
+                cached.home = home;
+                java.nio.file.Path file = homeCacheFile();
+                if (file.getParent() != null) Files.createDirectories(file.getParent());
+                StorageFiles.writeUtf8Atomic(file, HOME_GSON.toJson(cached));
+            } catch (Throwable ignored) {
+                // A cache that cannot be written only costs the next start its head start.
+            }
+        });
     }
 
     private void publishPlayingArtist(Track t) {
