@@ -94,6 +94,8 @@ public final class DesktopAudioBackend implements AudioBackend {
     private final LongSupplier outputGeneration;
     private long openedGeneration;
     private boolean routeRetryPending;
+    /** One reopen-failure warning per outage; cleared by the next successful reopen. */
+    private boolean reopenFailureLogged;
     private ByteBuffer nativeChunk;
     private final byte[] stagingChunk = new byte[CHUNK_BYTES];
     private final ArrayDeque<Integer> queuedFrames = new ArrayDeque<>();
@@ -660,7 +662,8 @@ public final class DesktopAudioBackend implements AudioBackend {
         boolean routeChanged = generation != openedGeneration;
         if (connected && !routeChanged && (current.isEmpty() || current.equals(lastDefaultDevice))) return true;
         if (!SOFTReopenDevice.alcReopenDeviceSOFT(device, (ByteBuffer) null, (IntBuffer) null)) {
-            if (!routeRetryPending) {
+            if (!reopenFailureLogged) {
+                reopenFailureLogged = true;
                 Logger.warn("audio: could not reopen output {} (route {}, ALC error {}); retrying",
                         current, generation, alcGetError(device));
             }
@@ -672,6 +675,7 @@ public final class DesktopAudioBackend implements AudioBackend {
         if (routeChanged) outputNeedsReprime = true;
         openedGeneration = generation;
         routeRetryPending = false;
+        reopenFailureLogged = false;
         lastDefaultDevice = current;
         Logger.info("audio: reopened default output {} (route {}, position {} ms)", current, generation, positionMs);
         return isOutputConnected();

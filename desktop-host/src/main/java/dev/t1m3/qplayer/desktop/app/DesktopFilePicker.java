@@ -1,6 +1,7 @@
 package dev.t1m3.qplayer.desktop.app;
 
 import dev.t1m3.qplayer.i18n.I18n;
+import dev.t1m3.qplayer.qml.QmlRuntimeLock;
 import dev.t1m3.qplayer.util.Logger;
 
 import java.io.File;
@@ -105,7 +106,11 @@ final class DesktopFilePicker {
         };
         try {
             if (MacNativeDialog.isMac()) {
-                if (Thread.currentThread() == mainThread) dialog.run();
+                // macOS GL renders (and dispatches QML clicks) on the main thread
+                // inside a frame that holds the runtime lock; a modal panel there
+                // would stall frames and every MONITOR waiter. Defer it to the
+                // main-task queue, which runs outside the frame and the lock.
+                if (Thread.currentThread() == mainThread && !Thread.holdsLock(QmlRuntimeLock.MONITOR)) dialog.run();
                 else if (mainExec != null) mainExec.accept(dialog);
                 else throw new IllegalStateException("AppKit file dialog main loop is not initialized");
             } else {

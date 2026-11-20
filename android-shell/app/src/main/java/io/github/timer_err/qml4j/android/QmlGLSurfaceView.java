@@ -661,6 +661,9 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
 
         @Override
         public void onSurfaceChanged(GL10 gl, int width, int height) {
+            // A recreated holder surface (background/foreground) carries no frame-rate
+            // vote; forget the cached one so the next frame re-sends it.
+            requestedFrameRate = -1f;
             // Builds the scene on first use and resizes its root: same lock as frames.
             synchronized (QmlRuntimeLock.MONITOR) {
                 surfaceChanged(width, height);

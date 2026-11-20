@@ -1111,8 +1111,11 @@ public final class DesktopWindow {
         if (!(factor > 0f) || factor == userScale) return;
         userScale = factor;
         if (macChrome != null) {
-            windowChrome.nativeButtonsEnd.set(macChrome.buttonsEnd / factor);
-            if (settings != null) settings.setInsets(fullscreen ? 0.0 : titleBarHeight(), settings.bottomInset.peek());
+            double buttonsEnd = macChrome.buttonsEnd / factor;
+            postRenderTask(() -> {
+                windowChrome.nativeButtonsEnd.set(buttonsEnd);
+                if (settings != null) settings.setInsets(fullscreen ? 0.0 : titleBarHeight(), settings.bottomInset.peek());
+            });
         }
         uiScale = contentScale * userScale;
         notifyScale();

@@ -9,6 +9,13 @@
 @implementation QPlayerWindowDragView
 - (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
 - (void)mouseDown:(NSEvent *)event {
+    // This view covers the title bar, so it also owns the system double-click action.
+    if (event.clickCount == 2) {
+        NSString *action = [[NSUserDefaults standardUserDefaults] stringForKey:@"AppleActionOnDoubleClick"];
+        if ([action isEqualToString:@"Minimize"]) [self.window miniaturize:nil];
+        else if (![action isEqualToString:@"None"]) [self.window performZoom:nil];
+        return;
+    }
     [self.window performWindowDragWithEvent:event];
 }
 @end
