@@ -719,7 +719,10 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                     if (reg != null || med != null) view.uiTypefaces(reg, med);
                     byte[] iconFont = resources.load("fonts/MaterialSymbolsRounded.ttf");
                     if (iconFont != null) view.iconTypeface(iconFont);
+                    long sceneBuildStartNs = System.nanoTime();
                     bundle.load(view);
+                    dev.t1m3.qplayer.util.Logger.info("scene: built in {} ms",
+                            (System.nanoTime() - sceneBuildStartNs) / 1_000_000L);
                 }
                 float scale = uiScale;
                 if (view.root() != null) {

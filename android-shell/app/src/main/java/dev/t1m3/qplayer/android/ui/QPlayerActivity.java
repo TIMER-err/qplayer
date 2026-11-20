@@ -340,6 +340,9 @@ public final class QPlayerActivity extends Activity {
         // republished when that finishes. Started here rather than in
         // Application.onCreate because it needs Skija's natives, which the
         // Activity has just brought up.
+        // (Deferring this until after the first frame was measured as neutral - it is
+        // 90-130 ms on a background thread, not on the cold-start critical path, which
+        // is the scene build plus the first paint - so it stays where it is.)
         AndroidFontIndex.instance().scanAsync(() -> runOnUiThread(() -> {
             QmlGLSurfaceView view = glView;
             SettingsCore s = settings;
