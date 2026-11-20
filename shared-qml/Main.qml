@@ -464,8 +464,14 @@ Rectangle {
     // Set when a visit finds the list stale; cleared by publishLibraryIfPending(),
     // which the page calls once its chrome has painted (LibraryPage.chromeReady).
     property bool libraryPublishPending: false
+    // LibraryPage signals chromeReady once, on the visit that builds it. Later visits
+    // run buildPendingDestination after the page motion has landed with the chrome
+    // already on screen, so a stale list publishes right there instead of waiting
+    // for a signal that never comes again.
+    property bool libraryChromePainted: false
 
     function publishLibraryIfPending() {
+        app.libraryChromePainted = true
         if (!app.libraryPublishPending) return
         app.libraryPublishPending = false
         app.libraryRefreshedAt = Date.now()
@@ -499,6 +505,7 @@ Rectangle {
             if (app.libraryRefreshedAt <= 0
                     || Date.now() - app.libraryRefreshedAt > app.libraryRefreshTtl) {
                 app.libraryPublishPending = true
+                if (app.libraryChromePainted) app.publishLibraryIfPending()
             }
         } else if (idx === app.localPageIndex) {
             app.localLoaded = true
