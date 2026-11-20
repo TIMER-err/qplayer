@@ -64,6 +64,14 @@ The same smoke opens the download quality dialog and checks that all five choice
 have nonzero sizes and remain separated and on-screen after the dialog overlay
 is reparented. It repeats this check when the main scene is reopened.
 
+The smoke also installs a local, network-free home source, writes its recommendation
+cache, then reopens the controller with an offline source. It checks the restored
+songs, artists, albums, playlists, owners and sections. This runs in the native
+executable too: the `PlayerController$CachedHome` envelope and its nested models
+must be registered by `DesktopNativeMetadata`. A missing registration terminates
+strict native builds before the first frame when a saved home cache is read
+(issue #127); catching a Java exception does not prevent that exit.
+
 It also reads synthetic ID3v2.2 and ID3v2.3 MP3 files, checks their converted
 recording dates and original-release years, and scans them through the production
 `LibraryScanner` and `DesktopMetadataReader`. This covers legacy
@@ -78,10 +86,11 @@ desktop-host/target/qplayer --build-smoke
 # Windows: desktop-host/target/qplayer.exe --build-smoke
 ```
 
-The smoke uses a temporary empty profile and does not create a window or start
-audio playback. It is not a substitute for platform WebView, tray, file-dialog,
-or audio integration tests. Release CI runs it on each native target before
-packaging. Run the behavior gate above locally before publishing changes.
+The smoke starts with a temporary empty profile and creates its own cache and
+source fixtures. It does not create a window or start audio playback. It is not a
+substitute for platform WebView, tray, file-dialog, or audio integration tests.
+Release CI runs it on each native target before packaging. Run the behavior gate
+above locally before publishing changes.
 
 Desktop startup completes Skija's `Library.load()` on the main thread before
 constructing `PlayerController`. Queue restoration can immediately decode cached

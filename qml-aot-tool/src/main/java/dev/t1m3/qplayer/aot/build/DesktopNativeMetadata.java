@@ -111,6 +111,7 @@ public final class DesktopNativeMetadata {
             interop(type("com.sun.jna.platform.win32.WinDef$" + name));
         }
         for (String name : new String[]{
+                "bridge.PlayerController$CachedHome",
                 "cache.MediaMetaIndex$State", "cache.MediaMetaIndex$Entry", "cache.MediaPlaylistCacheIndex$State",
                 "cache.PlaylistCacheIndex$Cached", "library.LibraryCache$Index", "library.LibraryCache$Entry",
                 "playlist.LocalPlaylistStore$State", "playlist.MyPlaylistOrderStore$State",

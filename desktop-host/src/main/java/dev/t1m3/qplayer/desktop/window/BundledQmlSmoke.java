@@ -79,6 +79,7 @@ public final class BundledQmlSmoke {
             scene("Main.qml", player, reopenedSettings, settings, resources);
             scene("DesktopLyric.qml", player, reopenedSettings, null, resources);
             System.out.println("Bundled QML scene/binding/theme isolation smoke passed");
+            homeCacheRoundTrip(profile, player);
         } finally {
             try {
                 if (player != null) player.shutdownAsync().join();
@@ -93,6 +94,93 @@ public final class BundledQmlSmoke {
                 }
             }
         }
+    }
+
+    private static void homeCacheRoundTrip(Path profile, PlayerController player) throws Exception {
+        String home = "{\"songs\":[{\"id\":\"s1\",\"title\":\"Cached song\","
+                + "\"artists\":[{\"id\":\"a1\",\"name\":\"Cached artist\"}],"
+                + "\"album\":{\"id\":\"b1\",\"name\":\"Cached album\"}}],"
+                + "\"playlists\":[{\"id\":\"p1\",\"name\":\"Cached playlist\","
+                + "\"owner\":{\"id\":\"u1\",\"name\":\"Cached owner\"}}],"
+                + "\"sections\":[{\"title\":\"Cached section\",\"playlists\":["
+                + "{\"id\":\"p2\",\"name\":\"Section playlist\"}]}]}";
+        installHomeSource(profile, player, "1.0.0", "return " + home + ";");
+        Path cache = AppDirs.indexFile("home-cache.json");
+        awaitHomeStep(player, () -> {
+            try {
+                return Files.readString(cache).contains("Cached song");
+            } catch (java.io.IOException missing) {
+                return false;
+            }
+        });
+        // A new process must be able to show the saved feed even when its source
+        // is offline. Install that failure before reopening the controller.
+        installHomeSource(profile, player, "1.0.1", "throw new Error('offline');");
+        player.shutdownAsync().join();
+        DesktopAudioBackend audio = new DesktopAudioBackend();
+        PlayerController reopened = null;
+        try {
+            reopened = new PlayerController(audio, track -> {
+                throw new IllegalStateException("Home-cache smoke must not request playback");
+            });
+            PlayerController restored = reopened;
+            awaitHomeStep(restored, () -> !restored.homeLoading.peek()
+                    && !restored.sourceRecommendations.peek().isEmpty());
+            dev.t1m3.qplayer.media.Song song = restored.sourceRecommendations.peek().get(0);
+            require("Cached song".equals(song.title)
+                            && "Cached artist".equals(song.artists.get(0).name)
+                            && "Cached album".equals(song.album.name),
+                    "Saved home song or its artist/album did not survive reopening offline");
+            require("Cached playlist".equals(restored.sourceRecommendPlaylists.peek().get(0).name)
+                            && "Cached owner".equals(restored.sourceRecommendPlaylists.peek().get(0).owner.name)
+                            && "Cached section".equals(restored.sourceHomeSections.peek().get(0).title)
+                            && "Section playlist".equals(restored.sourceSectionPlaylists.peek().get(0).name),
+                    "Saved home playlists or sections did not survive reopening offline");
+            System.out.println("Home cache write/reopen/offline publication passed");
+        } finally {
+            if (reopened != null) reopened.shutdownAsync().join();
+            audio.release();
+        }
+    }
+
+    private static void installHomeSource(Path profile, PlayerController player,
+                                          String version, String handler) throws Exception {
+        byte[] manifest = ("{\"schemaVersion\":1,\"id\":\"home-smoke\",\"name\":\"Home smoke\","
+                + "\"version\":\"" + version + "\",\"apiVersion\":\"1.0\","
+                + "\"capabilities\":[\"home\"]}").getBytes(StandardCharsets.UTF_8);
+        byte[] script = ("module.exports={handlers:{home:function(){" + handler + "}}};")
+                .getBytes(StandardCharsets.UTF_8);
+        com.google.gson.JsonObject hashes = new com.google.gson.JsonObject();
+        java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+        hashes.addProperty("plugin.json", java.util.HexFormat.of().formatHex(digest.digest(manifest)));
+        hashes.addProperty("main.js", java.util.HexFormat.of().formatHex(digest.digest(script)));
+        Path archive = profile.resolve("home-" + version + ".qplug");
+        try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(
+                Files.newOutputStream(archive))) {
+            String[] names = {"plugin.json", "main.js",
+                    dev.t1m3.qplayer.plugin.PluginPackageVerifier.HASHES_PATH};
+            byte[][] entries = {manifest, script, hashes.toString().getBytes(StandardCharsets.UTF_8)};
+            for (int i = 0; i < names.length; i++) {
+                zip.putNextEntry(new java.util.zip.ZipEntry(names[i]));
+                zip.write(entries[i]);
+                zip.closeEntry();
+            }
+        }
+        player.inspectPluginPackage(archive.toString());
+        awaitHomeStep(player, () -> version.equals(player.pendingPluginVersion.peek()));
+        player.confirmPendingPluginInstall();
+        awaitHomeStep(player, () -> !player.pluginInstallBusy.peek());
+    }
+
+    private static void awaitHomeStep(PlayerController player,
+                                     java.util.function.BooleanSupplier condition) throws Exception {
+        long deadline = System.nanoTime() + 15_000_000_000L;
+        while (System.nanoTime() < deadline) {
+            player.pump();
+            if (condition.getAsBoolean()) return;
+            Thread.sleep(20L);
+        }
+        throw new IllegalStateException("Timed out waiting for home cache persistence/publication");
     }
 
     private static void savedFlacArtwork(Path profile, byte[] cover, int width, int height) throws Exception {
