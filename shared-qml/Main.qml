@@ -476,6 +476,13 @@ Rectangle {
     // apart, moves that construction into idle time. The flags are the same ones
     // the tap would set, so nothing is prewarmed that would not have been built
     // anyway; a page the user already opened simply skips its turn.
+    //
+    // OFF for now: keeping all five trees mounted measured ~60 MB of heap and
+    // re-evaluated their bindings on every track switch (50-80 ms of the
+    // dq.flush stall). The trade is ~280 ms on a destination's first visit, taken
+    // per page when it is actually opened. Kept behind this flag rather than
+    // deleted so the trade can be re-measured instead of re-derived.
+    property bool prewarmEnabled: false
     property int prewarmStep: 0
     Timer {
         id: prewarmTimer
@@ -483,6 +490,10 @@ Rectangle {
         repeat: true
         running: false
         onTriggered: {
+            if (!app.prewarmEnabled) {
+                prewarmTimer.stop()
+                return
+            }
             app.prewarmStep = app.prewarmStep + 1
             if (app.prewarmStep === 1) app.searchLoaded = true
             else if (app.prewarmStep === 2) app.libraryLoaded = true
@@ -505,7 +516,7 @@ Rectangle {
         id: prewarmKick
         interval: 900
         repeat: false
-        running: true
+        running: app.prewarmEnabled
         onTriggered: prewarmTimer.start()
     }
 
