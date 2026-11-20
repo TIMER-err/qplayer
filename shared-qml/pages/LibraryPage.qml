@@ -27,6 +27,9 @@ Item {
     // bar is on screen first, the list lands after it.
     signal chromeReady()
     property bool _chromeSignalled: false
+    // True from the moment the page is on screen until its grid (or list) is built:
+    // the skeleton below fills the content area meanwhile, like HomePage's.
+    property bool contentLoading: false
     Timer {
         id: chromeReadyTimer
         // The page first draws with the chrome only (the grid is held back, see
@@ -43,10 +46,15 @@ Item {
                 // Chrome is on screen; now the grid may build. One frame later keeps
                 // the card construction off the frame that first draws the page.
                 contentArea.ensureViewLoaded()
+                page.contentLoading = false
             }
         }
     }
-    onVisibleChanged: if (page.visible) chromeReadyTimer.restart()
+    onVisibleChanged: {
+        if (!page.visible) return
+        if (!contentArea.viewLoaded) page.contentLoading = true
+        chromeReadyTimer.restart()
+    }
     Component.onCompleted: if (page.visible) chromeReadyTimer.restart()
 
     readonly property real gutter: Ui.gutter(page.width)
@@ -211,6 +219,7 @@ Item {
         // Reuse visited presentations without building the unused one.
         property bool gridLoaded: false
         property bool listLoaded: false
+        readonly property bool viewLoaded: gridLoaded || listLoaded
         function ensureViewLoaded() {
             if (settings.value("libraryListView") === true) contentArea.listLoaded = true
             else contentArea.gridLoaded = true
@@ -354,6 +363,48 @@ Item {
             actionText: i18n.t("library.signInButton")
             actionIcon: "login"
             onActionRequested: page.requestLogin()
+        }
+
+        // Loading skeleton, the same pulsing shape HomePage uses: grey tiles in this
+        // grid's own geometry while the playlist cards are being built. Only the visit
+        // that builds the grid shows it; a page whose cards already exist never does.
+        Item {
+            id: librarySkeleton
+            objectName: "librarySkeleton"
+            anchors.fill: parent
+            visible: page.contentLoading
+            property real phase: 0
+            opacity: 0.55 + 0.45 * Math.abs(1 - phase)
+            NumberAnimation on phase {
+                running: librarySkeleton.visible
+                from: 0
+                to: 2
+                duration: 1600
+                loops: Animation.Infinite
+            }
+
+            Repeater {
+                model: librarySkeleton.visible ? Math.max(1, grid.cols) * 2 : 0
+                Item {
+                    x: grid.pad + (index % grid.cols) * (grid.tile + grid.gap)
+                    y: grid.topPadding + Math.floor(index / grid.cols) * grid.cardRowH
+                    width: grid.tile
+                    height: grid.cardH
+                    Rectangle {
+                        width: parent.width
+                        height: parent.width
+                        radius: Ui.radiusMd
+                        color: Ui.surfacePressed
+                    }
+                    Rectangle {
+                        y: parent.width + 12
+                        width: parent.width * 0.7
+                        height: 14
+                        radius: height / 2
+                        color: Ui.surfacePressed
+                    }
+                }
+            }
         }
     }
 
