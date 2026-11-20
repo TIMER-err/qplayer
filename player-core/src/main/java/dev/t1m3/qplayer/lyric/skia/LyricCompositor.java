@@ -5,6 +5,7 @@ import io.github.humbleui.skija.Canvas;
 import io.github.humbleui.skija.DirectContext;
 import io.github.humbleui.skija.Image;
 import io.github.humbleui.skija.ImageFilter;
+import io.github.humbleui.skija.Matrix33;
 import io.github.humbleui.skija.Paint;
 import io.github.humbleui.skija.SamplingMode;
 import io.github.humbleui.skija.Shader;
@@ -24,6 +25,7 @@ import dev.t1m3.qplayer.lyric.tempera.TemperaTuning;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Platform-neutral per-frame compositor for the qplayer scene: it draws the QML
@@ -94,11 +96,10 @@ public final class LyricCompositor {
     // (3 x 40px + two 6px gaps + the 6px margin, plus slack).
     private static final float OFFSET_BTN_CORNER_W = 154f;
     private static final float OFFSET_BTN_CORNER_H = 52f;
-    // The same carve-out on the other side, for the close button and the
-    // keep-screen-on button beside it (2 x 40px + the 6px gaps and margins, plus
-    // slack). Only needed in the full-width layout: everywhere else the scrollable
-    // band starts at the half-width mark, which already leaves that corner to QML.
-    private static final float LEFT_BTN_CORNER_W = 104f;
+    // The same carve-out on the other side, for the close button. Only needed in
+    // the full-width layout: everywhere else the scrollable band starts at the
+    // half-width mark, which already leaves that corner to QML.
+    private static final float BACK_BTN_CORNER_W = 56f;
 
     private final LyricRenderer lyricRenderer = new LyricRenderer();
     private final FluidBackground fluidBg = new FluidBackground(System.nanoTime());
@@ -162,11 +163,19 @@ public final class LyricCompositor {
     // The edge blur runs on a thumbnail; see ThumbnailBlur for the factor and the numbers
     // behind it (the same shape as HyperOS' 缩略图 blur).
     private final Paint blurBasePaint = new Paint();
-    // Column snapshot: rendered once per frame, blitted twice (blurred + sharp).
+    // Column snapshot: rendered once per frame in device space, blitted twice (blurred +
+    // sharp). Allocated to fit and reused while it still fits, so the per-frame device
+    // size changes of the zoom/slide transitions do not reallocate it every frame.
     private final Paint columnBlurPaint = new Paint();
     private Surface columnSurface;
     private int columnSurfaceW = -1, columnSurfaceH = -1;
-    private Rect columnSurfaceRect;
+    // Where this frame's snapshot sits: device rect rounded out to whole pixels, derived
+    // from the CTM below. Rects are rebuilt only when that placement changes.
+    private int columnDevL, columnDevT, columnDevW = -1, columnDevH = -1;
+    private float columnSx, columnSy, columnTx, columnTy;
+    private Rect columnSrcRect;   // (0, 0, devW, devH) in the snapshot
+    private Rect columnDevRect;   // the same pixels on the device
+    private Rect columnLocalRect; // the same pixels in the column's local space
     private ImageFilter blurFilter;
     private float blurSigmaApplied = -1f;
     private Shader blurBandShader;  // opaque at edges, transparent in the focus band
@@ -201,6 +210,9 @@ public final class LyricCompositor {
     private static final float TRACK_REVEAL_RISE = 14f;     // dp, start offset
     private float trackReveal = 1f;
     private long trackRevealNs;
+    // Track whose lyrics last triggered (or were exempted from) the reveal. Keyed on the
+    // track, not the lyric list: one track can publish twice (cache, then network).
+    private String trackRevealMediaId;
     private float lyricShow = 0f;
     private long lyricShowNs = 0L;
     private final Paint lyLayerPaint = new Paint();
@@ -252,6 +264,7 @@ public final class LyricCompositor {
         }
         lyMaskPaint.close();
         blurBasePaint.close();
+        columnBlurPaint.close();
         lyLayerPaint.close();
     }
 
@@ -293,7 +306,7 @@ public final class LyricCompositor {
                 return false;
             }
             boolean wide = fullWidthApplied;
-            if (wide && x <= LEFT_BTN_CORNER_W && y <= topInset + OFFSET_BTN_CORNER_H) {
+            if (wide && x <= BACK_BTN_CORNER_W && y <= topInset + OFFSET_BTN_CORNER_H) {
                 return false;
             }
             float topY = topInset + L_LANDSCAPE_TOP;
@@ -598,8 +611,14 @@ public final class LyricCompositor {
         if (lyObj != lastLyrics) {
             lastLyrics = lyObj;
             lyricRenderer.setLyrics(lastLyrics);
-            if (lyObj != null && !lyObj.isEmpty()) {
-                // New track's lyrics landed: rise + fade them in rather than popping.
+        }
+        String mediaId = controller.currentMediaId.peek();
+        if (lyObj != null && !lyObj.isEmpty() && !Objects.equals(mediaId, trackRevealMediaId)) {
+            trackRevealMediaId = mediaId;
+            // A new track's lyrics landed on the open page: rise + fade them in rather
+            // than popping. While the page itself is still sliding in, that slide is
+            // the reveal; a second one would replay after every reopen.
+            if (lyricSlide >= 0.99f) {
                 trackReveal = 0f;
                 trackRevealNs = System.nanoTime();
             }
@@ -810,7 +829,7 @@ public final class LyricCompositor {
             // the edges - so it stays on through the transition instead of popping in
             // the moment the motion lands. See drawProgressiveBlurColumn.
             if (Boolean.TRUE.equals(LyricConfig.instance.edgeBlur.getValue())) {
-                drawProgressiveBlurColumn(canvas, colRect, colLeft + pad, colTopY, colW, colH, pos, uiScale);
+                drawProgressiveBlurColumn(canvas, colRect, colLeft + pad, colTopY, colW, colH, pos);
             } else {
                 lyricRenderer.render(canvas, colLeft + pad, colTopY, colW, colH, pos);
             }
@@ -829,15 +848,15 @@ public final class LyricCompositor {
     // render is one shader draw per syllable, and this path used to pay for two of
     // them plus four full-column layers every frame.
     private void drawProgressiveBlurColumn(Canvas canvas, Rect colRect, float leftX,
-                                           float colTopY, float colW, float colH, long pos,
-                                           float uiScale) {
+                                           float colTopY, float colW, float colH, long pos) {
         float sigma = Math.max(1f, LyricConfig.instance.lyricFontSize.getValue() * EDGE_BLUR_SIGMA_RATIO);
         ensureBlurFilter(sigma);
 
-        Surface snapshot = renderColumnToSurface(canvas, colRect, leftX, colTopY, colW, colH, pos, uiScale);
+        Surface snapshot = renderColumnToSurface(canvas, colRect, leftX, colTopY, colW, colH, pos);
         if (snapshot == null) {
-            // No GPU surface behind this canvas (SkPicture recording): keep the
-            // original two-render, three-layer path. Same pixels, just slower.
+            // No GPU surface behind this canvas (SkPicture recording), or a transform the
+            // device-space snapshot cannot express: keep the original two-render,
+            // three-layer path. Same pixels, just slower.
             int mb = canvas.saveLayer(colRect, null);
             int b = canvas.saveLayer(colRect, blurBasePaint);
             lyricRenderer.render(canvas, leftX, colTopY, colW, colH, pos);
@@ -856,10 +875,12 @@ public final class LyricCompositor {
 
         try (Image image = snapshot.makeImageSnapshot()) {
             // Blurred copy, kept only at the edges. The thumbnail gaussian rides on
-            // the blit itself, so no extra layer is needed around it.
+            // the blit itself, so no extra layer is needed around it. Drawn under the
+            // page transform (to the local rect covering the snapshot's pixels) so the
+            // blur sigma keeps scaling with it; the blur hides any resampling here.
             int mb = canvas.saveLayer(colRect, null);
             columnBlurPaint.setImageFilter(blurFilter);
-            canvas.drawImageRect(image, columnSurfaceRect, colRect, SamplingMode.LINEAR,
+            canvas.drawImageRect(image, columnSrcRect, columnLocalRect, SamplingMode.LINEAR,
                     columnBlurPaint, true);
             columnBlurPaint.setImageFilter(null);
             // Build the band from THIS frame's lit lines (render just refreshed them), so
@@ -869,46 +890,88 @@ public final class LyricCompositor {
             canvas.restoreToCount(mb);
 
             // Sharp copy, kept only across the focus band (complementary mask, no overlap).
+            // Copied 1:1 onto the whole device pixels it was rendered for, so the focus
+            // band is never resampled at a fractional offset or a non-100% UI scale.
             int ms = canvas.saveLayer(colRect, null);
-            canvas.drawImageRect(image, columnSurfaceRect, colRect, SamplingMode.LINEAR, null, true);
+            int m = canvas.save();
+            canvas.resetMatrix();
+            canvas.drawImageRect(image, columnSrcRect, columnDevRect, SamplingMode.DEFAULT, null, true);
+            canvas.restoreToCount(m);
             applyColumnMask(canvas, sharpBandShader);
             canvas.restoreToCount(ms);
         }
     }
 
-    /** Render the column once into a cached GPU surface sized to the column's device
-     *  pixels. Returns null when the canvas has no surface (picture recording). */
+    /** Render the column once into a cached GPU surface, in device space: the snapshot's
+     *  pixel grid is the device's, offset by the whole-pixel origin of {@code colRect}
+     *  under the current transform (zoom and slide included), so the sharp copy can be
+     *  put back without resampling. Returns null when the canvas has no surface (picture
+     *  recording) or its transform is not an axis-aligned scale + translate. */
     private Surface renderColumnToSurface(Canvas canvas, Rect colRect, float leftX,
-                                          float colTopY, float colW, float colH, long pos,
-                                          float uiScale) {
+                                          float colTopY, float colW, float colH, long pos) {
+        Matrix33 ctm = canvas.getLocalToDeviceAsMatrix33();
+        if (!placeColumnSnapshot(ctm.getMat(), colRect)) return null;
         Surface owner;
         try {
             owner = canvas.getSurface();
         } catch (Throwable t) {
-            owner = null;
+            return null;
         }
-        if (owner == null || uiScale <= 0f) return null;
-        int sw = Math.max(1, Math.round(colRect.getWidth() * uiScale));
-        int sh = Math.max(1, Math.round(colRect.getHeight() * uiScale));
-        if (columnSurface == null || sw != columnSurfaceW || sh != columnSurfaceH) {
-            closeColumnSurface();
-            columnSurface = owner.makeSurface(sw, sh);
-            if (columnSurface == null) return null;
-            columnSurfaceW = sw;
-            columnSurfaceH = sh;
-            columnSurfaceRect = Rect.makeWH(sw, sh);
+        // getSurface() hands back a new reference to the screen surface: release it now,
+        // not whenever the GC runs the Cleaner (off the GL thread).
+        try (Surface screen = owner) {
+            if (screen == null) return null;
+            int sw = columnDevW, sh = columnDevH;
+            if (columnSurface == null || sw > columnSurfaceW || sh > columnSurfaceH
+                    || (long) columnSurfaceW * columnSurfaceH > 2L * sw * sh) {
+                closeColumnSurface();
+                columnSurface = screen.makeSurface(sw, sh);
+                if (columnSurface == null) return null;
+                columnSurfaceW = sw;
+                columnSurfaceH = sh;
+            }
         }
         Canvas c = columnSurface.getCanvas();
         c.clear(0);
         int saved = c.save();
-        // Same device density as the page, page-local origin: the caller's own zoom and
-        // slide are applied when the snapshot is blitted back, not baked in here.
-        c.scale(uiScale, uiScale);
-        c.translate(-colRect.getLeft(), -colRect.getTop());
+        c.translate(-columnDevL, -columnDevT);
+        c.concat(ctm);
         LyricSkia.setCanvas(c);
         lyricRenderer.render(c, leftX, colTopY, colW, colH, pos);
         c.restoreToCount(saved);
         return columnSurface;
+    }
+
+    /** Derive this frame's device placement of the column snapshot from the CTM
+     *  (row-major 3x3). False when the transform is not a positive axis-aligned scale +
+     *  translate, which the whole-pixel device rect cannot represent. */
+    private boolean placeColumnSnapshot(float[] m, Rect colRect) {
+        float sx = m[0], sy = m[4], tx = m[2], ty = m[5];
+        if (m[1] != 0f || m[3] != 0f || m[6] != 0f || m[7] != 0f || m[8] != 1f
+                || !(sx > 0f) || !(sy > 0f) || !Float.isFinite(tx) || !Float.isFinite(ty)) {
+            return false;
+        }
+        int l = (int) Math.floor(colRect.getLeft() * sx + tx);
+        int t = (int) Math.floor(colRect.getTop() * sy + ty);
+        int w = Math.max(1, (int) Math.ceil(colRect.getRight() * sx + tx) - l);
+        int h = Math.max(1, (int) Math.ceil(colRect.getBottom() * sy + ty) - t);
+        if (l == columnDevL && t == columnDevT && w == columnDevW && h == columnDevH
+                && sx == columnSx && sy == columnSy && tx == columnTx && ty == columnTy) {
+            return true;
+        }
+        if (w != columnDevW || h != columnDevH) columnSrcRect = Rect.makeWH(w, h);
+        columnDevL = l;
+        columnDevT = t;
+        columnDevW = w;
+        columnDevH = h;
+        columnSx = sx;
+        columnSy = sy;
+        columnTx = tx;
+        columnTy = ty;
+        columnDevRect = Rect.makeXYWH(l, t, w, h);
+        columnLocalRect = Rect.makeLTRB((l - tx) / sx, (t - ty) / sy,
+                (l + w - tx) / sx, (t + h - ty) / sy);
+        return true;
     }
 
     private void closeColumnSurface() {
@@ -918,7 +981,6 @@ public final class LyricCompositor {
         }
         columnSurfaceW = -1;
         columnSurfaceH = -1;
-        columnSurfaceRect = null;
     }
 
     /** Free the graphics caches this page owns while it is closed. Called from the

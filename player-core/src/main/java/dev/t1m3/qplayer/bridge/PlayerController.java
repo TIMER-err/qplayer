@@ -3524,12 +3524,10 @@ public final class PlayerController {
      * arrived a few hundred ms later. Two full layouts for a decision that was not
      * known yet. Hold the previous layout instead and let the loader publish the
      * answer: {@link #applyLyrics} runs when the fetch resolves, including the
-     * empty result that means "this track really has no lyrics".</p>
-     *
-     * <p>Package-private so PlayerControllerPlaybackTest can pin the hold itself
-     * without racing the lyric loader's thread.</p>
+     * empty result that means "this track really has no lyrics", and
+     * {@link #publishNoLyricsIfPending} settles it when no answer will come.</p>
      */
-    void clearLyricsPending() {
+    private void clearLyricsPending() {
         lyrics.set(Collections.emptyList());
         lyricIndex.set(-1);
         // Deliberately NOT touching lyricsCoverOnly: the page keeps the layout it
@@ -4108,6 +4106,13 @@ public final class PlayerController {
                 notifyPlayback();
                 return;
             }
+            int resume = pendingResumeIndex;
+            if (resume == position) {
+                pendingResumeIndex = -1;
+                pendingResumeMs = 0L;
+            } else if (resume > position) {
+                pendingResumeIndex = resume - 1;
+            }
             if (position < current) {
                 playbackSession.index = current - 1;
                 index.set(playbackSession.index);
@@ -4132,18 +4137,21 @@ public final class PlayerController {
             queue.add(to, moved);
             int current = playbackSession.index;
             if (current >= 0) {
-                if (current == from) {
-                    playbackSession.index = to;
-                } else if (from < current && to >= current) {
-                    playbackSession.index = current - 1;
-                } else if (from > current && to <= current) {
-                    playbackSession.index = current + 1;
-                }
+                playbackSession.index = movedQueueIndex(current, from, to);
                 index.set(playbackSession.index);
             }
+            if (pendingResumeIndex >= 0) pendingResumeIndex = movedQueueIndex(pendingResumeIndex, from, to);
             queueTracks.set(new ArrayList<>(queue));
             saveQueue();
         }
+    }
+
+    /** Where slot {@code i} ends up after the item at {@code from} moves to {@code to}. */
+    private static int movedQueueIndex(int i, int from, int to) {
+        if (i == from) return to;
+        if (from < i && to >= i) return i - 1;
+        if (from > i && to <= i) return i + 1;
+        return i;
     }
 
     /** Empty the queue and end playback. Same teardown as dropping the last
@@ -6548,54 +6556,76 @@ public final class PlayerController {
         try {
             id = MediaId.parse(canonical);
         } catch (IllegalArgumentException error) {
+            publishNoLyricsIfPending(track);
             return;
         }
         ioWorker.submit(
                 () -> {
-                    List<LyricLine> cached = pluginLyricMem.get(canonical);
-                    if (cached == null && "netease".equals(id.provider())) {
-                        try {
-                            cached = fetchNeteaseLyrics(Long.parseLong(id.nativeId()));
-                        } catch (NumberFormatException ignored) {
-                            cached = Collections.emptyList();
+                    try {
+                        List<LyricLine> cached = pluginLyricMem.get(canonical);
+                        if (cached == null && "netease".equals(id.provider())) {
+                            try {
+                                cached = fetchNeteaseLyrics(Long.parseLong(id.nativeId()));
+                            } catch (NumberFormatException ignored) {
+                                cached = Collections.emptyList();
+                            }
                         }
-                    }
-                    if (cached != null && !cached.isEmpty()) applyLyricsIfCurrent(track, cached);
-                    // No lyrics capability is a definitive "none", not a pending fetch:
-                    // publish it so the page can switch layouts now instead of waiting
-                    // forever on a source that will never answer (playAt holds the old
-                    // layout until a real answer lands — see clearLyricsPending).
-                    if (!pluginHasCapability(id.provider(), ProviderCapability.LYRICS)) {
-                        if (cached == null || cached.isEmpty()) {
-                            applyLyricsIfCurrent(track, Collections.emptyList());
+                        if (cached != null && !cached.isEmpty()) applyLyricsIfCurrent(track, cached);
+                        // No lyrics capability is a definitive "none", not a pending fetch:
+                        // publish it so the page can switch layouts now instead of waiting
+                        // forever on a source that will never answer (playAt holds the old
+                        // layout until a real answer lands — see clearLyricsPending).
+                        if (!pluginHasCapability(id.provider(), ProviderCapability.LYRICS)) {
+                            publishNoLyricsIfPending(track);
+                            return;
                         }
-                        return;
+                        pluginProviders
+                                .lyrics(id)
+                                .whenCompleteAsync(
+                                        (payload, error) -> {
+                                            if (error != null) {
+                                                Logger.warn(
+                                                        "plugin {} lyric fetch failed: {}",
+                                                        id.provider(),
+                                                        safeMessage(error));
+                                                publishNoLyricsIfPending(track);
+                                                return;
+                                            }
+                                            try {
+                                                List<LyricLine> lines =
+                                                        LyricParser.fromPluginAssets(payload);
+                                                if (!lines.isEmpty())
+                                                    pluginLyricMem.put(canonical, lines);
+                                                applyLyricsIfCurrent(track, lines);
+                                            } catch (RuntimeException parseError) {
+                                                Logger.warn(
+                                                        "plugin {} lyric parse failed: {}",
+                                                        id.provider(),
+                                                        safeMessage(parseError));
+                                                publishNoLyricsIfPending(track);
+                                            }
+                                        },
+                                        ioWorker);
+                    } catch (RuntimeException error) {
+                        Logger.warn(
+                                "plugin {} lyric load failed: {}", id.provider(), safeMessage(error));
+                        publishNoLyricsIfPending(track);
                     }
-                    pluginProviders
-                            .lyrics(id)
-                            .whenCompleteAsync(
-                                    (payload, error) -> {
-                                        if (error != null) {
-                                            Logger.warn(
-                                                    "plugin {} lyric fetch failed: {}",
-                                                    id.provider(),
-                                                    safeMessage(error));
-                                            return;
-                                        }
-                                        try {
-                                            List<LyricLine> lines =
-                                                    LyricParser.fromPluginAssets(payload);
-                                            if (!lines.isEmpty())
-                                                pluginLyricMem.put(canonical, lines);
-                                            applyLyricsIfCurrent(track, lines);
-                                        } catch (RuntimeException parseError) {
-                                            Logger.warn(
-                                                    "plugin {} lyric parse failed: {}",
-                                                    id.provider(),
-                                                    safeMessage(parseError));
-                                        }
-                                    },
-                                    ioWorker);
+                });
+    }
+
+    /**
+     * Settle the layout {@link #clearLyricsPending} held for {@code t} as "no lyrics"
+     * when no loader will publish an answer for it (fetch or parse failure, no lyrics
+     * capability, playback abandoned). A no-op once lyrics are showing, so lyrics
+     * already published from a cache are not wiped by a later network failure.
+     */
+    private void publishNoLyricsIfPending(Track t) {
+        onMain(
+                () -> {
+                    List<LyricLine> current = lyrics.peek();
+                    if (isCurrentTrack(t) && (current == null || current.isEmpty()))
+                        applyLyrics(Collections.emptyList());
                 });
     }
 
@@ -7955,6 +7985,7 @@ public final class PlayerController {
             pendingResumeIndex = playbackSession.index;
             pendingResumeMs = mediaSessionPosition();
             loading.set(false);
+            publishNoLyricsIfPending(expected);
             showToast(reason);
             notifyPlayback();
             return;
@@ -7972,6 +8003,7 @@ public final class PlayerController {
                         playing.set(false);
                         showToast(I18n.tr("toast.play.failed", reason));
                     });
+            publishNoLyricsIfPending(expected);
             notifyPlayback();
             return;
         }

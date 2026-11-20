@@ -39,11 +39,14 @@ public final class ThumbnailBlur {
     /** Gaussian of {@code sigma} device pixels computed on a 1/{@code scale} thumbnail. */
     public static ImageFilter gaussian(float sigma, float scale) {
         float thumbSigma = Math.max(0.4f, sigma / scale);
-        ImageFilter down = ImageFilter.makeMatrixTransform(
-                Matrix33.makeScale(1f / scale), SamplingMode.LINEAR, null);
-        ImageFilter blurred = ImageFilter.makeBlur(
-                thumbSigma, thumbSigma, FilterTileMode.DECAL, down, (Rect) null);
-        return ImageFilter.makeMatrixTransform(
-                Matrix33.makeScale(scale), SamplingMode.LINEAR, blurred);
+        // Each outer filter takes its own native ref on its input, so the intermediates
+        // are released here instead of waiting for the Cleaner.
+        try (ImageFilter down = ImageFilter.makeMatrixTransform(
+                     Matrix33.makeScale(1f / scale), SamplingMode.LINEAR, null);
+             ImageFilter blurred = ImageFilter.makeBlur(
+                     thumbSigma, thumbSigma, FilterTileMode.DECAL, down, (Rect) null)) {
+            return ImageFilter.makeMatrixTransform(
+                    Matrix33.makeScale(scale), SamplingMode.LINEAR, blurred);
+        }
     }
 }

@@ -9,14 +9,15 @@ import io.github.humbleui.skija.Surface;
 import io.github.humbleui.types.Rect;
 import org.junit.Test;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 /**
- * The edge blur now runs on a 1/3-resolution thumbnail of the lyric column and
- * is scaled back up (HyperOS-style 缩略图 blur). These assert that the swap did
- * not change what the page looks like: the blurred copy must stay within a
- * couple of levels of the old full-resolution gaussian, and it must not lose ink
- * — a blur that dims thin strokes reads as flicker while scrolling.
+ * The edge blur runs on a half-resolution thumbnail of the lyric column and is
+ * scaled back up (HyperOS-style 缩略图 blur, see {@link ThumbnailBlur}). These
+ * assert that the swap did not change what the page looks like: the blurred copy
+ * must stay within a couple of levels of the old full-resolution gaussian, and it
+ * must not lose ink — a blur that dims thin strokes reads as flicker while scrolling.
  */
 public class LyricEdgeBlurThumbnailTest {
 
@@ -48,6 +49,13 @@ public class LyricEdgeBlurThumbnailTest {
             assertTrue(surface.readPixels(pixels, 0, 0));
             return pixels.readPixels();
         }
+    }
+
+    @Test
+    public void thumbnailIsHalfResolution() {
+        // 1/3 and below subsample thin strokes between texels (24% of a glyph
+        // column's ink lost at 1/3); only 1/2 is an exact 2x2 box average.
+        assertEquals(2f, ThumbnailBlur.SCALE, 0f);
     }
 
     @Test
