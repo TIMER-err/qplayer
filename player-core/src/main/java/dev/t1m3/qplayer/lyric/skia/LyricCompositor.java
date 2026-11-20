@@ -171,6 +171,12 @@ public final class LyricCompositor {
     private float blurSigmaApplied = -1f;
     private Shader blurBandShader;  // opaque at edges, transparent in the focus band
     private Shader sharpBandShader; // the complement — opaque in the focus band
+    // True while the page's graphics caches have been released because it is closed.
+    // The column snapshot is page-sized at device density (~15 MB at 800x1280 dp, 2x)
+    // and the per-row glyph rasters add ~1 MB each, so keeping them for the life of the
+    // process while the user browses elsewhere is pure waste: they are re-created on the
+    // first frame that draws the page again.
+    private boolean pageCachesReleased;
     private float bandShaderColH = -1f;
     private float bandShaderTopY = -1f;
     private float bandFracTop = -1f, bandFracBottom = -1f; // cached lit-band fractions
@@ -552,7 +558,11 @@ public final class LyricCompositor {
         // Closed and settled: nothing more to draw. RETURN BEFORE touching
         // lyricProgress — it changes every frame while playing, and setting it would
         // bump the change version every frame, defeating the renderer's idle skip.
-        if (lyricSlide <= 0.001f && !open) return;
+        if (lyricSlide <= 0.001f && !open) {
+            if (!pageCachesReleased) releasePageCaches();
+            return;
+        }
+        pageCachesReleased = false;
 
         // Per-frame playback fraction for the QML wavy progress bar and the word
         // renderer. backend.position() is coarse, so extrapolate with wall-clock time.
@@ -909,6 +919,20 @@ public final class LyricCompositor {
         columnSurfaceW = -1;
         columnSurfaceH = -1;
         columnSurfaceRect = null;
+    }
+
+    /** Free the graphics caches this page owns while it is closed. Called from the
+     *  closed-and-settled branch of {@link #drawLyricOverlay}, i.e. at most once per
+     *  close; the next drawn frame allocates them again lazily (column snapshot on the
+     *  first edge-blur frame, glyph rasters on the first animated row). */
+    private void releasePageCaches() {
+        pageCachesReleased = true;
+        closeColumnSurface();
+        lyricRenderer.releaseRasterCaches();
+        // The backdrop's live render target and its cached static frame are GPU
+        // allocations of the same kind (page-sized). They re-upload on the next
+        // drawn frame; the 32x32 cover textures stay, they are kilobytes.
+        fluidBg.invalidateGpuContext();
     }
 
     void applyColumnMask(Canvas canvas, Shader shader) {
