@@ -929,6 +929,10 @@ public final class LyricCompositor {
         pageCachesReleased = true;
         closeColumnSurface();
         lyricRenderer.releaseRasterCaches();
+        // The backdrop's live render target and its cached static frame are GPU
+        // allocations of the same kind (page-sized). They re-upload on the next
+        // drawn frame; the 32x32 cover textures stay, they are kilobytes.
+        fluidBg.invalidateGpuContext();
     }
 
     void applyColumnMask(Canvas canvas, Shader shader) {

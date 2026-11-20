@@ -490,9 +490,14 @@ Rectangle {
     // OFF for now: keeping all five trees mounted measured ~60 MB of heap and
     // re-evaluated their bindings on every track switch (50-80 ms of the
     // dq.flush stall). The trade is ~280 ms on a destination's first visit, taken
-    // per page when it is actually opened. Kept behind this flag rather than
-    // deleted so the trade can be re-measured instead of re-derived.
-    property bool prewarmEnabled: false
+    // per page when it is actually opened.
+    //
+    // BACK ON (user's call, 2026-11-20): the smooth first visit is worth more than
+    // the heap, and the offset comes from the graphics side instead - the lyric
+    // page now drops its column snapshot + glyph rasters (~20-30 MB) whenever it is
+    // closed. Flip this to false only to re-measure the trade, and say what the
+    // offset is; do not turn it off as a side effect of another change.
+    property bool prewarmEnabled: true
     property int prewarmStep: 0
     Timer {
         id: prewarmTimer
