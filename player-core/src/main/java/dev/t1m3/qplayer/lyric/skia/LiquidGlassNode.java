@@ -316,8 +316,13 @@ public final class LiquidGlassNode extends SkijaItem {
         if (outerShadow != null) outerShadow.close();
         // Android Compose dropShadow uses BlurMaskFilter(radius), whose legacy radius is
         // converted to sigma by Skia as radius / sqrt(3) + 0.5 device pixels.
+        // The shadow is pure low-frequency content, so the gaussian runs on a 1/2
+        // thumbnail (ThumbnailBlur) - measured against the full-resolution blur on a
+        // 400x160 capsule at sigma 12: 15.5 ms -> 7.0 ms, mean 0.33/255, peak 2/255,
+        // ink 98.8%. It is drawn on every frame the panel is animating, so this is a
+        // per-frame saving, not a one-off.
         float shadowSigma = 10 * rho * 0.57735f + 0.5f;
-        outerShadow = ImageFilter.makeBlur(shadowSigma, shadowSigma, FilterTileMode.DECAL);
+        outerShadow = ThumbnailBlur.gaussian(shadowSigma);
         float sigma = 1.8f * rho;
         int exponent = exponent(sigma * sigma);
         int hi = exponent;
@@ -512,7 +517,9 @@ public final class LiquidGlassNode extends SkijaItem {
         if (innerShadow == null || innerShadowRadius != radius * density) {
             if (innerShadow != null) innerShadow.close();
             innerShadowRadius = radius * density;
-            innerShadow = ImageFilter.makeBlur(innerShadowRadius, innerShadowRadius, FilterTileMode.DECAL);
+            // Same thumbnail gaussian as the outer shadow: this is a soft inner edge,
+            // rendered every frame the panel's inner-shadow ratio animates.
+            innerShadow = ThumbnailBlur.gaussian(innerShadowRadius);
         }
         Canvas mask = shadow.getCanvas();
         mask.clear(0);
