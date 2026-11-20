@@ -172,6 +172,17 @@ final class LyricRowRenderer implements AutoCloseable {
         highResolutionRows.clear();
     }
 
+    /** Close every cached glyph raster and glow image. The rows re-raster on demand, so
+     *  this is what the page calls when it stops being drawn: the rasters are ~1 MB each
+     *  at 2x supersampling and the list used to keep up to {@link #MAX_HIGH_RES_ROWS} of
+     *  them alive for the life of the process. */
+    void releaseRasterCache() {
+        for (ShapedRow row : highResolutionRows) {
+            if (row != null) row.closeRaster();
+        }
+        highResolutionRows.clear();
+    }
+
     private void drawStaticRow(Canvas canvas, TextBlob blob, float x, float baselineY,
                                float alpha, boolean shadowOn) {
         Paint paint = LyricSkia.scratchPaint();

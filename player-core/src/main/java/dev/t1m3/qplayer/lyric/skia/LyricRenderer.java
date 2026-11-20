@@ -257,6 +257,13 @@ public class LyricRenderer {
         dotPaint.close();
     }
 
+    /** Close the cached per-row glyph rasters and glow images without dropping the shaped
+     *  layout: the host calls this when the lyric page stops being drawn, and the next
+     *  render re-rasters the rows on demand. Keeps the layout so reopening stays cheap. */
+    public void releaseRasterCaches() {
+        rowRenderer.releaseRasterCache();
+    }
+
     /** Glide the column to the next playback position (an explicit seek). */
     public void easeSeekOnNextRender() {
         cancelUserScrollForSeek();
