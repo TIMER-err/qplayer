@@ -7957,9 +7957,15 @@ public final class PlayerController {
      *  sections it also returns are extra and are not counted against this. */
     private volatile int homePlaylistLimit = 12;
     private boolean homeRequested;
-    /** Provider whose home request is in flight, and when it started (see loadHome). */
+    /** Provider, playlist limit and start time of the home request in flight (see loadHome). */
     private volatile String homeInFlightProvider;
+    private volatile int homeInFlightLimit;
     private volatile long homeInFlightStartNs;
+    /** Home generation whose network payload / cached payload is on screen. Both are
+     *  only touched from posted UI tasks, so a late cache read cannot replace the
+     *  fresh result, and a failed refresh keeps the cached page it was replacing. */
+    private long homeNetworkGeneration = -1L;
+    private long homeCachedGeneration = -1L;
 
     public void setHomePlaylistLimit(int value) {
         synchronized (QmlRuntimeLock.MONITOR) {
@@ -8000,6 +8006,7 @@ public final class PlayerController {
             PluginManifest wanted = primaryProviderWith(ProviderCapability.HOME);
             if (wanted != null
                     && wanted.id.equals(homeInFlightProvider)
+                    && homeInFlightLimit == homePlaylistLimit
                     && System.nanoTime() - homeInFlightStartNs < 1_000_000_000L) {
                 Logger.info("home: duplicate request for {} ignored", wanted.id);
                 return;
@@ -8028,6 +8035,7 @@ public final class PlayerController {
                 cacheRead.start();
                 final long homeStartNs = System.nanoTime();
                 homeInFlightProvider = provider.id;
+                homeInFlightLimit = homePlaylistLimit;
                 homeInFlightStartNs = homeStartNs;
                 Logger.info("home: request {} limit={}", provider.id, homePlaylistLimit);
                 pluginProviders
@@ -8054,6 +8062,9 @@ public final class PlayerController {
                                                                 "plugin {} home failed: {}",
                                                                 provider.id,
                                                                 safeMessage(error));
+                                                        // Offline or a flaky provider: the cached
+                                                        // page already on screen beats an empty one.
+                                                        if (homeCachedGeneration == generation) return;
                                                         clearHomeSections();
                                                         sourceRecommendPlaylists.set(
                                                                 Collections.<Playlist>emptyList());
@@ -8061,6 +8072,7 @@ public final class PlayerController {
                                                                 Collections.<Song>emptyList());
                                                         return;
                                                     }
+                                                    homeNetworkGeneration = generation;
                                                     ProviderHome value =
                                                             home != null
                                                                     ? home
@@ -8124,7 +8136,8 @@ public final class PlayerController {
             }
             final ProviderHome home = cached.home;
             post(() -> {
-                if (generation != homeGeneration.get()) return;
+                if (generation != homeGeneration.get() || homeNetworkGeneration == generation) return;
+                homeCachedGeneration = generation;
                 publishHomeSections(home.sections);
                 sourceRecommendPlaylists.set(Collections.unmodifiableList(
                         new ArrayList<>(home.playlists)));
