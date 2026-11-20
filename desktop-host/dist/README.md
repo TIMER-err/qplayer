@@ -29,7 +29,7 @@ Set `JAVA_HOME` to that installation and put its `bin` directory on `PATH`.
 
 The engine version has one source: `qml4j.version` in the root POM. Android reads
 that property too. Both hosts consume
-`com.github.TIMER-err.qml4j:qml4j-core:v0.2.38` from `https://jitpack.io`.
+`com.github.TIMER-err.qml4j:qml4j-core:v0.2.40` from `https://jitpack.io`.
 The dependency version matches the exact Git tag, including `v`. Maven enables
 only releases for this repository. Gradle routes only the exact `com.github.TIMER-err.qml4j` group
 to JitPack through `exclusiveContent`; other dependencies keep their existing
