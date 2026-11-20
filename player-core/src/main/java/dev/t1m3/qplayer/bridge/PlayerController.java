@@ -7957,6 +7957,9 @@ public final class PlayerController {
      *  sections it also returns are extra and are not counted against this. */
     private volatile int homePlaylistLimit = 12;
     private boolean homeRequested;
+    /** Provider whose home request is in flight, and when it started (see loadHome). */
+    private volatile String homeInFlightProvider;
+    private volatile long homeInFlightStartNs;
 
     public void setHomePlaylistLimit(int value) {
         synchronized (QmlRuntimeLock.MONITOR) {
@@ -7989,6 +7992,18 @@ public final class PlayerController {
     /** Load the home content: recommended songs (login) + recommended playlists. */
     public void loadHome() {
         synchronized (QmlRuntimeLock.MONITOR) {
+            // Start-up asks for the home feed twice - the controller's init and the
+            // Activity's onStart - and each call is a ~6 s provider round trip whose
+            // first result is thrown away by the generation guard below. Collapse the
+            // duplicate only while a request is still young, so an explicit refresh
+            // (pull-to-refresh, source switch) still supersedes an old in-flight one.
+            PluginManifest wanted = primaryProviderWith(ProviderCapability.HOME);
+            if (wanted != null
+                    && wanted.id.equals(homeInFlightProvider)
+                    && System.nanoTime() - homeInFlightStartNs < 1_000_000_000L) {
+                Logger.info("home: duplicate request for {} ignored", wanted.id);
+                return;
+            }
             post(() -> homeLoading.set(true));
             // Switching away and back fast would otherwise let the first source's
             // in-flight result land on top of the second one's.
@@ -8002,8 +8017,18 @@ public final class PlayerController {
                 // a skeleton. The last payload is published from disk immediately and the
                 // refresh replaces it when it lands.
                 final long generationForCache = generation;
-                ioWorker.execute(() -> publishCachedHome(provider.id, generationForCache));
+                // Its own thread, not the shared ioWorker: on a cold start that queue is
+                // behind the plugin/catalog work and the cache landed 1.3 s after the
+                // request, with the scene build running on the same cores. Reading one
+                // small JSON does not need to wait for anything else.
+                Thread cacheRead = new Thread(
+                        () -> publishCachedHome(provider.id, generationForCache),
+                        "qplayer-home-cache");
+                cacheRead.setDaemon(true);
+                cacheRead.start();
                 final long homeStartNs = System.nanoTime();
+                homeInFlightProvider = provider.id;
+                homeInFlightStartNs = homeStartNs;
                 Logger.info("home: request {} limit={}", provider.id, homePlaylistLimit);
                 pluginProviders
                         .home(provider.id, homePlaylistLimit)
@@ -8015,6 +8040,9 @@ public final class PlayerController {
                                                             "home: response in {} ms (error={})",
                                                             (System.nanoTime() - homeStartNs) / 1_000_000L,
                                                             error == null ? "none" : safeMessage(error));
+                                                    if (provider.id.equals(homeInFlightProvider)) {
+                                                        homeInFlightProvider = null;
+                                                    }
                                                     long publishStartNs = System.nanoTime();
                                                     if (generation != homeGeneration.get()) return;
                                                     if (!provider.id.equals(
@@ -8085,6 +8113,7 @@ public final class PlayerController {
 
     /** Publish the cached home payload on the UI queue, if it is still current. */
     private void publishCachedHome(String providerId, long generation) {
+        long startNs = System.nanoTime();
         try {
             CachedHome cached = HOME_GSON.fromJson(
                     StorageFiles.readUtf8(homeCacheFile()), CachedHome.class);
@@ -8102,8 +8131,9 @@ public final class PlayerController {
                 sourceRecommendations.set(Collections.unmodifiableList(
                         new ArrayList<>(home.songs)));
                 homeLoading.set(false);
-                Logger.info("home: cached published ({} playlists, {} songs)",
-                        home.playlists.size(), home.songs.size());
+                Logger.info("home: cached published ({} playlists, {} songs) in {} ms",
+                        home.playlists.size(), home.songs.size(),
+                        (System.nanoTime() - startNs) / 1_000_000L);
             });
         } catch (Throwable ignored) {
             // Missing, stale or unreadable cache: the network request is the answer.
