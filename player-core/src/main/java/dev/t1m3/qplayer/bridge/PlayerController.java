@@ -65,6 +65,7 @@ import dev.t1m3.qplayer.plugin.VerifiedPluginPackage;
 import dev.t1m3.qplayer.qml.QmlRuntimeLock;
 import dev.t1m3.qplayer.store.AppDirs;
 import dev.t1m3.qplayer.store.StorageFiles;
+import java.nio.file.Files;
 import dev.t1m3.qplayer.util.GitHubDownloadUrls;
 import dev.t1m3.qplayer.util.Logger;
 import dev.t1m3.qplayer.util.QrMatrix;
@@ -7995,12 +7996,26 @@ public final class PlayerController {
             homeRequested = true;
             PluginManifest provider = primaryProviderWith(ProviderCapability.HOME);
             if (provider != null) {
+                // Content first, network second: the provider's home call takes seconds
+                // on a cold start (measured: 5.9 s request-to-callback on the pad, one
+                // 1 s HTTP leg logged inside it), which the page can only spend showing
+                // a skeleton. The last payload is published from disk immediately and the
+                // refresh replaces it when it lands.
+                final long generationForCache = generation;
+                ioWorker.execute(() -> publishCachedHome(provider.id, generationForCache));
+                final long homeStartNs = System.nanoTime();
+                Logger.info("home: request {} limit={}", provider.id, homePlaylistLimit);
                 pluginProviders
                         .home(provider.id, homePlaylistLimit)
                         .whenComplete(
                                 (home, error) ->
                                         post(
                                                 () -> {
+                                                    Logger.info(
+                                                            "home: response in {} ms (error={})",
+                                                            (System.nanoTime() - homeStartNs) / 1_000_000L,
+                                                            error == null ? "none" : safeMessage(error));
+                                                    long publishStartNs = System.nanoTime();
                                                     if (generation != homeGeneration.get()) return;
                                                     if (!provider.id.equals(
                                                             pluginRegistry.primaryProvider()))
@@ -8030,6 +8045,13 @@ public final class PlayerController {
                                                     sourceRecommendations.set(
                                                             Collections.unmodifiableList(
                                                                     new ArrayList<>(value.songs)));
+                                                    Logger.info(
+                                                            "home: published in {} ms (sections={}, playlists={}, songs={})",
+                                                            (System.nanoTime() - publishStartNs) / 1_000_000L,
+                                                            value.sections.size(),
+                                                            value.playlists.size(),
+                                                            value.songs.size());
+                                                    saveHomeCache(provider.id, value);
                                                 }));
                 return;
             }
@@ -8044,6 +8066,64 @@ public final class PlayerController {
             homeLoading.set(false);
             return;
         }
+    }
+
+    /** Cache of the last provider home payload, kept so a warm start can paint the
+     *  recommendation page before its network call answers (see publishCachedHome). */
+    private static final Gson HOME_GSON = new Gson();
+    private static final String HOME_CACHE_VERSION = "v1";
+
+    private static final class CachedHome {
+        String version;
+        String provider;
+        ProviderHome home;
+    }
+
+    private static java.nio.file.Path homeCacheFile() {
+        return AppDirs.indexFile("home-cache.json");
+    }
+
+    /** Publish the cached home payload on the UI queue, if it is still current. */
+    private void publishCachedHome(String providerId, long generation) {
+        try {
+            CachedHome cached = HOME_GSON.fromJson(
+                    StorageFiles.readUtf8(homeCacheFile()), CachedHome.class);
+            if (cached == null || cached.home == null
+                    || !HOME_CACHE_VERSION.equals(cached.version)
+                    || !providerId.equals(cached.provider)) {
+                return;
+            }
+            final ProviderHome home = cached.home;
+            post(() -> {
+                if (generation != homeGeneration.get()) return;
+                publishHomeSections(home.sections);
+                sourceRecommendPlaylists.set(Collections.unmodifiableList(
+                        new ArrayList<>(home.playlists)));
+                sourceRecommendations.set(Collections.unmodifiableList(
+                        new ArrayList<>(home.songs)));
+                homeLoading.set(false);
+                Logger.info("home: cached published ({} playlists, {} songs)",
+                        home.playlists.size(), home.songs.size());
+            });
+        } catch (Throwable ignored) {
+            // Missing, stale or unreadable cache: the network request is the answer.
+        }
+    }
+
+    private void saveHomeCache(String providerId, ProviderHome home) {
+        ioWorker.execute(() -> {
+            try {
+                CachedHome cached = new CachedHome();
+                cached.version = HOME_CACHE_VERSION;
+                cached.provider = providerId;
+                cached.home = home;
+                java.nio.file.Path file = homeCacheFile();
+                if (file.getParent() != null) Files.createDirectories(file.getParent());
+                StorageFiles.writeUtf8Atomic(file, HOME_GSON.toJson(cached));
+            } catch (Throwable ignored) {
+                // A cache that cannot be written only costs the next start its head start.
+            }
+        });
     }
 
     private void publishPlayingArtist(Track t) {
