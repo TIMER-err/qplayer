@@ -182,6 +182,10 @@ public final class DesktopNativeMetadata {
         // JNA probes <platform>-<arch>/<mapped-library-name> after system lookup.
         // Register absent probes too, so optional system libraries fail normally.
         addResourceGlob(resourceGlobs, jnaResourcePrefix + "/**");
+        // JNA retries its pre-architecture macOS resource directory too.
+        if (jnaResourcePrefix.startsWith("darwin")) {
+            addResourceGlob(resourceGlobs, "darwin/**");
+        }
         for (String prefix : new String[]{"miuix", "components", "dialogs", "pages", "settings"}) {
             for (String extension : new String[]{"js", "json", "svg", "png", "webp"}) {
                 addResourceGlob(resourceGlobs, prefix + "/**/*." + extension);

@@ -73,7 +73,8 @@ strict native builds before the first frame when a saved home cache is read
 (issue #127); catching a Java exception does not prevent that exit.
 
 JNA also probes platform-prefixed resources when a system library is absent.
-The generator derives that prefix from the pinned JNA `Platform.RESOURCE_PREFIX`.
+The generator derives that prefix from the pinned JNA `Platform.RESOURCE_PREFIX`
+and registers JNA's legacy `darwin/` fallback on macOS.
 The smoke loads a deliberately absent library and requires the normal loader
 error instead of a strict-metadata process exit. Opening desktop lyrics on X11
 also exercises the Xext input-shape library and its native rectangle structure.
