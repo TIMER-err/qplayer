@@ -244,6 +244,7 @@ Rectangle {
                     count: modelData.trackCount
                     coverUrl: modelData.coverUrl
                     coverThumbPath: modelData.coverThumbPath || ""
+                    coverDeferMs: Math.min(index * 24, 480)
                     onClicked: player.openMediaAlbum("" + modelData.id)
                 }
             }
