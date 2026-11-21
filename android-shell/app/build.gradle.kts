@@ -16,8 +16,8 @@ android {
         applicationId = "dev.t1m3.qplayer"
         minSdk = 26
         targetSdk = 34
-        versionCode = 117
-        versionName = "2.2.2"
+        versionCode = 118
+        versionName = "2.3.0"
         manifestPlaceholders["appLabel"] = "QPlayer"
     }
 
