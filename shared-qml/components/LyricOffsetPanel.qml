@@ -95,7 +95,7 @@ Item {
         anchors.rightMargin: 18
         from: -5000
         to: 5000
-        stepSize: 50
+        stepSize: 20
         snapMode: true
         value: 0
         // Keep dragging entirely local. Updating PlayerController on every 50 ms

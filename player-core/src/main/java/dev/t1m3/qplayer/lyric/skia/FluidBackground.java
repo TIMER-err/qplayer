@@ -47,7 +47,15 @@ public final class FluidBackground {
     };
     private static final RuntimeEffect[][] EFFECTS = new RuntimeEffect[3][2];
 
-    private static RuntimeEffect makeEffect(int style, boolean fade) {
+    /** Pre-compile all fluid SkSL shaders so the first frame never stalls on parsing. */
+    public static synchronized void prewarmShaders() {
+        for (int style = 0; style < 3; style++) {
+            makeEffect(style, false);
+            makeEffect(style, true);
+        }
+    }
+
+    private static synchronized RuntimeEffect makeEffect(int style, boolean fade) {
         int safeStyle = normalizeStyle(style);
         int variant = fade ? 1 : 0;
         RuntimeEffect cached = EFFECTS[safeStyle][variant];
@@ -173,46 +181,8 @@ public final class FluidBackground {
             fluidPaint.setColorFilter(saturationFilter);
             invalidateStatic(); // a cached static frame baked in the old saturation
         }
-        boolean keyChanged = !Objects.equals(trackKey, coverKey);
-        boolean nullButReady = cover == null && coverBytes != null && coverBytes.length > 0;
-        // Kick an off-thread decode for a newly-selected cover, once per key.
-        if ((keyChanged || nullButReady) && coverBytes != null && coverBytes.length > 0
-                && !Objects.equals(trackKey, decodingKey)) {
-            decodingKey = trackKey;
-            final byte[] cb = coverBytes;
-            final String key = trackKey;
-            decoder.submit(() -> {
-                DecodedTextures textures = buildTextures(cb, key);
-                if (textures != null) publishDecoded(textures);
-            });
-        }
-        // Publish a ready off-thread texture (render thread): swap the shader, drop the
-        // old cover. Cheap — the expensive work already happened on the decoder thread.
-        DecodedTextures ready = takeDecoded(trackKey);
-        if (ready != null) {
-            // Retire the current cover to the "prev" slot and cross-fade to the new one
-            // rather than snapping. Both stay alive until the fade ends (releasePrev).
-            releasePrev();
-            coverPrevShader = coverShader;   // null on the very first cover
-            coverPrev = cover;
-            coverPrevAdjustedShader = coverAdjustedShader;
-            coverPrevAdjusted = coverAdjusted;
-            coverPrevAngles = coverPrevShader == null ? null : coverAngles;
-            coverPrevMesh = coverPrevShader == null ? null : coverMesh;
-            cover = ready.raw;
-            coverAdjusted = ready.adjusted;
-            coverKey = trackKey;
-            coverAngles = ready.angles;
-            coverMesh = ready.mesh;
-            coverShader = cover.makeShader(
-                    FilterTileMode.CLAMP, FilterTileMode.CLAMP,
-                    SamplingMode.LINEAR, Matrix33.IDENTITY);
-            coverAdjustedShader = coverAdjusted.makeShader(
-                    FilterTileMode.CLAMP, FilterTileMode.CLAMP,
-                    SamplingMode.LINEAR, Matrix33.IDENTITY);
-            fadeStartNs = nowNs;
-            invalidateStatic();   // the source changed -> the cached frame is stale
-        }
+        prewarmCover(coverBytes, trackKey);
+        adoptDecodedIfReady(trackKey, nowNs);
         if (coverShader == null) {
             renderFallback(canvas, w, h, 0xFF0A0A0E);
             return;
@@ -260,6 +230,109 @@ public final class FluidBackground {
             if (drawFluidScaled(canvas, ctx, fullRect, dw, dh, time, fade)) return;
         }
         drawFluid(canvas, fullRect, w, h, time, fade);
+    }
+
+    /** Pre-decode cover textures off-thread as soon as track/cover is loaded. */
+    public void prewarmCover(byte[] coverBytes, String trackKey) {
+        if (coverBytes == null || coverBytes.length == 0 || trackKey == null) return;
+        boolean keyChanged = !Objects.equals(trackKey, coverKey);
+        boolean nullButReady = cover == null;
+        if ((keyChanged || nullButReady) && !Objects.equals(trackKey, decodingKey)) {
+            decodingKey = trackKey;
+            final byte[] cb = coverBytes;
+            final String key = trackKey;
+            decoder.submit(() -> {
+                DecodedTextures textures = buildTextures(cb, key);
+                if (textures != null) publishDecoded(textures);
+            });
+        }
+    }
+
+    /** Publish ready off-thread cover textures on the render thread. */
+    public void adoptDecodedIfReady(String trackKey, long nowNs) {
+        DecodedTextures ready = takeDecoded(trackKey);
+        if (ready != null) {
+            releasePrev();
+            coverPrevShader = coverShader;
+            coverPrev = cover;
+            coverPrevAdjustedShader = coverAdjustedShader;
+            coverPrevAdjusted = coverAdjusted;
+            coverPrevAngles = coverPrevShader == null ? null : coverAngles;
+            coverPrevMesh = coverPrevShader == null ? null : coverMesh;
+            cover = ready.raw;
+            coverAdjusted = ready.adjusted;
+            coverKey = trackKey;
+            coverAngles = ready.angles;
+            coverMesh = ready.mesh;
+            coverShader = cover.makeShader(
+                    FilterTileMode.CLAMP, FilterTileMode.CLAMP,
+                    SamplingMode.LINEAR, Matrix33.IDENTITY);
+            coverAdjustedShader = coverAdjusted.makeShader(
+                    FilterTileMode.CLAMP, FilterTileMode.CLAMP,
+                    SamplingMode.LINEAR, Matrix33.IDENTITY);
+            fadeStartNs = nowNs;
+            invalidateStatic();
+        }
+    }
+
+    /** Pre-allocate live offscreen surface and compile GLSL shader program ahead of opening. */
+    public void prewarmGpu(DirectContext ctx, float w, float h, float uiScale) {
+        if (ctx == null || w <= 0f || h <= 0f) return;
+        prewarmShaders();
+        int dw = Math.max(1, Math.round(w * uiScale * LIVE_RENDER_SCALE));
+        int dh = Math.max(1, Math.round(h * uiScale * LIVE_RENDER_SCALE));
+        if (liveSurface == null || liveW != dw || liveH != dh) {
+            releaseLive();
+            try {
+                liveSurface = Surface.makeRenderTarget(ctx, false, ImageInfo.makeN32Premul(dw, dh));
+                if (liveSurface != null) {
+                    liveW = dw;
+                    liveH = dh;
+                    liveRect = Rect.makeWH(dw, dh);
+                    Canvas off = liveSurface.getCanvas();
+                    off.clear(0);
+                    warmupDriverShaders(off, dw, dh);
+                }
+            } catch (Throwable ignored) {}
+        }
+    }
+
+    private void warmupDriverShaders(Canvas canvas, float w, float h) {
+        ImageInfo dummyInfo = ImageInfo.makeN32Premul(2, 2);
+        byte[] dummyBytes = new byte[16];
+        try (Image dummyImg = Image.makeRasterFromBytes(dummyInfo, dummyBytes, 8L);
+             Shader dummyTex = dummyImg.makeShader(FilterTileMode.CLAMP, FilterTileMode.CLAMP,
+                     SamplingMode.LINEAR, Matrix33.IDENTITY)) {
+            // Warmup Mesh Gradient GL program with real texture-sampler child and drawVertices
+            try (RuntimeEffectBuilder b = new RuntimeEffectBuilder(makeEffect(STYLE_MESH_GRADIENT, false))) {
+                b.setUniform("time", 0f);
+                b.setUniform("alpha", 1f);
+                b.setChild("cover", dummyTex);
+                try (Shader s = b.makeShader()) {
+                    fluidPaint.setShader(s);
+                    float[] pts = new float[]{0f, 0f, w, 0f, 0f, h, w, h};
+                    float[] uvs = new float[]{0f, 0f, 1f, 0f, 0f, 1f, 1f, 1f};
+                    short[] idx = new short[]{0, 1, 2, 2, 1, 3};
+                    Canvas._nDrawVertices(canvas._ptr, 0, pts, null, uvs, idx, BlendMode.SRC_OVER.ordinal(), fluidPaint._ptr);
+                }
+            }
+            // Warmup Pixi / Classic GL program with real texture-sampler child
+            try (RuntimeEffectBuilder b = new RuntimeEffectBuilder(makeEffect(STYLE_PIXI_RENDERER, false))) {
+                b.setUniform("resolution", w, h);
+                b.setUniform("time", 0f);
+                b.setChild("cover", dummyTex);
+                b.setUniform("bend", 1f);
+                b.setUniform("angles", new float[]{0f, 0f, 0f, 0f});
+                try (Shader s = b.makeShader()) {
+                    fluidPaint.setShader(s);
+                    canvas.drawRect(Rect.makeWH(w, h), fluidPaint);
+                }
+            }
+        } catch (Throwable t) {
+            dev.t1m3.qplayer.util.Logger.warn("fluid shader warmup failed: {}", t.getMessage());
+        } finally {
+            fluidPaint.setShader(null);
+        }
     }
 
     private synchronized void publishDecoded(DecodedTextures textures) {

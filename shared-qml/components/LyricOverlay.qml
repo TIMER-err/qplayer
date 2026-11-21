@@ -13,6 +13,7 @@ import "."
 Item {
     id: overlay
     signal closeRequested()
+    property bool prewarming: false
 
     // Landscape (wide) layout: cover + transport on the left, lyrics on the right
     // half (host-drawn). Driven by aspect so a desktop window, tablet, or phone in
@@ -101,7 +102,8 @@ Item {
         // once is what janks in this engine (no dirty-rect rendering — every
         // animating subtree fully repaints every frame), not either one alone, so
         // drop this one until both Behaviors below have actually reached their target.
-        layer.enabled: visible && opacity >= 0.999 && baseScale >= 0.999 && !pCover.vinyl
+        layer.enabled: visible && !pCover.vinyl
+            && (overlay.prewarming || (opacity >= 0.999 && baseScale >= 0.999))
         layer.effect: MultiEffect {
             shadowEnabled: true
             shadowColor: "#CC000000"
@@ -428,9 +430,10 @@ Item {
                 // at the same time the host lyric column is doing its own zoom -
                 // drop the shadow until both have actually reached their target.
                 layer.enabled: visible && !lCover.vinyl
-                    && Math.abs(landscapeChrome.width
-                        - (overlay.coverOnly ? overlay.width : overlay.width / 2)) < 0.5
-                    && Math.abs(landscapeChrome.coverSize - landscapeChrome.targetCoverSize) < 0.5
+                    && (overlay.prewarming || (player.lyricSlide >= 0.995
+                        && Math.abs(landscapeChrome.width
+                            - (overlay.coverOnly ? overlay.width : overlay.width / 2)) < 0.5
+                        && Math.abs(landscapeChrome.coverSize - landscapeChrome.targetCoverSize) < 0.5))
                 layer.effect: MultiEffect {
                     shadowEnabled: true
                     shadowColor: "#CC000000"

@@ -270,6 +270,62 @@ public final class AndroidAudioBackend implements AudioBackend {
         }
     }
 
+    private int cachedLatencyMs = -1;
+    private long lastLatencyCheckNs = 0L;
+
+    @Override
+    public synchronized int outputLatencyMs() {
+        long now = System.nanoTime();
+        if (cachedLatencyMs >= 0 && now - lastLatencyCheckNs < 2_000_000_000L) {
+            return cachedLatencyMs;
+        }
+        lastLatencyCheckNs = now;
+        int latency = 0;
+        if (audioManager != null) {
+            try {
+                java.lang.reflect.Method m = audioManager.getClass().getMethod("getOutputLatency", int.class);
+                Object res = m.invoke(audioManager, AudioManager.STREAM_MUSIC);
+                if (res instanceof Integer) {
+                    latency = (Integer) res;
+                }
+            } catch (Throwable ignored) {}
+        }
+        if (latency <= 0 && audioManager != null) {
+            boolean hasBluetooth = false;
+            boolean hasWired = false;
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                try {
+                    android.media.AudioDeviceInfo[] devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
+                    if (devices != null) {
+                        for (android.media.AudioDeviceInfo dev : devices) {
+                            int type = dev.getType();
+                            if (type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+                                    || type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+                                    || (android.os.Build.VERSION.SDK_INT >= 31 && type == 26 /* TYPE_BLE_HEADSET */)) {
+                                hasBluetooth = true;
+                                break;
+                            } else if (type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET
+                                    || type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES
+                                    || type == android.media.AudioDeviceInfo.TYPE_USB_HEADSET) {
+                                hasWired = true;
+                            }
+                        }
+                    }
+                } catch (Throwable ignored) {}
+            }
+            if (hasBluetooth) {
+                latency = 200;
+            } else if (hasWired) {
+                latency = 35;
+            } else {
+                latency = 45;
+            }
+        }
+        cachedLatencyMs = Math.max(0, Math.min(600, latency));
+        Logger.info("audio output latency: {}ms", cachedLatencyMs);
+        return cachedLatencyMs;
+    }
+
     @Override
     public synchronized long duration() {
         if (player != null && prepared) {

@@ -5,6 +5,7 @@ import io.github.humbleui.skija.Canvas;
 import io.github.humbleui.skija.DirectContext;
 import io.github.humbleui.skija.Image;
 import io.github.humbleui.skija.ImageFilter;
+import io.github.humbleui.skija.ImageInfo;
 import io.github.humbleui.skija.Matrix33;
 import io.github.humbleui.skija.Paint;
 import io.github.humbleui.skija.SamplingMode;
@@ -138,6 +139,7 @@ public final class LyricCompositor {
     private boolean lyClockRunningLast;
     private long lyBaseMs;
     private long lyBaseNanos;
+    private long lyLastPredMs;
     private long lyPlaybackRevision = -1L;
     private long lyClockSeekRevision = -1L;
     private long lySeekRevision = -1L;
@@ -186,6 +188,7 @@ public final class LyricCompositor {
     // process while the user browses elsewhere is pure waste: they are re-created on the
     // first frame that draws the page again.
     private boolean pageCachesReleased;
+    private boolean compositorGpuPrewarmed;
     private float bandShaderColH = -1f;
     private float bandShaderTopY = -1f;
     private float bandFracTop = -1f, bandFracBottom = -1f; // cached lit-band fractions
@@ -208,6 +211,7 @@ public final class LyricCompositor {
     // composited, no new pass, no second animating subtree.
     private static final float TRACK_REVEAL_TAU = 0.085f;   // ~250 ms to settle
     private static final float TRACK_REVEAL_RISE = 14f;     // dp, start offset
+    private static final int DEFAULT_AUDIO_COMPENSATION_MS = 40; // Sweet spot: neutralizes typical AudioTrack buffer lag
     private float trackReveal = 1f;
     private long trackRevealNs;
     // Track whose lyrics last triggered (or were exempted from) the reveal. Keyed on the
@@ -557,6 +561,29 @@ public final class LyricCompositor {
                                   SettingsBridge settings, DirectContext ctx,
                                   float uiScale, int fbW, int fbH) {
         if (controller == null) return;
+
+        // Re-feed the renderer when the track's lyric list changes (identity).
+        List<LyricLine> lyObj = controller.lyrics.peek();
+        if (lyObj != lastLyrics) {
+            lastLyrics = lyObj;
+            lyricRenderer.setLyrics(lastLyrics);
+        }
+
+        // Keep fluid backdrop textures pre-decoded for the current track so opening
+        // the lyric page never waits on background decoding or shader setup mid-motion.
+        byte[] cover = (byte[]) controller.coverBytes.peek();
+        Object title = controller.title.peek();
+        Object coverUrl = controller.coverUrl.peek();
+        if (lyCoverKey == null || title != lyKeyTitle || coverUrl != lyKeyUrl) {
+            lyKeyTitle = title;
+            lyKeyUrl = coverUrl;
+            lyCoverKey = title + "|" + coverUrl;
+        }
+        if (cover != null && lyCoverKey != null) {
+            fluidBg.prewarmCover(cover, lyCoverKey);
+        }
+        fluidBg.adoptDecodedIfReady(lyCoverKey, System.nanoTime());
+
         boolean open = Boolean.TRUE.equals(controller.lyricsOpen.peek());
         float target = open ? 1f : 0f;
         // The lyric page is a spatial bottom sheet, independent of the navigation
@@ -573,6 +600,59 @@ public final class LyricCompositor {
         // bump the change version every frame, defeating the renderer's idle skip.
         if (lyricSlide <= 0.001f && !open) {
             if (!pageCachesReleased) releasePageCaches();
+            if (ctx != null && fbW > 0 && fbH > 0) {
+                float w = fbW / uiScale;
+                float h = fbH / uiScale;
+                fluidBg.prewarmGpu(ctx, w, h, uiScale);
+                boolean landscape = w > h;
+                boolean coverOnly = Boolean.TRUE.equals(controller.lyricsCoverOnly.peek())
+                        || Boolean.TRUE.equals(controller.coverModeManual.peek());
+                boolean fullWidth = !coverOnly && landscape && settings != null && settings.lyricFullWidth();
+                float pad = 28f;
+                float topInset = settings != null ? settings.topInset() : 0f;
+                float colLeft = landscape ? (fullWidth ? 0f : w * 0.5f) : 0f;
+                float colTopY = landscape ? (topInset + L_LANDSCAPE_TOP) : lyricTopY(topInset);
+                float colW = (w - colLeft) - 2f * pad;
+                float colH = landscape
+                        ? (h - colTopY - (fullWidth ? L_FULLWIDTH_BOTTOM : L_LANDSCAPE_BOTTOM))
+                        : (h - colTopY - L_TRANSPORT_H);
+
+                if (!compositorGpuPrewarmed) {
+                    compositorGpuPrewarmed = true;
+                    ensureLyricShaders(colTopY, colH);
+                    try {
+                        Rect colRect = Rect.makeXYWH(colLeft, colTopY, w - colLeft, colH);
+                        int sc = canvas.save();
+                        canvas.scale(uiScale, uiScale);
+                        int lc = canvas.saveLayer(colRect, null);
+                        applyColumnMask(canvas, lyFadeShader);
+                        canvas.restoreToCount(lc);
+                        canvas.restoreToCount(sc);
+                    } catch (Throwable ignored) {}
+                    if (Boolean.TRUE.equals(LyricConfig.instance.edgeBlur.getValue())) {
+                        try {
+                            float sigma = Math.max(1f, LyricConfig.instance.lyricFontSize.getValue() * EDGE_BLUR_SIGMA_RATIO);
+                            ensureBlurFilter(sigma);
+                        } catch (Throwable ignored) {}
+                    }
+                    if (lyricRenderer.hasLines()) {
+                        long rawPos = controller.isLyricClockRunning() ? lyBaseMs : controller.positionMs.peek();
+                        long pos = Math.max(0L, rawPos - LyricConfig.instance.offsetMs.getValue() - DEFAULT_AUDIO_COMPENSATION_MS);
+                        lyricRenderer.prewarmLayout(colW, pos, 64);
+                        // Prewarm GPU glyph atlas by drawing active visible lines once into an offscreen 1x1 GPU surface
+                        try (Surface dummyGpu = Surface.makeRenderTarget(ctx, false, ImageInfo.makeN32Premul(1, 1))) {
+                            if (dummyGpu != null) {
+                                lyricRenderer.render(dummyGpu.getCanvas(), 0f, 0f, colW, colH, pos);
+                            }
+                        } catch (Throwable ignored) {}
+                    }
+                }
+
+                if (lyricRenderer.hasLines()) {
+                    long pos = controller.isLyricClockRunning() ? lyBaseMs : controller.positionMs.peek();
+                    lyricRenderer.prewarmLayout(colW, pos, 4);
+                }
+            }
             return;
         }
         pageCachesReleased = false;
@@ -606,12 +686,6 @@ public final class LyricCompositor {
             controller.lyricProgress.set(progress);
         }
 
-        // Re-feed the renderer when the track's lyric list changes (identity).
-        List<LyricLine> lyObj = controller.lyrics.peek();
-        if (lyObj != lastLyrics) {
-            lastLyrics = lyObj;
-            lyricRenderer.setLyrics(lastLyrics);
-        }
         String mediaId = controller.currentMediaId.peek();
         if (lyObj != null && !lyObj.isEmpty() && !Objects.equals(mediaId, trackRevealMediaId)) {
             trackRevealMediaId = mediaId;
@@ -708,16 +782,7 @@ public final class LyricCompositor {
         float ease = lyricSlide * lyricSlide * (3f - 2f * lyricSlide); // smoothstep
         canvas.translate(0f, (1f - ease) * h);
 
-        // 1) fluid backdrop, keyed by the current track. The key only changes on a
-        // track switch, so rebuild the concatenated string only when an input does.
-        byte[] cover = (byte[]) controller.coverBytes.peek();
-        Object title = controller.title.peek();
-        Object coverUrl = controller.coverUrl.peek();
-        if (lyCoverKey == null || title != lyKeyTitle || coverUrl != lyKeyUrl) {
-            lyKeyTitle = title;
-            lyKeyUrl = coverUrl;
-            lyCoverKey = title + "|" + coverUrl;
-        }
+        // 1) fluid backdrop, keyed by the current track (resolved above).
         boolean bgStatic = settings != null && settings.lyricBgStatic();
         int bgStyle = settings != null
                 ? settings.lyricBgStyle() : FluidBackground.STYLE_MESH_GRADIENT;
@@ -773,7 +838,7 @@ public final class LyricCompositor {
             // is 0 while paused/not-yet-resumed (e.g. right after a session restore)
             // even though positionMs correctly holds the restored position. Using it
             // here left the lyric column always rendering from the very start.
-            long pos = predMs - LyricConfig.instance.offsetMs.getValue();
+            long pos = Math.max(0L, predMs - LyricConfig.instance.offsetMs.getValue() - DEFAULT_AUDIO_COMPENSATION_MS);
             long seekRevision = controller.seekRevision();
             if (lySeekRevision < 0L) {
                 // First lyric-page render has no previous visual position to animate from.
@@ -828,7 +893,13 @@ public final class LyricCompositor {
             // twice - sharp for the focus band, half-resolution thumbnail gaussian for
             // the edges - so it stays on through the transition instead of popping in
             // the moment the motion lands. See drawProgressiveBlurColumn.
-            if (Boolean.TRUE.equals(LyricConfig.instance.edgeBlur.getValue())) {
+            // During the bottom-sheet slide transition (lyricSlide < 0.99f), draw
+            // lyrics directly without the multi-pass GPU snapshot blur. The vertical
+            // alpha fade (lyFadeShader below) already cleanly fades the top and bottom
+            // lines, while avoiding offscreen surface allocations, texture snapshots,
+            // and saveLayer blits during the motion. Progressive edge blur engages once
+            // the page settles.
+            if (lyricSlide >= 0.99f && Boolean.TRUE.equals(LyricConfig.instance.edgeBlur.getValue())) {
                 drawProgressiveBlurColumn(canvas, colRect, colLeft + pad, colTopY, colW, colH, pos);
             } else {
                 lyricRenderer.render(canvas, colLeft + pad, colTopY, colW, colH, pos);
@@ -991,10 +1062,6 @@ public final class LyricCompositor {
         pageCachesReleased = true;
         closeColumnSurface();
         lyricRenderer.releaseRasterCaches();
-        // The backdrop's live render target and its cached static frame are GPU
-        // allocations of the same kind (page-sized). They re-upload on the next
-        // drawn frame; the 32x32 cover textures stay, they are kilobytes.
-        fluidBg.invalidateGpuContext();
     }
 
     void applyColumnMask(Canvas canvas, Shader shader) {

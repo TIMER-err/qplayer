@@ -551,21 +551,28 @@ Rectangle {
         running: false
         onTriggered: {
             if (rootPageMotion.isRunning() || app.pageTransitionActive
-                    || app.pendingLoadIndex >= 0)
+                    || app.pendingLoadIndex >= 0
+                    || player.lyricsOpen || player.lyricSlide > 0.001)
                 return
             app.prewarmStep = app.prewarmStep + 1
-            if (app.prewarmStep === 1) app.searchLoaded = true
-            else if (app.prewarmStep === 2) app.libraryLoaded = true
-            else if (app.prewarmStep === 3 && app.showLocalTab) app.localLoaded = true
-            else if (app.prewarmStep === 4) app.recentLoaded = true
-            else if (app.prewarmStep === 5) {
+            if (app.prewarmStep === 1) {
+                lyricOverlay.prewarming = true
+            }
+            else if (app.prewarmStep === 2) {
+                lyricOverlay.prewarming = false
+            }
+            else if (app.prewarmStep === 3) app.searchLoaded = true
+            else if (app.prewarmStep === 4) app.libraryLoaded = true
+            else if (app.prewarmStep === 5 && app.showLocalTab) app.localLoaded = true
+            else if (app.prewarmStep === 6) app.recentLoaded = true
+            else if (app.prewarmStep === 7) {
                 // 已下载 also re-reads the downloaded list when it opens
                 // (AppActions: player.refreshCachedSongs() then replacePage), and
                 // that read was the remaining 258 ms on its first visit.
                 app.cacheListLoaded = true
                 player.refreshCachedSongs()
             }
-            else if (app.prewarmStep >= 6) prewarmTimer.stop()
+            else if (app.prewarmStep >= 8) prewarmTimer.stop()
         }
     }
     // Late enough that the first painted frames and the initial data fetch are
@@ -966,12 +973,13 @@ Rectangle {
         x: settings.leftInset
         width: parent.width - settings.leftInset - settings.rightInset
         height: parent.height
-        visible: player.lyricSlide > 0.001
+        visible: player.lyricSlide > 0.001 || lyricOverlay.prewarming
+        opacity: player.lyricSlide > 0.001 ? 1 : 0
         // Desktop hides its custom title bar while the lyric page is open (see the
         // TitleBar below), so the three title buttons sit flush at the very top.
         topPad: hostWindow.available ? 6 : settings.topInset + 6
         onCloseRequested: app.popPage()
-        y: (1 - transitionEase) * height
+        y: player.lyricSlide > 0.001 ? (1 - transitionEase) * height : height
     }
 
     TemperaLayer { anchors.fill: parent }

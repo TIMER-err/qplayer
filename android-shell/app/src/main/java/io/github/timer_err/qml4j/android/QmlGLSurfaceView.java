@@ -512,7 +512,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                     long t = compositor.lyricRenderer().timeAtScreenY(lyDownY);
                     if (t >= 0L && controller != null) {
                         compositor.lyricRenderer().cancelUserScrollForSeek();
-                        controller.seek(t + LyricConfig.instance.offsetMs.getValue());
+                        controller.seek(t + LyricConfig.instance.offsetMs.getValue() + 40);
                     }
                 }
             } else {
@@ -890,17 +890,9 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                         || Boolean.TRUE.equals(controller.lyricsOpen.peek())
                         || (controller.lyricSlide.peek() != null
                             && controller.lyricSlide.peek() > 0.001)));
-                // The lyric page animates every vsync, but its content is a text sweep
-                // over a slowly morphing backdrop: 60 Hz reads the same and leaves the
-                // other 60 vacated vsyncs, GPU bandwidth and CPU time to the system
-                // compositor (notification shade, recents, split-screen). Ask for that
-                // explicitly instead of quietly taking the whole panel.
-                boolean lyricPageOn = controller != null && (
-                        Boolean.TRUE.equals(controller.lyricsOpen.peek())
-                        || (controller.lyricSlide.peek() != null
-                            && controller.lyricSlide.peek() > 0.001)
-                        || compositor.temperaVisible(controller));
-                requestFrameRate(lyricPageOn ? 60f : 0f);
+                // Don't force-cap frame rate to 60Hz on high-refresh panels (e.g. 120Hz).
+                // Mode switching causes display stutter (50-60ms SurfaceFlinger hitch)
+                // during the lyric page slide transition.
                 boolean needContinuous = AndroidRenderPolicy.shouldRenderContinuously(
                         hostAnimation, frameChanges > 0, consumeWakeSettleFrame(), view.root());
                 if (!needContinuous && compositor.skippedLayout()) {
@@ -974,6 +966,12 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
             double gap = (t2 - profLastFrameNanos) / 1_000_000.0;
             profGapMs += gap;
             if (gap > profMaxGapMs) profMaxGapMs = gap;
+            if (gap > 20.0) {
+                android.util.Log.w("qplayer.frame", "frame hitch: gap " + round1(gap) + "ms (tick "
+                        + round1((t1 - t0) / 1_000_000.0) + "ms render "
+                        + round1((t1b - t1) / 1_000_000.0) + "ms present "
+                        + round1((t2 - t1b) / 1_000_000.0) + "ms)");
+            }
         }
         profLastFrameNanos = t2;
         if (++profFrames >= 120) {
