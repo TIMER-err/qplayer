@@ -198,7 +198,7 @@ public class LyricRenderer {
     private float[][] cachedSylWidths;
     private int lineLayoutRemaining;
     private static final int LAYOUT_BUDGET = 8;
-    private static final int LAYOUT_FIRST_BUDGET = 33;
+    private static final int LAYOUT_FIRST_BUDGET = 8;
     private float[] lineTopsBuf = new float[0];
     private float[] effHeightsBuf = new float[0];
     private float[] interludeBuf = new float[0];
@@ -406,14 +406,15 @@ public class LyricRenderer {
         return litBandResult;
     }
 
-    public void render(Canvas canvas, float leftX, float topY,
-                       float columnWidth, float columnHeight, long positionMs) {
-        // Snapshot mutable state so a concurrent setLyrics() mid-frame can't
-        // replace lines/groups/lineToGroup underneath us (ArrayIndexOutOfBounds).
-        final java.util.List<LyricLine> lines = this.lines;
-        final java.util.List<LyricTimeline.Group> groups = this.groups;
-        final int[] lineToGroup = this.lineToGroup;
-        final long[] releaseMs = this.releaseMs;
+    /** Prewarm layout and shape lines during idle frames before the lyrics sheet is opened. */
+    public void prewarmLayout(float columnWidth, long positionMs, int budget) {
+        final List<LyricLine> lines = this.lines;
+        if (lines.isEmpty() || columnWidth <= 0f) return;
+        ensureLayout(columnWidth, positionMs, budget);
+    }
+
+    private void ensureLayout(float columnWidth, long positionMs, int budget) {
+        final List<LyricLine> lines = this.lines;
         if (lines.isEmpty()) return;
 
         LyricConfig cfg = LyricConfig.instance;
@@ -422,34 +423,19 @@ public class LyricRenderer {
         float subFontSize = fontSizes.mainSubline;
         float bgFontSize = fontSizes.background;
         float bgSubFontSize = fontSizes.backgroundSubline;
-        // lineGap forced to 0 — line-height (ROW_HEIGHT_RATIO * fontSize)
-        // already carries enough vertical breathing room, and any extra
-        // gap made the active line drift toward the column edge during
-        // group transitions.
         float lineGap = 0f;
         Fonts.Weight weight = toFontsWeight(cfg.fontWeight.getValue());
         float rowHeightRatio = cfg.lineSpacing.getValue();
 
-        boolean spring = Boolean.TRUE.equals(cfg.springPhysics.getValue());
         boolean scaleOn = Boolean.TRUE.equals(cfg.scaleEmphasis.getValue());
-        boolean glowOn = Boolean.TRUE.equals(cfg.glow.getValue());
-        boolean shadowOn = Boolean.TRUE.equals(cfg.dropShadow.getValue());
 
         Font lyricFont = Fonts.get(weight, lyricFontSize);
         Font subFont = Fonts.get(weight, subFontSize);
         Font bgFont = Fonts.get(weight, bgFontSize);
         Font bgSubFont = Fonts.get(weight, bgSubFontSize);
 
-        // Animation-friendly font flags. Skia defaults snap text baselines
-        // to integer pixels (isBaselineSnapped=true) and grid-fit glyphs
-        // via hinting — so a smooth fractional translateY would still
-        // render at integer y, giving the "jumps several pixels per
-        // frame" feel the user reported. Disabling baseline snap + going
-        // to subpixel positioning makes the lift continuous on the GPU.
         LyricTextShaper.configureForAnimation(lyricFont);
         LyricTextShaper.configureForAnimation(bgFont);
-        // subFont is static text (no animation) but we still want it crisp
-        // and consistent with the lyric font's anti-alias level.
         LyricTextShaper.configureForAnimation(subFont);
         LyricTextShaper.configureForAnimation(bgSubFont);
 
@@ -463,10 +449,6 @@ public class LyricRenderer {
         boolean showRomaji = cfg.showRomaji.getValue();
         boolean showTranslation = cfg.showTranslation.getValue();
 
-        // ---- Layout pass. Wrapping + per-line heights depend only on the inputs
-        // below, NOT on the play head, so compute them once and cache. HarfBuzz is
-        // intentionally confined to this rebuild; playback frames only read TextBlob
-        // and caret arrays.
         int n = lines.size();
         int colW = Math.round(columnWidth);
         boolean layoutKeyMatches = cachedRowStarts != null
@@ -520,8 +502,7 @@ public class LyricRenderer {
             layoutKeyBgFont = bgFont;
             layoutKeyBgSubFont = bgSubFont;
         }
-        if (lineLayoutRemaining > 0) {
-            int budget = lineLayoutRemaining == n ? LAYOUT_FIRST_BUDGET : LAYOUT_BUDGET;
+        if (lineLayoutRemaining > 0 && budget > 0) {
             int pivot = pivotLineIndex(positionMs, n);
             int shaped = 0;
             for (int d = 0; d < n && shaped < budget; d++) {
@@ -549,6 +530,48 @@ public class LyricRenderer {
                 }
             }
         }
+    }
+
+    public void render(Canvas canvas, float leftX, float topY,
+                       float columnWidth, float columnHeight, long positionMs) {
+        // Snapshot mutable state so a concurrent setLyrics() mid-frame can't
+        // replace lines/groups/lineToGroup underneath us (ArrayIndexOutOfBounds).
+        final java.util.List<LyricLine> lines = this.lines;
+        final java.util.List<LyricTimeline.Group> groups = this.groups;
+        final int[] lineToGroup = this.lineToGroup;
+        final long[] releaseMs = this.releaseMs;
+        if (lines.isEmpty()) return;
+
+        LyricConfig cfg = LyricConfig.instance;
+        int lyricFontSize = cfg.lyricFontSize.getValue();
+        LyricFontSizing.Sizes fontSizes = LyricFontSizing.fromMain(lyricFontSize);
+        float subFontSize = fontSizes.mainSubline;
+        float bgFontSize = fontSizes.background;
+        float bgSubFontSize = fontSizes.backgroundSubline;
+        Fonts.Weight weight = toFontsWeight(cfg.fontWeight.getValue());
+        float rowHeightRatio = cfg.lineSpacing.getValue();
+
+        boolean spring = Boolean.TRUE.equals(cfg.springPhysics.getValue());
+        boolean scaleOn = Boolean.TRUE.equals(cfg.scaleEmphasis.getValue());
+        boolean glowOn = Boolean.TRUE.equals(cfg.glow.getValue());
+        boolean shadowOn = Boolean.TRUE.equals(cfg.dropShadow.getValue());
+
+        float rowHeightLyric = lyricFontSize * rowHeightRatio;
+        float rowHeightLyricWrap = lyricFontSize * WRAPPED_ROW_HEIGHT_RATIO;
+        float rowHeightBg = bgFontSize * rowHeightRatio;
+        float rowHeightBgWrap = bgFontSize * WRAPPED_ROW_HEIGHT_RATIO;
+        float subLineHeight = subFontSize * SUB_ROW_HEIGHT_RATIO;
+        float bgSubLineHeight = bgSubFontSize * SUB_ROW_HEIGHT_RATIO;
+
+        boolean showRomaji = cfg.showRomaji.getValue();
+        boolean showTranslation = cfg.showTranslation.getValue();
+
+        int n = lines.size();
+        int budget = lineLayoutRemaining == n ? LAYOUT_FIRST_BUDGET : LAYOUT_BUDGET;
+        ensureLayout(columnWidth, positionMs, budget);
+
+        Font lyricFont = layoutKeyLyricFont;
+        Font bgFont = layoutKeyBgFont;
         int[][] rowStarts = cachedRowStarts;
         float[] lineHeights = cachedLineHeights;
 

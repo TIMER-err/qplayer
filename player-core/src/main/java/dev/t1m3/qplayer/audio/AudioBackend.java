@@ -88,4 +88,12 @@ public interface AudioBackend {
 
     /** The background download finished and {@code completePath} is a full file. */
     default void notifyCacheComplete() { }
+
+    /**
+     * Hardware output latency in milliseconds (pipeline buffer + HAL + Bluetooth A2DP latency).
+     * Used by lyric rendering and A/V sync to compensate for audible delay.
+     */
+    default int outputLatencyMs() {
+        return 0;
+    }
 }

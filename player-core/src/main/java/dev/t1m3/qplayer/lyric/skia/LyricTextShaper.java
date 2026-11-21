@@ -203,6 +203,16 @@ final class LyricTextShaper implements AutoCloseable {
         return shaper().shapeLine(text, fontForText(text, baseFont));
     }
 
+    static void warmupGlobal() {
+        try (Shaper s = Shaper.makeBestAvailable()) {
+            // Native shaper and HarfBuzz initialized
+        } catch (Throwable ignored) {}
+    }
+
+    void warmup() {
+        shaper();
+    }
+
     private Shaper shaper() {
         if (harfBuzzShaper == null) harfBuzzShaper = Shaper.makeBestAvailable();
         return harfBuzzShaper;

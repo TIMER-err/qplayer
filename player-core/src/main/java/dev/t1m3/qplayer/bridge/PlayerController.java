@@ -3508,7 +3508,7 @@ public final class PlayerController {
     }
 
     private void applyLyricsIfCurrent(Track t, List<LyricLine> ly) {
-        onMain(
+        post(
                 () -> {
                     if (isCurrentTrack(t)) applyLyrics(ly);
                 });
@@ -6446,6 +6446,11 @@ public final class PlayerController {
         }
     }
 
+    /** Output latency in milliseconds from the underlying audio device/pipeline. */
+    public int outputLatencyMs() {
+        return backend != null ? backend.outputLatencyMs() : 0;
+    }
+
     /**
      * Exact lyric-clock baseline. While running this is the live backend position; after a source
      * has started, its paused position remains the source of truth too, so pause/resume cannot
@@ -6603,7 +6608,7 @@ public final class PlayerController {
      * Lyrics already published from a cache survive a later network failure.
      */
     private void publishNoLyricsIfPending(Track t) {
-        onMain(
+        post(
                 () -> {
                     List<LyricLine> current = lyrics.peek();
                     if (isCurrentTrack(t) && (current == null || current.isEmpty()))
