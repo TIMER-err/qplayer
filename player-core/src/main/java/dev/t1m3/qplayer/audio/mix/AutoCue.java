@@ -667,8 +667,17 @@ public final class AutoCue {
             return mask;
         }
 
-        /** {@link #voiceActive}(this, i) 的整条掩码（在基础判据上再加中置门）。 */
-        float[] voiceActiveMask() {
+        /**
+         * {@link #voiceActive}(this, i) 的整条掩码（在基础判据上再加中置门）。
+         *
+         * <p>{@code 1 = 这一格有人在唱}；{@code null} = 没有中频那一列（手搭包络）。
+         *
+         * <p><b>为什么是 public</b>（2026-11-21）：离线 mashup 要按"哪几小节有人声"选段、
+         * 判叠唱冲突，读的必须是和这里<b>同一条</b>判据。把同一套判据抄第二份出来，
+         * 两边迟早在阈值上分叉——所以开放读取，而不是复制。写入方仍是本类（惰性缓存），
+         * 调用方不要修改返回的数组。
+         */
+        public float[] voiceActiveMask() {
             float[] m = voiceActiveCache;
             if (m != null) {
                 return m;

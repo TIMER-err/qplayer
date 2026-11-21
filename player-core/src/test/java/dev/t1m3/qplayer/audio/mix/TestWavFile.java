@@ -27,13 +27,13 @@ import java.util.Map;
  * <p>产品路径上打不开音源会抛 {@link AudioException}，这里对不存在的文件给同样的行为——
  * 「打不开要跳过」这类判据靠的就是这一点。
  */
-final class TestWavFile {
+public final class TestWavFile {
 
     private TestWavFile() {
     }
 
     /** 装一个只认 16 bit PCM WAV 的解码器（测试进程全局，用完要还原）。 */
-    static Decoder.Opener opener() {
+    public static Decoder.Opener opener() {
         return new Decoder.Opener() {
             @Override
             public Decoder open(String source, Map<String, String> headers) {
@@ -48,7 +48,7 @@ final class TestWavFile {
      * <p>{@code left}/{@code right} 长度必须一样；采样值按「向零截断 × 32767」量化，
      * 与产品里那条链的写法一致，免得判据量到的幅度差其实来自量化方式。
      */
-    static Path write(Path path, float[] left, float[] right, int rate) throws IOException {
+    public static Path write(Path path, float[] left, float[] right, int rate) throws IOException {
         if (left.length != right.length) {
             throw new IllegalArgumentException("左右声道帧数不同");
         }
