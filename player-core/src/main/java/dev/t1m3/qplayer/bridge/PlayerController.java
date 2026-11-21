@@ -225,6 +225,24 @@ public final class PlayerController {
     private final Map<String, Integer> lyricOffsets =
             java.util.Collections.synchronizedMap(new HashMap<String, Integer>());
     private final Queue<Runnable> uiQueue = new ConcurrentLinkedQueue<>();
+    private volatile boolean started = false;
+
+    /**
+     * Start initial background content loading (my playlists, liked tracks, accounts, home).
+     * Deferred during cold start until the scene renders its first frame.
+     */
+    public void start() {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            if (started) return;
+            started = true;
+            loadPlaybackHistory();
+            loadMyPlaylists();
+            refreshPluginLiked();
+            refreshSourceAccounts();
+            String primary = pluginRegistry.primaryProvider();
+            if (primary != null && !primary.isEmpty()) loadHome();
+        }
+    }
     /** Union of every signed-in source's liked songs, keyed by canonical id. The ids
      *  carry their provider, so a lookup is inherently scoped to the song's own
      *  source even while another source is primary. */
@@ -985,8 +1003,7 @@ public final class PlayerController {
             diskCache.loadActivelyCached();
             pluginManager.startEnabled();
             loadQueue();
-            playbackHistoryStore.setOnChanged(() -> onMain(this::playbackHistoryResourcesChanged));
-            loadPlaybackHistory();
+            playbackHistoryStore.setOnChanged(() -> post(this::playbackHistoryResourcesChanged));
 
             // LocalPlaylistStore owns the old custom-playlist file migration.
             localPlaylistStore.load();
@@ -1144,10 +1161,12 @@ public final class PlayerController {
         // The enabled set may have changed (enable/disable/remove), so 我的 and the
         // liked sets have to be re-aggregated even when the primary source stayed
         // the same.
-        loadMyPlaylists();
-        refreshPluginLiked();
-        refreshSourceAccounts();
-        if (!primary.isEmpty()) loadHome();
+        if (started) {
+            loadMyPlaylists();
+            refreshPluginLiked();
+            refreshSourceAccounts();
+            if (!primary.isEmpty()) loadHome();
+        }
     }
 
     /**
@@ -3436,12 +3455,10 @@ public final class PlayerController {
                     break;
                 case "lyrics":
                     post(() -> setLyricsOpen(true));
-                    pushDebugRoute("lyrics", "");
                     break;
                 case "lyrics-close":
                 case "close-lyrics":
                     post(() -> setLyricsOpen(false));
-                    pushDebugRoute("pop", "");
                     break;
                 case "playlist":
                     openDebugPlaylist(a);
@@ -3508,7 +3525,7 @@ public final class PlayerController {
     }
 
     private void applyLyricsIfCurrent(Track t, List<LyricLine> ly) {
-        onMain(
+        post(
                 () -> {
                     if (isCurrentTrack(t)) applyLyrics(ly);
                 });
@@ -5547,7 +5564,7 @@ public final class PlayerController {
             playbackHistoryStore.load().whenComplete((unused, error) -> {
                 if (error != null)
                     Logger.warn("loadPlaybackHistory failed: {}", safeMessage(error));
-                onMain(this::playbackHistoryResourcesChanged);
+                post(this::playbackHistoryResourcesChanged);
             });
         }
     }
@@ -6603,7 +6620,7 @@ public final class PlayerController {
      * Lyrics already published from a cache survive a later network failure.
      */
     private void publishNoLyricsIfPending(Track t) {
-        onMain(
+        post(
                 () -> {
                     List<LyricLine> current = lyrics.peek();
                     if (isCurrentTrack(t) && (current == null || current.isEmpty()))
@@ -8040,6 +8057,10 @@ public final class PlayerController {
     /** Load the home content: recommended songs (login) + recommended playlists. */
     public void loadHome() {
         synchronized (QmlRuntimeLock.MONITOR) {
+            if (!started) {
+                start();
+                return;
+            }
             // Start-up asks for the home feed twice - the controller's init and the
             // Activity's onStart - and each call is a ~6 s provider round trip whose
             // first result is thrown away by the generation guard below. Collapse the
@@ -8181,13 +8202,23 @@ public final class PlayerController {
                 if (generation != homeGeneration.get() || homeNetworkGeneration == generation) return;
                 homeCachedGeneration = generation;
                 publishHomeSections(home.sections);
-                sourceRecommendPlaylists.set(Collections.unmodifiableList(
-                        new ArrayList<>(home.playlists)));
-                sourceRecommendations.set(Collections.unmodifiableList(
-                        new ArrayList<>(home.songs)));
+                sourceRecommendPlaylists.set(home.playlists != null
+                        ? Collections.unmodifiableList(new ArrayList<>(home.playlists))
+                        : Collections.emptyList());
                 homeLoading.set(false);
+            });
+            try {
+                Thread.sleep(250);
+            } catch (InterruptedException ignored) {
+            }
+            post(() -> {
+                if (generation != homeGeneration.get() || homeNetworkGeneration == generation) return;
+                sourceRecommendations.set(home.songs != null
+                        ? Collections.unmodifiableList(new ArrayList<>(home.songs))
+                        : Collections.emptyList());
                 Logger.info("home: cached published ({} playlists, {} songs) in {} ms",
-                        home.playlists.size(), home.songs.size(),
+                        home.playlists != null ? home.playlists.size() : 0,
+                        home.songs != null ? home.songs.size() : 0,
                         (System.nanoTime() - startNs) / 1_000_000L);
             });
         } catch (Throwable ignored) {
