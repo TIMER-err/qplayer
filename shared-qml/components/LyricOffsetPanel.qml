@@ -18,13 +18,11 @@ Item {
     scale: panel.open ? 1 : 0.8
     transformOrigin: Item.Center
     Behavior on opacity {
-        NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+        NumberAnimation { duration: 150; easing.type: Easing.Linear }
     }
     Behavior on scale {
-        NumberAnimation {
-            duration: panel.open ? 200 : 150
-            easing.type: panel.open ? Easing.OutCubic : Easing.InCubic
-        }
+        // Preserve the gradual zoom used before the motion retuning.
+        NumberAnimation { duration: 250; easing.type: Easing.Linear }
     }
     width: Math.min(320, parent.width - 24)
     height: 176

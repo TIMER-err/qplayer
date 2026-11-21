@@ -1282,24 +1282,30 @@ public class PlayerControllerPlaybackTest {
     }
 
     @Test
-    public void switchingTracksHoldsTheLayoutUntilTheLoaderAnswers() throws Exception {
+    public void switchingTracksShowsCoverUntilLyricsArrive() throws Exception {
         String oldBase = AppDirs.base();
         String oldCacheBase = AppDirs.cacheBase();
         PlayerController controller = null;
         java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
         try {
-            Path base = temporaryFolder.newFolder("lyric-layout-hold").toPath();
+            Path base = temporaryFolder.newFolder("lyric-loading-cover").toPath();
             AppDirs.setBase(base.toString());
             AppDirs.setCacheBase(base.resolve("cache").toString());
             // No queue.json: nothing restored, so no restore-time lyric load races this test.
             controller = new PlayerController(new FakeAudioBackend(), track -> { }, NeteaseClient.INSTANCE);
-            setQueue(controller, 0, localTrack("a.mp3", "a"), localTrack("b.mp3", "b"));
+            Path lyricFile = base.resolve("incoming.lrc");
+            Files.write(lyricFile, ("[00:01.00]incoming line one\n"
+                    + "[00:04.00]incoming line two\n[00:09.00]incoming line three")
+                    .getBytes(StandardCharsets.UTF_8));
+            Track incoming = localTrack("b.mp3", "b");
+            incoming.lyricFilePath = lyricFile.toString();
+            setQueue(controller, 0, localTrack("a.mp3", "a"), incoming);
             // The page is in lyric layout for the outgoing track (cover at the side).
             controller.lyrics.set(dev.t1m3.qplayer.lyric.LrcParser.parse(
                     "[00:01.00]line one\n[00:04.00]line two\n[00:09.00]line three"));
             controller.lyricsCoverOnly.set(false);
 
-            // Park the lyric loader so the hold is observable before the answer lands.
+            // Park the lyric loader to observe the loading state.
             java.lang.reflect.Field ioField = PlayerController.class.getDeclaredField("ioWorker");
             ioField.setAccessible(true);
             java.util.concurrent.ExecutorService io =
@@ -1313,18 +1319,19 @@ public class PlayerControllerPlaybackTest {
             assertTrue(parked.await(3, java.util.concurrent.TimeUnit.SECONDS));
 
             controller.playQueueIndex(1);
-            assertTrue("new track's column is blank until its lyrics arrive",
+            assertTrue("the outgoing track's lyrics must be cleared",
                     controller.lyrics.peek().isEmpty());
-            assertFalse("layout must hold, not flip to cover-only, until the loader answers",
+            assertTrue("show the centered cover while the next track's lyrics load",
                     controller.lyricsCoverOnly.peek());
 
             release.countDown();
             long deadline = System.currentTimeMillis() + ASYNC_FADE_TIMEOUT_MS;
-            while (!controller.lyricsCoverOnly.peek() && System.currentTimeMillis() < deadline) {
+            while (controller.lyricsCoverOnly.peek() && System.currentTimeMillis() < deadline) {
                 Thread.sleep(10L);
             }
-            assertTrue("the loader's empty answer settles the layout as cover-only",
+            assertFalse("return to the lyric layout once the new lyrics arrive",
                     controller.lyricsCoverOnly.peek());
+            assertEquals("incoming line one", controller.lyrics.peek().get(0).text());
         } finally {
             release.countDown();
             if (controller != null) lifecycle.close(controller);
@@ -1334,7 +1341,7 @@ public class PlayerControllerPlaybackTest {
     }
 
     @Test
-    public void abandoningAnUnplayableTrackSettlesTheHeldLayout() throws Exception {
+    public void abandoningAnUnplayableTrackKeepsExistingLyricsOrShowsCover() throws Exception {
         String oldBase = AppDirs.base();
         String oldCacheBase = AppDirs.cacheBase();
         PlayerController controller = null;
@@ -1358,7 +1365,7 @@ public class PlayerControllerPlaybackTest {
             assertSame(lines, controller.lyrics.peek());
             assertFalse(controller.lyricsCoverOnly.peek());
 
-            // A held layout with no loader coming must not stay held forever.
+            // A failed track without lyrics must still show the cover.
             setQueue(controller, 0, only);
             controller.lyrics.set(java.util.Collections.emptyList());
             skip.invoke(controller, only, "unplayable");

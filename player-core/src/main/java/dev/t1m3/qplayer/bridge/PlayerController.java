@@ -3514,27 +3514,6 @@ public final class PlayerController {
                 });
     }
 
-    /**
-     * Blank the column for a new track WITHOUT declaring "no lyrics" yet.
-     *
-     * <p>Switching tracks used to publish an empty lyric list through
-     * {@link #applyLyrics}, which also flips {@link #lyricsCoverOnly} — so the page
-     * animated the cover to the centre (cover-only layout) the instant the track
-     * changed, and then animated all the way back when the new track's lyrics
-     * arrived a few hundred ms later. Two full layouts for a decision that was not
-     * known yet. Hold the previous layout instead and let the loader publish the
-     * answer: {@link #applyLyrics} runs when the fetch resolves, including the
-     * empty result that means "this track really has no lyrics", and
-     * {@link #publishNoLyricsIfPending} settles it when no answer will come.</p>
-     */
-    private void clearLyricsPending() {
-        lyrics.set(Collections.emptyList());
-        lyricIndex.set(-1);
-        // Deliberately NOT touching lyricsCoverOnly: the page keeps the layout it
-        // already had (column at the side, or centred cover) until we know.
-        wakeRenderer();
-    }
-
     /** Publish a new lyric list and derive {@link #lyricsCoverOnly}. */
     private void applyLyrics(List<LyricLine> ly) {
         lyrics.set(ly);
@@ -5939,7 +5918,7 @@ public final class PlayerController {
                         && lyrics.peek() != null
                         && !lyrics.peek().isEmpty();
         if (!keepLyrics) {
-            clearLyricsPending();
+            applyLyrics(Collections.emptyList());
             coverModeManual.set(false);
         }
         applyTrackLyricOffset(track);
@@ -6577,10 +6556,8 @@ public final class PlayerController {
                             }
                         }
                         if (cached != null && !cached.isEmpty()) applyLyricsIfCurrent(track, cached);
-                        // No lyrics capability is a definitive "none", not a pending fetch:
-                        // publish it so the page can switch layouts now instead of waiting
-                        // forever on a source that will never answer (playAt holds the old
-                        // layout until a real answer lands — see clearLyricsPending).
+                        // A source without lyrics leaves the cover fallback in place;
+                        // preserve any lyrics already published from its cache.
                         if (!pluginHasCapability(id.provider(), ProviderCapability.LYRICS)) {
                             publishNoLyricsIfPending(track);
                             return;
@@ -6621,10 +6598,9 @@ public final class PlayerController {
     }
 
     /**
-     * Settle the layout {@link #clearLyricsPending} held for {@code t} as "no lyrics"
-     * when no loader will publish an answer for it (fetch or parse failure, no lyrics
-     * capability, playback abandoned). A no-op once lyrics are showing, so lyrics
-     * already published from a cache are not wiped by a later network failure.
+     * Keep the cover fallback when no loader will publish lyrics for {@code t}
+     * (fetch or parse failure, no lyrics capability, playback abandoned).
+     * Lyrics already published from a cache survive a later network failure.
      */
     private void publishNoLyricsIfPending(Track t) {
         onMain(
