@@ -93,17 +93,10 @@ public final class PluginProviderService {
                 .thenApply(raw -> parseArtistPage(provider, raw));
     }
 
-    public CompletableFuture<Page<Playlist>> searchPlaylists(String provider, String query,
-                                                              String cursor, int limit) {
-        return searchEntities(provider, ProviderCapability.SEARCH_PLAYLISTS, query, cursor, limit)
-                .thenApply(raw -> parsePlaylistPage(provider, raw));
-    }
-
     public CompletableFuture<Playlist> playlist(MediaId id) {
         id.requireKind(MediaKind.PLAYLIST);
-        // A big playlist is the slowest thing a provider is asked for, and "it is
-        // slow" can mean the service, the plugin's own JS, or this validation pass.
-        // One line per open says which, without needing a profiler attached.
+        // 大歌单是提供方最慢的一次调用，"慢"可能是服务、插件自己的 JS，或这一趟校验。
+        // 每次打开一行日志说清是哪一段，不用挂 profiler。
         final long startedAtNanos = System.nanoTime();
         return manager.invoke(id.provider(), ProviderCapability.PLAYLIST_DETAILS.wireName(),
                 Collections.<String, Object>singletonMap("id", id.nativeId()))
@@ -264,8 +257,7 @@ public final class PluginProviderService {
             if (!playlistId.provider().equals(song.provider())) {
                 throw new IllegalArgumentException("playlist and song provider mismatch");
             }
-            // A duplicated id would make the provider's own de-duplication decide
-            // which copy survives, quietly dropping a row the user can still see.
+            // 重复 id 会让服务端自己的去重决定留下哪一份，静默丢掉用户还看得见的一行。
             if (!seen.add(song.nativeId())) {
                 throw new IllegalArgumentException("playlist order repeats a song");
             }
@@ -454,17 +446,6 @@ public final class PluginProviderService {
         }
         page.nextCursor = boundedString(value.get("nextCursor"), MAX_CURSOR_CHARS,
                 "artist search nextCursor", false);
-        return page;
-    }
-
-    private Page<Playlist> parsePlaylistPage(String provider, Object raw) {
-        Map<String, Object> value = map(raw, "playlist search response");
-        Page<Playlist> page = new Page<>();
-        for (Object item : boundedList(value.get("items"), "playlist search items", 200)) {
-            page.items.add(parsePlaylist(provider, map(item, "playlist")));
-        }
-        page.nextCursor = boundedString(value.get("nextCursor"), MAX_CURSOR_CHARS,
-                "playlist search nextCursor", false);
         return page;
     }
 

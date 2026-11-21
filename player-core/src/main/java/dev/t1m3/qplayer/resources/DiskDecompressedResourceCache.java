@@ -7,6 +7,8 @@ import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.lang.ref.SoftReference;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -106,8 +108,11 @@ public final class DiskDecompressedResourceCache implements ResourceLoader {
     }
 
     private static void encode(Path file, byte[] payload) throws IOException {
+        // 普通 FileOutputStream，不是 Files.newOutputStream：后者内部是 FileChannel，
+        // 把 N 字节从堆数组写出去时 JDK/ART 会先要一块**和写入量等大**的临时直接缓冲
+        // （IOUtil.writeFromNativeBuffer）。见 decode 上的说明。
         try (DataOutputStream output = new DataOutputStream(
-                new BufferedOutputStream(Files.newOutputStream(file)))) {
+                new BufferedOutputStream(new FileOutputStream(file.toFile())))) {
             output.writeInt(MAGIC);
             output.writeInt(FORMAT_VERSION);
             output.writeInt(payload.length);
@@ -123,8 +128,22 @@ public final class DiskDecompressedResourceCache implements ResourceLoader {
         }
         // A CJK font is about 13 MiB. Read directly into its final array instead
         // of holding a second, full-file copy while an Activity rebuilds its UI.
+        //
+        // 这里必须是**普通 FileInputStream**，不能是 `Files.newInputStream`：后者返回的是
+        // FileChannel 包装的 ChannelInputStream，把 13 MiB 读进 byte[] 时 OpenJDK/ART 会先
+        // 申请一块**和读取量等大**的临时直接缓冲（堆缓冲不能直接交给内核 read，见
+        // `IOUtil.readIntoNativeBuffer`）。那块内存不可移动、不归 Java 堆管，却计进安卓的
+        // growth limit —— 实测真机崩溃：
+        //   OutOfMemoryError: Failed to allocate a 13215139 byte allocation ...
+        //     at sun.nio.ch.Util.getTemporaryDirectBuffer
+        //     at java.nio.file.ChannelInputStream.read
+        //     at DiskDecompressedResourceCache.decode
+        //     at QmlGLSurfaceView$GlRenderer.onSurfaceChanged
+        // 即每次旋转屏幕 / 切回前台重建 surface，GL 线程都要凭空要 13 MiB。FileInputStream
+        // 走的是 native readBytes，实测同一次读取的直接内存增量为 0。回归测试：
+        // DiskDecompressedResourceCacheTest.loadsAndStoresLargeEntryWithoutPayloadSizedDirectBuffer。
         try (DataInputStream input = new DataInputStream(
-                new BufferedInputStream(Files.newInputStream(file)))) {
+                new BufferedInputStream(new FileInputStream(file.toFile())))) {
             if (input.readInt() != MAGIC) throw new IOException("wrong cache magic");
             if (input.readInt() != FORMAT_VERSION) throw new IOException("wrong cache version");
             int length = input.readInt();

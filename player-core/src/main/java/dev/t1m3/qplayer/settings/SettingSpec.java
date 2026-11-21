@@ -26,6 +26,11 @@ public final class SettingSpec {
     public static final String PATH = "path";            // string chosen by the host directory picker
     public static final String RADIO = "radio";          // int index as radio buttons
     public static final String DROPDOWN = "dropdown";    // int index in a combo box
+    /**
+     * 多选项做成**一张卡**里的芯片网格（2026-11-15 用户要求：接法有 20 多项，
+     * 下拉里排成一列完全看不了 ⇒ 改成一张卡片、两列芯片、点一下就选）。
+     */
+    public static final String CHIPS = "chips";
     public static final String COLOR = "color";          // "#rrggbb" string, empty = the row's automatic default
     public static final String ACTION = "action";        // button/icon, no stored value
 
@@ -157,6 +162,12 @@ public final class SettingSpec {
     public static Builder radio(String key, String category, String title,
                                 int def, String... options) {
         return new Builder(key, RADIO, category, title).def(def).options(options);
+    }
+
+    /** 芯片卡：与 dropdown 同语义（存的是 int 下标），只是排版变成一张两列网格。 */
+    public static Builder chips(String key, String category, String title,
+                                int def, String... options) {
+        return new Builder(key, CHIPS, category, title).def(def).options(options);
     }
 
     public static Builder dropdown(String key, String category, String title,

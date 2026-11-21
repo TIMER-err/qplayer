@@ -43,6 +43,19 @@ public class Track {
      *  numeric. Retained only to migrate delayed v1 queue records. */
     public String customId;
 
+    /**
+     * 风格（2026-10-10 ✓ 移植到 md3e 时对齐字段 ✓）：它的 `Track` 有这三个，
+     * 我的没有 ✗ ⇒ 直接换实现会让它的 `listening`/`lyric` 编译不过 ✓。
+     * 这三个在**我的**代码里目前没人写 ✓，加进来只是为了两边能编译同一份 `Track` ✓。
+     */
+    public String genre;
+
+    /** B 站视频的 bvid（同上 ✓ 仅用于与 md3e 的 `Track` 对齐 ✓）。 */
+    public String biliBvid;
+
+    /** B 站视频的分 P cid（同上 ✓）。 */
+    public String biliCid;
+
     public String title;
     public String artist;
     /** Legacy first-artist id retained while v1 queue records are migrated. */

@@ -14,7 +14,7 @@ public interface MetadataReader {
 
     void read(Track track);
 
-    /** Best-effort write of tags onto a just-downloaded audio file. */
+    /** 2.1.1 的宿主会调它把标签写回文件（含歌词）。默认空实现 ✓ */
     default void writeTags(String path, String title, String artist, String album,
-                           byte[] cover, String lyrics) {}
+                           byte[] cover, String lyrics) { }
 }

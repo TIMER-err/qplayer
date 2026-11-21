@@ -21,16 +21,19 @@ public class I18nTest {
     }
 
     @Test
-    public void switchesLanguageAndFormatsArguments() {
+    public void translatesAndSwitchesLanguage() {
         I18n i18n = I18n.instance();
-        String fallbackTitle = i18n.t("settings.title");
+        assertEquals("设置", i18n.t("settings.title"));
 
         i18n.setLanguage("en_US");
+        assertEquals("Settings", i18n.t("settings.title"));
         assertEquals("en_US", i18n.language());
-        assertTrue(!fallbackTitle.equals(i18n.t("settings.title")));
-        assertTrue(I18n.tr("toast.plugin.installed", "sentinel").contains("sentinel"));
-        i18n.setLanguage("kl_KL");
-        assertEquals("en_US", i18n.language());
+    }
+
+    @Test
+    public void fillsPositionalPlaceholders() {
+        assertEquals("已复制链接", I18n.tr("toast.linkCopied"));
+        assertEquals("插件已安装：网易云音乐", I18n.tr("toast.plugin.installed", "网易云音乐"));
     }
 
     @Test
@@ -38,6 +41,13 @@ public class I18nTest {
         assertEquals("nope.not.a.key", I18n.tr("nope.not.a.key"));
     }
 
+    @Test
+    public void unknownLanguageKeepsTheCurrentOne() {
+        I18n i18n = I18n.instance();
+        i18n.setLanguage("kl_KL");
+        assertEquals(I18n.FALLBACK, i18n.language());
+        assertEquals("设置", i18n.t("settings.title"));
+    }
 
     /** A key added to the base catalog and forgotten elsewhere silently shows
      *  Chinese to an English user, so hold the catalogs to the same key set. */

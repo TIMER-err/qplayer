@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.fail;
 
 public class PluginUiDescriptionTest {
 
@@ -86,7 +86,11 @@ public class PluginUiDescriptionTest {
     }
 
     private static void rejects(Object description) {
-        assertThrows(IllegalArgumentException.class,
-                () -> PluginUiDescription.normalize(description));
+        try {
+            PluginUiDescription.normalize(description);
+            fail("expected an off-schema description to be rejected");
+        } catch (IllegalArgumentException expected) {
+            assertTrue(expected.getMessage() != null && !expected.getMessage().isEmpty());
+        }
     }
 }

@@ -9,7 +9,7 @@ import java.util.Map;
  * Reads are sequential from the current cursor; remote seeks use HTTP ranges
  * where supported, otherwise they wait for the sequential download.
  */
-interface SeekableByteSource extends AutoCloseable {
+public interface SeekableByteSource extends AutoCloseable {
 
     /**
      * Read up to {@code len} bytes and advance the cursor. For a non-empty
@@ -32,6 +32,18 @@ interface SeekableByteSource extends AutoCloseable {
     default long downloadedBytes() {
         long s = size();
         return s < 0 ? 0L : s;
+    }
+
+    /** 把剩余内容整块读出来（2.1.1 的解码器用它把整个音频先缓冲进内存）。 */
+    default byte[] readAll() throws IOException {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        byte[] buf = new byte[64 * 1024];
+        while (true) {
+            int n = read(buf, 0, buf.length);
+            if (n < 0) break;
+            out.write(buf, 0, n);
+        }
+        return out.toByteArray();
     }
 
     /** Move the cursor. Uncached remote offsets request a new HTTP range when

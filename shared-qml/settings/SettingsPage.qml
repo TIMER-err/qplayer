@@ -195,5 +195,11 @@ Rectangle {
         onClosed: settings.fontPickerOpen = false
     }
 
+    // 模型管理（2026-11-15 ✓ 你的组件 ✓ 2.1.1 没有这个入口）
+    ModelManagerDialog {
+        active: settings.modelManagerOpen
+        onClosed: settings.modelManagerOpen = false
+    }
+
     ColorPickerDialog { objectName: "settingsColorPicker" }
 }

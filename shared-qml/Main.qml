@@ -1121,4 +1121,12 @@ Rectangle {
         anchors.fill: parent
         onCloseRequested: app.showLog = false
     }
+    // 识曲页整屏层（2026-11-15 ✓ 你的实现；2.1.1 没有识曲路由 ⇒ 用覆盖层最省事）
+    RecognizeOverlay {
+        open: app.currentOverlay === "recognize"
+        insetBottom: app.bottomContentInset
+        onHome: app.goHome()
+        onBack: app.popPage()
+    }
+
 }

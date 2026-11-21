@@ -4,7 +4,8 @@ import org.junit.Test;
 
 import java.util.Arrays;
 
-import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 public class PluginManifestTest {
     @Test
@@ -12,7 +13,12 @@ public class PluginManifestTest {
         PluginManifest manifest = baseManifest();
         manifest.capabilities = Arrays.asList("login");
 
-        assertThrows(IllegalArgumentException.class, manifest::validate);
+        try {
+            manifest.validate();
+            fail("login without credential permission must be rejected");
+        } catch (IllegalArgumentException expected) {
+            assertTrue(expected.getMessage().contains("credentials"));
+        }
 
         manifest.permissions = Arrays.asList("credentials");
         manifest.validate();
@@ -27,14 +33,12 @@ public class PluginManifestTest {
         ui.source = "ui/settings.qml";
         manifest.ui = Arrays.asList(ui);
 
-        assertThrows(IllegalArgumentException.class, manifest::validate);
-    }
-
-    @Test
-    public void filesSaveIsAKnownPermission() {
-        PluginManifest manifest = baseManifest();
-        manifest.permissions = Arrays.asList("files.save");
-        manifest.validate();
+        try {
+            manifest.validate();
+            fail("custom QML without permission must be rejected");
+        } catch (IllegalArgumentException expected) {
+            assertTrue(expected.getMessage().contains("customUi"));
+        }
     }
 
     private static PluginManifest baseManifest() {

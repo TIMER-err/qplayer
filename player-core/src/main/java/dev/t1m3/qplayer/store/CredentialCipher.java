@@ -169,7 +169,7 @@ public final class CredentialCipher {
                 // will be migrated on the next successful launch.
                 dev.t1m3.qplayer.util.Logger.warn(
                         "platform credential store unavailable; using owner-only fallback: {}",
-                        describe(e));
+                        e.getMessage());
                 platformMigrationSuppressed = true;
                 writeLegacyKey(key);
                 lastKeyAccess = KeyAccess.OWNER_ONLY_FALLBACK;
@@ -216,22 +216,12 @@ public final class CredentialCipher {
                 lastKeyAccess = KeyAccess.OWNER_ONLY_FALLBACK;
                 dev.t1m3.qplayer.util.Logger.warn(
                         "credential key migration to {} will be retried: {}",
-                        keyProtector.id(), describe(e));
+                        keyProtector.id(), e.getMessage());
             }
         } else {
             lastKeyAccess = KeyAccess.OWNER_ONLY_FALLBACK;
         }
         return key;
-    }
-
-    /** Exception type + message for the whole cause chain; Keystore errors hide the code in a cause. */
-    private static String describe(Throwable error) {
-        StringBuilder sb = new StringBuilder();
-        for (Throwable t = error; t != null && sb.length() < 600; t = t.getCause()) {
-            if (sb.length() > 0) sb.append(" <- ");
-            sb.append(t);
-        }
-        return sb.toString();
     }
 
     private byte[] readProtectedKey(byte[] stored, boolean interactive)

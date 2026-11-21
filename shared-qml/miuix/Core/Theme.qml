@@ -168,6 +168,9 @@ QtObject {
         }
     }
     property QtObject metrics: QtObject {
+        // iOS27 度量 + 标准歌词页的控制几何（你的 Theme 里有 ✓ 2.1.1 没有 ✗）
+        readonly property Metrics27 ios27: Metrics27 { }
+        readonly property LyricControlTokens lyric: LyricControlTokens { }
         property real cardRadius: 16
         property real buttonRadius: 16
         property real rowMinHeight: 56
@@ -194,6 +197,10 @@ QtObject {
         property string name: "Material Symbols Rounded"
     }
     property QtObject typography: QtObject {
+        // 字重档（2026-11-15 ✓ 你的 Theme 里有 ✓ 2.1.1 没有 ✗）
+        // qml4j 里 font.weight >= 63 才会真的画成粗体 ⇒ semibold 必须是 63
+        readonly property int regular: 50
+        readonly property int semibold: 63
         property QtObject displayLarge: QtObject {
             property string family: "Roboto"
             property int size: 57

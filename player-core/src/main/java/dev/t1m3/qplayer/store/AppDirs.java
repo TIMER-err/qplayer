@@ -17,7 +17,6 @@ import java.nio.file.Paths;
  * state/        queue, custom playlist, search history, lyric offsets
  * indexes/      rebuildable offline metadata indexes
  * runtime/      single-instance lock/port
- * fonts/        font files the user imported
  * plugins/      installed source plugins, one version directory per plugin
  * cache/        audio, artwork, lyrics and local-library extraction cache
  * logs/         rolling desktop logs
@@ -30,6 +29,8 @@ public final class AppDirs {
 
     private static volatile String base = initialBase();
     private static volatile String cacheBase = base;
+    /** User-chosen model directory, or null for {@code <base>/models}. */
+    private static volatile String modelsDir;
 
     private AppDirs() {
     }
@@ -47,6 +48,10 @@ public final class AppDirs {
     public static synchronized void setBase(String dir) {
         base = dir;
         cacheBase = dir;
+        // A different data directory is a different set of user data, so the
+        // model-location override goes back to its default with it. The settings
+        // page re-applies the persisted value right after load().
+        modelsDir = null;
     }
 
     public static String base() {
@@ -115,14 +120,12 @@ public final class AppDirs {
         return basePath().resolve("plugins");
     }
 
-    /** Font files the user imported. User data, not a cache: the file is copied
-     *  here because the original may live behind a content:// URI we can't reopen
-     *  later, and because eviction must never take away a font in use. */
+    /** Root containing every cache category, including {@code local/}. */
+    /** 用户导入的字体目录（2026-11-15 ✓ 2.1.1 的 ImportedFonts 读它；你这边原本没有 ⇒ 补上）。 */
     public static Path fontsDir() {
         return basePath().resolve("fonts");
     }
 
-    /** Root containing every cache category, including {@code local/}. */
     public static Path cacheDir() {
         return cacheBasePath().resolve("cache");
     }
@@ -134,6 +137,34 @@ public final class AppDirs {
 
     public static Path updatesDir() {
         return cacheDir().resolve("updates");
+    }
+
+    /**
+     * Downloaded model weights ({@code beat_this.onnx}, {@code htdemucs.onnx}).
+     *
+     * <p><b>Deliberately not under {@code cache/}.</b> Everything there is
+     * rebuildable and may be evicted — a cleared cache costs a re-download,
+     * which for artwork is a second and for a 108MB model is a real loss. These
+     * are user data: the app fetched them because the user asked for the feature
+     * that needs them.
+     *
+     * <p>Overridable ({@link #setModelsDir}) because a few hundred MB does not
+     * always fit where the profile lives — the settings row writes it, and an
+     * empty value means {@code <base>/models}.
+     */
+    public static Path modelsDir() {
+        String override = modelsDir;
+        if (override != null && !override.trim().isEmpty()) {
+            return Paths.get(override);
+        }
+        return basePath().resolve("models");
+    }
+
+    /** Point the model directory somewhere else, or {@code null}/empty for the
+     *  default ({@code <base>/models}). Never moves an existing directory: the
+     *  old files simply stop being found, which the settings row states. */
+    public static synchronized void setModelsDir(String dir) {
+        modelsDir = (dir == null || dir.trim().isEmpty()) ? null : dir.trim();
     }
 
     /** Legacy flat-root path, used only by format conversions such as search history. */

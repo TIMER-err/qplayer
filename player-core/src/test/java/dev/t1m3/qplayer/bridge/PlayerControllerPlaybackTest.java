@@ -14,13 +14,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
-import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.assertNotSame;
-import static org.junit.Assert.assertSame;
 
 public class PlayerControllerPlaybackTest {
 
@@ -28,7 +25,6 @@ public class PlayerControllerPlaybackTest {
 
     @Rule
     public final TemporaryFolder temporaryFolder = new TemporaryFolder();
-    @Rule public final ControllerTestLifecycle lifecycle = new ControllerTestLifecycle();
 
     @Test
     public void retiringSceneCannotDetachReplacementWakeCallback() throws Exception {
@@ -52,7 +48,7 @@ public class PlayerControllerPlaybackTest {
             controller.pressBack();
             assertEquals(1, wakes.get());
         } finally {
-            if (controller != null) lifecycle.close(controller);
+            if (controller != null) controller.shutdown();
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -94,7 +90,7 @@ public class PlayerControllerPlaybackTest {
 
             assertEquals(1L, controller.credentialNoticeRevision.peek().longValue());
         } finally {
-            if (controller != null) lifecycle.close(controller);
+            if (controller != null) controller.shutdown();
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -127,14 +123,14 @@ public class PlayerControllerPlaybackTest {
             assertEquals(1, backend.playCalls);
             assertEquals(1, backend.resumeCalls);
         } finally {
-            if (controller != null) lifecycle.close(controller);
+            if (controller != null) controller.shutdown();
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
     }
 
     @Test
-    public void restoredLocalMetadataDoesNotInventAnOnlineLikeCapability() throws Exception {
+    public void restoredCurrentTrackIsLikeableBeforePlaybackStarts() throws Exception {
         String oldBase = AppDirs.base();
         String oldCacheBase = AppDirs.cacheBase();
         PlayerController controller = null;
@@ -151,18 +147,28 @@ public class PlayerControllerPlaybackTest {
             controller = new PlayerController(backend, track -> { }, NeteaseClient.INSTANCE);
             controller.pump();
 
-            assertFalse("legacy metadata is not an installed source capability", controller.currentLikeable.peek());
+            assertTrue(controller.currentLikeable.peek());
             assertFalse(controller.currentLiked.peek());
             assertEquals(0, backend.playCalls);
         } finally {
-            if (controller != null) lifecycle.close(controller);
+            if (controller != null) controller.shutdown();
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
     }
 
+    /**
+     * 媒体键的暂停/恢复与手动 {@code toggle()} 走同一条路：<strong>立刻</strong>落到后端。
+     *
+     * <p>这条测试原来叫 {@code mediaSessionControlsUseTheSameFadeAsManualToggle}，
+     * 断言的是「暂停先花 900 ms 把音量渐变到 0、恢复再从 0 渐变回来」。那套**客户端音量淡变**
+     * 已经删掉（见 {@code SettingsCatalog} 里「淡入淡出」那一行的说明）：它原本是引擎还没有
+     * 接缝处理时拿音量去补接缝的办法，而现在接缝由引擎在输出流里做，客户端那条会把整条混音
+     * （含正在进场的下一首）一起拉到 0。所以这里改成钉住**现在的**行为：
+     * 暂停/恢复都是即时的，而且**不许再去动主增益**（音量是用户的）。
+     */
     @Test
-    public void mediaSessionControlsUseTheSameFadeAsManualToggle() throws Exception {
+    public void mediaControlsPauseAndResumeImmediatelyWithoutTouchingVolume() throws Exception {
         String oldBase = AppDirs.base();
         String oldCacheBase = AppDirs.cacheBase();
         PlayerController controller = null;
@@ -175,91 +181,28 @@ public class PlayerControllerPlaybackTest {
 
             FakeAudioBackend backend = new FakeAudioBackend();
             controller = new PlayerController(backend, track -> { }, NeteaseClient.INSTANCE);
-            controller.setFadeEnabled(true);
+            controller.setVolume(0.8f);
             controller.playQueueIndex(0);
             backend.fireStarted();
             waitForVolume(backend, 0.8f, ASYNC_FADE_TIMEOUT_MS);
 
-            // The MediaSession intent flips immediately (state must be reported right
-            // away), but the notification/lock-screen/dynamic-island pause now rides
-            // the same ramp-down as a manual toggle() pause instead of cutting audio.
+            // playAt() 起播时会先无条件 pause 一次（那时还没东西在放），所以基线在这里取。
             int pausesBeforeMediaCommand = backend.pauseCalls;
             controller.mediaPause();
             assertFalse(controller.isPlaying());
-            assertEquals(pausesBeforeMediaCommand, backend.pauseCalls);
-            assertTrue(backend.playing);
-
-            waitForVolume(backend, 0f, ASYNC_FADE_TIMEOUT_MS);
-            // The final fade tick publishes zero volume immediately before it
-            // invokes the deferred pause callback. Wait for that second observable
-            // state as well instead of racing the two adjacent worker operations.
-            waitForPauseCalls(backend, pausesBeforeMediaCommand + 1,
-                    ASYNC_FADE_TIMEOUT_MS);
-            assertEquals(pausesBeforeMediaCommand + 1, backend.pauseCalls);
+            assertEquals("媒体键暂停必须立刻落到后端，不能再等一段音量渐变",
+                    pausesBeforeMediaCommand + 1, backend.pauseCalls);
             assertFalse(backend.playing);
+            assertEquals("暂停不该去改主增益", 0.8f, backend.volume, 0.001f);
 
-            // Resuming from the notification fades back in from silence, symmetric
-            // with the pause.
             int resumesBeforeMediaCommand = backend.resumeCalls;
             controller.mediaResume();
             assertTrue(controller.isPlaying());
             assertEquals(resumesBeforeMediaCommand + 1, backend.resumeCalls);
             assertTrue(backend.playing);
-            assertEquals(0f, backend.volume, 0.05f);
-
-            waitForVolume(backend, 0.8f, ASYNC_FADE_TIMEOUT_MS);
-            assertEquals(resumesBeforeMediaCommand + 1, backend.resumeCalls);
+            assertEquals("恢复也不该改主增益", 0.8f, backend.volume, 0.001f);
         } finally {
-            if (controller != null) lifecycle.close(controller);
-            AppDirs.setBase(oldBase);
-            AppDirs.setCacheBase(oldCacheBase);
-        }
-    }
-
-    @Test
-    public void mediaResumeDuringPauseFadePicksUpTheRampWithoutDoubleResume() throws Exception {
-        String oldBase = AppDirs.base();
-        String oldCacheBase = AppDirs.cacheBase();
-        PlayerController controller = null;
-        try {
-            Path base = temporaryFolder.newFolder("media-pause-resume-race").toPath();
-            AppDirs.setBase(base.toString());
-            String queue = "{\"playIndex\":0,\"positionMs\":0,\"playMode\":0,\"tracks\":["
-                    + "{\"source\":\"LOCAL\",\"title\":\"track\",\"durationMs\":120000,\"filePath\":\"track.mp3\"}]}";
-            Files.write(base.resolve("queue.json"), queue.getBytes(StandardCharsets.UTF_8));
-
-            FakeAudioBackend backend = new FakeAudioBackend();
-            controller = new PlayerController(backend, track -> { }, NeteaseClient.INSTANCE);
-            controller.setFadeEnabled(true);
-            controller.playQueueIndex(0);
-            backend.fireStarted();
-            waitForVolume(backend, 0.8f, ASYNC_FADE_TIMEOUT_MS);
-
-            // playAt() itself unconditionally pauses the backend once up front (there
-            // is nothing playing yet to fade), so the "no extra pause" baseline is
-            // captured here, not literal 0.
-            int pausesBeforeMediaCommand = backend.pauseCalls;
-            controller.mediaPause();
-            Thread.sleep(120L); // catch the fade-out mid-ramp, before it reaches silence
-            assertTrue(backend.volume < 0.8f);
-            assertTrue(backend.playing); // the deferred backend.pause() hasn't landed yet
-
-            int resumesBeforeMediaCommand = backend.resumeCalls;
-            controller.mediaResume();
-            assertTrue(controller.isPlaying());
-            // Backend was never actually paused -- pick the ramp back up instead of
-            // issuing a redundant resume().
-            assertEquals(resumesBeforeMediaCommand, backend.resumeCalls);
-            assertTrue(backend.playing);
-
-            waitForVolume(backend, 0.8f, ASYNC_FADE_TIMEOUT_MS);
-            // The superseded pause's deferred completion must not fire late and
-            // pause the backend out from under the resume.
-            Thread.sleep(1000L);
-            assertTrue(backend.playing);
-            assertEquals(pausesBeforeMediaCommand, backend.pauseCalls);
-        } finally {
-            if (controller != null) lifecycle.close(controller);
+            if (controller != null) controller.shutdown();
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -279,7 +222,6 @@ public class PlayerControllerPlaybackTest {
 
             FakeAudioBackend backend = new FakeAudioBackend();
             controller = new PlayerController(backend, track -> { }, NeteaseClient.INSTANCE);
-            controller.setFadeEnabled(true);
             controller.playQueueIndex(0);
 
             // play() only means the decoder was asked to start. Lyrics must remain at
@@ -293,79 +235,41 @@ public class PlayerControllerPlaybackTest {
 
             backend.position = 3210L;
             controller.toggle();
-            // The pause button starts an audible fade-out. The backend is still
-            // playing during that tail, so lyrics must continue with it.
-            assertTrue(controller.isLyricClockRunning());
+            // 客户端音量淡变删掉之后，按暂停就是**立刻**暂停（后端真的停了），
+            // 所以歌词时钟必须当场跟着停——不再有「还在响的那 900 ms 尾巴」。
+            assertFalse("暂停必须立刻落到后端", backend.playing);
+            assertFalse(controller.isLyricClockRunning());
             assertEquals(3210L, controller.lyricClockPosition());
 
+            // 恢复之后从同一位置继续，没有追帧跳变。
             backend.position = 3500L;
-            assertEquals(3500L, controller.lyricClockPosition());
-
-            // Once the fade completes and the backend really pauses, both clocks
-            // stop at the same position. Resume therefore has no catch-up jump.
-            backend.pause();
-            assertFalse(controller.isLyricClockRunning());
-            backend.position = 3500L;
-            assertEquals(3500L, controller.lyricClockPosition());
-
             controller.toggle();
+            assertTrue("恢复必须立刻落到后端", backend.playing);
             assertTrue(controller.isLyricClockRunning());
             assertEquals(3500L, controller.lyricClockPosition());
         } finally {
-            if (controller != null) lifecycle.close(controller);
+            if (controller != null) controller.shutdown();
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
     }
 
+    /**
+     * 音量是用户的：一设下去就该落到后端，**不必等渲染帧**——窗口被隐藏/销毁时
+     * {@code pump()} 不再跑，播放不该因此卡在某一帧上。
+     *
+     * <p>这条测试原来叫 {@code fadeFinishesWithoutRenderPumpAndPreservesUserVolume}，
+     * 还多断言了一句「淡变过程写了不止一次音量」（{@code volumeWrites > 2}）。客户端音量
+     * 淡变已经删掉（见 {@code SettingsCatalog} 里「淡入淡出」那一行的说明），所以现在只钉
+     * 「设了就是设了」这一件事。
+     */
     @Test
-    public void pauseBeforeAudioStartsIsNotOverriddenByOnStarted() throws Exception {
+    public void volumeIsAppliedWithoutRenderPump() throws Exception {
         String oldBase = AppDirs.base();
         String oldCacheBase = AppDirs.cacheBase();
         PlayerController controller = null;
         try {
-            Path base = temporaryFolder.newFolder("pause-before-start").toPath();
-            AppDirs.setBase(base.toString());
-            String queue = "{\"playIndex\":0,\"positionMs\":0,\"playMode\":0,\"tracks\":["
-                    + "{\"source\":\"LOCAL\",\"title\":\"track\",\"durationMs\":120000,\"filePath\":\"track.mp3\"}]}";
-            Files.write(base.resolve("queue.json"), queue.getBytes(StandardCharsets.UTF_8));
-
-            FakeAudioBackend backend = new FakeAudioBackend();
-            controller = new PlayerController(backend, track -> { }, NeteaseClient.INSTANCE);
-            controller.setFadeEnabled(true);
-            controller.playQueueIndex(0);
-            assertTrue(controller.isPlaying());
-            // Android MediaPlayer is still in prepareAsync here: play() has been
-            // asked, but isPlaying() is false until onPrepared. FakeAudioBackend
-            // otherwise starts immediately, which would take the audible fade path.
-            backend.playing = false;
-
-            int pausesBeforeToggle = backend.pauseCalls;
-            controller.toggle();
-            assertFalse(controller.isPlaying());
-            assertEquals("pause at t=0 must not wait for a fade that has no audio yet",
-                    pausesBeforeToggle + 1, backend.pauseCalls);
-            assertFalse(backend.playing);
-
-            backend.fireStarted();
-            assertFalse("onStarted must not resurrect a user pause during prepare",
-                    controller.isPlaying());
-            assertFalse(backend.playing);
-            assertEquals(pausesBeforeToggle + 2, backend.pauseCalls);
-        } finally {
-            if (controller != null) lifecycle.close(controller);
-            AppDirs.setBase(oldBase);
-            AppDirs.setCacheBase(oldCacheBase);
-        }
-    }
-
-    @Test
-    public void fadeFinishesWithoutRenderPumpAndPreservesUserVolume() throws Exception {
-        String oldBase = AppDirs.base();
-        String oldCacheBase = AppDirs.cacheBase();
-        PlayerController controller = null;
-        try {
-            Path base = temporaryFolder.newFolder("fade-clock").toPath();
+            Path base = temporaryFolder.newFolder("volume-no-pump").toPath();
             AppDirs.setBase(base.toString());
             String queue = "{\"playIndex\":0,\"positionMs\":0,\"playMode\":0,\"tracks\":["
                     + "{\"source\":\"LOCAL\",\"title\":\"track\",\"durationMs\":120000,\"filePath\":\"track.mp3\"}]}";
@@ -374,95 +278,32 @@ public class PlayerControllerPlaybackTest {
             FakeAudioBackend backend = new FakeAudioBackend();
             controller = new PlayerController(backend, track -> { }, NeteaseClient.INSTANCE);
             controller.setVolume(0.6f);
-            controller.setFadeEnabled(true);
             controller.playQueueIndex(0);
             backend.fireStarted();
 
             // Deliberately never call controller.pump(): a hidden/destroyed window
-            // must not strand playback at the first quiet fade sample.
+            // must not strand playback at some stale gain.
             waitForVolume(backend, 0.6f, ASYNC_FADE_TIMEOUT_MS);
             assertEquals(0.6f, backend.volume, 0.02f);
-            assertTrue(backend.volumeWrites > 2);
+            assertTrue("音量至少要被写下去一次", backend.volumeWrites >= 1);
         } finally {
-            if (controller != null) lifecycle.close(controller);
+            if (controller != null) controller.shutdown();
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
     }
 
-    @Test
-    public void replacingTrackCancelsOutgoingFadeCompletion() throws Exception {
-        String oldBase = AppDirs.base();
-        String oldCacheBase = AppDirs.cacheBase();
-        PlayerController controller = null;
-        try {
-            Path base = temporaryFolder.newFolder("fade-switch").toPath();
-            AppDirs.setBase(base.toString());
-            String queue = "{\"playIndex\":0,\"positionMs\":0,\"playMode\":0,\"tracks\":["
-                    + "{\"source\":\"LOCAL\",\"title\":\"one\",\"durationMs\":120000,\"filePath\":\"one.mp3\"},"
-                    + "{\"source\":\"LOCAL\",\"title\":\"two\",\"durationMs\":120000,\"filePath\":\"two.mp3\"}]}";
-            Files.write(base.resolve("queue.json"), queue.getBytes(StandardCharsets.UTF_8));
-
-            FakeAudioBackend backend = new FakeAudioBackend();
-            controller = new PlayerController(backend, track -> { }, NeteaseClient.INSTANCE);
-            controller.setFadeEnabled(true);
-            controller.playQueueIndex(0);
-            backend.fireStarted();
-
-            controller.next();
-            int pausesAfterReplacement = backend.pauseCalls;
-            // The second source is intentionally left in its loading window. The old
-            // track's delayed fade completion must not pause this new request later.
-            Thread.sleep(1050L);
-            assertEquals(pausesAfterReplacement, backend.pauseCalls);
-            assertTrue(backend.playing);
-            assertEquals(0.8f, backend.volume, 0.001f);
-
-            backend.fireStarted();
-            assertEquals(0.8f, backend.volume, 0.001f);
-        } finally {
-            if (controller != null) lifecycle.close(controller);
-            AppDirs.setBase(oldBase);
-            AppDirs.setCacheBase(oldCacheBase);
-        }
-    }
-
-    @Test
-    public void seekingAwayFromNaturalEndFadeRestoresFullGain() throws Exception {
-        String oldBase = AppDirs.base();
-        String oldCacheBase = AppDirs.cacheBase();
-        PlayerController controller = null;
-        try {
-            Path base = temporaryFolder.newFolder("fade-end-seek").toPath();
-            AppDirs.setBase(base.toString());
-            String queue = "{\"playIndex\":0,\"positionMs\":0,\"playMode\":0,\"tracks\":["
-                    + "{\"source\":\"LOCAL\",\"title\":\"track\",\"durationMs\":120000,\"filePath\":\"track.mp3\"}]}";
-            Files.write(base.resolve("queue.json"), queue.getBytes(StandardCharsets.UTF_8));
-
-            FakeAudioBackend backend = new FakeAudioBackend();
-            controller = new PlayerController(backend, track -> { }, NeteaseClient.INSTANCE);
-            controller.setFadeEnabled(true);
-            controller.playQueueIndex(0);
-            backend.fireStarted();
-            waitForVolume(backend, 0.8f, ASYNC_FADE_TIMEOUT_MS);
-
-            backend.position = 119500L;
-            controller.pump();
-            // The fade worker can start late on a busy CI runner. Wait for an
-            // observable fade sample instead of assuming one landed within 120 ms.
-            waitForVolumeBelow(backend, 0.8f, ASYNC_FADE_TIMEOUT_MS);
-            assertTrue(backend.volume < 0.8f);
-
-            controller.seek(1000L);
-            assertEquals(0.8f, backend.volume, 0.001f);
-            Thread.sleep(550L); // the cancelled old end fade would have reached zero
-            assertEquals(0.8f, backend.volume, 0.001f);
-        } finally {
-            if (controller != null) lifecycle.close(controller);
-            AppDirs.setBase(oldBase);
-            AppDirs.setCacheBase(oldCacheBase);
-        }
-    }
+    // 另有两条淡变测试随功能一起删掉了，留个说明免得以后当成「不小心丢了测试」：
+    //
+    //   replacingTrackCancelsOutgoingFadeCompletion —— 测的是「换曲时那条被取代的淡变
+    //   完成回调不许迟到、把新的播放请求暂停掉」。那是一个**客户端淡变调度器**才有的竞态，
+    //   调度器已随功能删除，这个竞态不复存在。
+    //
+    //   seekingAwayFromNaturalEndFadeRestoresFullGain —— 测的是「曲末自动淡出、中途 seek
+    //   走要恢复满增益」。曲末那一下现在由引擎在输出流里做（无缝换曲 / 自动混音），客户端
+    //   再叠一层淡出会与过渡互相打架（它会把整条混音、含正在进场的下一首一起拉到 0）。
+    //
+    // 删掉的是**功能本身**，不是「断言碍事」；功能如果回来，这两条必须一并回来。
 
     @Test
     public void unifiedSearchRowsKeepSourceMenuIdentity() throws Exception {
@@ -497,7 +338,7 @@ public class PlayerControllerPlaybackTest {
             assertTrue(rows.get(1).menuEnabled);
             assertEquals("/music/local.flac", rows.get(1).filePath);
         } finally {
-            if (controller != null) lifecycle.close(controller);
+            if (controller != null) controller.shutdown();
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -526,42 +367,12 @@ public class PlayerControllerPlaybackTest {
             assertEquals(Arrays.asList("first", "second"), controller.searchHistory.peek());
             Path json = AppDirs.stateFile("search-history.json");
             assertTrue(Files.isRegularFile(json));
+            String saved = new String(Files.readAllBytes(json), StandardCharsets.UTF_8);
+            assertTrue(saved.contains("\"version\":1"));
+            assertTrue(saved.contains("\"items\":[\"first\",\"second\"]"));
             assertFalse(Files.exists(legacy));
         } finally {
-            if (controller != null) lifecycle.close(controller);
-            AppDirs.setBase(oldBase);
-            AppDirs.setCacheBase(oldCacheBase);
-        }
-    }
-
-    @Test
-    public void addSearchHistoryDeduplicatesIgnoringCaseAndPromotesLatest() throws Exception {
-        String oldBase = AppDirs.base();
-        String oldCacheBase = AppDirs.cacheBase();
-        PlayerController controller = null;
-        try {
-            Path base = temporaryFolder.newFolder("search-history-dedup").toPath();
-            AppDirs.setBase(base.toString());
-            AppDirs.setCacheBase(base.resolve("cache").toString());
-            controller = new PlayerController(new FakeAudioBackend(), track -> { }, NeteaseClient.INSTANCE);
-
-            controller.addSearchHistory("  Foo  ");
-            controller.addSearchHistory("bar");
-            controller.addSearchHistory("foo");
-            controller.addSearchHistory("   ");
-            controller.addSearchHistory(null);
-
-            long deadline = System.currentTimeMillis() + 2000L;
-            while (controller.searchHistory.peek().size() < 2
-                    && System.currentTimeMillis() < deadline) {
-                controller.pump();
-                Thread.sleep(10L);
-            }
-            controller.pump();
-
-            assertEquals(Arrays.asList("foo", "bar"), controller.searchHistory.peek());
-        } finally {
-            if (controller != null) lifecycle.close(controller);
+            if (controller != null) controller.shutdown();
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -595,7 +406,7 @@ public class PlayerControllerPlaybackTest {
             assertTrue(controller.searchRows.peek().isEmpty());
             assertEquals(Integer.valueOf(0), controller.resultCount.peek());
         } finally {
-            if (controller != null) lifecycle.close(controller);
+            if (controller != null) controller.shutdown();
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -618,7 +429,6 @@ public class PlayerControllerPlaybackTest {
 
             controller = new PlayerController(
                     new FakeAudioBackend(), track -> { }, NeteaseClient.INSTANCE);
-            controller.setFadeEnabled(false);
             controller.playQueueIndex(0);
             controller.setPlayMode(1);
             controller.next();
@@ -627,7 +437,7 @@ public class PlayerControllerPlaybackTest {
             assertEquals("prev in shuffle must return the song next() just left",
                     0, playIndex(controller));
         } finally {
-            if (controller != null) lifecycle.close(controller);
+            if (controller != null) controller.shutdown();
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -650,7 +460,6 @@ public class PlayerControllerPlaybackTest {
 
             controller = new PlayerController(
                     new FakeAudioBackend(), track -> { }, NeteaseClient.INSTANCE);
-            controller.setFadeEnabled(false);
             controller.playQueueIndex(0);
             controller.playQueueIndex(1);
             controller.playQueueIndex(2);
@@ -661,111 +470,16 @@ public class PlayerControllerPlaybackTest {
             assertEquals("a second prev must not bounce back to the song we just left",
                     0, playIndex(controller));
         } finally {
-            if (controller != null) lifecycle.close(controller);
+            if (controller != null) controller.shutdown();
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
-        }
-    }
-
-    @Test
-    public void staleResolveAtTheSameIndexDoesNotSkipTheNewTrack() throws Exception {
-        String oldBase = AppDirs.base();
-        String oldCacheBase = AppDirs.cacheBase();
-        PlayerController controller = null;
-        try {
-            Path base = temporaryFolder.newFolder("stale-resolve").toPath();
-            AppDirs.setBase(base.toString());
-            AppDirs.setCacheBase(base.resolve("cache").toString());
-            FakeAudioBackend backend = new FakeAudioBackend();
-            controller = new PlayerController(backend, track -> { }, NeteaseClient.INSTANCE);
-
-            Track first = localTrack("playlist-a.mp3", "first");
-            Track second = localTrack("playlist-b.mp3", "second");
-            Track third = localTrack("playlist-b-next.mp3", "third");
-            setQueue(controller, 0, first, localTrack("playlist-a-next.mp3", "unused"));
-            setQueue(controller, 0, second, third);
-
-            java.lang.reflect.Method skip = PlayerController.class.getDeclaredMethod(
-                    "skipUnplayable", Track.class, String.class);
-            skip.setAccessible(true);
-            skip.invoke(controller, first, "stale resolve");
-
-            assertEquals("a superseded resolve must not walk past the song just selected",
-                    0, playIndex(controller));
-            assertEquals("second", controller.currentTrack().title);
-            assertEquals(0, backend.playCalls);
-
-            skip.invoke(controller, second, "actually unplayable");
-            assertEquals(1, playIndex(controller));
-            assertEquals("third", controller.currentTrack().title);
-            assertEquals("playlist-b-next.mp3", backend.lastSource);
-        } finally {
-            if (controller != null) lifecycle.close(controller);
-            AppDirs.setBase(oldBase);
-            AppDirs.setCacheBase(oldCacheBase);
-        }
-    }
-
-    @Test
-    public void currentTrackIdentityIgnoresASharedQueueIndex() throws Exception {
-        String oldBase = AppDirs.base();
-        String oldCacheBase = AppDirs.cacheBase();
-        PlayerController controller = null;
-        try {
-            Path base = temporaryFolder.newFolder("track-identity").toPath();
-            AppDirs.setBase(base.toString());
-            AppDirs.setCacheBase(base.resolve("cache").toString());
-            controller = new PlayerController(
-                    new FakeAudioBackend(), track -> { }, NeteaseClient.INSTANCE);
-
-            Track first = localTrack("a.mp3", "first");
-            Track second = localTrack("b.mp3", "second");
-            setQueue(controller, 0, first);
-            java.lang.reflect.Method isCurrent = PlayerController.class.getDeclaredMethod(
-                    "isCurrentTrack", Track.class);
-            isCurrent.setAccessible(true);
-            assertTrue((Boolean) isCurrent.invoke(controller, first));
-
-            setQueue(controller, 0, second);
-            assertFalse("same slot, different song",
-                    (Boolean) isCurrent.invoke(controller, first));
-            assertTrue((Boolean) isCurrent.invoke(controller, second));
-        } finally {
-            if (controller != null) lifecycle.close(controller);
-            AppDirs.setBase(oldBase);
-            AppDirs.setCacheBase(oldCacheBase);
-        }
-    }
-
-    private static Track localTrack(String path, String title) {
-        Track track = new Track();
-        track.source = Track.Source.LOCAL;
-        track.filePath = path;
-        track.title = title;
-        track.durationMs = 120000L;
-        return track;
-    }
-
-    private static void setQueue(PlayerController controller, int index, Track... tracks)
-            throws Exception {
-        java.lang.reflect.Field field = PlayerController.class.getDeclaredField("playbackSession");
-        field.setAccessible(true);
-        PlaybackSession session = (PlaybackSession) field.get(controller);
-        synchronized (dev.t1m3.qplayer.qml.QmlRuntimeLock.MONITOR) {
-            session.invalidate();
-            session.queue.clear();
-            session.queue.addAll(java.util.Arrays.asList(tracks));
-            session.index = index;
-            session.playing = index >= 0;
         }
     }
 
     private static int playIndex(PlayerController controller) throws Exception {
-        java.lang.reflect.Field field = PlayerController.class.getDeclaredField("playbackSession");
+        java.lang.reflect.Field field = PlayerController.class.getDeclaredField("playIndex");
         field.setAccessible(true);
-        synchronized (dev.t1m3.qplayer.qml.QmlRuntimeLock.MONITOR) {
-            return ((PlaybackSession) field.get(controller)).index;
-        }
+        return field.getInt(controller);
     }
 
     private static final class FakeAudioBackend implements AudioBackend {
@@ -784,15 +498,23 @@ public class PlayerControllerPlaybackTest {
         Runnable onStarted;
         volatile float volume = 0.8f;
         volatile int volumeWrites;
+        /** 引擎报的「现在放的是哪一首」——控制器用它核对自动交接（见 AudioBackend）。 */
+        volatile String currentSource = "";
 
-        volatile String lastSource;
+        /** 控制器认下交接时发的那条确认（{@link AudioBackend#confirmHandoff}）。 */
+        final java.util.List<String> handoffConfirms =
+                java.util.Collections.synchronizedList(new java.util.ArrayList<String>());
 
         @Override public void play(String source, long startMs) {
             playCalls++;
-            lastSource = source;
+            currentSource = source;
             position = startMs;
             playing = true;
         }
+
+        @Override public String currentSource() { return currentSource; }
+
+        @Override public void confirmHandoff(String source) { handoffConfirms.add(source); }
 
         @Override public void pause() { pauseCalls++; playing = false; }
 
@@ -827,14 +549,6 @@ public class PlayerControllerPlaybackTest {
         }
     }
 
-    private static void waitForVolumeBelow(FakeAudioBackend backend, float upperBound,
-                                           long timeoutMs) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (backend.volume >= upperBound && System.currentTimeMillis() < deadline) {
-            Thread.sleep(10L);
-        }
-    }
-
     @Test
     public void restoredQueueKeepsAllArtistCredits() throws Exception {
         String oldBase = AppDirs.base();
@@ -860,7 +574,7 @@ public class PlayerControllerPlaybackTest {
             assertEquals("7,8", restored.artistIdsCsv);
             assertEquals("first\u0001second", restored.artistNamesCsv);
         } finally {
-            if (controller != null) lifecycle.close(controller);
+            if (controller != null) controller.shutdown();
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -913,7 +627,7 @@ public class PlayerControllerPlaybackTest {
             assertEquals(1, controller.sourceMyPlaylists.peek().size());
             assertEquals("second", controller.sourceMyPlaylists.peek().get(0).name);
         } finally {
-            if (controller != null) lifecycle.close(controller);
+            if (controller != null) controller.shutdown();
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -963,7 +677,7 @@ public class PlayerControllerPlaybackTest {
             publish.invoke(controller);
             assertEquals(1, controller.sourceMyPlaylists.peek().size());
         } finally {
-            if (controller != null) lifecycle.close(controller);
+            if (controller != null) controller.shutdown();
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -997,35 +711,16 @@ public class PlayerControllerPlaybackTest {
             publish.setAccessible(true);
             publish.invoke(controller);
             assertEquals(3, controller.likedCount.peek().intValue());
-            int revisionAfterPublish = controller.likedRevision.peek();
-            assertTrue(revisionAfterPublish > 0);
-
-            java.lang.reflect.Method apply = PlayerController.class.getDeclaredMethod(
-                    "applyPluginLiked",
-                    dev.t1m3.qplayer.media.MediaId.class, boolean.class);
-            apply.setAccessible(true);
-            apply.invoke(controller, dev.t1m3.qplayer.media.MediaId.parse("qq:song:NEW"), true);
-            assertTrue(controller.isMediaLiked("qq:song:NEW"));
-            assertTrue(controller.likedRevision.peek() > revisionAfterPublish);
-
-            // A later liked-list publish must keep the just-toggled id: toggle
-            // writes the per-source slice, not only the union set.
-            publish.invoke(controller);
-            assertTrue("just-liked id survived a liked-list republish",
-                    controller.isMediaLiked("qq:song:NEW"));
 
             java.lang.reflect.Method drop = PlayerController.class.getDeclaredMethod(
                     "dropSourceUserData", String.class);
             drop.setAccessible(true);
             drop.invoke(controller, "netease");
 
-            // Signing out of one source must not forget the other's hearts
-            // (the original qq song plus the one just liked).
-            assertEquals(2, controller.likedCount.peek().intValue());
-            assertTrue(controller.isMediaLiked("qq:song:004X"));
-            assertTrue(controller.isMediaLiked("qq:song:NEW"));
+            // Signing out of one source must not forget the other's hearts.
+            assertEquals(1, controller.likedCount.peek().intValue());
         } finally {
-            if (controller != null) lifecycle.close(controller);
+            if (controller != null) controller.shutdown();
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }
@@ -1071,295 +766,7 @@ public class PlayerControllerPlaybackTest {
             assertTrue("another source's songs are not addressable either",
                     (Boolean) blocked.invoke(controller, other));
         } finally {
-            if (controller != null) lifecycle.close(controller);
-            AppDirs.setBase(oldBase);
-            AppDirs.setCacheBase(oldCacheBase);
-        }
-    }
-
-    @Test
-    public void replayingTheSameTrackKeepsLyricsWithoutARenderPump() throws Exception {
-        String oldBase = AppDirs.base();
-        String oldCacheBase = AppDirs.cacheBase();
-        PlayerController controller = null;
-        try {
-            Path base = temporaryFolder.newFolder("loop-lyrics").toPath();
-            AppDirs.setBase(base.toString());
-            AppDirs.setCacheBase(base.resolve("cache").toString());
-            String queue = "{\"playIndex\":0,\"positionMs\":0,\"playMode\":2,\"tracks\":["
-                    + "{\"source\":\"LOCAL\",\"title\":\"one\",\"durationMs\":120000,\"filePath\":\"one.mp3\"},"
-                    + "{\"source\":\"LOCAL\",\"title\":\"two\",\"durationMs\":120000,\"filePath\":\"two.mp3\"}]}";
-            Files.write(base.resolve("queue.json"), queue.getBytes(StandardCharsets.UTF_8));
-
-            controller = new PlayerController(
-                    new FakeAudioBackend(), track -> { }, NeteaseClient.INSTANCE);
-            controller.playQueueIndex(0);
-            controller.pump();
-
-            List<dev.t1m3.qplayer.lyric.LyricLine> lines =
-                    dev.t1m3.qplayer.lyric.LrcParser.parse(
-                            "[00:01.00]第一行\n[00:05.00]第二行");
-            controller.lyrics.set(lines);
-
-            controller.playQueueIndex(0);
-            controller.pump();
-            assertSame("repeat-one must keep lyrics even after the restore queue drains",
-                    lines, controller.lyrics.peek());
-
-            controller.playQueueIndex(1);
-            assertTrue("a real track change still blanks immediately",
-                    controller.lyrics.peek() == null || controller.lyrics.peek().isEmpty());
-            assertNotSame(lines, controller.lyrics.peek());
-        } finally {
-            if (controller != null) lifecycle.close(controller);
-            AppDirs.setBase(oldBase);
-            AppDirs.setCacheBase(oldCacheBase);
-        }
-    }
-
-    @Test
-    public void switchingTracksPublishesTitleWithoutARenderPump() throws Exception {
-        String oldBase = AppDirs.base();
-        String oldCacheBase = AppDirs.cacheBase();
-        PlayerController controller = null;
-        try {
-            Path base = temporaryFolder.newFolder("overlay-switch").toPath();
-            AppDirs.setBase(base.toString());
-            AppDirs.setCacheBase(base.resolve("cache").toString());
-            String queue = "{\"playIndex\":0,\"positionMs\":0,\"playMode\":0,\"tracks\":["
-                    + "{\"source\":\"LOCAL\",\"title\":\"one\",\"artist\":\"a\","
-                    + "\"durationMs\":120000,\"filePath\":\"one.mp3\"},"
-                    + "{\"source\":\"LOCAL\",\"title\":\"two\",\"artist\":\"b\","
-                    + "\"durationMs\":120000,\"filePath\":\"two.mp3\"}]}";
-            Files.write(base.resolve("queue.json"), queue.getBytes(StandardCharsets.UTF_8));
-
-            controller = new PlayerController(
-                    new FakeAudioBackend(), track -> { }, NeteaseClient.INSTANCE);
-            controller.playQueueIndex(0);
-            // No pump(): the overlay ticks these Properties while GL is paused.
-            assertEquals("one", controller.title.peek());
-            assertEquals("a", controller.artist.peek());
-
-            List<dev.t1m3.qplayer.lyric.LyricLine> oldLines =
-                    dev.t1m3.qplayer.lyric.LrcParser.parse(
-                            "[00:01.00]上一首\n[00:05.00]旧行");
-            controller.lyrics.set(oldLines);
-
-            controller.playQueueIndex(1);
-            assertEquals("two", controller.title.peek());
-            assertEquals("b", controller.artist.peek());
-            assertTrue("a real track change still blanks immediately",
-                    controller.lyrics.peek() == null || controller.lyrics.peek().isEmpty());
-            assertNotSame(oldLines, controller.lyrics.peek());
-            assertEquals(Integer.valueOf(-1), controller.lyricIndex.peek());
-            assertFalse(Boolean.TRUE.equals(controller.coverModeManual.peek()));
-        } finally {
-            if (controller != null) lifecycle.close(controller);
-            AppDirs.setBase(oldBase);
-            AppDirs.setCacheBase(oldCacheBase);
-        }
-    }
-
-    @Test
-    public void switchingTracksClearsManualCoverModeWithoutARenderPump() throws Exception {
-        String oldBase = AppDirs.base();
-        String oldCacheBase = AppDirs.cacheBase();
-        PlayerController controller = null;
-        try {
-            Path base = temporaryFolder.newFolder("cover-mode-switch").toPath();
-            AppDirs.setBase(base.toString());
-            AppDirs.setCacheBase(base.resolve("cache").toString());
-            String queue = "{\"playIndex\":0,\"positionMs\":0,\"playMode\":0,\"tracks\":["
-                    + "{\"source\":\"LOCAL\",\"title\":\"one\",\"durationMs\":120000,\"filePath\":\"one.mp3\"},"
-                    + "{\"source\":\"LOCAL\",\"title\":\"two\",\"durationMs\":120000,\"filePath\":\"two.mp3\"}]}";
-            Files.write(base.resolve("queue.json"), queue.getBytes(StandardCharsets.UTF_8));
-
-            controller = new PlayerController(
-                    new FakeAudioBackend(), track -> { }, NeteaseClient.INSTANCE);
-            controller.playQueueIndex(0);
-            controller.setCoverMode(true);
-            assertTrue(Boolean.TRUE.equals(controller.coverModeManual.peek()));
-
-            controller.playQueueIndex(1);
-            assertFalse("next track must leave cover-only mode so new lyrics can show",
-                    Boolean.TRUE.equals(controller.coverModeManual.peek()));
-            assertEquals("two", controller.title.peek());
-        } finally {
-            if (controller != null) lifecycle.close(controller);
-            AppDirs.setBase(oldBase);
-            AppDirs.setCacheBase(oldCacheBase);
-        }
-    }
-
-    @Test
-    public void playNextInsertsAfterTheCurrentTrack() throws Exception {
-        String oldBase = AppDirs.base();
-        String oldCacheBase = AppDirs.cacheBase();
-        PlayerController controller = null;
-        try {
-            Path base = temporaryFolder.newFolder("play-next").toPath();
-            AppDirs.setBase(base.toString());
-            AppDirs.setCacheBase(base.resolve("cache").toString());
-            String queue = "{\"playIndex\":0,\"positionMs\":0,\"playMode\":0,\"tracks\":["
-                    + "{\"source\":\"LOCAL\",\"title\":\"one\",\"durationMs\":120000,\"filePath\":\"one.mp3\"},"
-                    + "{\"source\":\"LOCAL\",\"title\":\"two\",\"durationMs\":120000,\"filePath\":\"two.mp3\"}]}";
-            Files.write(base.resolve("queue.json"), queue.getBytes(StandardCharsets.UTF_8));
-            Path extra = temporaryFolder.newFolder("lib").toPath().resolve("three.mp3");
-            Files.write(extra, new byte[]{1, 2, 3, 4});
-
-            controller = new PlayerController(
-                    new FakeAudioBackend(), track -> { }, NeteaseClient.INSTANCE);
-            controller.playQueueIndex(0);
-            controller.pump();
-            assertEquals(2, controller.queueTracks.peek().size());
-
-            java.lang.reflect.Field library =
-                    PlayerController.class.getDeclaredField("library");
-            library.setAccessible(true);
-            @SuppressWarnings("unchecked")
-            java.util.List<Track> lib = (java.util.List<Track>) library.get(controller);
-            Track third = new Track();
-            third.source = Track.Source.LOCAL;
-            third.title = "three";
-            third.filePath = extra.toString();
-            third.durationMs = 90_000L;
-            lib.add(third);
-
-            controller.playNextLocalFile(extra.toString());
-            controller.pump();
-            java.util.List<Track> after = controller.queueTracks.peek();
-            assertEquals(3, after.size());
-            assertEquals("one", after.get(0).title);
-            assertEquals("three", after.get(1).title);
-            assertEquals("two", after.get(2).title);
-            assertEquals(0, playIndex(controller));
-        } finally {
-            if (controller != null) lifecycle.close(controller);
-            AppDirs.setBase(oldBase);
-            AppDirs.setCacheBase(oldCacheBase);
-        }
-    }
-
-    @Test
-    public void switchingTracksHoldsTheLayoutUntilTheLoaderAnswers() throws Exception {
-        String oldBase = AppDirs.base();
-        String oldCacheBase = AppDirs.cacheBase();
-        PlayerController controller = null;
-        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
-        try {
-            Path base = temporaryFolder.newFolder("lyric-layout-hold").toPath();
-            AppDirs.setBase(base.toString());
-            AppDirs.setCacheBase(base.resolve("cache").toString());
-            // No queue.json: nothing restored, so no restore-time lyric load races this test.
-            controller = new PlayerController(new FakeAudioBackend(), track -> { }, NeteaseClient.INSTANCE);
-            setQueue(controller, 0, localTrack("a.mp3", "a"), localTrack("b.mp3", "b"));
-            // The page is in lyric layout for the outgoing track (cover at the side).
-            controller.lyrics.set(dev.t1m3.qplayer.lyric.LrcParser.parse(
-                    "[00:01.00]line one\n[00:04.00]line two\n[00:09.00]line three"));
-            controller.lyricsCoverOnly.set(false);
-
-            // Park the lyric loader so the hold is observable before the answer lands.
-            java.lang.reflect.Field ioField = PlayerController.class.getDeclaredField("ioWorker");
-            ioField.setAccessible(true);
-            java.util.concurrent.ExecutorService io =
-                    (java.util.concurrent.ExecutorService) ioField.get(controller);
-            java.util.concurrent.CountDownLatch parked = new java.util.concurrent.CountDownLatch(1);
-            io.submit(() -> {
-                parked.countDown();
-                release.await(5, java.util.concurrent.TimeUnit.SECONDS);
-                return null;
-            });
-            assertTrue(parked.await(3, java.util.concurrent.TimeUnit.SECONDS));
-
-            controller.playQueueIndex(1);
-            assertTrue("new track's column is blank until its lyrics arrive",
-                    controller.lyrics.peek().isEmpty());
-            assertFalse("layout must hold, not flip to cover-only, until the loader answers",
-                    controller.lyricsCoverOnly.peek());
-
-            release.countDown();
-            long deadline = System.currentTimeMillis() + ASYNC_FADE_TIMEOUT_MS;
-            while (!controller.lyricsCoverOnly.peek() && System.currentTimeMillis() < deadline) {
-                Thread.sleep(10L);
-            }
-            assertTrue("the loader's empty answer settles the layout as cover-only",
-                    controller.lyricsCoverOnly.peek());
-        } finally {
-            release.countDown();
-            if (controller != null) lifecycle.close(controller);
-            AppDirs.setBase(oldBase);
-            AppDirs.setCacheBase(oldCacheBase);
-        }
-    }
-
-    @Test
-    public void abandoningAnUnplayableTrackSettlesTheHeldLayout() throws Exception {
-        String oldBase = AppDirs.base();
-        String oldCacheBase = AppDirs.cacheBase();
-        PlayerController controller = null;
-        try {
-            Path base = temporaryFolder.newFolder("lyric-layout-abandon").toPath();
-            AppDirs.setBase(base.toString());
-            AppDirs.setCacheBase(base.resolve("cache").toString());
-            controller = new PlayerController(new FakeAudioBackend(), track -> { }, NeteaseClient.INSTANCE);
-            Track only = localTrack("only.mp3", "only");
-            setQueue(controller, 0, only);
-            java.lang.reflect.Method skip = PlayerController.class.getDeclaredMethod(
-                    "skipUnplayable", Track.class, String.class);
-            skip.setAccessible(true);
-
-            // Lyrics already showing (a mid-track failure) are left alone.
-            List<dev.t1m3.qplayer.lyric.LyricLine> lines =
-                    dev.t1m3.qplayer.lyric.LrcParser.parse("[00:01.00]line one");
-            controller.lyrics.set(lines);
-            controller.lyricsCoverOnly.set(false);
-            skip.invoke(controller, only, "unplayable");
-            assertSame(lines, controller.lyrics.peek());
-            assertFalse(controller.lyricsCoverOnly.peek());
-
-            // A held layout with no loader coming must not stay held forever.
-            setQueue(controller, 0, only);
-            controller.lyrics.set(java.util.Collections.emptyList());
-            skip.invoke(controller, only, "unplayable");
-            assertTrue("no loader will answer: the layout settles as cover-only",
-                    controller.lyricsCoverOnly.peek());
-        } finally {
-            if (controller != null) lifecycle.close(controller);
-            AppDirs.setBase(oldBase);
-            AppDirs.setCacheBase(oldCacheBase);
-        }
-    }
-
-    @Test
-    public void reorderingBeforeFirstPlayKeepsTheRestoredResumePosition() throws Exception {
-        String oldBase = AppDirs.base();
-        String oldCacheBase = AppDirs.cacheBase();
-        PlayerController controller = null;
-        try {
-            Path base = temporaryFolder.newFolder("resume-reorder").toPath();
-            AppDirs.setBase(base.toString());
-            AppDirs.setCacheBase(base.resolve("cache").toString());
-            String queue = "{\"playIndex\":1,\"positionMs\":42000,\"playMode\":0,\"tracks\":["
-                    + "{\"source\":\"LOCAL\",\"title\":\"a\",\"durationMs\":120000,\"filePath\":\"a.mp3\"},"
-                    + "{\"source\":\"LOCAL\",\"title\":\"b\",\"durationMs\":120000,\"filePath\":\"b.mp3\"},"
-                    + "{\"source\":\"LOCAL\",\"title\":\"c\",\"durationMs\":120000,\"filePath\":\"c.mp3\"}]}";
-            Files.write(base.resolve("queue.json"), queue.getBytes(StandardCharsets.UTF_8));
-
-            FakeAudioBackend backend = new FakeAudioBackend();
-            controller = new PlayerController(backend, track -> { }, NeteaseClient.INSTANCE);
-            controller.moveQueueItem(2, 0); // c, a, b: the restored track moves to slot 2
-            controller.removeFromQueue(0);  // a, b: and then to slot 1
-            assertEquals(1, playIndex(controller));
-
-            controller.playQueueIndex(1);
-            assertEquals("b.mp3", backend.lastSource);
-            assertEquals("the restored track resumes where it stopped", 42000L, backend.position);
-
-            controller.playQueueIndex(0);
-            assertEquals("a.mp3", backend.lastSource);
-            assertEquals("another track never inherits the resume point", 0L, backend.position);
-        } finally {
-            if (controller != null) lifecycle.close(controller);
+            if (controller != null) controller.shutdown();
             AppDirs.setBase(oldBase);
             AppDirs.setCacheBase(oldCacheBase);
         }

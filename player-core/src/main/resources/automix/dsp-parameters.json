@@ -1,0 +1,705 @@
+{
+"source": "Immutable AutomationEffectParameter.allCases array",
+"getter": "0x2274ae1e8",
+"array": "0x27ad959c0",
+"row_stride": 56,
+"count": 69,
+"parameters": [
+{
+"native_address": "0x27ad959e0",
+"id": "Ga1g",
+"style_parameter_id": "player_gain",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 1.0
+},
+{
+"native_address": "0x27ad95a18",
+"id": "RXxt",
+"style_parameter_id": "remixfx_beats_per_minute",
+"value_range": [
+20.0,
+300.0
+],
+"default_value": 120.0
+},
+{
+"native_address": "0x27ad95a50",
+"id": "RXae",
+"style_parameter_id": "remixfx_filter_a_on",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad95a88",
+"id": "RXaf",
+"style_parameter_id": "remixfx_filter_a_cutoff",
+"value_range": [
+20.0,
+20000.0
+],
+"default_value": 1000.0
+},
+{
+"native_address": "0x27ad95ac0",
+"id": "RXar",
+"style_parameter_id": "remixfx_filter_a_resonance",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad95af8",
+"id": "RXat",
+"style_parameter_id": "remixfx_filter_a_type",
+"value_range": [
+0.0,
+2.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad95b30",
+"id": "RXbe",
+"style_parameter_id": "remixfx_filter_b_on",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad95b68",
+"id": "RXbf",
+"style_parameter_id": "remixfx_filter_b_cutoff",
+"value_range": [
+20.0,
+20000.0
+],
+"default_value": 1000.0
+},
+{
+"native_address": "0x27ad95ba0",
+"id": "RXbr",
+"style_parameter_id": "remixfx_filter_b_resonance",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad95bd8",
+"id": "RXbt",
+"style_parameter_id": "remixfx_filter_b_type",
+"value_range": [
+0.0,
+2.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad95c10",
+"id": "RXpe",
+"style_parameter_id": "remixfx_repeater_on",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad95c48",
+"id": "RXpr",
+"style_parameter_id": "remixfx_repeater_rate",
+"value_range": [
+0.0,
+7.0
+],
+"default_value": 1.0
+},
+{
+"native_address": "0x27ad95c80",
+"id": "RXpm",
+"style_parameter_id": "remixfx_repeater_mix",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 1.0
+},
+{
+"native_address": "0x27ad95cb8",
+"id": "RXve",
+"style_parameter_id": "remixfx_reverb_on",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad95cf0",
+"id": "RXvt",
+"style_parameter_id": "remixfx_reverb_time",
+"value_range": [
+1.0,
+200.0
+],
+"default_value": 1.0
+},
+{
+"native_address": "0x27ad95d28",
+"id": "RXvs",
+"style_parameter_id": "remixfx_reverb_send",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad95d60",
+"id": "RXvd",
+"style_parameter_id": "remixfx_reverb_dry",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 1.0
+},
+{
+"native_address": "0x27ad95d98",
+"id": "RXvw",
+"style_parameter_id": "remixfx_reverb_wet",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 1.0
+},
+{
+"native_address": "0x27ad95dd0",
+"id": "RXde",
+"style_parameter_id": "remixfx_delay_on",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad95e08",
+"id": "RXdr",
+"style_parameter_id": "remixfx_delay_rate",
+"value_range": [
+0.0,
+23.0
+],
+"default_value": 10.0
+},
+{
+"native_address": "0x27ad95e40",
+"id": "RXdf",
+"style_parameter_id": "remixfx_delay_feedback",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad95e78",
+"id": "RXdg",
+"style_parameter_id": "remixfx_delay_level",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad95eb0",
+"id": "RXge",
+"style_parameter_id": "remixfx_gater_on",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad95ee8",
+"id": "RXgr",
+"style_parameter_id": "remixfx_gater_rate",
+"value_range": [
+0.0,
+15.0
+],
+"default_value": 1.0
+},
+{
+"native_address": "0x27ad95f20",
+"id": "RXgd",
+"style_parameter_id": "remixfx_gater_depth",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 1.0
+},
+{
+"native_address": "0x27ad95f58",
+"id": "RXgw",
+"style_parameter_id": "remixfx_gater_pw",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 0.5
+},
+{
+"native_address": "0x27ad95f90",
+"id": "RXgg",
+"style_parameter_id": "remixfx_gater_noise_level",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 0.5
+},
+{
+"native_address": "0x27ad95fc8",
+"id": "RXgf",
+"style_parameter_id": "remixfx_gater_noise_cutoff",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 0.5
+},
+{
+"native_address": "0x27ad96000",
+"id": "RXfe",
+"style_parameter_id": "remixfx_flanger_on",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad96038",
+"id": "RXfr",
+"style_parameter_id": "remixfx_flanger_rate",
+"value_range": [
+0.0,
+15.0
+],
+"default_value": 1.0
+},
+{
+"native_address": "0x27ad96070",
+"id": "RXfm",
+"style_parameter_id": "remixfx_flanger_mix",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 1.0
+},
+{
+"native_address": "0x27ad960a8",
+"id": "RXff",
+"style_parameter_id": "remixfx_flanger_feedback",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad960e0",
+"id": "RXfd",
+"style_parameter_id": "remixfx_flanger_depth",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad96118",
+"id": "RXfc",
+"style_parameter_id": "remixfx_flanger_center",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad96150",
+"id": "RXse",
+"style_parameter_id": "remixfx_phaser_on",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad96188",
+"id": "RXsr",
+"style_parameter_id": "remixfx_phaser_rate",
+"value_range": [
+0.0,
+15.0
+],
+"default_value": 1.0
+},
+{
+"native_address": "0x27ad961c0",
+"id": "RXsf",
+"style_parameter_id": "remixfx_phaser_feedback",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad961f8",
+"id": "RXsm",
+"style_parameter_id": "remixfx_phaser_mix",
+"value_range": [
+0.0,
+0.5
+],
+"default_value": 0.5
+},
+{
+"native_address": "0x27ad96230",
+"id": "RXte",
+"style_parameter_id": "remixfx_tape_stop_on",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad96268",
+"id": "RXtr",
+"style_parameter_id": "remixfx_tape_stop_rate",
+"value_range": [
+0.0,
+12.0
+],
+"default_value": 4.0
+},
+{
+"native_address": "0x27ad962a0",
+"id": "RXls",
+"style_parameter_id": "remixfx_lfo_phase_sync",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad962d8",
+"id": "Fbw1",
+"style_parameter_id": "aufilter_center_bandwidth",
+"value_range": [
+0.05,
+3.0
+],
+"default_value": 2.0
+},
+{
+"native_address": "0x27ad96310",
+"id": "Fcg1",
+"style_parameter_id": "aufilter_center_gain",
+"value_range": [
+-18.0,
+18.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad96348",
+"id": "Fcf1",
+"style_parameter_id": "aufilter_center_freq",
+"value_range": [
+10.0,
+21829.5
+],
+"default_value": 2500.0
+},
+{
+"native_address": "0x27ad96380",
+"id": "HP1f",
+"style_parameter_id": "hp_cutoff_freq",
+"value_range": [
+10.0,
+22050.0
+],
+"default_value": 10.0
+},
+{
+"native_address": "0x27ad963b8",
+"id": "HP1r",
+"style_parameter_id": "hp_reso",
+"value_range": [
+-20.0,
+40.01
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad963f0",
+"id": "LP1f",
+"style_parameter_id": "lp_cutoff_freq",
+"value_range": [
+10.0,
+21829.5
+],
+"default_value": 22000.0
+},
+{
+"native_address": "0x27ad96428",
+"id": "LP1r",
+"style_parameter_id": "lp_reso",
+"value_range": [
+-20.0,
+40.01
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad96460",
+"id": "Ga2g",
+"style_parameter_id": "send_mixer_gain",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 1.0
+},
+{
+"native_address": "0x27ad96498",
+"id": "DLdt",
+"style_parameter_id": "fx_delay_delay_time",
+"value_range": [
+0.0001,
+2.01
+],
+"default_value": 1.0
+},
+{
+"native_address": "0x27ad964d0",
+"id": "DLlf",
+"style_parameter_id": "fx_delay_lp_cutoff_frequency",
+"value_range": [
+10.0,
+22050.0
+],
+"default_value": 2500.0
+},
+{
+"native_address": "0x27ad96508",
+"id": "DLdw",
+"style_parameter_id": "fx_delay_dry_wet",
+"value_range": [
+0.0,
+100.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad96540",
+"id": "DLfb",
+"style_parameter_id": "fx_delay_feedback",
+"value_range": [
+-99.9,
+99.9
+],
+"default_value": 50.0
+},
+{
+"native_address": "0x27ad96578",
+"id": "RVga",
+"style_parameter_id": "fx_reverb_gain",
+"value_range": [
+-20.0,
+20.01
+],
+"default_value": 1.0
+},
+{
+"native_address": "0x27ad965b0",
+"id": "RVdw",
+"style_parameter_id": "fx_reverb_dry_wet",
+"value_range": [
+0.0,
+100.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad965e8",
+"id": "RVmi",
+"style_parameter_id": "fx_reverb_min_delay_time",
+"value_range": [
+0.0001,
+1.0
+],
+"default_value": 0.008
+},
+{
+"native_address": "0x27ad96620",
+"id": "RVma",
+"style_parameter_id": "fx_reverb_max_delay_time",
+"value_range": [
+0.0001,
+1.0
+],
+"default_value": 0.05
+},
+{
+"native_address": "0x27ad96658",
+"id": "RVlf",
+"style_parameter_id": "fx_reverb_low_frequency_decay_time",
+"value_range": [
+0.001,
+20.0
+],
+"default_value": 1.0
+},
+{
+"native_address": "0x27ad96690",
+"id": "RVhf",
+"style_parameter_id": "fx_reverb_high_frequency_decay_time",
+"value_range": [
+0.001,
+20.0
+],
+"default_value": 0.5
+},
+{
+"native_address": "0x27ad966c8",
+"id": "RVrr",
+"style_parameter_id": "fx_reverb_randomize_reflections",
+"value_range": [
+1.0,
+1000.0
+],
+"default_value": 1.0
+},
+{
+"native_address": "0x27ad96700",
+"id": "HP2f",
+"style_parameter_id": "fx_hp_cutoff_freq",
+"value_range": [
+10.0,
+22050.0
+],
+"default_value": 10.0
+},
+{
+"native_address": "0x27ad96738",
+"id": "HP2r",
+"style_parameter_id": "fx_hp_reso",
+"value_range": [
+-20.0,
+40.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad96770",
+"id": "LP2f",
+"style_parameter_id": "fx_lp_cutoff_freq",
+"value_range": [
+10.0,
+21829.5
+],
+"default_value": 22000.0
+},
+{
+"native_address": "0x27ad967a8",
+"id": "LP2r",
+"style_parameter_id": "fx_lp_reso",
+"value_range": [
+-20.0,
+40.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad967e0",
+"id": "Ga3g",
+"style_parameter_id": "fx_mixer_dry",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 1.0
+},
+{
+"native_address": "0x27ad96818",
+"id": "Ga4g",
+"style_parameter_id": "fx_mixer_wet",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad96850",
+"id": "ts_rate",
+"style_parameter_id": "ts_rate",
+"value_range": [
+0.03125,
+32.0
+],
+"default_value": 1.0
+},
+{
+"native_address": "0x27ad96888",
+"id": "out_gain",
+"style_parameter_id": "out_gain",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 0.0
+},
+{
+"native_address": "0x27ad968c0",
+"id": "bypa",
+"style_parameter_id": "bypa",
+"value_range": [
+0.0,
+1.0
+],
+"default_value": 1.0
+}
+],
+"notes": [
+"Output out_gain has a zero descriptor default but is excluded from the default DSP provider.",
+"Four-character DSP IDs and style parameter names are distinct.",
+"Descriptor defaults may differ from raw DSPGraph resource defaults.",
+"Value ranges describe native parameters, not reconstructed effect algorithms."
+]
+}

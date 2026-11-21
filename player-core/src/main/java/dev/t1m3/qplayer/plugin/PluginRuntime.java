@@ -242,7 +242,7 @@ public final class PluginRuntime implements AutoCloseable {
         return new BaseFunction() {
             @Override public Object call(Context cx, Scriptable callScope, Scriptable thisObj, Object[] args) {
                 String method = args.length > 0 ? Context.toString(args[0]) : "";
-                PluginPermission required = PluginHostMethods.requiredPermission(method);
+                PluginPermission required = requiredPermission(method);
                 if ((required == null && !isUnprivilegedMethod(method))
                         || (required != null && !permissions.contains(required))) {
                     throw new PluginExecutionException("permission denied for host method " + method);
@@ -309,23 +309,19 @@ public final class PluginRuntime implements AutoCloseable {
         ((Function) then).call(cx, scope, (Scriptable) value, new Object[]{resolve, reject});
     }
 
-    /** A rejected plugin promise usually carries a JS {@code Error} whose message is
-     *  the user-facing reason the source reported ("操作过于频繁…"). Stringifying the
-     *  Error itself would prefix it with "Error: " and that whole string then ends up
-     *  in a toast, so read the message property when there is one. */
-    private static String rejectionMessage(Object rejected) {
-        if (rejected instanceof Scriptable) {
-            Object message = ScriptableObject.getProperty((Scriptable) rejected, "message");
-            if (message != null && message != Scriptable.NOT_FOUND && message != Undefined.instance) {
-                String text = Context.toString(message).trim();
-                if (!text.isEmpty()) return text;
-            }
-        }
-        if (rejected == null) return "plugin promise rejected";
-        String text = Context.toString(rejected).trim();
-        return text.isEmpty() ? "plugin promise rejected" : text;
+    private PluginPermission requiredPermission(String method) {
+        if (method.startsWith("http.")) return PluginPermission.NETWORK;
+        if (method.startsWith("credentials.")) return PluginPermission.CREDENTIALS;
+        if (method.startsWith("webAuth.")) return PluginPermission.WEB_AUTH;
+        if (method.startsWith("clipboard.")) return PluginPermission.CLIPBOARD;
+        if (method.startsWith("openUrl.")) return PluginPermission.OPEN_URL;
+        if (method.startsWith("playback.read")) return PluginPermission.PLAYBACK_READ;
+        if (method.startsWith("playback.")) return PluginPermission.PLAYBACK_CONTROL;
+        if (method.startsWith("queue.")) return PluginPermission.QUEUE_WRITE;
+        if (method.startsWith("notifications.")) return PluginPermission.NOTIFICATIONS;
+        if (method.startsWith("timers.")) return PluginPermission.BACKGROUND_TIMERS;
+        return null;
     }
-
 
     private static boolean isUnprivilegedMethod(String method) {
         return method.startsWith("storage.") || method.startsWith("crypto.")
@@ -481,10 +477,7 @@ public final class PluginRuntime implements AutoCloseable {
                     Object member = id instanceof Number
                             ? object.get(((Number) id).intValue(), object)
                             : object.get(key, object);
-                    // Optional JS object fields follow JSON object semantics.
-                    // Preserve explicit null, but do not turn undefined into a
-                    // supplied argument (for example a GET request's body).
-                    if (member != Undefined.instance && !(member instanceof Function)) {
+                    if (!(member instanceof Function)) {
                         out.put(key, fromJs(member, budget, depth + 1));
                     }
                 }
@@ -561,5 +554,25 @@ public final class PluginRuntime implements AutoCloseable {
                 throw new PluginExecutionException("plugin JavaScript timed out");
             }
         }
+    }
+
+    /**
+     * 插件 promise 被拒时的文案：优先读 JS {@code Error.message}。
+     *
+     * <p>插件抛的通常是 {@code new Error("操作过于频繁…")}，直接把 Error 对象字符串化会带上
+     * {@code "Error: "} 前缀，而这句话会原样进 toast——于是用户看到的是
+     * 「Error: 操作过于频繁…」。有 message 就用 message，没有才退回整体字符串化。
+     */
+    private static String rejectionMessage(Object rejected) {
+        if (rejected instanceof Scriptable) {
+            Object message = ScriptableObject.getProperty((Scriptable) rejected, "message");
+            if (message != null && message != Scriptable.NOT_FOUND && message != Undefined.instance) {
+                String text = Context.toString(message).trim();
+                if (!text.isEmpty()) return text;
+            }
+        }
+        if (rejected == null) return "plugin promise rejected";
+        String text = Context.toString(rejected).trim();
+        return text.isEmpty() ? "plugin promise rejected" : text;
     }
 }
