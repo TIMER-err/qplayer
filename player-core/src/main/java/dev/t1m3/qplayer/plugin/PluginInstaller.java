@@ -71,8 +71,9 @@ public final class PluginInstaller {
             }
             try {
                 registry.activate(pkg, approvedPermissions);
-            } catch (IOException error) {
-                deleteTree(target);
+            } catch (IOException | RuntimeException error) {
+                try { deleteTree(target); }
+                catch (IOException cleanup) { error.addSuppressed(cleanup); }
                 throw error;
             }
             return target;

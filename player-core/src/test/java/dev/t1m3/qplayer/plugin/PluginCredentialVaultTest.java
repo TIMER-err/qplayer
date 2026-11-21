@@ -124,6 +124,34 @@ public class PluginCredentialVaultTest {
         assertTrue(vault.usesOwnerOnlyCredentialProtection());
     }
 
+    @Test
+    public void recoveryLogsOperationAndCauseTypesWithoutSecretMessages() throws Exception {
+        Path directory = temporary.newFolder("recovery-diagnostics").toPath();
+        Path key = directory.resolve("master.key");
+        PluginCredentialVault writer = new PluginCredentialVault(directory.resolve("credentials"),
+                new CredentialCipher(key, new ReversibleProtector()));
+        writer.put("first", "cookie", "actual-cookie-secret".getBytes(StandardCharsets.UTF_8));
+        CredentialKeyProtector failing = new CredentialKeyProtector() {
+            @Override public String id() { return "test-plugin-store"; }
+            @Override public byte[] protect(byte[] value) { return Arrays.copyOf(value, value.length); }
+            @Override public byte[] unprotect(byte[] value) throws java.io.IOException {
+                throw new java.io.IOException("cookie=never-log-this",
+                        new IllegalStateException("platform-secret=also-private"));
+            }
+        };
+        PluginCredentialVault vault = new PluginCredentialVault(directory.resolve("credentials"),
+                new CredentialCipher(key, failing));
+        assertFalse(vault.retryCredentialUnlock());
+        String diagnostic = dev.t1m3.qplayer.util.Logger.snapshot().stream()
+                .filter(line -> line.contains("credential recovery retryCredentialUnlock failed:"))
+                .reduce((first, last) -> last).orElse("");
+        assertTrue(diagnostic.contains("java.io.IOException"));
+        assertTrue(diagnostic.contains("java.lang.IllegalStateException"));
+        assertFalse(diagnostic.contains("never-log-this"));
+        assertFalse(diagnostic.contains("also-private"));
+        assertFalse(diagnostic.contains("actual-cookie-secret"));
+    }
+
     private static final class ReversibleProtector implements CredentialKeyProtector {
         @Override public String id() { return "test-plugin-store"; }
 

@@ -83,8 +83,16 @@ public final class LyricTimeline {
     public static Frame frameAt(Prepared prepared, long positionMs) {
         if (prepared == null || prepared.groups.isEmpty()) return Frame.EMPTY;
         int index = activeGroupIndex(prepared.groups, positionMs);
-        if (index < 0) return new Frame("", "", "", textOf(prepared, 0),
-                Collections.<Syllable>emptyList(), false, 0f, -1);
+        if (index < 0) {
+            // Before the first timestamp: keep the upcoming line as current so
+            // compact hosts do not fall back to the song title on intro / loop.
+            Group first = prepared.groups.get(0);
+            return new Frame("", textOf(prepared, 0),
+                    firstSidecar(prepared.lines, first, true),
+                    prepared.groups.size() > 1 ? textOf(prepared, 1) : "",
+                    displaySyllables(prepared.lines, first),
+                    prepared.animatablePerToken, 0f, 0);
+        }
         Group group = prepared.groups.get(index);
         String previous = index > 0 ? textOf(prepared, index - 1) : "";
         String current = textOf(prepared, index);
@@ -95,6 +103,22 @@ public final class LyricTimeline {
         float progress = Math.max(0f, Math.min(1f, (positionMs - group.startMs) / (float) span));
         return new Frame(previous, current, translation, next, currentSyllables,
                 prepared.animatablePerToken, progress, index);
+    }
+
+    /**
+     * End of a timed syllable for karaoke fill. Zero-duration tokens (QRC
+     * spaces, untimed spacers) extend to the next syllable's start instead of
+     * collapsing to 1 ms, which would flash the glyph then wait until the
+     * next real timestamp.
+     */
+    public static long syllableEndMs(List<Syllable> syllables, int index) {
+        if (syllables == null || index < 0 || index >= syllables.size()) return 0L;
+        Syllable syllable = syllables.get(index);
+        if (syllable.durationMs > 0L) return syllable.startMs + syllable.durationMs;
+        if (index + 1 < syllables.size()) {
+            return Math.max(syllable.startMs, syllables.get(index + 1).startMs);
+        }
+        return syllable.startMs;
     }
 
     private static String textOf(Prepared prepared, int groupIndex) {
@@ -303,16 +327,5 @@ public final class LyricTimeline {
             this.progress = progress;
             this.groupIndex = groupIndex;
         }
-    }
-
-    /** 一个时间片的结束时刻（零时长的空格/占位会延伸到下一片的起点）。 */
-    public static long syllableEndMs(java.util.List<dev.t1m3.qplayer.lyric.Syllable> syllables, int index) {
-        if (syllables == null || index < 0 || index >= syllables.size()) return 0L;
-        dev.t1m3.qplayer.lyric.Syllable syllable = syllables.get(index);
-        if (syllable.durationMs > 0L) return syllable.startMs + syllable.durationMs;
-        if (index + 1 < syllables.size()) {
-            return Math.max(syllable.startMs, syllables.get(index + 1).startMs);
-        }
-        return syllable.startMs;
     }
 }

@@ -2,10 +2,12 @@ package dev.t1m3.qplayer.lyric.skia;
 
 import dev.t1m3.qplayer.lyric.Syllable;
 
-import java.text.BreakIterator;
+import io.github.timer_err.qml4j.render.text.UnicodeBreaks;
+
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
 
 /** Pure Unicode text segmentation and row-breaking used by lyric renderers. */
 final class LyricTextLayout {
@@ -15,13 +17,60 @@ final class LyricTextLayout {
     private LyricTextLayout() {}
 
     static int[] wrapStarts(List<Syllable> syllables, float[] widths, float maxWidth) {
+        StringBuilder text = new StringBuilder();
+        int[] offsets = new int[syllables.size() + 1];
+        for (int i = 0; i < syllables.size(); i++) {
+            offsets[i] = text.length();
+            String value = syllables.get(i).text;
+            if (value != null) text.append(value);
+        }
+        offsets[syllables.size()] = text.length();
+        UnicodeBreaks.Analysis breaks = UnicodeBreaks.analyze(text.toString());
+        int[] starts = wrapStarts(breaks, offsets, widths, maxWidth);
+        if (text.length() > 0 && breaks.mandatory[text.length()]) {
+            starts = Arrays.copyOf(starts, starts.length + 1);
+            starts[starts.length - 1] = syllables.size();
+        }
+        return starts;
+    }
+
+    /** UTF-16 row starts for translation/romanization, including a final blank row. */
+    static int[] wrapTextStarts(UnicodeBreaks.Analysis breaks, float[] widths, float maxWidth) {
+        int[] starts = wrapStarts(breaks, breaks.graphemes, widths, maxWidth);
+        for (int i = 0; i < starts.length; i++) starts[i] = breaks.graphemes[starts[i]];
+        int end = breaks.graphemes[breaks.graphemes.length - 1];
+        if (end > 0 && breaks.mandatory[end]) {
+            starts = Arrays.copyOf(starts, starts.length + 1);
+            starts[starts.length - 1] = end;
+        }
+        return starts;
+    }
+
+    /**
+     * Maps the shared Unicode rules to already measured units. Offsets may refer
+     * to either timed syllables or graphemes, including a slice of a larger text.
+     * Only the smallest indivisible unit may overflow the available width.
+     */
+    static int[] wrapStarts(UnicodeBreaks.Analysis breaks, int[] offsets,
+                            float[] widths, float maxWidth) {
         int size = widths.length;
         if (size == 0) return new int[]{0, 0};
         float limit = Math.max(1f, maxWidth);
         float[] prefix = new float[size + 1];
-        for (int i = 0; i < size; i++) prefix[i + 1] = prefix[i] + Math.max(0f, widths[i]);
-        boolean[] safe = safeBreaks(syllables);
-        boolean[] preferred = preferredBreaks(syllables);
+        boolean[] safe = new boolean[size + 1];
+        boolean[] preferred = new boolean[size + 1];
+        boolean[] mandatory = new boolean[size + 1];
+        for (int i = 0; i <= size; i++) {
+            int offset = offsets[i];
+            safe[i] = breaks.line[offset] || breaks.emergency[offset];
+            preferred[i] = breaks.line[offset];
+            mandatory[i] = breaks.mandatory[offset]
+                    && (i == 0 || offset != offsets[i - 1]);
+            if (i < size) prefix[i + 1] = prefix[i] + Math.max(0f, widths[i]);
+        }
+        // Slice endpoints are retained; inner boundaries must remain Unicode-safe.
+        safe[0] = safe[size] = true;
+        preferred[size] = true;
         ArrayList<Integer> starts = new ArrayList<>();
         starts.add(0);
         int rowStart = 0;
@@ -29,10 +78,11 @@ final class LyricTextLayout {
             int preferredEnd = -1;
             int emergencyEnd = -1;
             for (int end = rowStart + 1; end <= size; end++) {
-                if (end < size && !safe[end]) continue;
+                if (!safe[end]) continue;
                 if (!rowFits(prefix, safe, rowStart, end, limit)) break;
                 emergencyEnd = end;
                 if (preferred[end]) preferredEnd = end;
+                if (mandatory[end]) break;
             }
             int next = preferredEnd > rowStart ? preferredEnd : emergencyEnd;
             if (next <= rowStart) {
@@ -42,7 +92,7 @@ final class LyricTextLayout {
             starts.add(next);
             rowStart = next;
         }
-        softenFinalOrphan(starts, prefix, safe, preferred, limit);
+        softenFinalOrphan(starts, prefix, safe, preferred, mandatory, limit);
         int[] result = new int[starts.size()];
         for (int i = 0; i < result.length; i++) result[i] = starts.get(i);
         return result;
@@ -50,12 +100,13 @@ final class LyricTextLayout {
 
     private static void softenFinalOrphan(ArrayList<Integer> starts, float[] prefix,
                                           boolean[] safe, boolean[] preferred,
-                                          float maxWidth) {
+                                          boolean[] mandatory, float maxWidth) {
         if (starts.size() < 3) return;
         int end = starts.get(starts.size() - 1);
         int splitSlot = starts.size() - 2;
         int split = starts.get(splitSlot);
         int previousStart = starts.get(splitSlot - 1);
+        if (mandatory[split]) return;
         float previousWidth = prefix[split] - prefix[previousStart];
         float finalWidth = prefix[end] - prefix[split];
         float currentRatio = shorterToLongerRatio(previousWidth, finalWidth);
@@ -94,147 +145,54 @@ final class LyricTextLayout {
         return true;
     }
 
-    private static boolean[] safeBreaks(List<Syllable> syllables) {
-        int size = syllables.size();
-        boolean[] result = new boolean[size + 1];
-        result[0] = true;
-        result[size] = true;
-        StringBuilder text = new StringBuilder();
-        int[] offsets = new int[size + 1];
-        for (int i = 0; i < size; i++) {
-            offsets[i] = text.length();
-            String value = syllables.get(i).text;
-            if (value != null) text.append(value);
-        }
-        offsets[size] = text.length();
-        String fullText = text.toString();
-        for (int i = 1; i < size; i++) result[i] = isSafeGraphemeBoundary(fullText, offsets[i]);
-        return result;
-    }
-
-    private static boolean[] preferredBreaks(List<Syllable> syllables) {
-        int size = syllables.size();
-        boolean[] result = new boolean[size + 1];
-        result[0] = true;
-        result[size] = true;
-        StringBuilder text = new StringBuilder();
-        int[] offsets = new int[size + 1];
-        for (int i = 0; i < size; i++) {
-            offsets[i] = text.length();
-            String value = syllables.get(i).text;
-            if (value != null) text.append(value);
-        }
-        offsets[size] = text.length();
-        String fullText = text.toString();
-        boolean[] unicodeBreaks = unicodeLineBreakOffsets(fullText);
-        for (int i = 1; i < size; i++) {
-            result[i] = isSafeGraphemeBoundary(fullText, offsets[i])
-                    && (canBreakBefore(syllables, i) || unicodeBreaks[offsets[i]]);
-        }
-        return result;
-    }
-
-    private static boolean canBreakBefore(List<Syllable> syllables, int index) {
-        String previous = syllables.get(index - 1).text;
-        String current = syllables.get(index).text;
-        if (previous == null || previous.isEmpty() || current == null || current.isEmpty()) return true;
-        char last = previous.charAt(previous.length() - 1);
-        char first = current.charAt(0);
-        return Character.isWhitespace(last) || Character.isWhitespace(first)
-                || isWrapCjk(last) || isWrapCjk(first);
-    }
-
     static int[] graphemeBoundaries(String text) {
-        BreakIterator iterator = BreakIterator.getCharacterInstance(lineBreakLocale(text));
-        iterator.setText(text);
-        ArrayList<Integer> offsets = new ArrayList<>();
-        for (int boundary = iterator.first(); boundary != BreakIterator.DONE; boundary = iterator.next()) {
-            if (isSafeGraphemeBoundary(text, boundary)) offsets.add(boundary);
+        return UnicodeBreaks.analyze(text).graphemes;
+    }
+
+    /** Renderer-owned fragments retain the exact source text and timing coverage. */
+    static List<Syllable> splitTimedSyllable(Syllable syllable, int[] offsets) {
+        if (offsets.length <= 2) return Collections.singletonList(syllable);
+        ArrayList<Syllable> fragments = new ArrayList<>(offsets.length - 1);
+        int length = syllable.text.length();
+        for (int i = 0; i + 1 < offsets.length; i++) {
+            int start = offsets[i];
+            int end = offsets[i + 1];
+            long startMs = syllable.startMs + Math.round(syllable.durationMs * (start / (double) length));
+            long endMs = end == length ? syllable.startMs + syllable.durationMs
+                    : syllable.startMs + Math.round(syllable.durationMs * (end / (double) length));
+            fragments.add(new Syllable(syllable.text.substring(start, end), startMs,
+                    Math.max(0L, endMs - startMs)));
         }
-        if (offsets.isEmpty() || offsets.get(0) != 0) offsets.add(0, 0);
-        if (offsets.get(offsets.size() - 1) != text.length()) offsets.add(text.length());
-        int[] result = new int[offsets.size()];
-        for (int i = 0; i < result.length; i++) result[i] = offsets.get(i);
-        return result;
+        return fragments;
     }
 
-    static boolean[] unicodeLineBreakOffsets(String text) {
-        boolean[] result = new boolean[text.length() + 1];
-        BreakIterator iterator = BreakIterator.getLineInstance(lineBreakLocale(text));
-        iterator.setText(text);
-        for (int boundary = iterator.first(); boundary != BreakIterator.DONE; boundary = iterator.next()) {
-            if (isSafeGraphemeBoundary(text, boundary)) result[boundary] = true;
+    /** Hard-break controls belong to the source/timing offsets, not the glyph run. */
+    static int visibleRowEnd(String text, int start, int end) {
+        while (end > start) {
+            int codePoint = text.codePointBefore(end);
+            if (codePoint != '\r' && codePoint != '\n' && codePoint != '\u000B'
+                    && codePoint != '\f' && codePoint != '\u0085'
+                    && codePoint != '\u2028' && codePoint != '\u2029') break;
+            end -= Character.charCount(codePoint);
         }
-        result[0] = true;
-        result[text.length()] = true;
-        return result;
-    }
-
-    private static boolean isSafeGraphemeBoundary(String text, int offset) {
-        if (offset <= 0 || offset >= text.length()) return true;
-        int previous = text.codePointBefore(offset);
-        int next = text.codePointAt(offset);
-        int nextType = Character.getType(next);
-        if (nextType == Character.NON_SPACING_MARK
-                || nextType == Character.COMBINING_SPACING_MARK
-                || nextType == Character.ENCLOSING_MARK
-                || isVariationSelector(next) || isEmojiModifier(next) || next == 0x200D) {
-            return false;
-        }
-        return previous != 0x200D && !isVirama(previous);
-    }
-
-    private static boolean isVariationSelector(int codePoint) {
-        return (codePoint >= 0xFE00 && codePoint <= 0xFE0F)
-                || (codePoint >= 0xE0100 && codePoint <= 0xE01EF);
-    }
-
-    private static boolean isEmojiModifier(int codePoint) {
-        return codePoint >= 0x1F3FB && codePoint <= 0x1F3FF;
-    }
-
-    private static boolean isVirama(int codePoint) {
-        switch (codePoint) {
-            case 0x094D: case 0x09CD: case 0x0A4D: case 0x0ACD:
-            case 0x0B4D: case 0x0BCD: case 0x0C4D: case 0x0CCD:
-            case 0x0D4D: case 0x0DCA: case 0x0E3A: case 0x0EBA:
-            case 0x1039: case 0x17D2:
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    private static Locale lineBreakLocale(String text) {
-        for (int i = 0; i < text.length();) {
-            int codePoint = text.codePointAt(i);
-            Character.UnicodeScript script = Character.UnicodeScript.of(codePoint);
-            if (script == Character.UnicodeScript.THAI) return new Locale("th");
-            if (script == Character.UnicodeScript.KHMER) return new Locale("km");
-            if (script == Character.UnicodeScript.LAO) return new Locale("lo");
-            if (script == Character.UnicodeScript.MYANMAR) return new Locale("my");
-            i += Character.charCount(codePoint);
-        }
-        return Locale.ROOT;
+        return end;
     }
 
     static int[][] displayWordRanges(String text) {
         if (text == null || text.isEmpty()) return new int[0][];
         ArrayList<int[]> result = new ArrayList<>();
+        int[] graphemes = graphemeBoundaries(text);
         int offset = 0;
         while (offset < text.length()) {
             int codePoint = text.codePointAt(offset);
             int count = Character.charCount(codePoint);
             if (!isWordCodePoint(codePoint)) {
-                offset += count;
+                offset = graphemeAtOrAfter(graphemes, offset + count);
                 continue;
             }
             int start = offset;
             if (isEastAsianCodePoint(codePoint)) {
-                offset += count;
-                while (offset < text.length() && isCombiningMark(text.codePointAt(offset))) {
-                    offset += Character.charCount(text.codePointAt(offset));
-                }
+                offset = graphemeAtOrAfter(graphemes, offset + count);
             } else {
                 Character.UnicodeScript script = Character.UnicodeScript.of(codePoint);
                 offset += count;
@@ -256,9 +214,15 @@ final class LyricTextLayout {
                     offset += Character.charCount(next);
                 }
             }
+            offset = graphemeAtOrAfter(graphemes, offset);
             result.add(new int[]{start, offset});
         }
         return result.toArray(new int[0][]);
+    }
+
+    private static int graphemeAtOrAfter(int[] graphemes, int offset) {
+        int index = Arrays.binarySearch(graphemes, offset);
+        return graphemes[index >= 0 ? index : -index - 1];
     }
 
     static int[][] displayWordSyllableRanges(String text, int[] syllableOffsets) {
@@ -313,9 +277,4 @@ final class LyricTextLayout {
                 || script == Character.UnicodeScript.KATAKANA;
     }
 
-    private static boolean isWrapCjk(char value) {
-        return (value >= 0x4E00 && value <= 0x9FFF)
-                || (value >= 0x3040 && value <= 0x30FF)
-                || (value >= 0xAC00 && value <= 0xD7A3);
-    }
 }

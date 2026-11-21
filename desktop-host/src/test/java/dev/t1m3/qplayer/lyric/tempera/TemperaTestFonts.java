@@ -16,8 +16,6 @@ final class TemperaTestFonts {
                     case LIGHT -> "Light";
                     case REGULAR -> "Regular";
                     case MEDIUM -> "Medium";
-                    // 我们的 Weight 多 BOLD/HEAVY（字重档要）✓ 内置字面只有 4 个 ⇒ 回落 Medium
-                    case BOLD, HEAVY -> "Medium";
                 } + ".otf"));
         Fonts.setSelection("");
     }

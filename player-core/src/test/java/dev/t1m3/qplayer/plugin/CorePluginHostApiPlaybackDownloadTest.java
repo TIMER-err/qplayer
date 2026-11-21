@@ -1,0 +1,189 @@
+package dev.t1m3.qplayer.plugin;
+
+import com.sun.net.httpserver.HttpServer;
+import dev.t1m3.qplayer.store.CredentialCipher;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
+
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.concurrent.TimeUnit;
+
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
+public class CorePluginHostApiPlaybackDownloadTest {
+    @Rule public TemporaryFolder temporary = new TemporaryFolder();
+
+    @Test
+    public void playbackDownloadFollowsAnUndeclaredCdnHop() throws Exception {
+        byte[] body = "AUDIO".getBytes(StandardCharsets.UTF_8);
+        HttpServer origin = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        HttpServer cdn;
+        try {
+            // Keep a distinct URL host for the grant check without requiring a second loopback IP.
+            cdn = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        } catch (Exception error) {
+            origin.stop(0);
+            throw error;
+        }
+        origin.createContext("/start", exchange -> {
+            exchange.getResponseHeaders().set("Location",
+                    "http://localhost:" + cdn.getAddress().getPort() + "/song.mp3");
+            exchange.sendResponseHeaders(302, -1);
+            exchange.close();
+        });
+        cdn.createContext("/song.mp3", exchange -> {
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        origin.start();
+        cdn.start();
+        Path target = temporary.getRoot().toPath().resolve("saved.mp3");
+        String start = "http://127.0.0.1:" + origin.getAddress().getPort() + "/start";
+        try (CorePluginHostApi api = new CorePluginHostApi(
+                temporary.getRoot().toPath().resolve("plugin-data"),
+                new PluginCredentialVault(
+                        temporary.getRoot().toPath().resolve("credentials"),
+                        new CredentialCipher(temporary.getRoot().toPath().resolve("master.key"))))) {
+            api.register(granted());
+            Boolean ok = api.downloadReturnedFile("fixture", start, Collections.emptyMap(),
+                    target, 1024, 5_000, true).get(10, TimeUnit.SECONDS);
+            assertTrue(ok);
+            assertArrayEquals(body, Files.readAllBytes(target));
+
+            Path rejected = temporary.getRoot().toPath().resolve("rejected.mp3");
+            try {
+                api.downloadReturnedFile("fixture", start, Collections.emptyMap(),
+                        rejected, 1024, 5_000, false).get(10, TimeUnit.SECONDS);
+                fail("strict grant should reject the undeclared hop");
+            } catch (Exception error) {
+                Throwable root = error;
+                while (root.getCause() != null && root.getCause() != root) root = root.getCause();
+                assertTrue(root.getMessage(),
+                        root.getMessage().contains("network domain is not declared: localhost"));
+            }
+        } finally {
+            origin.stop(0);
+            cdn.stop(0);
+        }
+    }
+
+    @Test
+    public void stoppingDisconnectsDownloadsAndAcknowledgesPendingFileCleanup() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        java.util.concurrent.ExecutorService handlers = java.util.concurrent.Executors.newCachedThreadPool();
+        java.util.concurrent.CountDownLatch entered = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        server.setExecutor(handlers);
+        server.createContext("/slow", exchange -> {
+            try {
+                exchange.sendResponseHeaders(200, 0);
+                exchange.getResponseBody().write(new byte[]{1, 2, 3});
+                exchange.getResponseBody().flush();
+                entered.countDown();
+                release.await();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            } finally {
+                exchange.close();
+            }
+        });
+        server.start();
+        try (CorePluginHostApi api = new CorePluginHostApi(
+                temporary.getRoot().toPath().resolve("plugin-data"),
+                new PluginCredentialVault(temporary.getRoot().toPath().resolve("credentials"),
+                        new CredentialCipher(temporary.getRoot().toPath().resolve("master.key"))))) {
+            api.register(granted());
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/slow";
+            java.util.List<java.util.concurrent.CompletableFuture<Boolean>> results = new java.util.ArrayList<>();
+            java.util.List<Path> targets = new java.util.ArrayList<>();
+            for (int index = 0; index < 8; index++) {
+                Path target = temporary.getRoot().toPath().resolve("slow-" + index + ".mp3");
+                targets.add(target);
+                results.add(api.downloadReturnedFile("fixture", url, Collections.emptyMap(),
+                        target, 1024, 120_000));
+            }
+            assertTrue(entered.await(2, TimeUnit.SECONDS));
+            api.cancelPendingOperations().get(5, TimeUnit.SECONDS);
+            for (java.util.concurrent.CompletableFuture<Boolean> result : results) {
+                org.junit.Assert.assertThrows(java.util.concurrent.CancellationException.class,
+                        () -> result.get(2, TimeUnit.SECONDS));
+            }
+            for (Path target : targets) {
+                org.junit.Assert.assertFalse(Files.exists(target));
+                org.junit.Assert.assertFalse(Files.exists(
+                        dev.t1m3.qplayer.store.StorageFiles.pendingPath(target)));
+            }
+            assertTrue(api.downloadReturnedFile("fixture", url, Collections.emptyMap(),
+                    targets.get(0), 1024, 5_000).isCancelled());
+        } finally {
+            release.countDown();
+            server.stop(0);
+            handlers.shutdownNow();
+        }
+    }
+
+    @Test
+    public void legitimateIdleDownloadRetainsItsConfiguredReadTimeout() throws Exception {
+        byte[] body = "AUDIO".getBytes(StandardCharsets.UTF_8);
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        java.util.concurrent.CountDownLatch entered = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch tailAllowed = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.ScheduledExecutorService timer =
+                java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
+        server.createContext("/idle", exchange -> {
+            try {
+                exchange.sendResponseHeaders(200, body.length);
+                exchange.getResponseBody().write(body, 0, 2);
+                exchange.getResponseBody().flush();
+                entered.countDown();
+                tailAllowed.await();
+                exchange.getResponseBody().write(body, 2, body.length - 2);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            } finally {
+                exchange.close();
+            }
+        });
+        server.start();
+        Path target = temporary.getRoot().toPath().resolve("idle.mp3");
+        try (CorePluginHostApi api = new CorePluginHostApi(
+                temporary.getRoot().toPath().resolve("plugin-data"),
+                new PluginCredentialVault(temporary.getRoot().toPath().resolve("credentials"),
+                        new CredentialCipher(temporary.getRoot().toPath().resolve("master.key"))))) {
+            api.register(granted());
+            java.util.concurrent.CompletableFuture<Boolean> result = api.downloadReturnedFile(
+                    "fixture", "http://127.0.0.1:" + server.getAddress().getPort() + "/idle",
+                    Collections.emptyMap(), target, 1024, 5_000);
+            assertTrue(entered.await(2, TimeUnit.SECONDS));
+            timer.schedule(tailAllowed::countDown, 1_500, TimeUnit.MILLISECONDS);
+            assertTrue(result.get(10, TimeUnit.SECONDS));
+            assertArrayEquals(body, Files.readAllBytes(target));
+        } finally {
+            tailAllowed.countDown();
+            server.stop(0);
+            timer.shutdownNow();
+        }
+    }
+
+    private static PluginManifest granted() {
+        PluginManifest manifest = new PluginManifest();
+        manifest.schemaVersion = 1;
+        manifest.id = "fixture";
+        manifest.name = "Fixture";
+        manifest.version = "1.0.0";
+        manifest.apiVersion = "1.0";
+        manifest.entry = "main.js";
+        manifest.permissions = Arrays.asList("network", "clearTextNetwork", "localNetwork");
+        manifest.networkDomains = Arrays.asList("127.0.0.1");
+        return manifest;
+    }
+}

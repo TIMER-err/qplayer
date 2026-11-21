@@ -238,11 +238,9 @@ public final class TemperaProgram {
         int curStart = -1;
         int curCat = -1;
         int i = 0;
-        while (i < text.length()) {
-            int cp = text.codePointAt(i);
-            int len = Character.charCount(cp);
+        for (String piece : TemperaText.splitLyricGraphemes(text)) {
+            int cp = piece.codePointAt(0);
             int cat = categoryOf(cp);
-            String piece = text.substring(i, i + len);
             if (cat == CAT_CJK || cat == CAT_OTHER) {
                 // CJK 逐字、标点独立成段：先 flush 已缓冲段。
                 if (cur.length() > 0) {
@@ -263,7 +261,7 @@ public final class TemperaProgram {
                 }
                 cur.append(piece);
             }
-            i += len;
+            i += piece.length();
         }
         if (cur.length() > 0) {
             parts.add(new LyricWordSegment(cur.toString(), curStart, curCat == CAT_WORD));
@@ -285,8 +283,7 @@ public final class TemperaProgram {
     // ==================================================================
 
     /**
-     * 无损词级片段：把展示偏移映射回解析器的字素时间；黏连标点向前合并，使色块永不丢符号。
-     * 1:1 移植自 {@code buildTemperaSegments}。
+     * 无损词级片段：展示偏移及分词都落在扩展字素边界，逐字时间始终来自整行时间轴。
      */
     public static List<TemperaTypes.Segment> buildTemperaSegments(TemperaTypes.SourceLine line) {
         if (line.fullText == null || line.fullText.isEmpty()) {

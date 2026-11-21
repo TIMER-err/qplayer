@@ -28,17 +28,11 @@ import java.nio.charset.StandardCharsets;
  * {@code audio/}, {@code lyric/}, {@code image/}, {@code thumb64/}.
  * <p>
  * LRU eviction by last-modified time: after every write the total size is
- * checked against {@link #maxSizeBytes} and files are deleted until the
- * limit is satisfied. Callers should use the typed helper methods
+ * checked against {@link #maxSizeBytes} and oldest files are deleted until
+ * the limit is satisfied.  Callers should use the typed helper methods
  * ({@link #cacheAudio}, {@link #cacheLyric}, {@link #cacheImage}) which
  * touch the file on read (via {@link #getAudio}, etc.) so that actively-used
  * entries survive eviction.
- * <p>
- * <strong>音频是这条规则的一个例外</strong>（见 {@link #activelyCachedIds} 与
- * {@link #evictIfNeeded}）：受保护的（用户明确要缓存的、或此刻被临时钉住的）永不淘汰，
- * 其余未受保护的音频<strong>最新优先</strong>淘汰，而歌词/封面才是最旧优先。
- * 这条例外让「刚下载完的文件」在缓存已满时会立刻被自己挤掉——自动混音要接的
- * 「下一首」因此必须用 {@link #pinAudio} 钉住，否则预告到的路径转眼就不存在了。
  */
 public final class DiskCache {
 
@@ -76,14 +70,81 @@ public final class DiskCache {
     private final Set<String> activelyCachedIds = Collections.synchronizedSet(new HashSet<>());
     private volatile boolean activelyCachedDirty = false;
 
-    /**
-     * 临时保护（<strong>不落盘</strong>，进程重启即失效）：见 {@link #pinAudio}。
-     *
-     * <p>与 {@link #activelyCachedIds} 刻意分开：那个是<strong>用户的意愿</strong>
-     * （「缓存此歌曲」），会持久化、并且要一直留着；这个只是「<strong>这一刻</strong>
-     * 需要这个文件」，用完就撤。
-     */
-    private final Set<String> pinnedAudioKeys = Collections.synchronizedSet(new HashSet<>());
+    /** Cache key (same shape as an {@link #activelyCachedIds} entry — a bare
+     *  netease id, or the hashed key for a canonical media id) of whatever
+     *  track is actively playing right now, independent of the user's own
+     *  "缓存此歌曲" pins above. {@link #touch} bumps a file's mtime on every
+     *  read, and the audio eviction policy below deliberately evicts the
+     *  NEWEST unprotected file first — without this, simply playing a cached
+     *  song could make its own file the very next eviction's first victim,
+     *  deleting it out from under the still-open player mid-playback and
+     *  surfacing as a spurious "track completed" / auto-skip. Transient, not
+     *  persisted: only ever needs to protect whatever is playing right now. */
+    private volatile String currentlyPlayingKey;
+    private String currentlyPlayingLegacyKey;
+
+    /** Writers own both the destination and its staging sibling until promotion
+     *  and any manual pin have completed. Eviction never owns a staging file. */
+    private final Set<Path> activeWrites = new HashSet<>();
+
+    public final class WriteLease implements AutoCloseable {
+        private final Path target;
+        private boolean closed;
+
+        private WriteLease(Path target) { this.target = target; }
+
+        @Override public void close() {
+            synchronized (DiskCache.this) {
+                if (closed) return;
+                closed = true;
+                activeWrites.remove(target);
+                activeWrites.remove(StorageFiles.pendingPath(target));
+                evictIfNeeded();
+            }
+        }
+    }
+
+    public synchronized WriteLease beginExternalWrite(String targetPath) {
+        Path target = Paths.get(targetPath).toAbsolutePath().normalize();
+        if (!activeWrites.add(target)) throw new IllegalStateException("Cache write already active: " + target);
+        activeWrites.add(StorageFiles.pendingPath(target));
+        return new WriteLease(target);
+    }
+
+    private boolean isCommitted(File file) {
+        if (!file.isFile() || activeWrites.contains(file.toPath().toAbsolutePath().normalize())) return false;
+        String name = file.getName();
+        return name.endsWith(".cache") || name.endsWith(".ttml")
+                || name.endsWith(".nlrc") || name.endsWith(".img");
+    }
+
+    private boolean isProtectedAudio(File file) {
+        String stem = fileStem(file.getPath());
+        return activelyCachedIds.contains(stem) || stem.equals(currentlyPlayingKey)
+                || stem.equals(currentlyPlayingLegacyKey);
+    }
+
+    public synchronized void setCurrentlyPlaying(long neteaseId) {
+        currentlyPlayingKey = neteaseId > 0 ? Long.toString(neteaseId) : null;
+        currentlyPlayingLegacyKey = null;
+    }
+
+    public synchronized void setCurrentlyPlaying(String mediaId) {
+        currentlyPlayingKey = mediaId != null && !mediaId.isEmpty() ? audioKey(mediaId) : null;
+        currentlyPlayingLegacyKey = null;
+        try {
+            dev.t1m3.qplayer.media.MediaId id = dev.t1m3.qplayer.media.MediaId.parse(mediaId);
+            if ("netease".equals(id.provider()) && id.nativeId().matches("[1-9][0-9]*")) {
+                currentlyPlayingLegacyKey = id.nativeId();
+            }
+        } catch (IllegalArgumentException | NullPointerException ignored) {
+        }
+    }
+
+    public synchronized void clearCurrentlyPlaying() {
+        currentlyPlayingKey = null;
+        currentlyPlayingLegacyKey = null;
+    }
 
     public DiskCache(long maxSizeMB) {
         this.maxSizeBytes = maxSizeMB * 1024L * 1024L;
@@ -123,6 +184,33 @@ public final class DiskCache {
     public String audioPath(String mediaId) {
         if (mediaId == null || mediaId.isEmpty()) return null;
         return baseDir + "/" + AUDIO + "/" + audioKey(mediaId) + ".cache";
+    }
+
+    /** Sibling the downloader writes into before promoting to {@link #audioPath}.
+     *  Readable while the download is still in flight. */
+    public String audioPendingPath(String mediaId) {
+        String path = audioPath(mediaId);
+        if (path == null) return null;
+        return StorageFiles.pendingPath(Paths.get(path)).toString();
+    }
+
+    public String audioPendingPath(long neteaseId) {
+        String path = audioPath(neteaseId);
+        if (path == null) return null;
+        return StorageFiles.pendingPath(Paths.get(path)).toString();
+    }
+
+    /** Bytes already on disk for this id: the finished cache, else the pending file. */
+    public long audioPartialBytes(String mediaId) {
+        String complete = audioPath(mediaId);
+        if (complete != null) {
+            File done = new File(complete);
+            if (done.isFile()) return done.length();
+        }
+        String pending = audioPendingPath(mediaId);
+        if (pending == null) return 0L;
+        File part = new File(pending);
+        return part.isFile() ? part.length() : 0L;
     }
 
     /** Resolve cache file for AMLL TTML lyrics keyed by song id. */
@@ -232,13 +320,13 @@ public final class DiskCache {
     /** Mark a song as user-actively-cached (protects it from {@link #evictIfNeeded}).
      *  Call only after {@link #cacheAudio} actually succeeded — marking a song whose
      *  download failed would protect a file that doesn't exist. */
-    public void markActivelyCached(long neteaseId) {
+    public synchronized void markActivelyCached(long neteaseId) {
         if (neteaseId == 0 || !activelyCachedIds.add(Long.toString(neteaseId))) return;
         activelyCachedDirty = true;
         saveActivelyCached();
     }
 
-    public void markActivelyCached(String mediaId) {
+    public synchronized void markActivelyCached(String mediaId) {
         if (mediaId == null || mediaId.isEmpty() || !activelyCachedIds.add(audioKey(mediaId))) return;
         activelyCachedDirty = true;
         saveActivelyCached();
@@ -246,49 +334,6 @@ public final class DiskCache {
 
     private void unmarkActivelyCached(long neteaseId) {
         unmarkActivelyCachedKey(Long.toString(neteaseId));
-    }
-
-    // ---- 临时保护（自动混音 / 正在播放的那一首） --------------------------
-
-    /**
-     * 临时钉住一首歌的音频缓存，使 {@link #evictIfNeeded()} 跳过它。**不落盘**。
-     *
-     * <h3>为什么必须有它</h3>
-     *
-     * <p>缓存满的时候，未受保护的音频是按<strong>最新优先</strong>淘汰的（见
-     * {@link #activelyCachedIds} 的说明）。那条规则本身有它的道理——连着跳过几十首
-     * 留下的缓存没什么价值——但它有一个直接的后果：<strong>刚刚下载完的那个文件
-     * 会被它自己挤掉</strong>。
-     *
-     * <p>实测（2026-09-19，用户这台机器）：缓存正好卡在 200 MB 上限，7 首在线歌每首
-     * 在起播后约 7 秒自动落盘，随即被淘汰；日志里 5 条 {@code disk cache evicted} 的
-     * 哈希与刚播的那 5 首<strong>一一对应</strong>，缓存里一首都没剩下。也就是说
-     * 「播过的歌下次走本地」这件事在缓存满了以后<strong>完全不成立</strong>。
-     *
-     * <p>对自动混音更要命：预告给引擎的「下一首」如果是个随即被删掉的路径，引擎在
-     * 剩下的三十几秒后打开它必然失败，过渡只能退回硬接——<strong>有声的预告也会
-     * 变成没声的</strong>。
-     *
-     * <p><strong>为什么不用 {@link #markActivelyCached}</strong>：那是用户的意愿，会写进
-     * {@code actively-cached.txt} 并且永远留一份；自动混音每换一首就钉一首，缓存最后会
-     * 被这些「其实只是临时需要」的文件占满，用户自己真正想离线听的那些反而挤不进来。
-     *
-     * @param mediaId 规范媒体标识（与 {@link #audioPath(String)} 同一个键）
-     */
-    public void pinAudio(String mediaId) {
-        if (mediaId == null || mediaId.isEmpty()) return;
-        pinnedAudioKeys.add(audioKey(mediaId));
-    }
-
-    /** 撤掉 {@link #pinAudio} 的临时保护；撤了之后它就是一个普通的可淘汰文件。 */
-    public void unpinAudio(String mediaId) {
-        if (mediaId == null || mediaId.isEmpty()) return;
-        pinnedAudioKeys.remove(audioKey(mediaId));
-    }
-
-    /** 这一首现在是否被临时钉住（诊断/测试用）。 */
-    public boolean isAudioPinned(String mediaId) {
-        return mediaId != null && !mediaId.isEmpty() && pinnedAudioKeys.contains(audioKey(mediaId));
     }
 
     private void unmarkActivelyCachedKey(String key) {
@@ -380,17 +425,15 @@ public final class DiskCache {
      * Download an HTTP URL straight to the audio cache file.
      * Non-fatal: logs and cleans up on error.
      */
-    public void cacheAudio(String url, long neteaseId) {
+    public void cacheAudio(String url, long neteaseId, boolean activelyCached) {
         String path = audioPath(neteaseId);
-        downloadToFile(url, path);
+        downloadToFile(url, path, false, activelyCached ? Long.toString(neteaseId) : null);
     }
 
     public void cacheAudio(String url, String mediaId) {
         downloadToFile(url, audioPath(mediaId));
     }
 
-    /** Called after a policy-aware host download atomically populated audioPath. */
-    public void finishExternalWrite() { evictIfNeeded(); }
 
     /** Write raw bytes to the AMLL TTML lyric cache file. */
     public void cacheLyric(byte[] data, long songId) {
@@ -455,13 +498,12 @@ public final class DiskCache {
 
     private void writeBytes(byte[] data, String path) {
         if (data == null || path == null) return;
-        try {
+        try (WriteLease lease = beginExternalWrite(path)) {
             StorageFiles.writeBytesAtomic(Paths.get(path), data);
             Logger.info("disk cache written: {} ({} B)", fileName(path), data.length);
         } catch (Throwable e) {
             Logger.warn("disk cache write failed: {}", e.getMessage());
         }
-        evictIfNeeded();
     }
 
     private void downloadToFile(String url, String path) {
@@ -472,12 +514,18 @@ public final class DiskCache {
      *  thumbnails queues one download per track, which drowned the log (a few
      *  hundred lines per playlist opened). Failures are still logged. */
     private void downloadToFile(String url, String path, boolean quiet) {
+        downloadToFile(url, path, quiet, null);
+    }
+
+    private void downloadToFile(String url, String path, boolean quiet, String pinKey) {
         if (url == null || path == null) return;
         ensureParent(path);
         HttpURLConnection c = null;
         Path target = Paths.get(path);
         Path pending = StorageFiles.pendingPath(target);
+        WriteLease lease = null;
         try {
+            lease = beginExternalWrite(path);
             c = (HttpURLConnection) new URL(url).openConnection();
             c.setConnectTimeout(15000);
             c.setReadTimeout(30000);
@@ -489,28 +537,37 @@ public final class DiskCache {
                 while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
             }
             StorageFiles.replace(pending, target);
+            if (pinKey != null) {
+                synchronized (this) {
+                    if (activelyCachedIds.add(pinKey)) {
+                        activelyCachedDirty = true;
+                        saveActivelyCached();
+                    }
+                }
+            }
             if (!quiet) {
                 Logger.info("disk cache downloaded: {} ({} B)", fileName(path), new File(path).length());
             }
         } catch (Throwable e) {
             Logger.warn("disk cache download failed: {}", e.getMessage());
-            try { Files.deleteIfExists(pending); } catch (Throwable ignored) {}
+            if (lease != null) {
+                try { Files.deleteIfExists(pending); } catch (Throwable ignored) {}
+            }
         } finally {
             if (c != null) c.disconnect();
+            if (lease != null) lease.close();
         }
-        evictIfNeeded();
     }
 
     /**
      * If total cache size exceeds {@link #maxSizeBytes}, delete files until
      * under limit. Lyric/image files: oldest (lastModified) first, as
      * before. Audio files: an actively-cached one (see {@link
-     * #activelyCachedIds}) or a temporarily pinned one (see {@link #pinAudio})
-     * is never a candidate at all; among the rest,
+     * #activelyCachedIds}) is never a candidate at all; among the rest,
      * NEWEST first -- a burst of skip-through auto-caches is low value, and
      * an older auto-cached song more likely got actually listened to.
      */
-    private void evictIfNeeded() {
+    private synchronized void evictIfNeeded() {
         long limit = maxSizeBytes;
         if (limit <= 0) return; // 0 = unlimited
         long total = totalSize();
@@ -524,7 +581,10 @@ public final class DiskCache {
             File[] children = dir.listFiles();
             if (children == null) continue;
             for (File f : children) {
-                if (dir == audioDir && isProtectedAudio(f)) continue; // protected
+                if (!isCommitted(f)) continue;
+                if (dir == audioDir) {
+                    if (isProtectedAudio(f)) continue;
+                }
                 files.add(f);
             }
         }
@@ -534,25 +594,14 @@ public final class DiskCache {
 
         for (File f : files) {
             if (total <= limit) break;
+            if (!isCommitted(f)) continue;
+            if (f.getParentFile().equals(audioDir) && isProtectedAudio(f)) continue;
             long sz = f.length();
             if (f.delete()) {
                 total -= sz;
                 Logger.info("disk cache evicted: {}", f.getName());
             }
         }
-    }
-
-    /**
-     * 这个音频文件现在受不受保护。
-     *
-     * <p>两种保护：用户明确要求缓存的（{@link #activelyCachedIds}，永久）与此刻被临时
-     * 钉住的（{@link #pinnedAudioKeys}，进程内有效）。两者都<strong>不参与淘汰</strong>，
-     * 所以缓存满时被删的是别的文件——这也是「正在听的那一首」与「自动混音要接的
-     * 下一首」唯一能活下来的原因。
-     */
-    private boolean isProtectedAudio(File f) {
-        String stem = fileStem(f.getPath());
-        return activelyCachedIds.contains(stem) || pinnedAudioKeys.contains(stem);
     }
 
     private static long evictionKey(File f, File audioDir) {
@@ -623,9 +672,9 @@ public final class DiskCache {
 
     /** Count (not byte-size) cap on {@link #THUMB64}: delete the oldest files
      *  once there are more than {@link #THUMB64_MAX_COUNT}. */
-    private void evictThumb64IfOverCount() {
+    private synchronized void evictThumb64IfOverCount() {
         File dir = new File(baseDir, THUMB64);
-        File[] files = dir.listFiles();
+        File[] files = dir.listFiles(this::isCommitted);
         if (files == null || files.length <= THUMB64_MAX_COUNT) return;
         Arrays.sort(files, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
         int overBy = files.length - THUMB64_MAX_COUNT;
@@ -651,11 +700,13 @@ public final class DiskCache {
         return total;
     }
 
-    private static void deleteRecursive(File dir) {
+    private synchronized void deleteRecursive(File dir) {
         if (!dir.exists()) return;
         File[] children = dir.listFiles();
         if (children != null) {
-            for (File f : children) f.delete();
+            for (File f : children) {
+                if (!activeWrites.contains(f.toPath().toAbsolutePath().normalize())) f.delete();
+            }
         }
         dir.delete();
     }

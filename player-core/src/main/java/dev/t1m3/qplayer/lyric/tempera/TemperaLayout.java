@@ -1,5 +1,7 @@
 package dev.t1m3.qplayer.lyric.tempera;
 
+import io.github.timer_err.qml4j.render.text.UnicodeBreaks;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -67,14 +69,20 @@ public final class TemperaLayout {
         float fontScale;
     }
 
-    private static final class LayoutRow {
+    static final class LayoutRow {
         List<TemperaMeasure.WordUnit> words = new ArrayList<>();
         float width;
         float height;
     }
 
     public static boolean isLayoutSegment(TemperaTypes.Segment segment) {
-        return segment.text != null && !segment.text.trim().isEmpty();
+        if (segment.text == null || segment.text.isEmpty()) return false;
+        if (!segment.text.trim().isEmpty()) return true;
+        // 普通空格沿用 leadingGap；显式换行必须留下，不能在 Scene 过滤时消失。
+        for (boolean mandatory : UnicodeBreaks.analyze(segment.text).mandatory) {
+            if (mandatory) return true;
+        }
+        return false;
     }
 
     // 区域与入场矢量是数据，逐构图存放在 temperaShotProfiles 里。
@@ -136,40 +144,66 @@ public final class TemperaLayout {
         return scales;
     }
 
-    // 带种子的逐行填充预算下的贪心装箱，这正是让行参差的原因。
-    // 新的一行歌词永远另起一行，所以阅读顺序始终一目了然。
-    private static List<LayoutRow> packRows(List<TemperaMeasure.WordUnit> words,
-                                            float maxWidth, int seed) {
+    // 预算仍由种子控制，但正常机会优先；长词才使用受禁则约束的紧急机会。
+    // 没有能放下的不可拆单元时仅容许该单元溢出，交给原有整体缩放。
+    static List<LayoutRow> packRows(List<TemperaMeasure.WordUnit> words,
+                                     float maxWidth, int seed) {
         List<LayoutRow> rows = new ArrayList<>();
-        List<TemperaMeasure.WordUnit> current = new ArrayList<>();
-        float currentWidth = 0f;
-
-        for (TemperaMeasure.WordUnit word : words) {
-            boolean newLine = !current.isEmpty() && word.lineIndex != current.get(0).lineIndex;
-            // advance 与 budget 都用 flush 之前的 current 状态求值（与 folia 一致）。
-            float advance = current.isEmpty() ? word.width : word.width + word.leadingGap;
+        int start = 0;
+        while (start < words.size()) {
             float budget = (float) (maxWidth
                     * (0.72 + TemperaRandom.hash01(seed, rows.size(), 109) * 0.28));
-            if (newLine || (!current.isEmpty() && currentWidth + advance > budget)) {
-                if (!current.isEmpty()) {
-                    LayoutRow row = new LayoutRow();
-                    row.words = new ArrayList<>(current);
-                    row.width = currentWidth;
-                    row.height = 0f;
-                    rows.add(row);
-                    current = new ArrayList<>();
-                    currentWidth = 0f;
+            float width = 0f;
+            int normal = -1;
+            int emergency = -1;
+            int firstAllowed = -1;
+            int limit = start;
+            for (; limit < words.size(); limit++) {
+                TemperaMeasure.WordUnit word = words.get(limit);
+                if (word.lineIndex != words.get(start).lineIndex) break;
+                width += word.width + (limit == start ? 0f : word.leadingGap);
+                boolean lineEnd = limit + 1 == words.size()
+                        || words.get(limit + 1).lineIndex != word.lineIndex;
+                boolean allowed = word.emergencyBreakAfter || word.lineBreakAfter || lineEnd;
+                if (allowed && firstAllowed < 0) firstAllowed = limit + 1;
+                if (width <= budget) {
+                    if (word.lineBreakAfter || lineEnd) normal = limit + 1;
+                    if (allowed) emergency = limit + 1;
+                }
+                if (word.mandatoryBreakAfter || lineEnd || (width > budget && firstAllowed >= 0)) {
+                    limit++;
+                    break;
                 }
             }
-            currentWidth += current.isEmpty() ? word.width : advance;
-            current.add(word);
-        }
-        if (!current.isEmpty()) {
+            int end = normal > start ? normal : emergency > start ? emergency : firstAllowed;
+            if (end <= start) end = limit;
             LayoutRow row = new LayoutRow();
-            row.words = new ArrayList<>(current);
-            row.width = currentWidth;
-            row.height = 0f;
+            for (int index = start; index < end; index++) {
+                TemperaMeasure.WordUnit word = words.get(index);
+                float gap = index == start ? 0f : word.leadingGap;
+                row.width += gap + word.width;
+                TemperaMeasure.WordUnit previous = row.words.isEmpty()
+                        ? null : row.words.get(row.words.size() - 1);
+                if (previous != null && previous.segmentIndex == word.segmentIndex) {
+                    float offset = previous.width + gap;
+                    for (TemperaMeasure.WordGlyph glyph : word.glyphs) {
+                        glyph.offset += offset;
+                        previous.glyphs.add(glyph);
+                    }
+                    previous.width += gap + word.width;
+                    previous.endOffset = word.endOffset;
+                    previous.endTime = word.endTime;
+                } else {
+                    row.words.add(word);
+                }
+            }
+            for (TemperaMeasure.WordUnit word : row.words) {
+                StringBuilder text = new StringBuilder();
+                for (TemperaMeasure.WordGlyph glyph : word.glyphs) text.append(glyph.charText);
+                word.text = text.toString();
+            }
             rows.add(row);
+            start = end;
         }
         return rows;
     }
@@ -180,22 +214,72 @@ public final class TemperaLayout {
      */
     private static List<TemperaMeasure.WordUnit> buildWordUnits(int fontWeight,
                                                                 List<List<TemperaTypes.Segment>> lines,
+                                                                List<UnicodeBreaks.Analysis> breaks,
                                                                 float fontSize, int seed) {
         List<TemperaMeasure.WordUnit> out = new ArrayList<>();
         for (int lineIndex = 0; lineIndex < lines.size(); lineIndex++) {
             List<TemperaTypes.Segment> segments = lines.get(lineIndex);
+            if (segments.isEmpty()) continue;
+            int baseOffset = segments.get(0).startOffset;
+            UnicodeBreaks.Analysis analysis = breaks.get(lineIndex);
             float[] scales = resolveWordScales(segments, seed, lineIndex);
             Integer previousEnd = null;
             for (int segmentIndex = 0; segmentIndex < segments.size(); segmentIndex++) {
                 TemperaTypes.Segment segment = segments.get(segmentIndex);
-                TemperaMeasure.WordUnit unit = TemperaMeasure.buildWordUnit(
+                TemperaMeasure.WordUnit measured = TemperaMeasure.buildWordUnit(
                         fontWeight, fontSize, scales[segmentIndex], lineIndex, segmentIndex, segment);
-                if (unit == null) continue;
+                if (measured == null) continue;
                 boolean spaced = previousEnd != null && segment.startOffset > previousEnd;
-                unit.leadingGap = previousEnd == null ? 0f : fontSize * (spaced ? 0.26f : 0.035f);
+                int offset = segment.startOffset;
+                for (int glyphIndex = 0; glyphIndex < measured.glyphs.size(); glyphIndex++) {
+                    TemperaMeasure.WordGlyph glyph = measured.glyphs.get(glyphIndex);
+                    glyph.offset = 0f;
+                    TemperaMeasure.WordUnit unit = new TemperaMeasure.WordUnit();
+                    unit.lineIndex = lineIndex;
+                    unit.segmentIndex = segmentIndex;
+                    unit.text = glyph.charText;
+                    unit.scale = measured.scale;
+                    unit.width = glyph.width;
+                    unit.startOffset = offset;
+                    offset += glyph.charText.length();
+                    unit.endOffset = offset;
+                    unit.glyphStart = glyphIndex;
+                    unit.startTime = glyph.startTime;
+                    unit.endTime = glyph.endTime;
+                    unit.glyphs.add(glyph);
+                    unit.leadingGap = glyphIndex == 0 && previousEnd != null
+                            ? fontSize * (spaced ? 0.26f : 0.035f) : 0f;
+                    int boundary = offset - baseOffset;
+                    if (glyphIndex + 1 == measured.glyphs.size() && segmentIndex + 1 < segments.size()) {
+                        boundary = segments.get(segmentIndex + 1).startOffset - baseOffset;
+                    }
+                    unit.lineBreakAfter = analysis.line[boundary];
+                    unit.emergencyBreakAfter = analysis.emergency[boundary];
+                    for (int i = offset - baseOffset; i <= boundary; i++) {
+                        unit.mandatoryBreakAfter |= analysis.mandatory[i];
+                    }
+                    if (analysis.mandatory[offset - baseOffset] && glyph.charText.trim().isEmpty()) {
+                        glyph.width = 0f;
+                        unit.width = 0f;
+                    }
+                    out.add(unit);
+                }
                 previousEnd = segment.endOffset;
-                out.add(unit);
             }
+        }
+        return out;
+    }
+
+    private static List<UnicodeBreaks.Analysis> analyzeLines(List<List<TemperaTypes.Segment>> lines) {
+        List<UnicodeBreaks.Analysis> out = new ArrayList<>();
+        for (List<TemperaTypes.Segment> segments : lines) {
+            StringBuilder text = new StringBuilder();
+            int baseOffset = segments.isEmpty() ? 0 : segments.get(0).startOffset;
+            for (TemperaTypes.Segment segment : segments) {
+                while (text.length() < segment.startOffset - baseOffset) text.append(' ');
+                text.append(segment.text);
+            }
+            out.add(UnicodeBreaks.analyze(text.toString()));
         }
         return out;
     }
@@ -261,12 +345,13 @@ public final class TemperaLayout {
         LayoutRegion region = resolveRegion(options.shotKind, options.width, options.height);
         String[] styles = TemperaEnterStyles.STYLES;
 
+        List<UnicodeBreaks.Analysis> breaks = analyzeLines(options.lines);
         // 适配循环：一直缩到装箱后的行落进区域里。
         float fontSize = Math.max(14f, options.baseFontSize * region.fontScale);
         List<LayoutRow> rows = new ArrayList<>();
         float blockHeight = 0f;
         for (int attempt = 0; attempt < 4; attempt++) {
-            rows = packRows(buildWordUnits(options.fontWeight, options.lines, fontSize, options.seed),
+            rows = packRows(buildWordUnits(options.fontWeight, options.lines, breaks, fontSize, options.seed),
                     region.width, options.seed);
             for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
                 LayoutRow row = rows.get(rowIndex);
@@ -292,6 +377,7 @@ public final class TemperaLayout {
         float baseMagnitude = (float) Math.hypot(base[0], base[1]);
         List<GlyphPlacement> placements = new ArrayList<>();
         float cursorY = region.centerY - blockHeight / 2f;
+        Map<Long, Integer> wordSalts = new HashMap<>();
 
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             LayoutRow row = rows.get(rowIndex);
@@ -313,7 +399,10 @@ public final class TemperaLayout {
             float cursorX = rowLeft;
             for (int wordIndex = 0; wordIndex < row.words.size(); wordIndex++) {
                 TemperaMeasure.WordUnit word = row.words.get(wordIndex);
-                int salt = rowIndex * 37 + wordIndex;
+                long wordKey = ((long) word.lineIndex << 32) | (word.segmentIndex & 0xffffffffL);
+                Integer existingSalt = wordSalts.get(wordKey);
+                int salt = existingSalt == null ? rowIndex * 37 + wordIndex : existingSalt;
+                if (existingSalt == null) wordSalts.put(wordKey, salt);
                 // 每个词一种入场样式：相邻词到达方式不同，但一个词永远不会拆成几种姿态。
                 int styleIndex = (int) Math.floor(
                         TemperaRandom.hash01(options.seed, salt, 193) * styles.length) % styles.length;
@@ -337,7 +426,7 @@ public final class TemperaLayout {
 
                     // 逐字素入场：镜头的基础方向被扇开并重新尺度化，于是一行里没有两个字素
                     // 走在完全相同的矢量上。
-                    int glyphSalt = salt * 53 + glyphIndex;
+                    int glyphSalt = salt * 53 + word.glyphStart + glyphIndex;
                     float spread = (float) ((TemperaRandom.hash01(options.seed, glyphSalt, 149) - 0.5) * 1.7);
                     float magnitude = (float) (baseMagnitude * (0.55 + TemperaRandom.hash01(options.seed, glyphSalt, 151) * 1.05));
                     float angle = baseAngle + spread;

@@ -17,8 +17,7 @@ import java.util.concurrent.Executors;
 
 // Font cache for the lyric renderer. drawString uses a single typeface with no
 // automatic fallback, so the lyric face must itself cover the glyphs we draw —
-// the bundled PingFang SC covers Latin + CJK across four weights, plus the two
-// SF Pro lyric weights (粗/超重) that borrow PingFang for Han via {@link #han(Font)}. Scripts PingFang
+// the bundled PingFang SC covers Latin + CJK across four weights. Scripts PingFang
 // lacks (notably Hangul) are served by a system fallback face resolved on demand
 // via {@link #korean(float)}. Fonts are CPU objects, safe to cache across frames.
 //
@@ -30,7 +29,7 @@ public final class Fonts {
     private Fonts() {
     }
 
-    public enum Weight { THIN, LIGHT, REGULAR, MEDIUM, BOLD, HEAVY }
+    public enum Weight { THIN, LIGHT, REGULAR, MEDIUM }
 
     /** {@link #setSelection} sentinel for "whatever the OS reports as its default
      *  UI font". Anything else non-empty is a literal family name; empty/null is
@@ -47,10 +46,8 @@ public final class Fonts {
 
     /** OpenType weight class for each bundled weight, used to ask FontMgr for the
      *  matching face of a system/custom family (and to set a variable font's
-     *  {@code wght} axis). PingFang's own four files are Thin/Light/Regular/Medium;
-     *  the two extra lyric weights are the bundled SF Pro faces the 字重 setting's
-     *  粗/超重 select, which carry no Han coverage — see {@link #han(Font)}. */
-    private static final int[] WEIGHT_VALUES = {100, 300, 400, 500, 700, 900};
+     *  {@code wght} axis). PingFang's own four files are Thin/Light/Regular/Medium. */
+    private static final int[] WEIGHT_VALUES = {100, 300, 400, 500};
 
     private static final Typeface[] faces = new Typeface[Weight.values().length];
     // Bundled faces are separate from the active table so switching to a system
@@ -72,39 +69,6 @@ public final class Fonts {
     private static Typeface icon;
     private static final Map<Long, Font> cache = new HashMap<>();
     private static final Map<Long, Font> iconCache = new HashMap<>();
-    /** Han fallbacks built for faces that have no CJK glyphs of their own (the SF Pro
-     *  Bold/Heavy lyric weights), keyed by the base font's size. Guarded by LOCK. */
-    private static final Map<Long, Font> hanFonts = new HashMap<>();
-    /** 已注册的字体文件索引（用户导入的字体就是其中一个）。2.1.1 的宿主启动时注册它。 */
-    private static final java.util.List<FileIndex> fileIndexes =
-            new java.util.concurrent.CopyOnWriteArrayList<>();
-
-    /** 重新加载所有已注册的字体文件索引（2.1.1 的宿主在导入字体后调用）。 */
-    public static void reloadFileIndex() {
-        for (FileIndex index : fileIndexes) {
-            try {
-                index.families();
-            } catch (Throwable ignored) {
-            }
-        }
-    }
-
-    public static void addFileIndex(FileIndex index) {
-        if (index == null) return;
-        if (!fileIndexes.contains(index)) fileIndexes.add(index);
-    }
-
-    /** 当前字族在给定字重下的字体文件字节（宿主导出 / 预览用）。 */
-    public static byte[] activeFamilyFile(int weight) {
-        String family = activeFamily;
-        if (family == null || family.isEmpty()) return null;
-        for (FileIndex index : fileIndexes) {
-            byte[] bytes = index.read(family, weight);
-            if (bytes != null) return bytes;
-        }
-        return null;
-    }
-
     private static final Object LOCK = new Object();
     private static final Executor WARMUP = Executors.newSingleThreadExecutor(r -> {
         Thread thread = new Thread(r, "qplayer-font-warmup");
@@ -141,12 +105,111 @@ public final class Fonts {
         byte[] read(String family, int weight);
     }
 
-    // OpenType weight each face in `faces` was resolved for, so a fallback face can
-    // be matched to the same weight as the lyric face that needs it. Identity-keyed:
-    // these are the exact Typeface instances handed out by get(), and they're
-    // replaced wholesale on every reapply().
-    private static final java.util.IdentityHashMap<Typeface, Integer> faceWeights =
-            new java.util.IdentityHashMap<>();
+    // More than one, because they answer different questions: the platform's own
+    // font files, and the ones the user imported.
+    private static final java.util.List<FileIndex> fileIndexes =
+            new java.util.concurrent.CopyOnWriteArrayList<>();
+    // Typefaces parsed out of FileIndex bytes, keyed "family/weight". A font file
+    // is a few MiB and a theme CJK face far more, so the parse happens once.
+    private static final Map<String, Typeface> indexFaces = new HashMap<>();
+
+    /** Add a font-file index. Safe to call before or after {@link #init};
+     *  re-resolves the current selection so a font that only this index knows
+     *  about can be applied straight away. */
+    public static void addFileIndex(FileIndex index) {
+        if (index == null) return;
+        synchronized (LOCK) {
+            if (!fileIndexes.contains(index)) fileIndexes.add(index);
+            reloadFileIndexLocked();
+        }
+    }
+
+    /** Re-resolve the current selection against the index. An index that fills in
+     *  asynchronously (Android parses every font file to learn its family name)
+     *  is empty when it is installed, so the selection has to be resolved a
+     *  second time once it is populated — otherwise a font only the index knows
+     *  about stays unresolved until the next launch. */
+    public static void reloadFileIndex() {
+        synchronized (LOCK) {
+            reloadFileIndexLocked();
+        }
+    }
+
+    private static void reloadFileIndexLocked() {
+        indexFaces.clear();
+        familyFaces.clear();
+        familyFonts.clear();
+        reapply();
+    }
+
+    /** A face for {@code family} built from the host's font files, or null when
+     *  no index has a file for that family. */
+    private static Typeface indexFace(String family, int weight) {
+        if (fileIndexes.isEmpty() || family == null || family.isEmpty()) return null;
+        if (SYSTEM.equals(family) || BUNDLED.equals(family)) return null;
+        String key = family + '/' + weight;
+        if (indexFaces.containsKey(key)) return indexFaces.get(key);
+        Typeface face = null;
+        try {
+            FontMgr mgr = FontMgr.getDefault();
+            byte[] bytes = indexBytes(family, weight);
+            if (mgr != null && bytes != null) face = atWeight(make(mgr, bytes), weight);
+        } catch (Throwable ignored) {
+            // An unreadable or unparseable file is just a family we can't offer.
+        }
+        indexFaces.put(key, face);
+        return face;
+    }
+
+    /** The first index that has a file for {@code family} wins. */
+    private static byte[] indexBytes(String family, int weight) {
+        for (FileIndex index : fileIndexes) {
+            try {
+                byte[] bytes = index.read(family, weight);
+                if (bytes != null && bytes.length > 0) return bytes;
+            } catch (Throwable ignored) {
+                // A broken index must not hide the others.
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The font FILE behind the active selection, for hosts whose UI text layer
+     * takes bytes rather than a Typeface (qml4j's {@code uiTypefaces}).
+     *
+     * @param weight an OpenType weight class; 400 for body text, 700 for bold
+     * @return the bytes, or null when the selection is the bundled face or no
+     *         index has a file for it (the host then uses its own platform
+     *         lookup, or the bundled font)
+     */
+    public static byte[] activeFamilyFile(int weight) {
+        String family;
+        synchronized (LOCK) {
+            family = activeFamily;
+        }
+        if (family == null || family.isEmpty()) return null;
+        return indexBytes(family, weight);
+    }
+
+    /** Whether {@code face} really belongs to {@code family}. Android's
+     *  matchFamilyStyle never returns null — an unknown family resolves to
+     *  Roboto — so "did it resolve" has to mean "did it resolve to the family we
+     *  asked for", or a theme font silently renders as Latin-only Roboto. */
+    private static boolean isFamily(Typeface face, String family) {
+        if (face == null) return false;
+        try {
+            String name = face.getFamilyName();
+            return name != null && name.equalsIgnoreCase(family);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+
+    // Native typeface IDs, not Java wrapper identities: Font.getTypeface() returns
+    // a new owning wrapper for the same native face on every call.
+    private static final Map<Integer, Integer> faceWeights = new HashMap<>();
 
     private static final String[] KOREAN_CANDIDATES = {
         "Noto Sans CJK KR", "Noto Sans KR", "NotoSansCJK",
@@ -190,10 +253,9 @@ public final class Fonts {
         // no face for this script", cached so the candidate walk runs at most once.
         private final Map<Integer, Typeface> byWeight = new HashMap<>();
         private final Map<Long, Font> fonts = new HashMap<>();
-        // Whether a lyric face already covers this script — identity-keyed on the
-        // Typeface, cleared with the rest whenever the selection changes.
-        private final java.util.IdentityHashMap<Typeface, Boolean> baseCoverage =
-                new java.util.IdentityHashMap<>();
+        // The native ID is stable across getTypeface() wrappers and does not keep
+        // those owning wrappers (and their native references) alive.
+        private final Map<Integer, Boolean> baseCoverage = new HashMap<>();
 
         Fallback(char probe, String[] families, String[] bcp47) {
             this.probe = probe;
@@ -206,29 +268,31 @@ public final class Fonts {
          *  ships nothing for it. */
         Font fontFor(Font base) {
             if (base == null) return null;
-            Typeface bt = base.getTypeface();
-            if (bt != null && baseCovers(bt)) return null;
-            int weight = weightOf(bt);
-            Typeface tf = face(weight);
-            if (tf == null) return null;
-            long key = ((long) Float.floatToIntBits(base.getSize()) << 16) | (weight & 0xFFFFL);
-            Font f = fonts.get(key);
-            if (f == null) {
-                f = new Font(tf, base.getSize());
-                f.setBaselineSnapped(false);
-                f.setSubpixel(true);
-                f.setHinting(FontHinting.NONE);
-                f.setEdging(FontEdging.SUBPIXEL_ANTI_ALIAS);
-                fonts.put(key, f);
+            try (Typeface bt = base.getTypeface()) {
+                if (bt != null && baseCovers(bt)) return null;
+                int weight = weightOf(bt);
+                Typeface tf = face(weight);
+                if (tf == null) return null;
+                long key = ((long) Float.floatToIntBits(base.getSize()) << 16) | (weight & 0xFFFFL);
+                Font f = fonts.get(key);
+                if (f == null) {
+                    f = new Font(tf, base.getSize());
+                    f.setBaselineSnapped(false);
+                    f.setSubpixel(true);
+                    f.setHinting(FontHinting.NONE);
+                    f.setEdging(FontEdging.SUBPIXEL_ANTI_ALIAS);
+                    fonts.put(key, f);
+                }
+                return f;
             }
-            return f;
         }
 
         private boolean baseCovers(Typeface t) {
-            Boolean known = baseCoverage.get(t);
+            int id = t.getUniqueId();
+            Boolean known = baseCoverage.get(id);
             if (known != null) return known;
             boolean ok = covers(t, probe);
-            baseCoverage.put(t, ok);
+            baseCoverage.put(id, ok);
             return ok;
         }
 
@@ -316,12 +380,33 @@ public final class Fonts {
      *  to list. Cheap to call repeatedly (Skija just walks its own index), so no
      *  caching here — the caller (Settings) reads it once at startup. */
     public static String[] listFamilies() {
+        // Case-insensitive de-dupe: an index may well re-find a file FontMgr
+        // already indexed, and the picker should not show it twice.
+        Map<String, String> unique = new java.util.LinkedHashMap<>();
         FontMgr mgr = FontMgr.getDefault();
-        if (mgr == null) return new String[0];
-        int n = mgr.getFamiliesCount();
-        String[] out = new String[n];
-        for (int i = 0; i < n; i++) out[i] = mgr.getFamilyName(i);
-        return out;
+        if (mgr != null) {
+            int n = mgr.getFamiliesCount();
+            for (int i = 0; i < n; i++) {
+                String name = mgr.getFamilyName(i);
+                if (name != null && !name.isEmpty()) {
+                    unique.put(name.toLowerCase(java.util.Locale.ROOT), name);
+                }
+            }
+        }
+        for (FileIndex index : fileIndexes) {
+            try {
+                String[] extra = index.families();
+                if (extra == null) continue;
+                for (String name : extra) {
+                    if (name != null && !name.isEmpty()) {
+                        unique.putIfAbsent(name.toLowerCase(java.util.Locale.ROOT), name);
+                    }
+                }
+            } catch (Throwable ignored) {
+                // A broken index just means no extra families.
+            }
+        }
+        return unique.values().toArray(new String[0]);
     }
 
     /** The family the lyric page is actually rendering with, or null when it's on
@@ -336,8 +421,20 @@ public final class Fonts {
     private static void reapply() {
         FontMgr mgr = FontMgr.getDefault();
         if (selection != null && mgr != null) {
-            Typeface base = SYSTEM.equals(selection) ? systemDefaultFace(mgr)
-                    : mgr.matchFamilyStyle(selection, FontStyle.NORMAL);
+            Typeface base;
+            if (SYSTEM.equals(selection)) {
+                base = systemDefaultFace(mgr);
+            } else {
+                base = mgr.matchFamilyStyle(selection, FontStyle.NORMAL);
+                // matchFamilyStyle answers with the closest face it has rather
+                // than nothing, so a family only the host's file index knows
+                // about comes back as some unrelated face (Roboto on Android).
+                // Trust the name, not the non-null.
+                if (!isFamily(base, selection)) {
+                    Typeface fromFile = indexFace(selection, WEIGHT_VALUES[Weight.REGULAR.ordinal()]);
+                    if (fromFile != null) base = fromFile;
+                }
+            }
             // A system default with no CJK coverage never becomes `base` (see
             // systemDefaultFace); a custom family that fails to resolve at all
             // (uninstalled, renamed) leaves it null. Either way fall through to
@@ -354,15 +451,13 @@ public final class Fonts {
         onFacesChanged();
     }
 
-    /** Drop everything keyed on the previous faces and re-index the new ones. The
-     *  per-script fallbacks cache "does this face already cover the script" by
-     *  Typeface identity, so those answers have to go with the faces they described. */
+    /** Drop everything keyed on the previous faces and re-index the new ones. */
     private static void onFacesChanged() {
         cache.clear();
         faceWeights.clear();
         for (Weight w : Weight.values()) {
             Typeface t = faces[w.ordinal()];
-            if (t != null) faceWeights.put(t, WEIGHT_VALUES[w.ordinal()]);
+            if (t != null) faceWeights.put(t.getUniqueId(), WEIGHT_VALUES[w.ordinal()]);
         }
         KOREAN.invalidateBaseCoverage();
         THAI.invalidateBaseCoverage();
@@ -382,6 +477,12 @@ public final class Fonts {
         for (Weight w : Weight.values()) {
             int target = WEIGHT_VALUES[w.ordinal()];
             Typeface t = family != null ? mgr.matchFamilyStyle(family, FontStyle.NORMAL.withWeight(target)) : null;
+            // A family only the host's file index knows about resolves to some
+            // unrelated face here, so re-read it from the file for this weight.
+            if (family != null && !fileIndexes.isEmpty() && !isFamily(t, family)) {
+                Typeface fromFile = indexFace(family, target);
+                if (fromFile != null) t = fromFile;
+            }
             // matchFamilyStyle never fails outright — it returns the CLOSEST face in
             // the family, so a family with only one weight hands back that same face
             // for all four. Retarget through the variation axis in that case; fonts
@@ -574,7 +675,7 @@ public final class Fonts {
     public static Font get(String family, Weight w, float size) {
         if (family == null || family.isEmpty()) return get(w, size);
         synchronized (LOCK) {
-            String key = family + '\0' + w.ordinal() + '\0' + Float.floatToIntBits(size);
+            String key = family + ' ' + w.ordinal() + ' ' + Float.floatToIntBits(size);
             Font f = familyFonts.get(key);
             if (f != null) return f;
             Typeface tf = familyFace(family, w);
@@ -615,6 +716,10 @@ public final class Fonts {
                     if (byWeight != null) base = byWeight;
                 } else {
                     base = mgr.matchFamilyStyle(family, FontStyle.NORMAL.withWeight(target));
+                    if (!fileIndexes.isEmpty() && !isFamily(base, family)) {
+                        Typeface fromFile = indexFace(family, target);
+                        if (fromFile != null) base = fromFile;
+                    }
                 }
                 if (base != null) resolved = atWeight(base, target);
             }
@@ -657,8 +762,6 @@ public final class Fonts {
         if (configured == LyricConfig.FontWeight.THIN) weight = Weight.THIN;
         else if (configured == LyricConfig.FontWeight.LIGHT) weight = Weight.LIGHT;
         else if (configured == LyricConfig.FontWeight.MEDIUM) weight = Weight.MEDIUM;
-        else if (configured == LyricConfig.FontWeight.BOLD) weight = Weight.BOLD;
-        else if (configured == LyricConfig.FontWeight.HEAVY) weight = Weight.HEAVY;
         warmupAsync(weight, LyricConfig.instance.lyricFontSize.getValue());
     }
 
@@ -670,14 +773,14 @@ public final class Fonts {
             if (tf == null && activeFamily == null) {
                 tf = bundledFace(w);
                 faces[w.ordinal()] = tf;
-                if (tf != null) faceWeights.put(tf, WEIGHT_VALUES[w.ordinal()]);
+                if (tf != null) faceWeights.put(tf.getUniqueId(), WEIGHT_VALUES[w.ordinal()]);
             }
             if (tf == null) {
                 tf = faces[Weight.REGULAR.ordinal()];
                 if (tf == null && activeFamily == null) {
                     tf = bundledFace(Weight.REGULAR);
                     faces[Weight.REGULAR.ordinal()] = tf;
-                    if (tf != null) faceWeights.put(tf, WEIGHT_VALUES[Weight.REGULAR.ordinal()]);
+                    if (tf != null) faceWeights.put(tf.getUniqueId(), WEIGHT_VALUES[Weight.REGULAR.ordinal()]);
                 }
             }
             f = tf != null ? new Font(tf, size) : new Font().setSize(size);
@@ -701,32 +804,6 @@ public final class Fonts {
         synchronized (LOCK) { return THAI.fontFor(base); }
     }
 
-    /**
-     * Han fallback for faces without CJK glyphs (e.g. the SF Pro Bold/Heavy lyric
-     * weights): returns a size-matched bundled PingFang Medium when the base face
-     * lacks Han, null when the base already covers it (use it as-is).
-     */
-    public static Font han(Font base) {
-        if (base == null) return null;
-        Typeface bt = base.getTypeface();
-        if (bt != null && covers(bt, '汉')) return null;
-        synchronized (LOCK) {
-            Typeface tf = bundledFace(Weight.MEDIUM);
-            if (tf == null) return null;
-            long key = ((long) Float.floatToIntBits(base.getSize()) << 16);
-            Font f = hanFonts.get(key);
-            if (f == null) {
-                f = new Font(tf, base.getSize());
-                f.setBaselineSnapped(false);
-                f.setSubpixel(true);
-                f.setHinting(FontHinting.NONE);
-                f.setEdging(FontEdging.SUBPIXEL_ANTI_ALIAS);
-                hanFonts.put(key, f);
-            }
-            return f;
-        }
-    }
-
     /** The kana face for {@code base}'s size/weight, mirroring {@link #korean(Font)}.
      *  Shared Han doesn't need this (PingFang already covers it); only kana does. */
     public static Font japanese(Font base) {
@@ -736,6 +813,7 @@ public final class Fonts {
     /** Retarget a face to {@code weight}, preferring the family's own static face and
      *  falling back to its variable {@code wght} axis. */
     private static Typeface atWeight(Typeface t, int weight) {
+        if (t == null) return null;
         if (t.getFontStyle().getWeight() == weight) return t;
         Typeface variable = cloneAtWeight(t, weight);
         return variable != null ? variable : t;
@@ -745,7 +823,7 @@ public final class Fonts {
      *  the face's own OS/2 weight for anything not from the lyric face table. */
     private static int weightOf(Typeface t) {
         if (t == null) return WEIGHT_VALUES[Weight.REGULAR.ordinal()];
-        Integer known = faceWeights.get(t);
+        Integer known = faceWeights.get(t.getUniqueId());
         if (known != null) return known;
         try {
             return t.getFontStyle().getWeight();

@@ -5,17 +5,24 @@ import dev.t1m3.qplayer.lyric.LyricTimeline;
 import dev.t1m3.qplayer.lyric.Syllable;
 import org.junit.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 public class LyricMotionTest {
 
-    private static LyricTimeline.Group group(long startMs, long endMs) {
+    private static LyricLine line(long startMs, long endMs) {
         LyricLine line = new LyricLine();
         line.syllables.add(new Syllable("line", startMs, endMs - startMs));
-        return LyricTimeline.prepare(Collections.singletonList(line), false).groups.get(0);
+        return line;
+    }
+
+    private static LyricTimeline.Group group(long startMs, long endMs) {
+        return LyricTimeline.prepare(Collections.singletonList(line(startMs, endMs)), false)
+                .groups.get(0);
     }
 
     @Test
@@ -31,46 +38,40 @@ public class LyricMotionTest {
     }
 
     @Test
-    public void backgroundScaleUsesDelayedPopAndReturnsToZero() {
+    public void lineHandsFocusToItsSuccessorUnlessTheyOverlap() {
+        List<LyricTimeline.Group> groups = LyricTimeline.prepare(Arrays.asList(
+                line(1_000L, 3_000L),     // followed back to back
+                line(3_000L, 6_000L),     // overlapped by the next line
+                line(4_000L, 5_000L)), false).groups;
+        long[] release = LyricMotion.releaseTimes(groups);
+
+        assertEquals("the scroll to the next line and the release are one event",
+                LyricMotion.fadeInStart(groups.get(1)), release[0]);
+        assertTrue("an overlapped line keeps focus until it is sung",
+                release[1] > groups.get(1).endMs);
+    }
+
+    @Test
+    public void backgroundLinePopsInWithFocusAndIsReclaimedOnRelease() {
         LyricTimeline.Group group = group(1_000L, 3_000L);
+        long open = LyricMotion.fadeInStart(group);
+        long release = 3_100L;
 
-        assertEquals(0f, LyricMotion.backgroundScale(1_100L, group), 0f);
-        assertTrue(LyricMotion.backgroundScale(1_300L, group) > 0f);
-        assertEquals(1f, LyricMotion.backgroundScale(2_000L, group), 0f);
-        assertEquals(0f, LyricMotion.backgroundScale(3_280L, group), 0f);
-    }
-
-    /**
-     * 逐字放大的两个公式（照搬 Melodify emphasizeAmount / emphasizeK）：
-     * 幅度按时长取幂曲线、末词 ×1.6、上限 1.2；每字脉冲按 AMLL 错开、从左往右扫。
-     */
-    @Test
-    public void emphasisSwellMatchesMelodifysPerLetterPulse() {
-        // du=2000 → amount=1 → ^3=1 → ×0.6 = 0.6；末词 ×1.6 = 0.96
-        assertEquals(0.6f, LyricMotion.emphasisAmount(2000L, 0, 3), 0.001f);
-        assertEquals(0.96f, LyricMotion.emphasisAmount(2000L, 2, 3), 0.001f);
-        // du 很大时走 sqrt 分支并被 1.2 夹住：du=8000 → 4 → sqrt=2 → ×0.6=1.2
-        assertEquals(1.2f, LyricMotion.emphasisAmount(8000L, 0, 3), 0.001f);
-        // 时长下限 1000ms：du=100 被抬到 1000 → 0.5³=0.125 → ×0.6 = 0.075
-        assertEquals(0.075f, LyricMotion.emphasisAmount(100L, 0, 3), 0.0001f);
-        assertEquals("下限与 2000ms 等价", LyricMotion.emphasisAmount(1000L, 0, 3),
-                LyricMotion.emphasisAmount(100L, 0, 3), 0.0001f);
-
-        // 脉冲：起点前为 0，词中点附近达到峰值，词末回落到 0
-        assertEquals(0f, LyricMotion.emphasisSwell(999L, 1000L, 2000L, 0, 4), 0.001f);
-        assertTrue("词中应当有鼓包", LyricMotion.emphasisSwell(2000L, 1000L, 2000L, 0, 4) > 0.5f);
-        assertEquals(0f, LyricMotion.emphasisSwell(3001L, 1000L, 2000L, 0, 4), 0.001f);
-        // 错开：同一时刻，靠后的字比靠前的字更晚起来
-        assertTrue(LyricMotion.emphasisSwell(1400L, 1000L, 2000L, 0, 4)
-                > LyricMotion.emphasisSwell(1400L, 1000L, 2000L, 3, 4));
+        assertEquals(0f, LyricMotion.backgroundPresence(open, group, release), 0f);
+        assertTrue(LyricMotion.backgroundPresence(open + 400L, group, release) > 0.5f);
+        assertEquals(1f, LyricMotion.backgroundPresence(2_500L, group, release), 0f);
+        assertEquals(0f, LyricMotion.backgroundPresence(release + 300L, group, release), 0f);
+        assertTrue(LyricMotion.focused(2_500L, group, release));
+        assertTrue(!LyricMotion.focused(release, group, release));
     }
 
     @Test
-    public void interludeSlotRampsAtBothEdges() {
-        assertEquals(0f, LyricMotion.interludeSlot(999L, 1_000L, 2_000L, 40f), 0f);
-        assertEquals(0f, LyricMotion.interludeSlot(1_000L, 1_000L, 2_000L, 40f), 0f);
-        assertEquals(40f, LyricMotion.interludeSlot(1_500L, 1_000L, 2_000L, 40f), 0f);
-        assertTrue(LyricMotion.interludeSlot(1_950L, 1_000L, 2_000L, 40f) < 40f);
-        assertEquals(0f, LyricMotion.interludeSlot(2_001L, 1_000L, 2_000L, 40f), 0f);
+    public void ribbonRidesOnlyHeldWordsAndSettlesAfterThem() {
+        assertEquals("short words carry no ribbon",
+                0f, LyricMotion.ribbonEnvelope(1_400L, 1_000L, 1_900L), 0f);
+        assertEquals(0f, LyricMotion.ribbonEnvelope(1_000L, 1_000L, 3_000L), 0f);
+        assertEquals(1f, LyricMotion.ribbonEnvelope(2_000L, 1_000L, 3_000L), 0f);
+        assertTrue(LyricMotion.ribbonEnvelope(3_200L, 1_000L, 3_000L) < 1f);
+        assertEquals(0f, LyricMotion.ribbonEnvelope(3_500L, 1_000L, 3_000L), 0f);
     }
 }

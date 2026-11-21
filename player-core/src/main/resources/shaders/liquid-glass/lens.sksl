@@ -1,0 +1,56 @@
+// Copyright 2026, compose-miuix-ui contributors
+// SPDX-License-Identifier: Apache-2.0
+// Modified Java/Skija port of Lens.kt, miuix b587aaf2c907c77a8c3c02d8df0aede2937ef8f0.
+// Adapted upstream from Kyant0/AndroidLiquidGlass (Apache-2.0).
+// Added sampleScale/sampleOffset to preserve screen-aligned sampling under layer transforms.
+uniform shader content;
+uniform float2 size;
+uniform float radius;
+uniform float refractionHeight;
+uniform float refractionAmount;
+uniform float depthEffect;
+uniform float chromaticAberration;
+uniform float2 sampleScale;
+uniform float2 sampleOffset;
+float sdRoundedRect(float2 coord, float2 halfSize, float r) {
+    float2 b = abs(coord) - (halfSize - float2(r));
+    return length(max(b, 0.0)) - r + min(max(b.x, b.y), 0.0);
+}
+float2 gradSdRoundedRect(float2 coord, float2 halfSize, float r) {
+    float2 b = abs(coord) - (halfSize - float2(r));
+    if (b.x >= 0.0 || b.y >= 0.0) return sign(coord) * normalize(max(b, 0.0));
+    float gx = step(b.y, b.x);
+    return sign(coord) * float2(gx, 1.0 - gx);
+}
+half4 sampleContent(float2 p) { return content.eval(p * sampleScale + sampleOffset); }
+half4 main(float2 coord) {
+    if (refractionHeight <= 0.0) return sampleContent(coord);
+    float2 halfSize = size * 0.5;
+    float2 q = coord - halfSize;
+    float sd = sdRoundedRect(q, halfSize, radius);
+    if (-sd >= refractionHeight) return sampleContent(coord);
+    sd = min(sd, 0.0);
+    float x = 1.0 - -sd / refractionHeight;
+    float d = (1.0 - sqrt(1.0 - x * x)) * refractionAmount;
+    float gr = min(radius * 1.5, min(halfSize.x, halfSize.y));
+    float2 grad = normalize(gradSdRoundedRect(q, halfSize, gr) + depthEffect * normalize(q));
+    float2 p = coord + d * grad;
+    if (chromaticAberration == 0.0) return sampleContent(p);
+    float2 dc = d * grad * chromaticAberration * (q.x * q.y / (halfSize.x * halfSize.y));
+    half4 c = half4(0.0);
+    half4 red = sampleContent(p + dc);
+    c.r += red.r / 3.5; c.a += red.a / 7.0;
+    half4 orange = sampleContent(p + dc * (2.0 / 3.0));
+    c.r += orange.r / 3.5; c.g += orange.g / 7.0; c.a += orange.a / 7.0;
+    half4 yellow = sampleContent(p + dc * (1.0 / 3.0));
+    c.r += yellow.r / 3.5; c.g += yellow.g / 3.5; c.a += yellow.a / 7.0;
+    half4 green = sampleContent(p);
+    c.g += green.g / 3.5; c.a += green.a / 7.0;
+    half4 cyan = sampleContent(p - dc * (1.0 / 3.0));
+    c.g += cyan.g / 3.5; c.b += cyan.b / 3.0; c.a += cyan.a / 7.0;
+    half4 blue = sampleContent(p - dc * (2.0 / 3.0));
+    c.b += blue.b / 3.0; c.a += blue.a / 7.0;
+    half4 purple = sampleContent(p - dc);
+    c.r += purple.r / 7.0; c.b += purple.b / 3.0; c.a += purple.a / 7.0;
+    return c;
+}

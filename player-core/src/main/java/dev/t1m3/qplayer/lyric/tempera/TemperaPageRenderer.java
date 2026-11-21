@@ -18,8 +18,7 @@ import java.util.TreeMap;
  * 的 {@code renderFrame}（去掉 Pixi 生命周期与外部贴图）。
  *
  * <p>它拥有段落场景缓存，并按<b>绝对播放时间</b>直接改写有界的场景视图——所以一次 seek 会画出
- * 与连续播放完全相同的帧。缓存按「当前段 ± 1」保留，且每帧最多做一件昂贵的事（先回收上一轮
- * 交出的场景，再预构建邻居），这正是段落切换不掉帧的原因。
+ * 与连续播放完全相同的帧。缓存按「当前段 ± 1」保留，并逐帧预构建相邻段落。
  *
  * <p>与 folia 的已知差异（其余逐字一致）：没有歌曲交接的两帧切歌动画（切歌直接清缓存重建）、
  * 没有 Pixi 的 GPU 后处理链（镜头畸变/颗粒/对比度/RGB 偏移需要采样背景的着色器）。暗角
@@ -39,10 +38,10 @@ public final class TemperaPageRenderer {
     private TemperaPalette.Palette palette;
 
     private final TreeMap<Integer, TemperaScene> sceneCache = new TreeMap<>();
-    private final List<TemperaScene> retiredScenes = new ArrayList<>();
     private int activeParagraphIndex = -1;
     /** 用户插图素材池（<数据目录>/tempera/images/）；空池时凝彩照常跑，只是没插图。 */
     private final TemperaImagePool imagePool = new TemperaImagePool();
+    private long imageRevision;
 
     private final Paint scratch = new Paint().setAntiAlias(true);
     private final Paint backdrop = new Paint().setAntiAlias(true);
@@ -100,8 +99,6 @@ public final class TemperaPageRenderer {
     /** 释放全部缓存的场景与原生绘制资源。 */
     public void dispose() {
         clearScenes();
-        retiredScenes.forEach(TemperaScene::dispose);
-        retiredScenes.clear();
         scratch.close();
         backdrop.close();
         TemperaTextView.dispose();
@@ -119,17 +116,6 @@ public final class TemperaPageRenderer {
         activeParagraphIndex = -1;
     }
 
-    private void drainRetiredScene() {
-        if (retiredScenes.isEmpty()) return;
-        TemperaScene scene = retiredScenes.remove(0);
-        scene.dispose();
-    }
-
-    private void retireScenes() {
-        for (TemperaScene scene : sceneCache.values()) retiredScenes.add(scene);
-        sceneCache.clear();
-        activeParagraphIndex = -1;
-    }
 
     private void pruneScenes(int index) {
         List<Integer> drop = new ArrayList<>();
@@ -174,6 +160,13 @@ public final class TemperaPageRenderer {
                        String title, String artist) {
         if (palette == null || w < 1f || h < 1f) return;
         frameTime = time;
+        if (tuning.layerImagesEnabled) {
+            long revision = imagePool.revision();
+            if (revision != imageRevision) {
+                imageRevision = revision;
+                clearScenes();
+            }
+        }
         if (Math.abs(w - width) > 0.5f || Math.abs(h - height) > 0.5f) {
             width = w;
             height = h;
@@ -222,17 +215,12 @@ public final class TemperaPageRenderer {
             ensureScene(paragraphIndex);
             pruneScenes(paragraphIndex);
         } else {
-            // 每帧只做一件昂贵的事，按优先级：先回收上一轮交出的场景，再预构建邻居。
-            if (!retiredScenes.isEmpty()) {
-                drainRetiredScene();
-            } else {
-                int next = paragraphIndex + 1;
-                int previous = paragraphIndex - 1;
-                if (next < program.paragraphs.size() && !sceneCache.containsKey(next)) {
-                    ensureScene(next);
-                } else if (previous >= 0 && !sceneCache.containsKey(previous)) {
-                    ensureScene(previous);
-                }
+            int next = paragraphIndex + 1;
+            int previous = paragraphIndex - 1;
+            if (next < program.paragraphs.size() && !sceneCache.containsKey(next)) {
+                ensureScene(next);
+            } else if (previous >= 0 && !sceneCache.containsKey(previous)) {
+                ensureScene(previous);
             }
         }
 
@@ -241,7 +229,6 @@ public final class TemperaPageRenderer {
         boolean preRoll = transitionsEnabled && outgoing != null
                 && !"block-wipe".equals(outgoing.kind) && time >= outgoing.startTime;
         float motion = tuning.glyphMotion * animationScale();
-        float wipeDrawn = 0f;
 
         for (Map.Entry<Integer, TemperaScene> entry : new ArrayList<>(sceneCache.entrySet())) {
             int index = entry.getKey();
@@ -318,10 +305,8 @@ public final class TemperaPageRenderer {
 
             if (transition.wipe > 0.001f && transition.wipe < 1.999f) {
                 drawWipe(canvas, transition.wipe, transition.wipeAngle, w, h, palette.tone3);
-                wipeDrawn = 1f;
             }
         }
-        if (wipeDrawn == 0f) wipeCleanup();
 
         if (tuning.postProcessEnabled && tuning.postProcessVignette > 0.001f) {
             drawVignette(canvas, w, h, tuning.postProcessVignette);
@@ -329,9 +314,6 @@ public final class TemperaPageRenderer {
         canvas.restoreToCount(save);
     }
 
-    private void wipeCleanup() {
-        // 无状态：擦除块每帧从几何重建，所以「清掉」在这里就是什么都不做。
-    }
 
     /**
      * 现在该不该垫待机卡：开场第一镜进场之前，以及最后一镜退场之后。

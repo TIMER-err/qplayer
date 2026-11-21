@@ -121,15 +121,31 @@ public final class PlaylistTransfer {
     public static LocalPlaylist parse(String json) throws UnsupportedFormat {
         Document document;
         try {
-            document = GSON.fromJson(json, Document.class);
-        } catch (Throwable error) {
+            com.google.gson.JsonElement parsed = com.google.gson.JsonParser.parseString(json);
+            if (!parsed.isJsonObject()) throw new UnsupportedFormat("not a QPlayer playlist file");
+            com.google.gson.JsonObject root = parsed.getAsJsonObject();
+            com.google.gson.JsonElement format = root.get("format");
+            com.google.gson.JsonElement version = root.get("formatVersion");
+            if (format == null || !format.isJsonPrimitive()
+                    || !format.getAsJsonPrimitive().isString()
+                    || !FORMAT.equals(format.getAsString())
+                    || version == null || !version.isJsonPrimitive()
+                    || !version.getAsJsonPrimitive().isNumber()) {
+                throw new UnsupportedFormat("not a QPlayer playlist file");
+            }
+            java.math.BigDecimal declaredVersion = version.getAsBigDecimal();
+            if (declaredVersion.compareTo(java.math.BigDecimal.ONE) < 0
+                    || declaredVersion.stripTrailingZeros().scale() > 0) {
+                throw new UnsupportedFormat("unsupported playlist format version");
+            }
+            if (declaredVersion.compareTo(java.math.BigDecimal.valueOf(FORMAT_VERSION)) > 0) {
+                throw new UnsupportedFormat("written by a newer version of QPlayer");
+            }
+            document = GSON.fromJson(root, Document.class);
+        } catch (UnsupportedFormat error) {
+            throw error;
+        } catch (RuntimeException error) {
             throw new UnsupportedFormat("not valid JSON");
-        }
-        if (document == null || !FORMAT.equals(document.format)) {
-            throw new UnsupportedFormat("not a QPlayer playlist file");
-        }
-        if (document.formatVersion > FORMAT_VERSION) {
-            throw new UnsupportedFormat("written by a newer version of QPlayer");
         }
         LocalPlaylist playlist = new LocalPlaylist();
         playlist.name = document.name != null ? document.name : "";

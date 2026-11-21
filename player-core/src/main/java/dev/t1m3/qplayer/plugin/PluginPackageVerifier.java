@@ -1,5 +1,8 @@
 package dev.t1m3.qplayer.plugin;
 
+import static dev.t1m3.qplayer.plugin.PluginHashes.hex;
+import static dev.t1m3.qplayer.plugin.PluginHashes.sha256;
+
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
@@ -175,9 +178,7 @@ public final class PluginPackageVerifier {
         return digest.digest();
     }
 
-    private static byte[] sha256(byte[] bytes) {
-        return digest().digest(bytes);
-    }
+    
 
     private static MessageDigest digest() {
         try {
@@ -187,9 +188,5 @@ public final class PluginPackageVerifier {
         }
     }
 
-    private static String hex(byte[] bytes) {
-        StringBuilder out = new StringBuilder(bytes.length * 2);
-        for (byte value : bytes) out.append(String.format(Locale.ROOT, "%02x", value & 0xff));
-        return out.toString();
-    }
+    
 }

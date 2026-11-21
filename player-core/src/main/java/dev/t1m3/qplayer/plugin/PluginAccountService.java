@@ -19,6 +19,10 @@ public final class PluginAccountService {
     private static final int MAX_LABEL_CHARS = 4096;
     private static final int MAX_INSTRUCTIONS_CHARS = 64 * 1024;
     private static final int MAX_QR_CONTENT_CHARS = 64 * 1024;
+    // Generous for an actual QR (a few KB), not for an arbitrary image.
+    private static final int MAX_QR_IMAGE_BASE64_CHARS = 300_000;
+    private static final byte[] PNG_SIGNATURE =
+            {(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
     private final PluginManager manager;
     private final CorePluginHostApi hostApi;
 
@@ -28,8 +32,13 @@ public final class PluginAccountService {
     }
 
     public CompletableFuture<List<LoginMethod>> methods(String provider) {
-        return invoke(provider, "methods", Collections.<String, Object>emptyMap())
-                .thenApply(raw -> parseMethods(provider, raw));
+        return methods(provider, "");
+    }
+
+    public CompletableFuture<List<LoginMethod>> methods(String provider, String platform) {
+        Map<String, Object> args = new LinkedHashMap<>();
+        if (platform != null && !platform.isEmpty()) args.put("platform", platform);
+        return invoke(provider, "methods", args).thenApply(raw -> parseMethods(provider, raw));
     }
 
     public CompletableFuture<LoginChallenge> begin(String provider, String methodId) {
@@ -79,13 +88,15 @@ public final class PluginAccountService {
             method.id = identifier(value.get("id"), "login method id");
             method.type = required(value.get("type"), "login method type").toLowerCase();
             if (!("qr".equals(method.type) || "web".equals(method.type)
-                    || "credential".equals(method.type))) {
+                    || "credential".equals(method.type) || "app".equals(method.type))) {
                 throw new PluginExecutionException("unsupported login method type " + method.type);
             }
             method.label = bounded(value.get("label"), MAX_LABEL_CHARS,
                     "login method label", true);
             method.instructions = bounded(value.get("instructions"), MAX_INSTRUCTIONS_CHARS,
                     "login method instructions", false);
+            method.appLabel = bounded(value.get("appLabel"), MAX_LABEL_CHARS,
+                    "login app label", false);
             method.webUrl = optional(value.get("webUrl"));
             method.cookieUrl = optional(value.get("cookieUrl"));
             if ((!method.webUrl.isEmpty() && !hostApi.allowsReturnedUrl(provider, method.webUrl))
@@ -134,6 +145,10 @@ public final class PluginAccountService {
                 "login message", false);
         challenge.qrContent = bounded(value.get("qrContent"), MAX_QR_CONTENT_CHARS,
                 "login QR content", false);
+        challenge.qrImageBase64 = qrImage(value.get("qrImageBase64"));
+        challenge.appUrl = sanitizeAppUrl(provider, value.get("appUrl"));
+        challenge.appLabel = bounded(value.get("appLabel"), MAX_LABEL_CHARS,
+                "login app label", false);
         challenge.expiresAtMs = boundedLong(value.get("expiresAtMs"), 0L,
                 Long.MAX_VALUE, "login expiry");
         if (value.get("account") instanceof Map) {
@@ -197,6 +212,48 @@ public final class PluginAccountService {
             return number == Math.rint(number) ? Long.toString(value.longValue()) : value.toString();
         }
         return optional(raw);
+    }
+
+    /**
+     * Login-challenge deep links are opened by the host after a user tap, never
+     * by the plugin itself. Unknown or disallowed schemes are dropped so a QR
+     * challenge still works if the app-login extra is unusable.
+     */
+    String sanitizeAppUrl(String provider, Object raw) {
+        String value = optional(raw);
+        if (value.isEmpty()) return "";
+        if (value.length() > MAX_QR_CONTENT_CHARS) {
+            throw new PluginExecutionException("login app URL is too long");
+        }
+        return hostApi.allowsAppUrl(provider, value) ? value : "";
+    }
+
+    /** Validates a plugin-supplied QR image: bounded, valid base64, and actually a
+     *  PNG — the host hands this straight to an Image element, so it is worth
+     *  rejecting anything that is not the format it claims to be up front. */
+    static String qrImage(Object raw) {
+        String value = optional(raw);
+        if (value.isEmpty()) return "";
+        if (value.length() > MAX_QR_IMAGE_BASE64_CHARS) {
+            throw new PluginExecutionException("login QR image is too large");
+        }
+        byte[] bytes;
+        try {
+            bytes = java.util.Base64.getDecoder().decode(value);
+        } catch (IllegalArgumentException e) {
+            throw new PluginExecutionException("login QR image is not valid base64");
+        }
+        if (bytes.length < PNG_SIGNATURE.length || !startsWithPngSignature(bytes)) {
+            throw new PluginExecutionException("login QR image must be a PNG");
+        }
+        return value;
+    }
+
+    private static boolean startsWithPngSignature(byte[] bytes) {
+        for (int i = 0; i < PNG_SIGNATURE.length; i++) {
+            if (bytes[i] != PNG_SIGNATURE[i]) return false;
+        }
+        return true;
     }
 
     private static String bounded(Object raw, int maximum, String label, boolean required) {

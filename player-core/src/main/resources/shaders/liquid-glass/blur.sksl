@@ -1,0 +1,18 @@
+// Copyright 2026, compose-miuix-ui contributors
+// SPDX-License-Identifier: Apache-2.0
+// Modified Skija port of buildBlurShader, miuix-blur/internal/Shaders.kt,
+// miuix b587aaf2c907c77a8c3c02d8df0aede2937ef8f0. TAP_COUNT is specialized at compilation.
+uniform shader content;
+uniform float2 offsets[TAP_COUNT];
+uniform float weights[TAP_COUNT];
+uniform float2 maxCoord;
+half4 main(float2 xy) {
+    half4 color = half4(0.0);
+    for (int i = 0; i < TAP_COUNT; i++) {
+        float2 c1 = clamp(xy + offsets[i], float2(0.5), maxCoord);
+        float2 c2 = clamp(xy - offsets[i], float2(0.5), maxCoord);
+        color += (content.eval(c1) + content.eval(c2)) * half(weights[i]);
+    }
+    if (color.a > 0.0039) return half4(color.rgb / color.a, 1.0);
+    return color;
+}

@@ -6,8 +6,6 @@ public final class AccountProfile {
     public String displayName = "";
     public String avatarUrl = "";
     public boolean loggedIn;
-    /** 这个音源能不能新建歌单（2.1.1 的库页判据读它）。 */
-    public boolean canCreatePlaylist;
     public int membershipTier;
     public int level;
     public String signature = "";

@@ -16,8 +16,8 @@ android {
         applicationId = "dev.t1m3.qplayer"
         minSdk = 26
         targetSdk = 34
-        versionCode = 120
-        versionName = "2.3.1"
+        versionCode = 119
+        versionName = "2.3.0"
         manifestPlaceholders["appLabel"] = "QPlayer"
     }
 
@@ -161,13 +161,6 @@ android {
 }
 
 dependencies {
-
-    // media3：安卓解码层（MediaCodec + 容器解析）的底座（2026-11-15 ✓
-    // 2.1.1 的 android-shell 没有它 ⇒ 你那份 AndroidDecoder 编译不过 ✗）
-    implementation("androidx.media3:media3-common:1.4.1")
-    implementation("androidx.media3:media3-extractor:1.4.1")
-    implementation("androidx.media3:media3-datasource:1.4.1")
-    implementation("androidx.media3:media3-exoplayer:1.4.1")
     skijaNative("io.github.humbleui:skija-android-arm64:0.143.17")
     qmlCompilerClasspath("dev.t1m3.qplayer:player-core:0.1.0-SNAPSHOT")
     implementation(files(qmlBundleOutput.map { it.file("qml-bundle.jar") })

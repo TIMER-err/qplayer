@@ -9,8 +9,10 @@ package dev.t1m3.qplayer.plugin;
  * than the constant, whatever the app actually was.
  */
 public final class PluginCompatibility {
-    /** Used until a host reports its version (unit tests, unpackaged dev runs). */
-    private static final String BASELINE = "1.5.0";
+    /** Used until a host reports its version (unit tests, unpackaged dev runs).
+     *  Keep this at the current app line so a missing version.properties cannot
+     *  reject plugins that require a recent host. */
+    private static final String BASELINE = "1.8.7";
     public static final String API_VERSION = "1.0";
 
     private static volatile String hostVersion = BASELINE;

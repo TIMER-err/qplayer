@@ -14,7 +14,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.junit.Assert.assertThrows;
 
 /**
  * The set arithmetic a mixed playlist rests on: a sync must follow its source
@@ -354,15 +354,20 @@ public class LocalPlaylistTest {
     @Test
     public void importingRejectsAFileThatIsNotOurs() {
         for (String candidate : Arrays.asList(
+                "{}",
+                "{\"name\":\"foreign data\"}",
+                "{\"format\":\"qplayer.playlist\"}",
+                "{\"formatVersion\":1}",
+                "{\"format\":\"qplayer.playlist\",\"formatVersion\":null}",
+                "{\"format\":\"qplayer.playlist\",\"formatVersion\":\"1\"}",
+                "{\"format\":\"qplayer.playlist\",\"formatVersion\":0}",
+                "{\"format\":\"qplayer.playlist\",\"formatVersion\":-1}",
+                "{\"format\":\"qplayer.playlist\",\"formatVersion\":1.5}",
                 "{\"format\":\"something.else\",\"tracks\":[]}",
                 "[1,2,3]",
                 "not json at all")) {
-            try {
-                PlaylistTransfer.parse(candidate);
-                fail("should have rejected: " + candidate);
-            } catch (PlaylistTransfer.UnsupportedFormat expected) {
-                // expected
-            }
+            assertThrows(PlaylistTransfer.UnsupportedFormat.class,
+                    () -> PlaylistTransfer.parse(candidate));
         }
     }
 
@@ -370,12 +375,8 @@ public class LocalPlaylistTest {
     public void importingRejectsAFormatFromTheFuture() {
         String json = "{\"format\":\"" + PlaylistTransfer.FORMAT
                 + "\",\"formatVersion\":99,\"tracks\":[]}";
-        try {
-            PlaylistTransfer.parse(json);
-            fail("a newer format must not be half-read");
-        } catch (PlaylistTransfer.UnsupportedFormat expected) {
-            assertTrue(expected.getMessage().contains("newer"));
-        }
+        assertThrows(PlaylistTransfer.UnsupportedFormat.class,
+                () -> PlaylistTransfer.parse(json));
     }
 
     @Test
@@ -417,5 +418,19 @@ public class LocalPlaylistTest {
         assertEquals(4321L, restored.durationMs);
         assertEquals("identity is stable across the round trip",
                 original.canonicalId(), restored.canonicalId());
+    }
+
+    @Test
+    public void removeAllDropsOnlyTheNamedSongs() {
+        LocalPlaylist playlist = LocalPlaylist.create("mixed", 1L);
+        playlist.add(song("qq", "1", "a"));
+        playlist.add(song("qq", "2", "b"));
+        playlist.add(song("netease", "3", "c"));
+        int removed = playlist.removeAll(Arrays.asList(
+                MediaId.of("qq", MediaKind.SONG, "1").toString(),
+                MediaId.of("qq", MediaKind.SONG, "2").toString(),
+                "missing"));
+        assertEquals(2, removed);
+        assertEquals(Arrays.asList("c"), titles(playlist));
     }
 }

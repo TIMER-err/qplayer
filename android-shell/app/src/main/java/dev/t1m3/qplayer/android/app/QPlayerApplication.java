@@ -47,14 +47,6 @@ public final class QPlayerApplication extends Application {
         AppDirs.setBase(getFilesDir().getAbsolutePath());
         CredentialKeyProtection.install(new AndroidKeystoreKeyProtector());
 
-        // **三个宿主接缝**（2026-11-15 ✓ 用户日志「打开输出失败：没有可用的输出设备」就是漏了它们 ✗）
-        //   解码层：media3（提取器 + MediaCodec）
-        //   输出层：AudioTrack
-        //   模型层：AndroidModelFetcher（离线即时失败）
-        // 引擎（PlaybackEngine）靠这两个接缝才能开出输出流；不装就只能在日志里报错。
-        installAudioHostSeams();
-        installModelHostSeam();
-
         final Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((thread, ex) -> {
             try {
@@ -83,27 +75,5 @@ public final class QPlayerApplication extends Application {
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         OverlayLyricWindow.onConfigurationChanged();
-    }
-
-    /** 解码 + 输出两个接缝。装失败只记日志（App 仍能起，引擎会如实报"没有可用的输出设备"）。 */
-    private void installAudioHostSeams() {
-        try {
-            dev.t1m3.qplayer.android.audio.decode.AndroidDecoder.install(this);
-            dev.t1m3.qplayer.audio.output.OutputDevices.install(
-                    new dev.t1m3.qplayer.android.audio.output.AndroidOutputProvider(this));
-            Logger.info("音频宿主接缝已装配：Decoder=media3（提取器 + MediaCodec）, OutputDevices=AudioTrack");
-        } catch (Throwable t) {
-            Logger.error("音频宿主接缝装配失败：{}", t.toString());
-        }
-    }
-
-    /** 模型字节从哪来（权重不打包进成品，按需下载）。 */
-    private void installModelHostSeam() {
-        try {
-            dev.t1m3.qplayer.android.audio.model.AndroidModelFetcher.install(this);
-            Logger.info("模型下载接缝已装配：AndroidModelFetcher");
-        } catch (Throwable t) {
-            Logger.error("模型下载接缝装配失败：{}", t.toString());
-        }
     }
 }

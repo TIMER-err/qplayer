@@ -8,7 +8,7 @@ public final class LyricConfig {
     public static final LyricConfig instance = new LyricConfig();
 
     /** Lyric font weight, mapped to a bundled PingFang face. */
-    public enum FontWeight { THIN, LIGHT, REGULAR, MEDIUM, BOLD, HEAVY }
+    public enum FontWeight { THIN, LIGHT, REGULAR, MEDIUM }
 
     public static final class Val<T> {
         private volatile T value;
@@ -17,41 +17,27 @@ public final class LyricConfig {
         public void setValue(T value) { this.value = value; }
     }
 
-    public final Val<Integer> lyricFontSize = new Val<>(35);
-    public final Val<FontWeight> fontWeight = new Val<>(FontWeight.BOLD);
+    public final Val<Integer> lyricFontSize = new Val<>(28);
+    public final Val<FontWeight> fontWeight = new Val<>(FontWeight.REGULAR);
     /** Line-height multiplier applied to the lyric font size. */
     public final Val<Float> lineSpacing = new Val<>(2.00f);
-    /** 歌词放大倍率:当前行缩放目标(默认 1.14,Apple Music 值)。 */
-    public final Val<Float> emphasisScale = new Val<>(1.14f);
-    /** 自动行间距:开启后用 Melodify 公式(字高 + 10U + 45U + 25)计算行高,
-     *  忽略 {@link #lineSpacing} 滑块。 */
-    public final Val<Boolean> autoLineSpacing = new Val<>(Boolean.FALSE);
-    /** 歌词动效引擎：true = Apple Music 动效（念完即切 + 提前跳转 + gap 驱动弹簧 +
-     *  距离级联 + 缩放同步 + 已过行秒亮，默认）；false = 原版动效（fade-in 提前锚点 +
-     *  k=65 弹簧 + 方向衰减级联 + 中线渐进放大）。 */
-    public final Val<Boolean> melodifyMotion = new Val<>(Boolean.TRUE);
     public final Val<Boolean> showRomaji = new Val<>(Boolean.TRUE);
     public final Val<Boolean> showTranslation = new Val<>(Boolean.TRUE);
-    /** Apple-style spring physics for scroll + per-syllable lift. When off, the
-     *  scroll uses a stiffer near-critically-damped spring and the lift a fixed
-     *  cubic ease (the pre-0.4 tuning). */
+    /** Spring physics for scroll + per-syllable rise. When off, lines follow with a
+     *  critically damped spring (no overshoot, no cascade) and the rise a cubic ease. */
     public final Val<Boolean> springPhysics = new Val<>(Boolean.TRUE);
-    /** Active-line depth scaling (1.14× emphasis / 0.98× deselected). Off = no
-     *  scaling, full-width wrap, no layout reflow. */
+    /** Focus scaling (active group 1.14×, other lines 0.97×). Off = no scaling,
+     *  full-width wrap, no layout reflow. */
     public final Val<Boolean> scaleEmphasis = new Val<>(Boolean.TRUE);
-    /** 逐行动效风格：0 = 飘带（跟发光一起的逐词抬升），1 = 放大（Melodify 的每行强调缩放）。 */
-    public final Val<Integer> liftStyle = new Val<>(0);
-    /** White glow behind every display word. Real per-syllable sources only;
-     * synthetic plain-LRC timing never enables it. While {@link #dropShadow} is
-     * on, only words held at least 1.5s glow; with it off, every word does,
-     * regardless of duration. */
+    /** Word glow: words held at least one second carry a ribbon crest that rides the
+     *  karaoke edge, with a soft halo on their sung part. Real per-syllable sources
+     *  only; synthetic plain-LRC timing never enables it. */
     public final Val<Boolean> glow = new Val<>(Boolean.TRUE);
-    /** Soft drop shadow behind lyric, background-vocal and sub-line glyphs. Also
-     * gates {@link #glow}'s 1.5s minimum sustain duration -- see its doc. */
-    public final Val<Boolean> dropShadow = new Val<>(Boolean.FALSE);
+    /** Soft drop shadow behind lyric, background-vocal and sub-line glyphs. */
+    public final Val<Boolean> dropShadow = new Val<>(Boolean.TRUE);
     /** Apple-Music depth of field: blur lyric lines progressively toward the edges
      *  (the focused line stays sharp). Off by default — it adds a per-line blur layer. */
-    public final Val<Boolean> edgeBlur = new Val<>(Boolean.TRUE);
+    public final Val<Boolean> edgeBlur = new Val<>(Boolean.FALSE);
     /** Manual lyric-timing offset in ms, subtracted from the playback position before
      *  it's compared against each line's timestamp: a larger value makes lyrics appear
      *  later (slower), a smaller/negative value makes them appear earlier (faster).

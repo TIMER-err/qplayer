@@ -38,9 +38,3 @@ desktop-host/src/main/java/dev/t1m3/qplayer/desktop/tools/
 # test JVM occasionally dies and drops these in the repo root.
 hs_err_pid*.log
 replay_pid*.log
-
-# automix 离线实验产物（听力测试 wav/csv，1.1 GB，不进仓库）
-tools/automix-ml/out/
-
-# 本地构建出来的 APK
-*.apk

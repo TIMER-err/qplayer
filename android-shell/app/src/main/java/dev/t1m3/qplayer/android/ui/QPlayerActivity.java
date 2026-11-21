@@ -1,7 +1,5 @@
 package dev.t1m3.qplayer.android.ui;
 
-import dev.t1m3.qplayer.android.playback.AndroidPlaybackBackend;
-
 import dev.t1m3.qplayer.android.app.AndroidFontIndex;
 import dev.t1m3.qplayer.android.graphics.AndroidColorExtractor;
 import dev.t1m3.qplayer.i18n.I18n;
@@ -49,9 +47,6 @@ import java.util.function.Consumer;
  * audio-read permission is granted.
  */
 public final class QPlayerActivity extends Activity {
-
-    /** 让"设置加载完成"那一步能把设置注入引擎（automix 的总开关/接法从这儿进）。 */
-    private static volatile AndroidPlaybackBackend sharedPlaybackBackend;
 
     static {
         // Same Skija JNI bring-up as the qml4j demo: we ship the .so via
@@ -170,11 +165,7 @@ public final class QPlayerActivity extends Activity {
                     } catch (PackageManager.NameNotFoundException ignored) {
                     }
                     initializeLyricFonts(app);
-                    // **用你自己的 AndroidPlaybackBackend**（2026-11-15 用户反馈"automix 是不是没接入"）：
-                    // 2.1.1 默认还是老的 MediaPlayer 后端（AndroidAudioBackend）⇒ 引擎/自动混音不在链路上 ✗
-                    AndroidPlaybackBackend backend = new AndroidPlaybackBackend(app);
-                    sharedPlaybackBackend = backend;
-                    return new PlayerController(backend, new AndroidMetadataReader(app));
+                    return new PlayerController(new AndroidAudioBackend(app), new AndroidMetadataReader(app));
                 }, ENGINE_IO);
         initializing = initialization;
         initialization.thenApplyAsync(c -> {
@@ -183,12 +174,6 @@ public final class QPlayerActivity extends Activity {
                 preparedSettings.attach(c);
                 preparedSettings.setSystemDark(isSystemDark(app));
                 preparedSettings.load(new PrefsSettingsStore(app), SettingsCatalog.ANDROID);
-                // **把设置交给引擎**：不注入 ⇒ 引擎读不到总开关 ⇒ 一次过渡都不做 ✗
-                AndroidPlaybackBackend backendForSettings = sharedPlaybackBackend;
-                if (backendForSettings != null) {
-                    backendForSettings.engine().setSettings(
-                            new dev.t1m3.qplayer.audio.engine.AutomixSettings(preparedSettings));
-                }
                 return new EngineState(c, preparedSettings);
             }
         }, ENGINE_IO).whenComplete((state, error) -> main.post(() -> {
@@ -432,8 +417,8 @@ public final class QPlayerActivity extends Activity {
                 ((dev.t1m3.qplayer.android.app.QPlayerApplication) app).sceneResources();
         try {
             if (!lyricFontsInitialized) {
-                dev.t1m3.qplayer.lyric.skia.Fonts.init(
-                        weight -> bundledLyricFont(resources, weight));
+                dev.t1m3.qplayer.lyric.skia.Fonts.init(weight -> CompressedResources.load(resources,
+                        "fonts/PingFangSC-" + bundledFontWeightName(weight) + ".otf"));
                 dev.t1m3.qplayer.lyric.skia.Fonts.initIcon(
                         readAssetBytes(app, "fonts/MaterialSymbolsRounded.ttf"));
                 dev.t1m3.qplayer.lyric.skia.Fonts.addFileIndex(AndroidFontIndex.instance());
@@ -510,24 +495,6 @@ public final class QPlayerActivity extends Activity {
         }
         glView.dispatchTouchEvent(android.view.MotionEvent.obtain(
                 down, down + 180L, android.view.MotionEvent.ACTION_UP, x, y1, 0));
-    }
-
-    /**
-     * 每个字重档对应的字体文件（BOLD / HEAVY 用 SF Pro 的真字面 ✓
-     * 以前都回落 Medium ⇒ 选了"超重"看不出变化 ✗ 2026-11-15 用户反馈）。
-     */
-    private static byte[] bundledLyricFont(
-            dev.t1m3.qplayer.resources.DiskDecompressedResourceCache resources,
-            dev.t1m3.qplayer.lyric.skia.Fonts.Weight weight) {
-        switch (weight) {
-            case BOLD:
-                return CompressedResources.load(resources, "fonts/SFPro-Bold.ttf");
-            case HEAVY:
-                return CompressedResources.load(resources, "fonts/SFPro-Heavy.otf");
-            default:
-                return CompressedResources.load(resources,
-                        "fonts/PingFangSC-" + bundledFontWeightName(weight) + ".otf");
-        }
     }
 
     private static String bundledFontWeightName(

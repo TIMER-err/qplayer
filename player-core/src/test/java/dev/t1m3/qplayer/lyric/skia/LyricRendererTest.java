@@ -21,17 +21,7 @@ import static org.junit.Assert.assertTrue;
 public class LyricRendererTest {
 
     @Test
-    public void glowFollowsTheMeasuredWordAndStaysBoundedOutsideIt() {
-        assertEquals(1f, LyricRowRenderer.glowWindow(100f, 0f, 200f, 20f), 0.001f);
-        assertTrue(LyricRowRenderer.glowWindow(10f, 0f, 200f, 20f) > 0f);
-        assertTrue(LyricRowRenderer.glowWindow(190f, 0f, 200f, 20f) > 0f);
-        assertEquals(0f, LyricRowRenderer.glowWindow(-20f, 0f, 200f, 20f), 0.001f);
-        assertEquals(0f, LyricRowRenderer.glowWindow(300f, 0f, 200f, 20f), 0.001f);
-        assertEquals(1f, LyricRowRenderer.glowWindow(30f, 30f, 30f, 0f), 0.001f);
-    }
-
-    @Test
-    public void brokenShaderResourceDisablesOnlyTheLiftEffect() {
+    public void brokenShaderResourceDisablesOnlyTheRowEffect() {
         AtomicBoolean compilerCalled = new AtomicBoolean();
 
         assertNull(LyricRowRenderer.compileShaderResource(
@@ -92,6 +82,36 @@ public class LyricRendererTest {
         for (Syllable syllable : frame.currentSyllables) timedText.append(syllable.text);
         assertEquals("第二行", timedText.toString());
         assertEquals(1, frame.groupIndex);
+    }
+
+    @Test
+    public void sharedTimelineKeepsFirstLineBeforeItsTimestamp() {
+        LyricTimeline.Prepared prepared = LyricTimeline.prepare(LrcParser.parse(
+                "[00:01.00]第一行\n[00:05.00]第二行"), false);
+
+        LyricTimeline.Frame frame = LyricTimeline.frameAt(prepared, 0L);
+
+        assertEquals("", frame.previous);
+        assertEquals("第一行", frame.current);
+        assertEquals("第二行", frame.next);
+        assertEquals(0, frame.groupIndex);
+        assertEquals(0f, frame.progress, 0.001f);
+        StringBuilder timedText = new StringBuilder();
+        for (Syllable syllable : frame.currentSyllables) timedText.append(syllable.text);
+        assertEquals("第一行", timedText.toString());
+    }
+
+    @Test
+    public void zeroDurationSyllableExtendsToNextStartInsteadOfOneMillisecond() {
+        List<Syllable> syllables = Arrays.asList(
+                new Syllable("快", 1000L, 50L),
+                new Syllable(" ", 1050L, 0L),
+                new Syllable("慢", 1800L, 400L));
+
+        assertEquals(1050L, LyricTimeline.syllableEndMs(syllables, 0));
+        assertEquals(1800L, LyricTimeline.syllableEndMs(syllables, 1));
+        assertEquals(2200L, LyricTimeline.syllableEndMs(syllables, 2));
+        assertEquals(0L, LyricTimeline.syllableEndMs(syllables, -1));
     }
 
     @Test

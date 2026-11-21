@@ -18,6 +18,7 @@ public class DiskCacheCanonicalIdTest {
         String name = java.nio.file.Paths.get(path).getFileName().toString();
         assertTrue(name.matches("v2-[a-f0-9]{64}\\.cache"));
         assertFalse(name.contains("%"));
+        assertTrue(cache.audioPendingPath("provider:song:a%2Fb%3Ac").endsWith(".cache.pending"));
     }
 
     @Test public void legacyNumericAudioMovesOnlyAfterCanonicalLookup() throws Exception {
@@ -32,5 +33,96 @@ public class DiskCacheCanonicalIdTest {
         assertEquals(3L, Files.size(java.nio.file.Paths.get(migrated)));
         assertFalse(Files.exists(legacy));
         assertTrue(migrated.endsWith(".cache"));
+    }
+
+    /**
+     * Reproduces the mid-playback auto-skip: {@link DiskCache#getAudio} bumps a
+     * file's mtime on every read, the audio eviction policy evicts the NEWEST
+     * unprotected file first, and nothing used to stop those two facts from
+     * combining to delete the very file a still-open MediaPlayer was reading
+     * from. setCurrentlyPlaying must keep it out of eviction regardless of how
+     * recently it was touched.
+     */
+    @Test public void currentlyPlayingAudioSurvivesEvictionEvenWhenNewest() throws Exception {
+        Path root = Files.createTempDirectory("qplayer-cache-protect-");
+        DiskCache cache = new DiskCache(0);
+        cache.setBaseDir(root.toString());
+        byte[] payload = new byte[2 * 1024 * 1024]; // 2MB — three of these force eviction under a 3MB cap
+
+        long now = System.currentTimeMillis();
+        writeAudioFile(cache, 1L, payload, now - 30_000);
+        writeAudioFile(cache, 2L, payload, now - 20_000);
+        writeAudioFile(cache, 3L, payload, now - 10_000);
+
+        // Playing song 2: a real play touches it (mtime -> now, the newest file
+        // in the directory) and marks it protected.
+        cache.getAudio(2L);
+        cache.setCurrentlyPlaying(2L);
+
+        // 3MB cap over 6MB of files forces evicting both unprotected ones even
+        // though song 2 — being protected — is skipped despite being newest.
+        cache.setMaxSizeMB(3);
+
+        assertTrue("the currently-playing song must survive", cache.hasAudio(2L));
+        assertEquals(payload.length, Files.size(java.nio.file.Paths.get(cache.audioPath(2L))));
+        assertFalse("an older, unprotected song must be evicted first", cache.hasAudio(1L));
+        assertFalse("a newer, unprotected song is still evicted before the"
+                + " protected one, matching the newest-first policy", cache.hasAudio(3L));
+    }
+
+    @Test public void activeWriterSurvivesEvictionAndPromotionBeforeManualPin() throws Exception {
+        Path root = Files.createTempDirectory("qplayer-cache-writer-");
+        DiskCache cache = new DiskCache(0);
+        cache.setBaseDir(root.toString());
+        String mediaId = "source:song:pending";
+        Path target = java.nio.file.Paths.get(cache.audioPath(mediaId));
+        Path pending = java.nio.file.Paths.get(cache.audioPendingPath(mediaId));
+        Files.createDirectories(target.getParent());
+        try (DiskCache.WriteLease lease = cache.beginExternalWrite(target.toString())) {
+            Files.write(pending, new byte[2 * 1024 * 1024]);
+            cache.setMaxSizeMB(1);
+            assertTrue(Files.exists(pending));
+            Files.move(pending, target);
+            cache.setMaxSizeMB(1);
+            assertTrue("promotion is still owned until the writer completes", Files.exists(target));
+            cache.markActivelyCached(mediaId);
+        }
+        assertTrue("manual pin must precede lease eviction", Files.exists(target));
+    }
+
+    @Test public void pendingIsNotAnEvictionEntryEvenAfterWriterStops() throws Exception {
+        Path root = Files.createTempDirectory("qplayer-cache-staging-");
+        DiskCache cache = new DiskCache(0);
+        cache.setBaseDir(root.toString());
+        cache.setCurrentlyPlaying("source:song:playing");
+        Path pending = java.nio.file.Paths.get(cache.audioPendingPath("source:song:playing"));
+        Files.createDirectories(pending.getParent());
+        Files.write(pending, new byte[2 * 1024 * 1024]);
+        cache.setMaxSizeMB(1);
+        assertTrue("uncommitted data must not become an eviction candidate", Files.exists(pending));
+    }
+
+    @Test public void clearDoesNotDeleteAnOwnedWriterAndUnpinnedCommitCanBeEvicted() throws Exception {
+        Path root = Files.createTempDirectory("qplayer-cache-clear-writer-");
+        DiskCache cache = new DiskCache(1);
+        cache.setBaseDir(root.toString());
+        Path target = java.nio.file.Paths.get(cache.audioPath("source:song:unpinned"));
+        Path pending = java.nio.file.Paths.get(cache.audioPendingPath("source:song:unpinned"));
+        Files.createDirectories(pending.getParent());
+        try (DiskCache.WriteLease lease = cache.beginExternalWrite(target.toString())) {
+            Files.write(pending, new byte[2 * 1024 * 1024]);
+            cache.clearAll();
+            assertTrue(Files.exists(pending));
+            Files.move(pending, target);
+        }
+        assertFalse("once committed and released normal policy applies", Files.exists(target));
+    }
+
+    private static void writeAudioFile(DiskCache cache, long neteaseId, byte[] payload,
+                                       long lastModifiedMs) throws Exception {
+        Path path = java.nio.file.Paths.get(cache.audioPath(neteaseId));
+        Files.createDirectories(path.getParent());
+        Files.write(path, payload);
+        path.toFile().setLastModified(lastModifiedMs);
     }
 }

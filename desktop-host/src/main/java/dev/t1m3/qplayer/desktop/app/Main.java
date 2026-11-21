@@ -120,19 +120,9 @@ public final class Main {
         // built, and each one is version-checked against this.
         dev.t1m3.qplayer.plugin.PluginCompatibility.setHostVersion(currentVersion);
 
-        // **播放引擎用你自己的 PlaybackEngine**（2026-11-15 用户反馈"automix 是不是没接入" ✓
-        // 2.1.1 的宿主默认用的是它自己的 DesktopAudioBackend ⇒ Automix/Director 根本不在链路上 ✗）
-        // 解码层 / 输出层 / 模型层三个 seam 也由桌面端安装，和 1.9.9 那版一致。
-        dev.t1m3.qplayer.audio.engine.PlaybackEngine audio =
-                new dev.t1m3.qplayer.audio.engine.PlaybackEngine();
+        // Platform backends (the desktop impls already exist).
+        AudioBackend audio = new DesktopAudioBackend();
         MetadataReader reader = new DesktopMetadataReader();
-
-        dev.t1m3.qplayer.desktop.audio.decode.DesktopDecoder.install();
-        dev.t1m3.qplayer.audio.output.OutputDevices.install(
-                new dev.t1m3.qplayer.desktop.audio.output.JavaSoundOutputProvider());
-        dev.t1m3.qplayer.desktop.audio.model.DesktopModelFetcher.install(currentVersion);
-        // 注：2.1.1 的桌面端不再带 onnxruntime（56MB）⇒ 拍速分析走谱通量兜底、
-        // 去人声走 DSP 兜底（两者都是你自己实现里本来就有的退路 ✓）。
 
         PlayerController controller = new PlayerController(audio, reader);
         controller.setColorExtractor(new DesktopColorExtractor());
@@ -163,14 +153,15 @@ public final class Main {
         JsonSettingsStore desktopStore = new JsonSettingsStore();
         settings.load(desktopStore, SettingsCatalog.DESKTOP);
 
-        // **把设置交给引擎**（2026-11-15 ✓ 用户实测发现"automix 不生效"）：
-        // 总开关 / 接法 / 窗口 / HiFi 都是从这里进 PlaybackEngine 的；
-        // 不注入的话引擎读不到设置 ⇒ 总开关恒为 false ⇒ 一次过渡都不做 ✗
-        audio.setSettings(new dev.t1m3.qplayer.audio.engine.AutomixSettings(settings));
-
         // Fonts for the host-drawn lyric renderer (the QML scene fonts are set on the
         // view in DesktopWindow.ensureView).
-        Fonts.init(weight -> lyricFontBytes(resources, weight));
+        Fonts.init(weight -> CompressedResources.load(resources,
+                "fonts/PingFangSC-" + switch (weight) {
+            case THIN -> "Thin";
+            case LIGHT -> "Light";
+            case REGULAR -> "Regular";
+            case MEDIUM -> "Medium";
+        } + ".otf"));
         // Fonts the user imported as a file are selectable alongside the
         // installed ones. Registered before the selection is applied so one that
         // was chosen last run resolves on the first try.
@@ -686,37 +677,4 @@ public final class Main {
         thread.start();
     }
 
-
-    /**
-     * 歌词渲染器每个字重档用哪个字体文件。
-     *
-     * <p><b>BOLD / HEAVY 必须是真字体</b>：这两档就是"重 / 超重"，以前回落 Medium
-     * 会让人选了超重却看不出变化 ✗（2026-11-15 用户实测反馈）。现在用 SF Pro 的
-     * Bold / Heavy 两个字面 ✓ 资源缺失时才回落 Medium（不至于空白）。
-     */
-    private static byte[] lyricFontBytes(
-            dev.t1m3.qplayer.resources.DiskDecompressedResourceCache resources,
-            Fonts.Weight weight) {
-        switch (weight) {
-            case THIN:
-                return CompressedResources.load(resources, "fonts/PingFangSC-Thin.otf");
-            case LIGHT:
-                return CompressedResources.load(resources, "fonts/PingFangSC-Light.otf");
-            case MEDIUM:
-                return CompressedResources.load(resources, "fonts/PingFangSC-Medium.otf");
-            case BOLD: {
-                byte[] bold = CompressedResources.load(resources, "fonts/SFPro-Bold.ttf");
-                return bold != null ? bold
-                        : CompressedResources.load(resources, "fonts/PingFangSC-Medium.otf");
-            }
-            case HEAVY: {
-                byte[] heavy = CompressedResources.load(resources, "fonts/SFPro-Heavy.otf");
-                return heavy != null ? heavy
-                        : CompressedResources.load(resources, "fonts/PingFangSC-Medium.otf");
-            }
-            case REGULAR:
-            default:
-                return CompressedResources.load(resources, "fonts/PingFangSC-Regular.otf");
-        }
-    }
 }

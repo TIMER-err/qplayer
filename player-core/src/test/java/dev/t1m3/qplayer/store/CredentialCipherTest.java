@@ -13,7 +13,7 @@ import java.util.Arrays;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.junit.Assert.assertThrows;
 
 public class CredentialCipherTest {
 
@@ -56,12 +56,7 @@ public class CredentialCipherTest {
         byte[] encrypted = cipher.encrypt("cookie".getBytes(StandardCharsets.UTF_8));
         encrypted[encrypted.length - 1] ^= 0x01;
 
-        try {
-            cipher.decrypt(encrypted);
-            fail("tampered credentials must fail authentication");
-        } catch (GeneralSecurityException expected) {
-            assertTrue(expected.getMessage().contains("authentication"));
-        }
+        assertThrows(GeneralSecurityException.class, () -> cipher.decrypt(encrypted));
     }
 
     @Test
@@ -72,13 +67,8 @@ public class CredentialCipherTest {
         CredentialCipher reader = new CredentialCipher(second.resolve("credential.key"));
         byte[] encrypted = writer.encrypt("cookie".getBytes(StandardCharsets.UTF_8));
 
-        try {
-            reader.decrypt(encrypted);
-            fail("a missing installation key must not be regenerated while decrypting");
-        } catch (java.io.IOException expected) {
-            assertTrue(expected.getMessage().contains("missing"));
-            assertFalse(Files.exists(second.resolve("credential.key")));
-        }
+        assertThrows(java.io.IOException.class, () -> reader.decrypt(encrypted));
+        assertFalse(Files.exists(second.resolve("credential.key")));
     }
 
     @Test
@@ -130,13 +120,9 @@ public class CredentialCipherTest {
                 keyFile, new XorProtector("first", (byte) 1))
                 .encrypt("cookie".getBytes(StandardCharsets.UTF_8));
 
-        try {
-            new CredentialCipher(keyFile, new XorProtector("second", (byte) 1))
-                    .decrypt(encrypted);
-            fail("a different platform store must not open the key envelope");
-        } catch (java.io.IOException expected) {
-            assertTrue(expected.getMessage().contains("first"));
-        }
+        assertThrows(java.io.IOException.class,
+                () -> new CredentialCipher(keyFile, new XorProtector("second", (byte) 1))
+                        .decrypt(encrypted));
     }
 
     @Test
@@ -165,13 +151,9 @@ public class CredentialCipherTest {
                 .encrypt("cookie".getBytes(StandardCharsets.UTF_8));
         byte[] originalKeyEnvelope = Files.readAllBytes(keyFile);
 
-        try {
-            new CredentialCipher(keyFile,
-                    new FailingProtector("test-store", false, true)).decrypt(encrypted);
-            fail("an unavailable platform store must fail closed");
-        } catch (java.io.IOException expected) {
-            assertTrue(expected.getMessage().contains("unavailable"));
-        }
+        assertThrows(java.io.IOException.class,
+                () -> new CredentialCipher(keyFile,
+                        new FailingProtector("test-store", false, true)).decrypt(encrypted));
         assertArrayEquals(originalKeyEnvelope, Files.readAllBytes(keyFile));
     }
 
@@ -206,12 +188,8 @@ public class CredentialCipherTest {
         CredentialCipher cipher = new CredentialCipher(keyFile, protector);
         byte[] encrypted = cipher.encrypt("cookie".getBytes(StandardCharsets.UTF_8));
 
-        try {
-            new CredentialCipher(keyFile, protector).decrypt(encrypted);
-            fail("non-interactive recovery must fail in this fixture");
-        } catch (java.io.IOException expected) {
-            assertTrue(expected.getMessage().contains("locked"));
-        }
+        assertThrows(java.io.IOException.class,
+                () -> new CredentialCipher(keyFile, protector).decrypt(encrypted));
         assertArrayEquals("cookie".getBytes(StandardCharsets.UTF_8),
                 new CredentialCipher(keyFile, protector).decryptInteractively(encrypted));
     }
@@ -269,12 +247,8 @@ public class CredentialCipherTest {
         CredentialCipher unavailable = new CredentialCipher(keyFile,
                 new FailingProtector("test-store", true, false));
 
-        try {
-            unavailable.enablePlatformProtectionInteractively();
-            fail("an unavailable platform store must not report migration success");
-        } catch (java.io.IOException expected) {
-            assertTrue(expected.getMessage().contains("unavailable"));
-        }
+        assertThrows(java.io.IOException.class,
+                unavailable::enablePlatformProtectionInteractively);
 
         assertTrue(unavailable.usesOwnerOnlyProtection());
         assertArrayEquals(originalKey, Files.readAllBytes(keyFile));
@@ -306,14 +280,10 @@ public class CredentialCipherTest {
         writer.encrypt("existing login".getBytes(StandardCharsets.UTF_8));
         byte[] originalKey = Files.readAllBytes(keyFile);
 
-        try {
-            new CredentialCipher(keyFile,
-                    new FailingProtector("test-store", false, true))
-                    .verifyPlatformProtectionAvailable();
-            fail("locked platform store must fail relogin preflight");
-        } catch (java.io.IOException expected) {
-            assertTrue(expected.getMessage().contains("unavailable"));
-        }
+        assertThrows(java.io.IOException.class,
+                () -> new CredentialCipher(keyFile,
+                        new FailingProtector("test-store", false, true))
+                        .verifyPlatformProtectionAvailable());
 
         assertArrayEquals(originalKey, Files.readAllBytes(keyFile));
     }

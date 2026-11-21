@@ -46,11 +46,10 @@ public final class TemperaEnterStyles {
     }
 
     private static Frame directional(Input input, float travel, float uniform,
-                                     float dirX, float dirY, float rotationScale) {
+                                     float dirX, float dirY, float rotationScale, Frame frame) {
         float magnitude = (float) Math.hypot(input.enterX, input.enterY);
         float length = (float) Math.hypot(dirX, dirY);
         if (length == 0f) length = 1f;
-        Frame frame = new Frame();
         frame.x = (dirX / length) * magnitude * travel;
         frame.y = (dirY / length) * magnitude * travel;
         frame.rotation = input.enterRotation * rotationScale * travel;
@@ -65,18 +64,21 @@ public final class TemperaEnterStyles {
      * {@code travel} 在窗口内从 1 走到 0，{@code linear} 是原始 0→1 进度。
      */
     public static Frame resolve(String style, Input input, float travel, float linear) {
+        return resolve(style, input, travel, linear, new Frame());
+    }
+
+    public static Frame resolve(String style, Input input, float travel, float linear, Frame frame) {
         float settle = TemperaMotionEasing.easeSoftBack(linear);
         float uniform = input.enterScale + (1 - input.enterScale) * settle;
-        Frame frame = new Frame();
         switch (style == null ? "slide" : style) {
             case "from-left":
-                return directional(input, travel, uniform, -1, 0.12f, 0.4f);
+                return directional(input, travel, uniform, -1, 0.12f, 0.4f, frame);
             case "from-right":
-                return directional(input, travel, uniform, 1, -0.12f, 0.4f);
+                return directional(input, travel, uniform, 1, -0.12f, 0.4f, frame);
             case "from-above":
-                return directional(input, travel, uniform, 0.12f, -1, 0.4f);
+                return directional(input, travel, uniform, 0.12f, -1, 0.4f, frame);
             case "from-below":
-                return directional(input, travel, uniform, -0.12f, 1, 0.4f);
+                return directional(input, travel, uniform, -0.12f, 1, 0.4f, frame);
             case "swing":
                 // 走镜头自己的接近向量，但字绕自身中心转进来。
                 frame.x = input.enterX * 0.6f * travel;

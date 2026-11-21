@@ -17,11 +17,6 @@ Item {
     property alias source: image.source
     property alias icon: image.icon
     property alias iconSize: image.iconSize
-    /** 换封面交叉淡化（只有 automix 交接才做；列表卡片瞬切） */
-    property alias crossFadeTransition: image.crossFadeTransition
-    property alias crossFadeMs: image.crossFadeMs
-    /** 当前**显示中**的封面（交叉融合期间与 source 不同）。 */
-    property string shownSource: image.source
     property alias fadeIn: image.fadeIn
     property real radius: 8
 

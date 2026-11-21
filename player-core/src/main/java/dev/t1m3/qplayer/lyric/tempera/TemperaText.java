@@ -1,5 +1,7 @@
 package dev.t1m3.qplayer.lyric.tempera;
 
+import io.github.timer_err.qml4j.render.text.UnicodeBreaks;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -37,23 +39,15 @@ public final class TemperaText {
     // graphemeTiming.ts
     // ==================================================================
 
-    /**
-     * 把文本按字素切开。folia 优先用 {@code Intl.Segmenter('grapheme')}，Java 没有等价运行时，
-     * 这里用<b>码点迭代</b>做回退：每个 Unicode 码点自成一段，代理对（emoji 等）不会被拆开，
-     * 与 folia 回退路径 {@code Array.from(text)} 的语义一致。每个字素字符串的 {@code length()} 即
-     * UTF-16 码元数，所以后续按「码元偏移」对齐的切点不会错位。
-     */
+    /** 按共享 Unicode 扩展字素边界切分，UTF-16 偏移与源歌词及时间映射一致。 */
     public static List<String> splitLyricGraphemes(String text) {
         List<String> out = new ArrayList<>();
         if (text == null || text.isEmpty()) {
             return out;
         }
-        int i = 0;
-        while (i < text.length()) {
-            int cp = text.codePointAt(i);
-            int n = Character.charCount(cp);
-            out.add(text.substring(i, i + n));
-            i += n;
+        int[] boundaries = UnicodeBreaks.analyze(text).graphemes;
+        for (int index = 1; index < boundaries.length; index++) {
+            out.add(text.substring(boundaries[index - 1], boundaries[index]));
         }
         return out;
     }
@@ -62,7 +56,7 @@ public final class TemperaText {
      * 把一个字符串在 [startTime, endTime] 内均等铺成逐字时间；无时长时退化为零长（落在 startTime）。
      */
     private static List<TemperaTypes.GraphemeTiming> buildEvenGraphemeTimings(
-            String text, double startTime, double endTime, int wordIndex) {
+            String text, double startTime, double endTime) {
         List<String> graphemes = splitLyricGraphemes(text);
         if (graphemes.isEmpty()) {
             return new ArrayList<>();
@@ -78,40 +72,40 @@ public final class TemperaText {
         return out;
     }
 
-    /** 一个词：有音节就按音节铺时间，否则整词均等铺。 */
-    private static List<TemperaTypes.GraphemeTiming> buildWordGraphemeTimings(
-            TemperaTypes.Word word, int wordIndex) {
+    /** 音节可以在字素内部切时间；显示字素取所有重叠音节的时间并集。 */
+    private static List<TemperaTypes.GraphemeTiming> buildWordGraphemeTimings(TemperaTypes.Word word) {
         if (word.syllables.isEmpty()) {
-            return buildEvenGraphemeTimings(word.text, word.startTime, word.endTime, wordIndex);
+            return buildEvenGraphemeTimings(word.text, word.startTime, word.endTime);
+        }
+        List<TemperaTypes.GraphemeTiming> pieces = new ArrayList<>();
+        for (TemperaTypes.SyllableTime syllable : word.syllables) {
+            pieces.addAll(buildEvenGraphemeTimings(syllable.text, syllable.startTime, syllable.endTime));
         }
         List<TemperaTypes.GraphemeTiming> out = new ArrayList<>();
-        for (TemperaTypes.SyllableTime syllable : word.syllables) {
-            out.addAll(buildEvenGraphemeTimings(syllable.text, syllable.startTime, syllable.endTime, wordIndex));
+        int offset = 0;
+        int pieceIndex = 0;
+        int pieceOffset = 0;
+        for (String grapheme : splitLyricGraphemes(word.text)) {
+            int end = offset + grapheme.length();
+            double startTime = Double.POSITIVE_INFINITY;
+            double endTime = Double.NEGATIVE_INFINITY;
+            while (pieceIndex < pieces.size() && pieceOffset < end) {
+                TemperaTypes.GraphemeTiming piece = pieces.get(pieceIndex);
+                int pieceEnd = pieceOffset + piece.charText.length();
+                if (pieceEnd > offset) {
+                    startTime = Math.min(startTime, piece.startTime);
+                    endTime = Math.max(endTime, piece.endTime);
+                }
+                if (pieceEnd > end) break;
+                pieceOffset = pieceEnd;
+                pieceIndex++;
+            }
+            out.add(new TemperaTypes.GraphemeTiming(grapheme,
+                    Double.isFinite(startTime) ? startTime : word.startTime,
+                    Double.isFinite(endTime) ? endTime : word.endTime));
+            offset = end;
         }
         return out;
-    }
-
-    /**
-     * 在 source 里从 fromIndex 起找 target 首次整体出现的位置（按字素相等），找不到返回 -1。
-     * 用于把「解析器给的词文本」对齐回「整行字素序列」——因为整行可能含词里没有的空格/标点。
-     */
-    private static int findGraphemeSequence(List<String> source, List<String> target, int fromIndex) {
-        if (target.isEmpty()) {
-            return fromIndex;
-        }
-        for (int index = fromIndex; index <= source.size() - target.size(); index += 1) {
-            boolean matched = true;
-            for (int t = 0; t < target.size(); t += 1) {
-                if (!source.get(index + t).equals(target.get(t))) {
-                    matched = false;
-                    break;
-                }
-            }
-            if (matched) {
-                return index;
-            }
-        }
-        return -1;
     }
 
     /**
@@ -125,42 +119,47 @@ public final class TemperaText {
         }
         // 没有词：整行均等铺时间。
         if (line.words.isEmpty()) {
-            return buildEvenGraphemeTimings(line.fullText, line.startTime, line.endTime, -1);
+            return buildEvenGraphemeTimings(line.fullText, line.startTime, line.endTime);
         }
 
         List<TemperaTypes.GraphemeTiming> timeline = new ArrayList<>(
                 Collections.nCopies(lineGraphemes.size(), (TemperaTypes.GraphemeTiming) null));
+        int[] boundaries = UnicodeBreaks.analyze(line.fullText).graphemes;
         int cursor = 0;
+        int glyphCursor = 0;
         double lastResolvedTime = line.startTime;
 
-        for (int wordIndex = 0; wordIndex < line.words.size(); wordIndex += 1) {
-            TemperaTypes.Word word = line.words.get(wordIndex);
-            List<String> wordGraphemes = splitLyricGraphemes(word.text);
-            if (wordGraphemes.isEmpty()) {
-                continue;
-            }
-            int matchedStart = findGraphemeSequence(lineGraphemes, wordGraphemes, cursor);
+        for (TemperaTypes.Word word : line.words) {
+            if (word.text == null || word.text.isEmpty()) continue;
+            int matchedStart = line.fullText.indexOf(word.text, cursor);
             int start = matchedStart >= 0 ? matchedStart : cursor;
-            int end = Math.min(start + wordGraphemes.size(), lineGraphemes.size());
-
-            // 词之前、叉在词边界外的字素（空格/标点）：钉到本词起点。
-            for (int gap = cursor; gap < start; gap += 1) {
-                timeline.set(gap, new TemperaTypes.GraphemeTiming(lineGraphemes.get(gap), word.startTime, word.startTime));
-            }
-
-            List<TemperaTypes.GraphemeTiming> wordTimings = buildWordGraphemeTimings(word, wordIndex);
-            for (int local = 0; local < end - start; local += 1) {
-                TemperaTypes.GraphemeTiming timing = (local < wordTimings.size())
-                        ? wordTimings.get(local)
-                        : buildEvenGraphemeTimings(wordGraphemes.get(local), word.startTime, word.endTime, wordIndex).get(0);
-                if (timing == null) {
-                    continue;
+            int end = Math.min(start + word.text.length(), line.fullText.length());
+            while (glyphCursor < lineGraphemes.size() && boundaries[glyphCursor + 1] <= start) {
+                if (timeline.get(glyphCursor) == null) {
+                    timeline.set(glyphCursor, new TemperaTypes.GraphemeTiming(
+                            lineGraphemes.get(glyphCursor), word.startTime, word.startTime));
                 }
-                timeline.set(start + local, new TemperaTypes.GraphemeTiming(
-                        lineGraphemes.get(start + local), timing.startTime, timing.endTime));
-                lastResolvedTime = Math.max(lastResolvedTime, timing.endTime);
+                glyphCursor++;
+            }
+            int localOffset = start;
+            int target = glyphCursor;
+            for (TemperaTypes.GraphemeTiming timing : buildWordGraphemeTimings(word)) {
+                int localEnd = Math.min(end, localOffset + timing.charText.length());
+                while (target < lineGraphemes.size() && boundaries[target] < localEnd) {
+                    if (boundaries[target + 1] > localOffset) {
+                        TemperaTypes.GraphemeTiming previous = timeline.get(target);
+                        timeline.set(target, new TemperaTypes.GraphemeTiming(lineGraphemes.get(target),
+                                previous == null ? timing.startTime : Math.min(previous.startTime, timing.startTime),
+                                previous == null ? timing.endTime : Math.max(previous.endTime, timing.endTime)));
+                        lastResolvedTime = Math.max(lastResolvedTime, timing.endTime);
+                    }
+                    if (boundaries[target + 1] > localEnd) break;
+                    target++;
+                }
+                localOffset = localEnd;
             }
             cursor = Math.max(cursor, end);
+            glyphCursor = target;
         }
 
         // 词没覆盖到的尾部字素：沿用最后一个已解算的时间。
