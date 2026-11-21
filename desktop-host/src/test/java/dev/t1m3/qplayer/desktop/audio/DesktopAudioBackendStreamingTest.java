@@ -147,6 +147,85 @@ public class DesktopAudioBackendStreamingTest {
         }
     }
 
+    @Test(timeout = 10_000)
+    public void resumeKeepsPreparedStreamAndDoesNotRestartItsClock() throws Exception {
+        Assume.assumeTrue("requires the OpenAL Soft null output", "null".equals(System.getenv("ALSOFT_DRIVERS")));
+        byte[] payload = ProgressiveAudioTest.wav(32_000 * 12);
+        AtomicInteger requests = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/audio", exchange -> {
+            try {
+                // A resolved, single-use stream need not remain reopenable after pause.
+                if (requests.getAndIncrement() != 0) {
+                    exchange.sendResponseHeaders(410, -1);
+                    return;
+                }
+                exchange.sendResponseHeaders(200, payload.length);
+                try (var output = exchange.getResponseBody()) { output.write(payload); }
+            } finally { exchange.close(); }
+        });
+        server.start();
+        DesktopAudioBackend backend = new DesktopAudioBackend();
+        AtomicInteger starts = new AtomicInteger();
+        AtomicBoolean failed = new AtomicBoolean();
+        backend.setOnStarted(starts::incrementAndGet);
+        backend.setOnError(() -> failed.set(true));
+        try {
+            backend.play(ProgressiveAudioTest.url(server), 1000);
+            await(() -> starts.get() == 1 && backend.position() >= 1200);
+            for (int round = 0; round < 2; round++) {
+                backend.pause();
+                Thread.sleep(80);
+                long pausedAt = backend.position();
+                Thread.sleep(80);
+                assertEquals("the prepared playhead freezes while paused", pausedAt, backend.position());
+                backend.resume();
+                await(() -> backend.position() > pausedAt + 100 || failed.get());
+                assertFalse("resume must not reopen the single-use stream", failed.get());
+                assertTrue("resume continues from the paused samples", backend.position() > pausedAt + 100);
+                long previous = backend.position();
+                for (int sample = 0; sample < 15; sample++) {
+                    Thread.sleep(20);
+                    long current = backend.position();
+                    assertTrue("the resumed playhead must not move backwards", current >= previous);
+                    previous = current;
+                }
+                assertEquals("resume must not restart the controller's onStarted fade", 1, starts.get());
+            }
+        } finally {
+            backend.release();
+            server.stop(0);
+        }
+    }
+
+    @Test(timeout = 10_000)
+    public void pauseDuringHeaderReadCanResumeWithoutStaleError() throws Exception {
+        Assume.assumeTrue("requires the OpenAL Soft null output", "null".equals(System.getenv("ALSOFT_DRIVERS")));
+        CountDownLatch head = new CountDownLatch(1);
+        CountDownLatch tail = new CountDownLatch(1);
+        CountDownLatch started = new CountDownLatch(1);
+        AtomicBoolean failed = new AtomicBoolean();
+        HttpServer server = delayedServer(ProgressiveAudioTest.wav(32_000 * 4), 8, head, tail);
+        DesktopAudioBackend backend = new DesktopAudioBackend();
+        backend.setOnStarted(started::countDown);
+        backend.setOnError(() -> failed.set(true));
+        try {
+            backend.play(ProgressiveAudioTest.url(server), 500);
+            assertTrue(head.await(2, TimeUnit.SECONDS));
+            backend.pause();
+            assertEquals(500L, backend.position());
+            backend.resume();
+            tail.countDown();
+            assertTrue("the cancelled initial open can be retried", started.await(3, TimeUnit.SECONDS));
+            assertFalse("a paused open is not a playback error", failed.get());
+            assertTrue("the initial seek survives the cancelled open", backend.position() >= 500);
+        } finally {
+            backend.release();
+            tail.countDown();
+            server.stop(0);
+        }
+    }
+
     private static boolean reopened(long generation) {
         return Logger.snapshot().stream().anyMatch(line ->
                 line.contains("reopened default output") && line.contains("(route " + generation + ","));

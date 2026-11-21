@@ -4097,6 +4097,7 @@ public final class PlayerController {
                 coverUrl.set("");
                 coverPath.set("");
                 applyCover(null, coverRevision.incrementAndGet());
+                artworkResolver.setQueueWindow(null, null, null);
                 pendingResumeIndex = -1;
                 pendingResumeMs = 0L;
                 needsReplay = false;
@@ -4180,6 +4181,7 @@ public final class PlayerController {
             coverUrl.set("");
             coverPath.set("");
             applyCover(null, coverRevision.incrementAndGet());
+            artworkResolver.setQueueWindow(null, null, null);
             pendingResumeIndex = -1;
             pendingResumeMs = 0L;
             needsReplay = false;
@@ -6028,7 +6030,6 @@ public final class PlayerController {
         onMain(
                 () -> {
                     if (coverRevision.get() != revision || !isCurrentTrack(track)) return;
-                    track.coverBytes = data;
                     applyCoverAndPath(data, path, revision);
                     notifyPlayback();
                 });
@@ -6121,22 +6122,27 @@ public final class PlayerController {
      */
     private void preloadAdjacent() {
         int n = playbackSession.queue.size();
-        if (n <= 1) return;
+        if (n == 0) {
+            artworkResolver.setQueueWindow(null, null, null);
+            return;
+        }
         int cur = playbackSession.index;
         if (cur < 0 || cur >= n) return;
-        Track next = playbackSession.queue.get((cur + 1) % n);
-        Track prev = playbackSession.queue.get((cur - 1 + n) % n);
+        Track current = playbackSession.queue.get(cur);
+        Track next = n > 1 ? playbackSession.queue.get((cur + 1) % n) : null;
+        Track prev = n > 1 ? playbackSession.queue.get((cur - 1 + n) % n) : null;
+        artworkResolver.setQueueWindow(current, prev, next);
+        if (next == null) return;
         preloadTrack(next);
         if (prev != next) preloadTrack(prev);
     }
 
     private void preloadTrack(Track track) {
-        if (track == null || track.source != Track.Source.LOCAL || track.coverBytes != null) return;
+        if (track == null || track.source != Track.Source.LOCAL) return;
         ioWorker.submit(
                 () -> {
                     try {
-                        ArtworkResolver.Cover cover = artworkResolver.cachedCover(track);
-                        post(() -> track.coverBytes = cover.bytes());
+                        artworkResolver.cachedCover(track);
                     } catch (java.io.IOException error) {
                         Logger.warn("cover preload failed: {}", safeMessage(error));
                     }
@@ -9644,7 +9650,7 @@ public final class PlayerController {
             Track track = playbackSession.current();
             PlaybackSnapshot.TrackMetadata metadata = null;
             if (track != null) {
-                byte[] data = track.coverBytes;
+                byte[] data = coverBytes.peek();
                 if (data != snapshotArtworkSource) {
                     snapshotArtworkSource = data;
                     snapshotArtwork = data != null ? new PlaybackSnapshot.Artwork(data) : null;

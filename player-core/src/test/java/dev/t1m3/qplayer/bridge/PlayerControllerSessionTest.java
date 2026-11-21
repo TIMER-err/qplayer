@@ -188,11 +188,12 @@ public class PlayerControllerSessionTest {
     @Test
     public void immutableHostSnapshotDoesNotAliasMutableQueueMetadataOrArtwork() throws Exception {
         Track song = song("snapshot");
-        song.coverBytes = new byte[] {1, 2, 3};
+        byte[] cover = new byte[] {1, 2, 3};
         select(song);
+        controller.coverBytes.set(cover);
         PlaybackSnapshot first = controller.playbackSnapshot();
         song.title = "changed";
-        song.coverBytes[0] = 9;
+        cover[0] = 9;
         assertEquals("snapshot", first.track().title());
         assertEquals(1, first.track().artwork().copyBytes()[0]);
         byte[] copy = first.track().artwork().copyBytes();

@@ -29,7 +29,7 @@ Set `JAVA_HOME` to that installation and put its `bin` directory on `PATH`.
 
 The engine version has one source: `qml4j.version` in the root POM. Android reads
 that property too. Both hosts consume
-`com.github.TIMER-err.qml4j:qml4j-core:v0.2.41` from `https://jitpack.io`.
+`com.github.TIMER-err.qml4j:qml4j-core:v0.2.42` from `https://jitpack.io`.
 The dependency version matches the exact Git tag, including `v`. Maven enables
 only releases for this repository. Gradle routes only the exact `com.github.TIMER-err.qml4j` group
 to JitPack through `exclusiveContent`; other dependencies keep their existing
@@ -72,6 +72,12 @@ must be registered by `DesktopNativeMetadata`. A missing registration terminates
 strict native builds before the first frame when a saved home cache is read
 (issue #127); catching a Java exception does not prevent that exit.
 
+JNA also probes platform-prefixed resources when a system library is absent.
+The generator derives that prefix from the pinned JNA `Platform.RESOURCE_PREFIX`.
+The smoke loads a deliberately absent library and requires the normal loader
+error instead of a strict-metadata process exit. Opening desktop lyrics on X11
+also exercises the Xext input-shape library and its native rectangle structure.
+
 It also reads synthetic ID3v2.2 and ID3v2.3 MP3 files, checks their converted
 recording dates and original-release years, and scans them through the production
 `LibraryScanner` and `DesktopMetadataReader`. This covers legacy
@@ -101,6 +107,22 @@ For startup changes, run the Windows native executable with an isolated copy of
 the saved queue and image cache. Check the first frame, tray initialization, and
 normal quit/reopen without deleting cached artwork. The empty-profile
 `--build-smoke` does not exercise this startup race.
+
+For memory ownership changes, repeat track switches with distinct covers and
+multiscript lyrics, then repeatedly switch Settings categories. Compare live
+heap after diagnostic GC and retained native Typeface/filter counts across
+equal batches. Full cover bytes must not accumulate in queue records, and
+discarded Loader/Repeater content must release bindings and model signals.
+Window hide/restore intentionally releases and recreates GPU resources; measure
+the retained baseline separately. Do not use forced GC or cache purges as the
+production fix.
+
+For desktop pause/resume changes, enable playback fading and pause until silence.
+Resume several times without seeking. The playhead must continue without moving
+backwards, and the prepared decoder and PCM queue must remain in use. Also check
+a single-use HTTP stream and cancellation while the initial header is blocked.
+Only an unfinished open is cancelled by pause; source replacement and shutdown
+still cancel reads.
 
 Vulkan availability probing can initialize LWJGL's native loader before GLFW
 returns a support result. A missing loader raises `UnsatisfiedLinkError`; handle

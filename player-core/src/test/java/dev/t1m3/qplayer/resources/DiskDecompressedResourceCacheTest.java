@@ -14,6 +14,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 public class DiskDecompressedResourceCacheTest {
@@ -36,8 +37,10 @@ public class DiskDecompressedResourceCacheTest {
         DiskDecompressedResourceCache cache =
                 new DiskDecompressedResourceCache(loader, directory);
 
-        assertArrayEquals(original, cache.load("fonts/Test.otf"));
-        assertArrayEquals(original, cache.load("fonts/Test.otf"));
+        byte[] expanded = cache.load("fonts/Test.otf");
+        assertArrayEquals(original, expanded);
+        // Reuse while a consumer still owns the bytes, not until heap pressure.
+        assertSame(expanded, cache.load("fonts/Test.otf"));
         assertEquals(1, compressedReads.get());
 
         // A new loader must read the on-disk entry, including its payload checksum.

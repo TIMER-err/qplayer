@@ -8,7 +8,7 @@ import java.io.BufferedOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.lang.ref.SoftReference;
+import java.lang.ref.WeakReference;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -36,7 +36,10 @@ public final class DiskDecompressedResourceCache implements ResourceLoader {
 
     private final ResourceLoader delegate;
     private final Path directory;
-    private final Map<String, SoftReference<byte[]>> expandedInProcess = new HashMap<>();
+    // Consumers copy font bytes into native Typefaces. Share arrays while a caller
+    // still owns them, but do not retain another full CJK file until heap pressure.
+    // Later requests can read the validated disk entry without decompressing again.
+    private final Map<String, WeakReference<byte[]>> expandedInProcess = new HashMap<>();
 
     public DiskDecompressedResourceCache(ResourceLoader delegate, Path directory) {
         this.delegate = delegate;
@@ -45,7 +48,7 @@ public final class DiskDecompressedResourceCache implements ResourceLoader {
 
     @Override
     public synchronized byte[] load(String source) {
-        SoftReference<byte[]> reference = expandedInProcess.get(source);
+        WeakReference<byte[]> reference = expandedInProcess.get(source);
         byte[] inMemory = reference != null ? reference.get() : null;
         if (inMemory != null) return inMemory;
 
@@ -58,7 +61,7 @@ public final class DiskDecompressedResourceCache implements ResourceLoader {
         try {
             if (Files.isRegularFile(file)) {
                 byte[] cached = decode(file);
-                expandedInProcess.put(source, new SoftReference<>(cached));
+                expandedInProcess.put(source, new WeakReference<>(cached));
                 Logger.info("decompressed resource cache hit: {}", source);
                 return cached;
             }
@@ -74,7 +77,7 @@ public final class DiskDecompressedResourceCache implements ResourceLoader {
                 (source + ".xz").equals(requested) ? compressed : null;
         byte[] expanded = CompressedResources.load(compressedOnly, source);
         if (expanded == null || expanded.length > MAX_RESOURCE_BYTES) return expanded;
-        expandedInProcess.put(source, new SoftReference<>(expanded));
+        expandedInProcess.put(source, new WeakReference<>(expanded));
         store(file, expanded);
         return expanded;
     }

@@ -53,10 +53,12 @@ public final class DesktopNativeMetadata {
     private final Map<String, Set<String>> callbackLambdas = new TreeMap<>();
     private final Class<?> structure;
     private final Class<?> nativeMapped;
+    private final String jnaResourcePrefix;
 
-    private DesktopNativeMetadata() throws ClassNotFoundException {
+    private DesktopNativeMetadata() throws ReflectiveOperationException {
         structure = type("com.sun.jna.Structure");
         nativeMapped = type("com.sun.jna.NativeMapped");
+        jnaResourcePrefix = (String) type("com.sun.jna.Platform").getField("RESOURCE_PREFIX").get(null);
     }
 
     public static void main(String[] args) throws Exception {
@@ -177,6 +179,9 @@ public final class DesktopNativeMetadata {
                 "*.so", "*.so.*", "*.dylib", "*.dll", "native-webview/**"}) {
             addResourceGlob(resourceGlobs, glob);
         }
+        // JNA probes <platform>-<arch>/<mapped-library-name> after system lookup.
+        // Register absent probes too, so optional system libraries fail normally.
+        addResourceGlob(resourceGlobs, jnaResourcePrefix + "/**");
         for (String prefix : new String[]{"miuix", "components", "dialogs", "pages", "settings"}) {
             for (String extension : new String[]{"js", "json", "svg", "png", "webp"}) {
                 addResourceGlob(resourceGlobs, prefix + "/**/*." + extension);

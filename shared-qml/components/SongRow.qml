@@ -76,9 +76,8 @@ Rectangle {
     Behavior on reorderShift {
         NumberAnimation { duration: 140; easing.type: Easing.InOutCubic }
     }
-    // The lift itself. Small on purpose — this is a 64px row, not a card.
-    scale: row.dragging ? 1.03 : 1.0
-    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+    // The outline lifts the carried row without scaling its edges past the
+    // clipped list viewport or moving the trailing controls sideways.
     signal reorderPressed()
     signal reorderDragged()
     signal reorderReleased()

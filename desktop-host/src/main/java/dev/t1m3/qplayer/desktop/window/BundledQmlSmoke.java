@@ -1,5 +1,6 @@
 package dev.t1m3.qplayer.desktop.window;
 
+import com.sun.jna.NativeLibrary;
 import dev.t1m3.qplayer.bridge.PlayerController;
 import dev.t1m3.qplayer.bridge.WindowChromeStub;
 import dev.t1m3.qplayer.desktop.audio.DesktopAudioBackend;
@@ -48,6 +49,7 @@ public final class BundledQmlSmoke {
     }
 
     public static void run() throws Exception {
+        missingSystemLibraryProbe();
         Path profile = Files.createTempDirectory("qplayer-build-smoke-");
         String oldBase = AppDirs.base();
         String oldCache = AppDirs.cacheBase();
@@ -93,6 +95,17 @@ public final class BundledQmlSmoke {
                     }
                 }
             }
+        }
+    }
+
+    private static void missingSystemLibraryProbe() {
+        try (NativeLibrary unexpected =
+                NativeLibrary.getInstance("qplayer-build-smoke-missing-system-library")) {
+            throw new IllegalStateException("The deliberately absent system library unexpectedly loaded");
+        } catch (UnsatisfiedLinkError expected) {
+            // Exact resource checking must permit JNA's absent platform-resource
+            // probe before this normal optional-library failure can be handled.
+            System.out.println("Absent JNA system-library probe returned its normal loader error");
         }
     }
 

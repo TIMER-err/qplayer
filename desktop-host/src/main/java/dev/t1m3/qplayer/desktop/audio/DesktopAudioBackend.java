@@ -72,6 +72,8 @@ public final class DesktopAudioBackend implements AudioBackend {
     private Runnable requestOnComplete;
     private Runnable requestOnStarted;
     private Runnable requestOnError;
+    /** Guarded by this; a prepared decoder and its queued PCM survive an ordinary pause. */
+    private boolean decoderReady;
     private volatile long positionMs = 0L;
     private volatile long durationMs = 0L;
     /** Published before decoder construction; controls cancel IO, never native decoders. */
@@ -138,6 +140,7 @@ public final class DesktopAudioBackend implements AudioBackend {
         requestOnComplete = onComplete;
         requestOnStarted = onStarted;
         requestOnError = onError;
+        decoderReady = false;
         sourceRevision.incrementAndGet();
         cancelReads();
         // Publish the new track's baseline synchronously. Until the audio thread
@@ -153,9 +156,13 @@ public final class DesktopAudioBackend implements AudioBackend {
     @Override
     public synchronized void pause() {
         playing.set(false);
-        sourceRevision.incrementAndGet();
-        seekTargetMs.set(positionMs);
-        cancelReads();
+        // Only an unfinished open needs cancellation. Reopening a prepared source on
+        // resume discards queued PCM, repeats decoder seeking and restarts onStarted.
+        if (!decoderReady) {
+            sourceRevision.incrementAndGet();
+            seekTargetMs.set(positionMs);
+            cancelReads();
+        }
     }
 
     @Override
@@ -230,7 +237,7 @@ public final class DesktopAudioBackend implements AudioBackend {
     }
 
     private synchronized void activateBytes(SeekableByteSource bytes, long revision) throws IOException {
-        if (shuttingDown.get() || revision != sourceRevision.get() || !playing.get()) {
+        if (shuttingDown.get() || revision != sourceRevision.get() || (!playing.get() && !decoderReady)) {
             bytes.close();
             throw new java.io.InterruptedIOException("audio request cancelled");
         }
@@ -360,7 +367,10 @@ public final class DesktopAudioBackend implements AudioBackend {
             // Opening/priming can take long enough for play() to replace the request.
             // Do not announce or start the stale decoder; in particular, its
             // onStarted must not cancel the new track's volume transition.
-            if (openRevision != sourceRevision.get()) return false;
+            synchronized (this) {
+                if (openRevision != sourceRevision.get()) return false;
+                decoderReady = true;
+            }
 
             while (!shuttingDown.get()) {
                 // A different track requested → bail so the loop reopens it.
@@ -431,6 +441,9 @@ public final class DesktopAudioBackend implements AudioBackend {
             }
             return false;
         } finally {
+            synchronized (this) {
+                if (openRevision == sourceRevision.get()) decoderReady = false;
+            }
             alSourceStop(sourceId);
             alSourcei(sourceId, AL_BUFFER, 0);
             queuedFrames.clear();
@@ -588,10 +601,11 @@ public final class DesktopAudioBackend implements AudioBackend {
     private int decodeInto(PcmSource pcm, int buf) throws Exception {
         int frameBytes = channels * 2;
         int want = CHUNK_BYTES - (CHUNK_BYTES % frameBytes);
-        if (!pcm.hasBuffered(Math.max(frameBytes, want / 4))) return -1;
+        int bufferedBytes = Math.max(frameBytes, want / 4);
         int got = 0;
         boolean eof = false;
         while (got < want) {
+            if (!pcm.hasBuffered(bufferedBytes)) break;
             int r = pcm.read(stagingChunk, got, want - got);
             if (r < 0) { eof = true; break; }
             if (r == 0) break;

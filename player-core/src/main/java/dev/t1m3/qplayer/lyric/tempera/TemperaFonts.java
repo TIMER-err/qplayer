@@ -73,7 +73,12 @@ final class TemperaFonts {
         Key key = new Key(Float.floatToIntBits(size), template);
         Font cached = CACHE.get(key);
         if (cached != null) return cached;
-        Font font = template.makeWithSize(size);
+        Font font;
+        // Skija's makeWithSize() creates an owning getTypeface() wrapper without
+        // closing it. Keep this temporary reference scoped to font construction.
+        try (Typeface face = template.getTypeface()) {
+            font = new Font(face, size, template.getScaleX(), template.getSkewX());
+        }
         if (CACHE.size() >= LIMIT) {
             java.util.Iterator<Font> oldest = CACHE.values().iterator();
             Font evicted = oldest.next();

@@ -3,6 +3,7 @@ package dev.t1m3.qplayer.lyric.tempera;
 import dev.t1m3.qplayer.lyric.skia.Fonts;
 
 import io.github.humbleui.skija.Font;
+import io.github.humbleui.skija.Typeface;
 
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
@@ -86,8 +87,10 @@ public final class TemperaMeasure {
             if (japanese != null) return TemperaFonts.scaled(japanese, size);
         }
         if (needsHan(text)) {
-            if (base.getTypeface() == null || base.getTypeface().getUTF32Glyph('汉') == 0) {
-                return TemperaFonts.scaled(Fonts.get(Fonts.Weight.MEDIUM, 64f), size);
+            try (Typeface face = base.getTypeface()) {
+                if (face == null || face.getUTF32Glyph('汉') == 0) {
+                    return TemperaFonts.scaled(Fonts.get(Fonts.Weight.MEDIUM, 64f), size);
+                }
             }
         }
         return TemperaFonts.scaled(base, size);

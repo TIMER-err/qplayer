@@ -207,12 +207,9 @@ public final class Fonts {
     }
 
 
-    // OpenType weight each face in `faces` was resolved for, so a fallback face can
-    // be matched to the same weight as the lyric face that needs it. Identity-keyed:
-    // these are the exact Typeface instances handed out by get(), and they're
-    // replaced wholesale on every reapply().
-    private static final java.util.IdentityHashMap<Typeface, Integer> faceWeights =
-            new java.util.IdentityHashMap<>();
+    // Native typeface IDs, not Java wrapper identities: Font.getTypeface() returns
+    // a new owning wrapper for the same native face on every call.
+    private static final Map<Integer, Integer> faceWeights = new HashMap<>();
 
     private static final String[] KOREAN_CANDIDATES = {
         "Noto Sans CJK KR", "Noto Sans KR", "NotoSansCJK",
@@ -256,10 +253,9 @@ public final class Fonts {
         // no face for this script", cached so the candidate walk runs at most once.
         private final Map<Integer, Typeface> byWeight = new HashMap<>();
         private final Map<Long, Font> fonts = new HashMap<>();
-        // Whether a lyric face already covers this script — identity-keyed on the
-        // Typeface, cleared with the rest whenever the selection changes.
-        private final java.util.IdentityHashMap<Typeface, Boolean> baseCoverage =
-                new java.util.IdentityHashMap<>();
+        // The native ID is stable across getTypeface() wrappers and does not keep
+        // those owning wrappers (and their native references) alive.
+        private final Map<Integer, Boolean> baseCoverage = new HashMap<>();
 
         Fallback(char probe, String[] families, String[] bcp47) {
             this.probe = probe;
@@ -272,29 +268,31 @@ public final class Fonts {
          *  ships nothing for it. */
         Font fontFor(Font base) {
             if (base == null) return null;
-            Typeface bt = base.getTypeface();
-            if (bt != null && baseCovers(bt)) return null;
-            int weight = weightOf(bt);
-            Typeface tf = face(weight);
-            if (tf == null) return null;
-            long key = ((long) Float.floatToIntBits(base.getSize()) << 16) | (weight & 0xFFFFL);
-            Font f = fonts.get(key);
-            if (f == null) {
-                f = new Font(tf, base.getSize());
-                f.setBaselineSnapped(false);
-                f.setSubpixel(true);
-                f.setHinting(FontHinting.NONE);
-                f.setEdging(FontEdging.SUBPIXEL_ANTI_ALIAS);
-                fonts.put(key, f);
+            try (Typeface bt = base.getTypeface()) {
+                if (bt != null && baseCovers(bt)) return null;
+                int weight = weightOf(bt);
+                Typeface tf = face(weight);
+                if (tf == null) return null;
+                long key = ((long) Float.floatToIntBits(base.getSize()) << 16) | (weight & 0xFFFFL);
+                Font f = fonts.get(key);
+                if (f == null) {
+                    f = new Font(tf, base.getSize());
+                    f.setBaselineSnapped(false);
+                    f.setSubpixel(true);
+                    f.setHinting(FontHinting.NONE);
+                    f.setEdging(FontEdging.SUBPIXEL_ANTI_ALIAS);
+                    fonts.put(key, f);
+                }
+                return f;
             }
-            return f;
         }
 
         private boolean baseCovers(Typeface t) {
-            Boolean known = baseCoverage.get(t);
+            int id = t.getUniqueId();
+            Boolean known = baseCoverage.get(id);
             if (known != null) return known;
             boolean ok = covers(t, probe);
-            baseCoverage.put(t, ok);
+            baseCoverage.put(id, ok);
             return ok;
         }
 
@@ -453,15 +451,13 @@ public final class Fonts {
         onFacesChanged();
     }
 
-    /** Drop everything keyed on the previous faces and re-index the new ones. The
-     *  per-script fallbacks cache "does this face already cover the script" by
-     *  Typeface identity, so those answers have to go with the faces they described. */
+    /** Drop everything keyed on the previous faces and re-index the new ones. */
     private static void onFacesChanged() {
         cache.clear();
         faceWeights.clear();
         for (Weight w : Weight.values()) {
             Typeface t = faces[w.ordinal()];
-            if (t != null) faceWeights.put(t, WEIGHT_VALUES[w.ordinal()]);
+            if (t != null) faceWeights.put(t.getUniqueId(), WEIGHT_VALUES[w.ordinal()]);
         }
         KOREAN.invalidateBaseCoverage();
         THAI.invalidateBaseCoverage();
@@ -777,14 +773,14 @@ public final class Fonts {
             if (tf == null && activeFamily == null) {
                 tf = bundledFace(w);
                 faces[w.ordinal()] = tf;
-                if (tf != null) faceWeights.put(tf, WEIGHT_VALUES[w.ordinal()]);
+                if (tf != null) faceWeights.put(tf.getUniqueId(), WEIGHT_VALUES[w.ordinal()]);
             }
             if (tf == null) {
                 tf = faces[Weight.REGULAR.ordinal()];
                 if (tf == null && activeFamily == null) {
                     tf = bundledFace(Weight.REGULAR);
                     faces[Weight.REGULAR.ordinal()] = tf;
-                    if (tf != null) faceWeights.put(tf, WEIGHT_VALUES[Weight.REGULAR.ordinal()]);
+                    if (tf != null) faceWeights.put(tf.getUniqueId(), WEIGHT_VALUES[Weight.REGULAR.ordinal()]);
                 }
             }
             f = tf != null ? new Font(tf, size) : new Font().setSize(size);
@@ -827,7 +823,7 @@ public final class Fonts {
      *  the face's own OS/2 weight for anything not from the lyric face table. */
     private static int weightOf(Typeface t) {
         if (t == null) return WEIGHT_VALUES[Weight.REGULAR.ordinal()];
-        Integer known = faceWeights.get(t);
+        Integer known = faceWeights.get(t.getUniqueId());
         if (known != null) return known;
         try {
             return t.getFontStyle().getWeight();

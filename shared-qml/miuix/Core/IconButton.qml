@@ -41,7 +41,9 @@ Item {
     }
 
     Rectangle {
-        anchors.fill: parent
+        // Hidden rows under cachedLayout can skip anchor resolution.
+        width: control.width
+        height: control.height
         radius: Math.min(control.cornerRadius, Math.min(width, height) / 2)
         color: containerColor
         border.width: type === "outlined" ? 1 : 0
@@ -51,7 +53,8 @@ Item {
         // pressed, clipped to the button's own shape.
         Rectangle {
             objectName: "miuixIconButtonStateLayer"
-            anchors.fill: parent
+            width: parent.width
+            height: parent.height
             radius: parent.radius
             color: _colors.onBackground
             opacity: (control.pressed ? 0.10 : 0) + (control.hovered ? 0.06 : 0) + (control.focused ? 0.08 : 0)
@@ -59,7 +62,8 @@ Item {
         }
 
         Icon {
-            anchors.centerIn: parent
+            x: (parent.width - width) / 2
+            y: (parent.height - height) / 2
             name: control.icon
             width: 24
             height: 24
@@ -69,7 +73,8 @@ Item {
 
     MouseArea {
         id: pressArea
-        anchors.fill: parent
+        width: control.width
+        height: control.height
         enabled: control.enabled
         hoverEnabled: true
         // Pointer activation has hover/press feedback; reserve focus indication

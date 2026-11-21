@@ -31,6 +31,47 @@ public class PlayerControllerPlaybackTest {
     @Rule public final ControllerTestLifecycle lifecycle = new ControllerTestLifecycle();
 
     @Test
+    public void switchingArtworkDoesNotRetainFullCoversInQueueRecords() throws Exception {
+        String oldBase = AppDirs.base();
+        String oldCacheBase = AppDirs.cacheBase();
+        PlayerController controller = null;
+        try {
+            Path base = temporaryFolder.newFolder("artwork-ownership").toPath();
+            AppDirs.setBase(base.toString());
+            AppDirs.setCacheBase(base.resolve("cache").toString());
+            controller = new PlayerController(new FakeAudioBackend(), track -> { }, NeteaseClient.INSTANCE);
+            Track[] tracks = new Track[8];
+            for (int i = 0; i < tracks.length; i++) {
+                tracks[i] = localTrack(base.resolve(i + ".wav").toString(), "track " + i);
+                Path cover = base.resolve(i + ".png");
+                Files.write(cover, new byte[]{(byte) (i + 1)});
+                tracks[i].coverLocalPath = cover.toString();
+            }
+            setQueue(controller, 0, tracks);
+            java.lang.reflect.Field field = PlayerController.class.getDeclaredField("ioWorker");
+            field.setAccessible(true);
+            java.util.concurrent.ExecutorService io =
+                    (java.util.concurrent.ExecutorService) field.get(controller);
+            for (int i = 0; i < tracks.length; i++) {
+                controller.playQueueIndex(i);
+                io.submit(() -> { }).get(3, java.util.concurrent.TimeUnit.SECONDS);
+                controller.pump();
+                assertEquals(i + 1, controller.coverBytes.peek()[0]);
+                assertEquals("system media controls still receive current artwork", i + 1,
+                        controller.playbackSnapshot().track().artwork().copyBytes()[0]);
+                for (Track track : tracks) {
+                    org.junit.Assert.assertNull("played covers must not accumulate on queue records",
+                            track.coverBytes);
+                }
+            }
+        } finally {
+            if (controller != null) lifecycle.close(controller);
+            AppDirs.setBase(oldBase);
+            AppDirs.setCacheBase(oldCacheBase);
+        }
+    }
+
+    @Test
     public void retiringSceneCannotDetachReplacementWakeCallback() throws Exception {
         String oldBase = AppDirs.base();
         String oldCacheBase = AppDirs.cacheBase();

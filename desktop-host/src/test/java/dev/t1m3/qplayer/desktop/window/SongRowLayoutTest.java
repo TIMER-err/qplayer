@@ -12,6 +12,7 @@ import io.github.timer_err.qml4j.engine.QmlEngine;
 import io.github.timer_err.qml4j.engine.binding.DirtyQueue;
 import io.github.timer_err.qml4j.render.QmlView;
 import io.github.timer_err.qml4j.render.items.core.Item;
+import io.github.timer_err.qml4j.render.items.core.Text;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -270,6 +271,7 @@ public class SongRowLayoutTest {
                         return null;
                     });
             player = new PlayerController(backend, track -> { });
+            player.downloadHelperEnabled.set(true);
             SettingsCore settings = new SettingsCore();
             settings.load(new JsonSettingsStore(), SettingsCatalog.DESKTOP);
             view = QmlView.withStockTypes(new QmlEngine())
@@ -308,6 +310,10 @@ public class SongRowLayoutTest {
             // Two rows down. The grip was grabbed at the row's middle, so the
             // carried row's top trails the cursor by half a row.
             view.dispatchPointerMove(gripX, 160f);
+            settle(view);
+            long animationTime = System.nanoTime();
+            view.tickAnimations(animationTime);
+            view.tickAnimations(animationTime + 200_000_000L);
             settle(view);
             assertEquals("the carried row follows the cursor",
                     128f, probeWidth(view, "held"), 1f);
@@ -351,6 +357,26 @@ public class SongRowLayoutTest {
             assertNotNull(carriedArt);
             assertEquals(48f, carriedArt.width.peekFloat(), 0.5f);
             assertEquals(48f, carriedArt.height.peekFloat(), 0.5f);
+            float rowMidX = carried.width.peekFloat() / 2f;
+            float scale = carried.scale.peekFloat();
+            float paintedLeft = rowMidX + (carriedBackground.x.peekFloat() - rowMidX) * scale;
+            float paintedRight = rowMidX + (carriedBackground.x.peekFloat()
+                    + carriedBackground.width.peekFloat() - rowMidX) * scale;
+            assertTrue("the carried outline must not be clipped on the left", paintedLeft >= 0f);
+            assertTrue("the carried outline must not be clipped on the right",
+                    paintedRight <= carried.width.peekFloat());
+
+            Item download = findIn(carried, "songRowDownloadButton");
+            assertNotNull(download);
+            assertTrue("the floating row mirrors the download action", download.visible.peek());
+            Text glyph = findText(download, "download");
+            assertNotNull(glyph);
+            java.util.Map<String, Object> glyphCenter = download.mapFromItem(glyph,
+                    glyph.width.peekFloat() / 2f, glyph.height.peekFloat() / 2f);
+            assertEquals("the carried download glyph stays horizontally centred",
+                    download.width.peekFloat() / 2f, ((Number) glyphCenter.get("x")).floatValue(), 0.5f);
+            assertEquals("the carried download glyph stays vertically centred",
+                    download.height.peekFloat() / 2f, ((Number) glyphCenter.get("y")).floatValue(), 0.5f);
 
             view.dispatchPointerUp(gripX, 160f);
             settle(view);
@@ -651,6 +677,15 @@ public class SongRowLayoutTest {
         for (Item child : root.children) {
             Item hit = findIn(child, objectName);
             if (hit != null) return hit;
+        }
+        return null;
+    }
+
+    private static Text findText(Item root, String value) {
+        if (root instanceof Text && value.equals(((Text) root).text.peek())) return (Text) root;
+        for (Item child : root.children) {
+            Text found = findText(child, value);
+            if (found != null) return found;
         }
         return null;
     }

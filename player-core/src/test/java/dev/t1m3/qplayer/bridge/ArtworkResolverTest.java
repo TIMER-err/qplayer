@@ -13,6 +13,53 @@ import static org.junit.Assert.*;
 public class ArtworkResolverTest {
     @Rule public final TemporaryFolder temporaryFolder = new TemporaryFolder();
 
+    @Test public void preloadsSurviveAdjacentSwitchesButLeaveTheQueueWindow() throws Exception {
+        DiskCache cache = new DiskCache(200);
+        cache.setBaseDir(temporaryFolder.getRoot().getAbsolutePath());
+        ArtworkResolver resolver = new ArtworkResolver(cache);
+        Track first = localCover("first", 1);
+        Track second = localCover("second", 2);
+        Track third = localCover("third", 3);
+        Track fourth = localCover("fourth", 4);
+        resolver.setQueueWindow(first, third, second);
+        resolver.cachedCover(first);
+        resolver.cachedCover(second);
+        resolver.cachedCover(third);
+        Files.write(Paths.get(first.coverLocalPath), new byte[]{9});
+        Files.write(Paths.get(second.coverLocalPath), new byte[]{8});
+
+        resolver.setQueueWindow(second, first, third);
+        assertArrayEquals("adjacent artwork was already read", new byte[]{2},
+                resolver.cachedCover(second).bytes());
+        resolver.setQueueWindow(third, second, fourth);
+        resolver.setQueueWindow(first, fourth, second);
+        assertArrayEquals("leaving the window releases the old bytes", new byte[]{9},
+                resolver.cachedCover(first).bytes());
+        assertNull("warming must not root the pixels through queue records", first.coverBytes);
+    }
+
+    @Test public void clearingQueueReleasesPreloadedArtwork() throws Exception {
+        DiskCache cache = new DiskCache(200);
+        cache.setBaseDir(temporaryFolder.getRoot().getAbsolutePath());
+        ArtworkResolver resolver = new ArtworkResolver(cache);
+        Track track = localCover("clear", 1);
+        resolver.setQueueWindow(track, null, null);
+        resolver.cachedCover(track);
+        Files.write(Paths.get(track.coverLocalPath), new byte[]{7});
+        resolver.setQueueWindow(null, null, null);
+        resolver.setQueueWindow(track, null, null);
+        assertArrayEquals(new byte[]{7}, resolver.cachedCover(track).bytes());
+    }
+
+    private Track localCover(String name, int value) throws Exception {
+        Track track = new Track();
+        track.source = Track.Source.LOCAL;
+        Path path = temporaryFolder.newFile(name + ".png").toPath();
+        Files.write(path, new byte[]{(byte) value});
+        track.coverLocalPath = path.toString();
+        return track;
+    }
+
     @Test public void pluginArtworkUsesTheExactProviderCacheKey() throws Exception {
         DiskCache cache = new DiskCache(200);
         cache.setBaseDir(temporaryFolder.getRoot().getAbsolutePath());

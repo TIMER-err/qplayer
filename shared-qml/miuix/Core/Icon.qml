@@ -13,14 +13,17 @@ Item {
     implicitHeight: 24
 
     Loader {
-        anchors.fill: parent
+        width: iconRoot.width
+        height: iconRoot.height
         sourceComponent: iconRoot.name === "search" ? searchShape
             : iconRoot.name === "chevron_right" ? arrowShape
             : iconRoot.name === "unfold_more" ? arrowsShape
             : iconRoot.name === "check" ? checkShape : null
     }
     Text {
-        anchors.centerIn: parent
+        width: iconRoot.width
+        height: iconRoot.height
+        horizontalAlignment: Text.AlignHCenter
         visible: iconRoot.name !== "search" && iconRoot.name !== "chevron_right"
             && iconRoot.name !== "unfold_more" && iconRoot.name !== "check"
         text: iconRoot.name
