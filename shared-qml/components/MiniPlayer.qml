@@ -9,8 +9,10 @@ import "."
 // with a scrubbable progress row underneath, volume on the right.
 // Compact: cover + title, like / play / next on the right and a thin progress
 // line along the bottom edge.
-// Liquid glass (compact only): circular cover with a progress ring; the host
-// samples the capsule's backdrop through liquidGlassMiniPlayerSurface.
+// Liquid glass: on compact bars the circular cover with a progress ring; from
+// 720px up the ordinary wide transport stays and only the backdrop becomes the
+// glass capsule. The host samples that capsule through
+// liquidGlassMiniPlayerSurface at any width.
 //
 // Plain x/y and anchors, NOT nested Layouts: this bar is always visible and the
 // play clock updates player.positionMs ~5x/s, which forces a settle pass; layout
@@ -21,13 +23,15 @@ SmoothRectangle {
     signal lyricsRequested()
     signal queueRequested()
     property bool liquidGlass: false
-    implicitHeight: liquidGlass ? 80 : Ui.playerBarHeight
+    // The wide transport needs the ordinary bar height; the phone-style glass
+    // with its 60dp ring cover needs 80.
+    readonly property bool wideLayout: width >= 720
+    implicitHeight: liquidGlass && !wideLayout ? 80 : Ui.playerBarHeight
     radius: liquidGlass ? height / 2 : Ui.radiusLg
     color: liquidGlass ? "transparent" : Ui.surfaceRaised
 
-    readonly property bool wideLayout: !liquidGlass && width >= 720
     readonly property bool desktopVolumeControl: settings.has("desktopLyricEnabled")
-    readonly property real coverSize: liquidGlass ? 60 : (wideLayout ? 52 : 48)
+    readonly property real coverSize: liquidGlass && !wideLayout ? 60 : (wideLayout ? 52 : 48)
     // Width the 播放列表 button claims at the far right of the bar. The clusters
     // that used to end at the right edge stop short of it (see compactCluster.x
     // and wideVolume.x), so the button is always the outermost control.
@@ -132,11 +136,11 @@ SmoothRectangle {
     CoverImage {
         id: cover
         objectName: "miniPlayerCover"
-        x: mini.liquidGlass ? 10 : 12
+        x: mini.liquidGlass && !mini.wideLayout ? 10 : 12
         y: (mini.height - height) / 2
         width: mini.coverSize
         height: mini.coverSize
-        radius: mini.liquidGlass ? width / 2 : Ui.radiusSm
+        radius: mini.liquidGlass && !mini.wideLayout ? width / 2 : Ui.radiusSm
         // Prefer the on-disk cached cover (shows offline) over the network url.
         source: player.coverPath !== "" ? player.coverPath : player.coverUrl
     }
@@ -148,13 +152,16 @@ SmoothRectangle {
         y: cover.y - 4
         width: cover.width + 8
         height: cover.height + 8
-        visible: mini.liquidGlass
+        // The wide glass bar keeps the ordinary seek row, so the ring belongs to
+        // the compact variant only.
+        readonly property bool showRing: mini.liquidGlass && !mini.wideLayout
+        visible: showRing
         enabled: visible
         CircularProgress {
             anchors.fill: parent
             strokeWidth: 3
-            value: mini.liquidGlass ? (mini.sweeping ? 0.3 : mini._visualProgress) : 0
-            startAngle: -90 + (mini.liquidGlass && mini.sweeping ? mini._sweepPhase * 360 : 0)
+            value: coverProgress.showRing ? (mini.sweeping ? 0.3 : mini._visualProgress) : 0
+            startAngle: -90 + (coverProgress.showRing && mini.sweeping ? mini._sweepPhase * 360 : 0)
         }
 
         // Centre opens lyrics; the outer band seeks clockwise from twelve.
