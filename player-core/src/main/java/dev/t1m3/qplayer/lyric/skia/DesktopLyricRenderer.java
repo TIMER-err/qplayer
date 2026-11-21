@@ -219,7 +219,7 @@ public final class DesktopLyricRenderer implements AutoCloseable {
         for (int index = 0; index < count; index++) {
             Syllable syllable = visual.syllables.get(index);
             long start = syllable.startMs;
-            long end = LyricTimeline.syllableEndMs(visual.syllables, index);
+            long end = start + Math.max(1L, syllable.durationMs);
             if (positionMs < start) return clampSweep(row, row.syllableX[index]);
             if (positionMs < end) {
                 float progress = (positionMs - start) / (float) (end - start);

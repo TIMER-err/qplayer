@@ -79,6 +79,7 @@ Item {
     // fades in/out on the lyrics↔cover switch (SPlayer's zoom transition) — no big/small
     // morph, title/artist stay put. Landscape has its own cover in the left chrome.
     PlaybackCoverImage {
+        crossFadeTransition: true
         id: pCover
         animationActive: player.lyricSlide > 0.001 && !overlay.landscape && pCover.visible
         // Big centred art for no-lyric / instrumental tracks. On the lyrics↔cover switch
@@ -411,6 +412,7 @@ Item {
             anchors.horizontalCenter: parent.horizontalCenter
 
             PlaybackCoverImage {
+        crossFadeTransition: true
                 id: lCover
                 animationActive: player.lyricSlide > 0.001 && overlay.landscape && overlay.fullWidthK < 0.995
                 anchors.top: parent.top

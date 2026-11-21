@@ -31,9 +31,7 @@ public final class SearchRow {
     public long id;
     public String filePath;
     public String customId;
-    /** Canonical source-qualified id — populated for plugin and netease rows
-     *  (empty for local, which has no remote identity); the row's like button
-     *  keys off this. */
+    /** Canonical source-qualified id for plugin rows. */
     public String mediaId = "";
     public String artistMediaId = "";
     /** Provider owning {@link #mediaId}; empty for legacy/local rows. */

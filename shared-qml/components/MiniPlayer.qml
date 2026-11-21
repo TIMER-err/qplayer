@@ -90,6 +90,22 @@ SmoothRectangle {
         if (!mini.sweeping && !mini._catchingUp)
             mini._visualProgress = mini._targetProgress
     }
+
+    // 兜底（2026-11-15 用户反馈"开始播放后进度条不见了"）：
+    // 极端情况下 sweeping 卡在 true / 追赶动画没跑起来，会让 _visualProgress 恒为 0，
+    // 看起来就是进度条消失 ✗ ⇒ 只在**没有在加载、也没有在追赶**时把真实进度直接顶上 ✓
+    Timer {
+        interval: 600
+        running: true
+        repeat: true
+        onTriggered: {
+            if (!player.loading && !mini.sweeping && !mini._catchingUp
+                    && mini._targetProgress > 0.0
+                    && Math.abs(mini._visualProgress - mini._targetProgress) > 0.02) {
+                mini._visualProgress = mini._targetProgress
+            }
+        }
+    }
     on_SweepCycleChanged: {
         if (mini._sweepCycle > 0 && !player.loading) mini.finishSweep()
     }
@@ -97,14 +113,13 @@ SmoothRectangle {
     function finishSweep() {
         mini.sweeping = false
         progressCatchUp.stop()
-        mini._visualProgress = 0.0
-        if (mini._targetProgress <= 0.0) {
-            mini._catchingUp = false
-            return
-        }
-        mini._catchingUp = true
-        progressCatchUp.to = mini._targetProgress
-        progressCatchUp.restart()
+        // **直接落到真实进度**（2026-11-15 用户实测：开始播放后进度条整条不见 ✗）。
+        // 原来这里是"先清零、再用 NumberAnimation 追上去"，而 qml4j 对
+        // `property: "_visualProgress"` 这种**自定义属性名**的 NumberAnimation 不生效 ✗
+        // ⇒ 清成 0 之后就再没被推回来，看起来就是进度条消失。
+        // 追赶动画只是观感，宁可丢掉也不要不显示 ✓
+        mini._catchingUp = false
+        mini._visualProgress = mini._targetProgress
     }
 
     NumberAnimation {

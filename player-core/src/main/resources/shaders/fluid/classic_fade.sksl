@@ -3,6 +3,7 @@ uniform float time;
 uniform shader cover;
 uniform shader coverPrev;
 uniform float fade;
+uniform float beat;
 
 const float TEX_SIZE = 32.0;
 
@@ -10,12 +11,14 @@ half4 main(float2 fragCoord) {
     float2 screenUV = fragCoord / resolution;
     float2 corr = float2(min(1.0, resolution.x / resolution.y),
                          min(1.0, resolution.y / resolution.x));
-    float2 uv = (screenUV - 0.5) * corr + 0.5;
+    float zoom = 1.0 - 0.09 * beat;
+    float2 uv = (screenUV - 0.5) * corr * zoom + 0.5;
     float2 w1 = float2(sin(time * 0.42 + uv.y * 3.7),
                        cos(time * 0.37 + uv.x * 3.1));
     float2 w2 = float2(cos(time * 0.29 + uv.x * 2.3),
                        sin(time * 0.51 + uv.y * 4.4));
-    float2 warpedUV = uv + 0.10 * w1 + 0.06 * w2;
+    float warpBoost = 1.0 + 1.1 * beat;
+    float2 warpedUV = uv + (0.10 * w1 + 0.06 * w2) * warpBoost;
     float a = time * 0.18;
     float cs = cos(a);
     float sn = sin(a);

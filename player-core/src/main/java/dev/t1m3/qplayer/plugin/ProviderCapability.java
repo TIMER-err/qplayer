@@ -4,6 +4,7 @@ package dev.t1m3.qplayer.plugin;
 public enum ProviderCapability {
     HOT_SEARCH("hotSearch"),
     SEARCH_SONGS("searchSongs"), SEARCH_ALBUMS("searchAlbums"), SEARCH_ARTISTS("searchArtists"),
+    // 2.1.1 的插件会声明它（"能搜歌单"）；缺了就被当成未知能力 ⇒ 插件安装直接失败 ✗
     SEARCH_PLAYLISTS("searchPlaylists"),
     SONG_DETAILS("songDetails"), PLAYLIST_DETAILS("playlistDetails"),
     ARTIST_DETAILS("artistDetails"), ALBUM_DETAILS("albumDetails"),

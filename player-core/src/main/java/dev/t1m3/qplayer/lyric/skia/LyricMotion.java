@@ -2,8 +2,6 @@ package dev.t1m3.qplayer.lyric.skia;
 
 import dev.t1m3.qplayer.lyric.LyricTimeline;
 
-import java.util.List;
-
 /** Playback-time curves shared by lyric renderers. */
 final class LyricMotion {
 
@@ -14,17 +12,6 @@ final class LyricMotion {
     private static final long BACKGROUND_POP_IN_MS = 460L;
     private static final long BACKGROUND_POP_IN_DELAY_MS = 150L;
     private static final long BACKGROUND_POP_OUT_MS = 280L;
-    /** A group whose successor starts within this of its end is followed in turn. */
-    private static final long OVERLAP_TOLERANCE_MS = 100L;
-    /**
-     * The same for a group without background lines. Handing over early only moves
-     * the view on (its highlight keeps its own timing), so a last syllable that
-     * still rings under the next line's start doesn't hold the view back.
-     */
-    private static final long MAIN_ONLY_OVERLAP_TOLERANCE_MS = 500L;
-    /** Shortest word that carries the ribbon and glow. */
-    static final long RIBBON_MIN_MS = 1000L;
-    private static final long RIBBON_RELEASE_MS = 450L;
 
     private LyricMotion() {}
 
@@ -33,76 +20,119 @@ final class LyricMotion {
         long fadeInEnd = fadeInStart + ACTIVE_FADE_IN_MS;
         if (positionMs < fadeInStart) return 0f;
         if (positionMs < fadeInEnd) {
-            return smoothstep(0f, 1f, (positionMs - fadeInStart) / (float) ACTIVE_FADE_IN_MS);
+            float elapsed = (positionMs - fadeInStart) / (float) ACTIVE_FADE_IN_MS;
+            return smoothstep(0f, 1f, elapsed);
         }
         long fadeOutStart = group.endMs + ACTIVE_FADE_OUT_DELAY_MS;
+        long fadeOutEnd = fadeOutStart + ACTIVE_FADE_OUT_MS;
         if (positionMs < fadeOutStart) return 1f;
-        return 1f - smoothstep(0f, 1f, (positionMs - fadeOutStart) / (float) ACTIVE_FADE_OUT_MS);
+        if (positionMs >= fadeOutEnd) return 0f;
+        float elapsed = (positionMs - fadeOutStart)
+                / (float) Math.max(1L, fadeOutEnd - fadeOutStart);
+        return 1f - smoothstep(0f, 1f, elapsed);
     }
 
-    /** When a group takes focus: its first visible brightening, ahead of its start. */
+    // ── 逐字放大（照搬 Melodify MusicPlayerGui.emphasizeAmount / emphasizeK）──────────
+    // 只对拉丁词生效（Melodify 注释：non-Latin text…so CJK/Thai/etc. don't bulge），
+    // 幅度按词时长取幂曲线、最后一个词更狠、上限 1.2；每字再叠一个 AMLL 的错开脉冲，
+    // 于是鼓包从左往右扫过整个词。
+
+    /** 每个词的放大幅度 [0,1.2]（Melodify emphasizeAmount，原样照搬）。 */
+    static float emphasisAmount(long durationMs, int indexInLine, int lineCount) {
+        float du = Math.max(1000f, durationMs);
+        float amount = du / 2000f;
+        amount = amount > 1f ? (float) Math.sqrt(amount) : amount * amount * amount;
+        amount *= 0.6f;
+        if (indexInLine == lineCount - 1) amount *= 1.6f;   // 最后一个词鼓得更狠（AMLL）
+        return Math.min(1.2f, amount);
+    }
+
+    /**
+     * 词内第 {@code ci} 个字的脉冲进度（Melodify emphasizeK）：AMLL 把每字错开
+     * {@code du/2.5/len}，于是鼓包从左往右扫；脉冲本身是 empEasing。
+     */
+    static float emphasisSwell(long positionMs, long startMs, long durationMs, int ci, int len) {
+        float effDu = Math.max(1000f, durationMs);
+        float delay = (effDu / 2.5f / Math.max(1, len)) * ci;
+        float t = (positionMs - startMs - delay) / effDu;
+        return (float) empEasing(t);
+    }
+
+    /** AMLL makeEmpEasing(0.5)：升到中点再落回（两段 bezier 拼成）。 */
+    private static double empEasing(double x) {
+        if (x <= 0.0) return 0.0;
+        if (x >= 1.0) return 0.0;
+        if (x < 0.5) return cssBezier(x / 0.5, 0.2, 0.4, 0.58, 1.0);
+        return 1.0 - cssBezier((x - 0.5) / 0.5, 0.3, 0.0, 0.58, 1.0);
+    }
+
+    /** CSS cubic-bezier(x1,y1,x2,y2)，牛顿解参数后取 y（与 Melodify cssBezier 同法）。 */
+    private static double cssBezier(double p, double x1, double y1, double x2, double y2) {
+        if (p <= 0.0) return 0.0;
+        if (p >= 1.0) return 1.0;
+        double s = p;
+        for (int i = 0; i < 8; i++) {
+            double bx = bezierAxis(x1, x2, s);
+            double d = bezierDeriv(x1, x2, s);
+            if (Math.abs(d) < 1e-6) break;
+            s -= (bx - p) / d;
+            s = Math.max(0.0, Math.min(1.0, s));
+        }
+        return bezierAxis(y1, y2, s);
+    }
+
+    /** 三次贝塞尔某一轴取值（端点固定 0 与 1）。 */
+    private static double bezierAxis(double c1, double c2, double s) {
+        double u = 1.0 - s;
+        return 3.0 * u * u * s * c1 + 3.0 * u * s * s * c2 + s * s * s;
+    }
+
+    private static double bezierDeriv(double c1, double c2, double s) {
+        double u = 1.0 - s;
+        return 3.0 * u * u * c1 + 6.0 * u * s * (c2 - c1) + 3.0 * s * s * (1.0 - c2);
+    }
+
     static long fadeInStart(LyricTimeline.Group group) {
         return group.startMs - ACTIVE_FADE_IN_MS + ACTIVE_FADE_IN_DELAY_MS;
     }
 
-    /**
-     * When each group gives up focus, its background slot and its claim on the
-     * viewport. Normally just after it ends; but as soon as a later group that does
-     * not overlap it takes focus, it hands over then, so the scroll toward the next
-     * line and the collapse of this group's background slot are one event. Groups
-     * that overlap their successors (duets, echoes) keep focus until they end.
-     */
-    static long[] releaseTimes(List<LyricTimeline.Group> groups) {
-        long[] release = new long[groups.size()];
-        for (int g = 0; g < groups.size(); g++) {
-            LyricTimeline.Group group = groups.get(g);
-            long at = group.endMs + ACTIVE_FADE_OUT_DELAY_MS;
-            long tolerance = group.to - group.from > 1
-                    ? OVERLAP_TOLERANCE_MS : MAIN_ONLY_OVERLAP_TOLERANCE_MS;
-            for (int h = g + 1; h < groups.size(); h++) {
-                if (groups.get(h).startMs >= group.endMs - tolerance) {
-                    at = Math.min(at, fadeInStart(groups.get(h)));
-                    break;
-                }
-            }
-            release[g] = Math.max(at, fadeInStart(group));
-        }
-        return release;
-    }
-
-    /** Whether a group holds focus: it has taken it and not yet released it. */
-    static boolean focused(long positionMs, LyricTimeline.Group group, long releaseMs) {
-        return positionMs >= fadeInStart(group) && positionMs < releaseMs;
-    }
-
-    /**
-     * Background-vocal text presence, 0..1: pops in (with a slight overshoot) as its
-     * slot opens with the group's focus, and shrinks away as the slot is reclaimed.
-     */
-    static float backgroundPresence(long positionMs, LyricTimeline.Group group, long releaseMs) {
-        long popStart = fadeInStart(group) + BACKGROUND_POP_IN_DELAY_MS;
+    static float backgroundScale(long positionMs, LyricTimeline.Group group) {
+        long popStart = group.startMs + BACKGROUND_POP_IN_DELAY_MS;
         if (positionMs < popStart) return 0f;
-        float in = positionMs >= popStart + BACKGROUND_POP_IN_MS ? 1f
-                : easeOutBack((positionMs - popStart) / (float) BACKGROUND_POP_IN_MS);
-        if (positionMs < releaseMs) return in;
-        float out = (positionMs - releaseMs) / (float) BACKGROUND_POP_OUT_MS;
-        return in * (1f - smoothstep(0f, 1f, out));
+        if (positionMs < popStart + BACKGROUND_POP_IN_MS) {
+            float progress = (positionMs - popStart) / (float) BACKGROUND_POP_IN_MS;
+            // 过阻尼（临界阻尼）弹簧阶跃响应——起步快、收敛无过冲，与 Melodify 的
+            // 和声行滑入一致（替代原 easeOutBack 的欠阻尼回弹）。
+            return overdampedSpring(progress);
+        }
+        if (positionMs < group.endMs) return 1f;
+        float elapsed = (positionMs - group.endMs) / (float) BACKGROUND_POP_OUT_MS;
+        if (elapsed >= 1f) return 0f;
+        return 1f - smoothstep(0f, 1f, elapsed);
     }
 
-    /**
-     * Ribbon amplitude of a held word, 0..1: rises as the word starts, holds while
-     * it is sung and settles after it ends.
-     */
-    static float ribbonEnvelope(long positionMs, long wordStartMs, long wordEndMs) {
-        long duration = wordEndMs - wordStartMs;
-        if (duration < RIBBON_MIN_MS || positionMs <= wordStartMs) return 0f;
-        float attack = Math.max(180f, Math.min(420f, duration * 0.3f));
-        float rise = Math.min(1f, (positionMs - wordStartMs) / attack);
-        float inverse = 1f - rise;
-        float up = 1f - inverse * inverse * inverse;
-        if (positionMs <= wordEndMs) return up;
-        float release = (positionMs - wordEndMs) / (float) RIBBON_RELEASE_MS;
-        return up * (1f - smoothstep(0f, 1f, release));
+    /** 临界阻尼弹簧阶跃响应 1-(1+ωt)·e^(-ωt)：无过冲，起步最快、尾部缓收。
+     *  ω=8 使 460ms 出场窗口结束时收敛到 ~99.7%。 */
+    private static float overdampedSpring(float t) {
+        if (t <= 0f) return 0f;
+        if (t >= 1f) return 1f;
+        double x = 8.0 * t;
+        return (float) (1.0 - (1.0 + x) * Math.exp(-x));
+    }
+
+    static float interludeSlot(long positionMs, long startMs, long endMs, float height) {
+        final long rampMs = 150L;
+        if (positionMs < startMs || positionMs > endMs) return 0f;
+        long elapsed = positionMs - startMs;
+        float progress;
+        if (elapsed < rampMs) {
+            progress = elapsed / (float) rampMs;
+        } else if (endMs - positionMs < rampMs) {
+            progress = (endMs - positionMs) / (float) rampMs;
+        } else {
+            progress = 1f;
+        }
+        return height * smoothstep(0f, 1f, progress);
     }
 
     static float smoothstep(float minimum, float maximum, float value) {
@@ -111,12 +141,5 @@ final class LyricMotion {
         if (progress <= 0f) return 0f;
         if (progress >= 1f) return 1f;
         return progress * progress * (3f - 2f * progress);
-    }
-
-    private static float easeOutBack(float value) {
-        float c1 = 1.7f;
-        float c3 = c1 + 1f;
-        float shifted = value - 1f;
-        return 1f + c3 * shifted * shifted * shifted + c1 * shifted * shifted;
     }
 }

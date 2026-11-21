@@ -6,8 +6,7 @@ public enum PluginPermission {
     CREDENTIALS("credentials"), WEB_AUTH("webAuth"), CLIPBOARD("clipboard"),
     OPEN_URL("openUrl"), PLAYBACK_READ("playbackRead"), PLAYBACK_CONTROL("playbackControl"),
     QUEUE_WRITE("queueWrite"), NOTIFICATIONS("notifications"),
-    CUSTOM_UI("customUi"), BACKGROUND_TIMERS("backgroundTimers"),
-    FILES_SAVE("files.save");
+    CUSTOM_UI("customUi"), BACKGROUND_TIMERS("backgroundTimers");
 
     private final String wireName;
 

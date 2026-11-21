@@ -4,12 +4,11 @@ import io.github.humbleui.skija.Bitmap;
 import io.github.humbleui.skija.BlendMode;
 import io.github.humbleui.skija.Canvas;
 import io.github.humbleui.skija.ColorAlphaType;
-import io.github.humbleui.skija.ColorFilter;
-import io.github.humbleui.skija.ColorMatrix;
 import io.github.humbleui.skija.ColorType;
 import io.github.humbleui.skija.DirectContext;
 import io.github.humbleui.skija.FilterTileMode;
 import io.github.humbleui.skija.Image;
+import io.github.humbleui.skija.ImageFilter;
 import io.github.humbleui.skija.ImageInfo;
 import io.github.humbleui.skija.Matrix33;
 import io.github.humbleui.skija.Paint;
@@ -33,19 +32,51 @@ public final class FluidBackground {
     public static final int STYLE_PIXI_RENDERER = 0;
     public static final int STYLE_MESH_GRADIENT = 1;
     public static final int STYLE_CLASSIC = 2;
+    /**
+     * 动态背景（网格形变）：网易云动态背景 0x7A9CBB58 的忠实移植
+     * （三层旋转封面 + 9×9 控制网格形变 + 大半径模糊），见 {@link MeshWarp}。
+     */
+    public static final int STYLE_DYNAMIC_MESH = 3;
+
+    /**
+     * 这一档的模糊半径（原型 {@code C.backgroundLogicalBlur}，逻辑 px）。
+     *
+     * <p>原型是在 ≤480px 的离屏上渲染、再按 {@code pixelRatio × offscreenScale} 放大回来的，
+     * 折算到屏幕坐标正好是 80 逻辑 px。这里交给 Skia 的 image filter 走同一尺度，
+     * 少一层「先降分辨率再放大」的糊化，结构保留更多，观感一致。
+     */
+    private static final float DYNAMIC_BLUR = 80f;
+
+    /**
+     * 静态缓存那条路的模糊 sigma。
+     *
+     * <p>实测（1x 与 2x 各渲一帧、把 2x 降采样回来比：平均绝对差 0.13/255）：
+     * <strong>Skia 会按 CTM 缩放 image filter 的 sigma</strong>，所以实时路径给逻辑 px 就对了。
+     * 而静态缓存的离屏画布是<strong>设备分辨率、且没有 CTM</strong>，同一个 sigma 在那里
+     * 会变成「80 设备 px」——在 2.5x 的手机上就是 32 逻辑 px，静态背景会比动态背景锐一大截。
+     * 所以那条路要自己把逻辑 px 乘成设备 px。
+     */
+    static float staticBlurSigma(float logicalSigma, float uiScale) {
+        return logicalSigma * Math.max(1f, uiScale);
+    }
+
+    /** 相位速率（原型 {@code C.backgroundPhaseRate}，单位 1/ms）：phase = 0.13 × dtMs。 */
+    private static final float DYNAMIC_PHASE_RATE = 0.13f;
+
+    /** 原型的 {@code C.backgroundShaderTimeScale}：uTime = phase / 60。 */
+    private static final float DYNAMIC_TIME_SCALE = 1f / 60f;
 
     private static final int TEX_SIZE = 32;
-    /** Live backdrop render scale: 0.5 = half resolution per axis, a quarter of
-     *  the pixels. The image is a smooth gradient, so the upscale is invisible. */
-    private static final float LIVE_RENDER_SCALE = 0.5f;
 
     private static final String SHADER_ROOT = "/shaders/fluid/";
     private static final String[][] SHADER_FILES = {
             {"pixi_renderer.sksl", "pixi_renderer_fade.sksl"},
             {"meshgradient.sksl", "meshgradient.sksl"},
-            {"classic.sksl", "classic_fade.sksl"}
+            {"classic.sksl", "classic_fade.sksl"},
+            // 交叉淡入不用另写一份：这一档在着色器里用 alpha 做预乘叠加
+            {"netease_dynamic.sksl", "netease_dynamic.sksl"}
     };
-    private static final RuntimeEffect[][] EFFECTS = new RuntimeEffect[3][2];
+    private static final RuntimeEffect[][] EFFECTS = new RuntimeEffect[SHADER_FILES.length][2];
 
     private static RuntimeEffect makeEffect(int style, boolean fade) {
         int safeStyle = normalizeStyle(style);
@@ -75,8 +106,8 @@ public final class FluidBackground {
     }
 
     private static int normalizeStyle(int style) {
-        return style >= STYLE_PIXI_RENDERER && style <= STYLE_CLASSIC
-                ? style : STYLE_MESH_GRADIENT;
+        return style >= STYLE_PIXI_RENDERER && style <= STYLE_DYNAMIC_MESH
+                ? style : STYLE_PIXI_RENDERER;
     }
 
     private final long startNs;
@@ -87,6 +118,12 @@ public final class FluidBackground {
     private Shader coverShader;
     private Image coverAdjusted;
     private Shader coverAdjustedShader;
+    // 动态背景（网格形变）那一档的封面：192px、不调色、MIRROR 取样（原型直接镜像拼接封面）。
+    // 与上面 32px 的 raw/adjusted 分开：那一档把封面**放大**成三层方块，
+    // 32px 放大后只剩色块，原图的结构在 80px 模糊之后会彻底糊掉。
+    private Image coverArt;
+    private Shader coverArtShader;
+    private MeshWarp.Base coverWarp;
     private String coverKey;
     private float[] coverAngles = new float[4];
     private AMLLMeshGradient.Data coverMesh;
@@ -97,6 +134,9 @@ public final class FluidBackground {
     private Image coverPrev;
     private Shader coverPrevAdjustedShader;
     private Image coverPrevAdjusted;
+    private Image coverPrevArt;
+    private Shader coverPrevArtShader;
+    private MeshWarp.Base coverPrevWarp;
     private float[] coverPrevAngles;
     private AMLLMeshGradient.Data coverPrevMesh;
     private long fadeStartNs;
@@ -112,10 +152,7 @@ public final class FluidBackground {
                 t.setDaemon(true);
                 return t;
             });
-    // Guarded by this: publication must not overwrite an unconsumed result or
-    // publish native images after dispose has drained the handoff.
-    private DecodedTextures decoded;
-    private boolean disposed;
+    private volatile DecodedTextures decoded; // built off-thread, awaiting render thread
     private volatile String decodingKey;  // the track key currently queued/decoding
     // Reused across frames -- the per-frame `new Paint()` was a native alloc/free
     // each frame the lyric page is visible.
@@ -129,20 +166,21 @@ public final class FluidBackground {
     // device resolution) and then blitted each frame, so static mode pays a single
     // full-screen SkSL pass per track/size instead of one every frame. Rebuilt when
     // the cover or the device size changes.
-    // Cached half-resolution target for the per-frame live pass.
-    private Surface liveSurface;
-    private int liveW = -1, liveH = -1;
-    private Rect liveRect;
     private Image staticImage;
     private int staticW = -1;
     private int staticH = -1;
     private int activeStyle = -1;
-    // Live saturation multiplier over the final composite -- independent of the
-    // fixed contrast/saturation baked into the mesh/classic textures at decode
-    // time (see amllAdjust below), and applied to every style uniformly since
-    // it sits on the shared fluidPaint rather than in any one style's shader.
-    private int activeSaturationPct = 100;
-    private ColorFilter saturationFilter;
+    /** 动态背景那一档的模糊滤镜（按 sigma 缓存；绘制中途不能释放它）。 */
+    private ImageFilter dynamicBlur;
+    private float dynamicBlurSigma = -1f;
+    /**
+     * 这一帧用的频谱（低/中/高）与「屏幕上有没有歌词」。
+     *
+     * <p>存成字段是因为静态缓存那一趟（{@code buildStatic}）也要用同一组值：
+     * 它由 {@code render} 调用，但走的是另一条绘制路径。
+     */
+    private final float[] levels = new float[3];
+    private boolean hasLyricLines;
 
     public FluidBackground(long startNs) {
         this.startNs = startNs;
@@ -157,21 +195,18 @@ public final class FluidBackground {
      * used to build the device-resolution static cache.
      */
     public void render(Canvas canvas, DirectContext ctx, float uiScale, float w, float h,
-                       byte[] coverBytes, String trackKey, long nowNs, boolean staticMode,
-                       int style, int saturationPct) {
+                       byte[] coverBytes, String trackKey, long nowNs, float[] spectrum,
+                       boolean hasLyric, boolean staticMode, int style) {
+        // 频谱与「有没有歌词」先落到字段：静态缓存那一趟要用同一组值（见字段注释）。
+        // 频谱为 null / 长度不足时按全 0 处理，也就是原型里「没在放歌」的那一档。
+        for (int i = 0; i < 3; i++) {
+            levels[i] = spectrum != null && spectrum.length > i ? spectrum[i] : 0f;
+        }
+        hasLyricLines = hasLyric;
         int selectedStyle = normalizeStyle(style);
         if (selectedStyle != activeStyle) {
             activeStyle = selectedStyle;
             invalidateStatic();
-        }
-        int clampedSaturation = Math.max(0, Math.min(200, saturationPct));
-        if (clampedSaturation != activeSaturationPct) {
-            activeSaturationPct = clampedSaturation;
-            if (saturationFilter != null) saturationFilter.close();
-            saturationFilter = clampedSaturation == 100 ? null
-                    : ColorFilter.makeMatrix(saturationMatrix(clampedSaturation / 100f));
-            fluidPaint.setColorFilter(saturationFilter);
-            invalidateStatic(); // a cached static frame baked in the old saturation
         }
         boolean keyChanged = !Objects.equals(trackKey, coverKey);
         boolean nullButReady = cover == null && coverBytes != null && coverBytes.length > 0;
@@ -183,13 +218,14 @@ public final class FluidBackground {
             final String key = trackKey;
             decoder.submit(() -> {
                 DecodedTextures textures = buildTextures(cb, key);
-                if (textures != null) publishDecoded(textures);
+                if (textures != null) decoded = textures;
             });
         }
         // Publish a ready off-thread texture (render thread): swap the shader, drop the
         // old cover. Cheap — the expensive work already happened on the decoder thread.
-        DecodedTextures ready = takeDecoded(trackKey);
-        if (ready != null) {
+        DecodedTextures ready = decoded;
+        if (ready != null && Objects.equals(ready.key, trackKey)
+                && !Objects.equals(coverKey, trackKey)) {
             // Retire the current cover to the "prev" slot and cross-fade to the new one
             // rather than snapping. Both stay alive until the fade ends (releasePrev).
             releasePrev();
@@ -197,10 +233,15 @@ public final class FluidBackground {
             coverPrev = cover;
             coverPrevAdjustedShader = coverAdjustedShader;
             coverPrevAdjusted = coverAdjusted;
+            coverPrevArtShader = coverArtShader;
+            coverPrevArt = coverArt;
+            coverPrevWarp = coverWarp;
             coverPrevAngles = coverPrevShader == null ? null : coverAngles;
             coverPrevMesh = coverPrevShader == null ? null : coverMesh;
             cover = ready.raw;
             coverAdjusted = ready.adjusted;
+            coverArt = ready.art;
+            decoded = null;
             coverKey = trackKey;
             coverAngles = ready.angles;
             coverMesh = ready.mesh;
@@ -210,10 +251,15 @@ public final class FluidBackground {
             coverAdjustedShader = coverAdjusted.makeShader(
                     FilterTileMode.CLAMP, FilterTileMode.CLAMP,
                     SamplingMode.LINEAR, Matrix33.IDENTITY);
+            coverArtShader = coverArt == null ? null : coverArt.makeShader(
+                    // 原型是 MIRRORED_REPEAT：三层方块各自露出封面的一部分，镜像拼接才有那个拼贴感
+                    FilterTileMode.MIRROR, FilterTileMode.MIRROR,
+                    SamplingMode.LINEAR, Matrix33.IDENTITY);
+            coverWarp = ready.warp;
             fadeStartNs = nowNs;
             invalidateStatic();   // the source changed -> the cached frame is stale
         }
-        if (coverShader == null) {
+        if (coverShader == null && coverArtShader == null) {
             renderFallback(canvas, w, h, 0xFF0A0A0E);
             return;
         }
@@ -238,7 +284,7 @@ public final class FluidBackground {
             int dw = Math.max(1, Math.round(w * uiScale));
             int dh = Math.max(1, Math.round(h * uiScale));
             if (staticImage == null || staticW != dw || staticH != dh) {
-                buildStatic(ctx, dw, dh, time);
+                buildStatic(ctx, dw, dh, time, uiScale);
             }
             if (staticImage != null) {
                 canvas.drawImageRect(staticImage, fullRect);
@@ -247,72 +293,8 @@ public final class FluidBackground {
             // build failed -> fall through to the live shader this frame
         }
 
-        // Live pass at half resolution, then upscaled. The backdrop is a smooth
-        // gradient sampled bilinearly anyway, so half-res is indistinguishable at
-        // panel density, and this is the largest per-pixel cost on the page (a
-        // full-screen SkSL pass every frame). Rendering it at 1/4 of the pixels is
-        // what leaves fill rate for the system compositor's own blurs when the
-        // notification shade or recents comes down over the app.
-        float fade = fadeProgress(nowNs);
-        if (ctx != null) {
-            int dw = Math.max(1, Math.round(w * uiScale * LIVE_RENDER_SCALE));
-            int dh = Math.max(1, Math.round(h * uiScale * LIVE_RENDER_SCALE));
-            if (drawFluidScaled(canvas, ctx, fullRect, dw, dh, time, fade)) return;
-        }
-        drawFluid(canvas, fullRect, w, h, time, fade);
-    }
-
-    private synchronized void publishDecoded(DecodedTextures textures) {
-        if (disposed) {
-            textures.close();
-            return;
-        }
-        if (decoded != null) decoded.close();
-        decoded = textures;
-    }
-
-    private synchronized DecodedTextures takeDecoded(String trackKey) {
-        if (decoded == null || !Objects.equals(decoded.key, trackKey)
-                || Objects.equals(coverKey, trackKey)) return null;
-        DecodedTextures ready = decoded;
-        decoded = null;
-        return ready;
-    }
-
-    /** Render the live fluid into a cached 1/{@link #LIVE_RENDER_SCALE} surface and
-     *  blit it up. Returns false when the offscreen surface is unavailable, in which
-     *  case the caller draws at full resolution. */
-    private boolean drawFluidScaled(Canvas canvas, DirectContext ctx, Rect dstRect,
-                                    int dw, int dh, float time, float fade) {
-        if (liveSurface == null || liveW != dw || liveH != dh) {
-            releaseLive();
-            try {
-                liveSurface = Surface.makeRenderTarget(ctx, false, ImageInfo.makeN32Premul(dw, dh));
-            } catch (Throwable e) {
-                liveSurface = null;
-            }
-            if (liveSurface == null) return false;
-            liveW = dw;
-            liveH = dh;
-            liveRect = Rect.makeWH(dw, dh);
-        }
-        Canvas off = liveSurface.getCanvas();
-        off.clear(0);
-        drawFluid(off, liveRect, dw, dh, time, fade);
-        try (Image image = liveSurface.makeImageSnapshot()) {
-            canvas.drawImageRect(image, liveRect, dstRect, SamplingMode.LINEAR, null, true);
-        }
-        return true;
-    }
-
-    private void releaseLive() {
-        if (liveSurface != null) {
-            liveSurface.close();
-            liveSurface = null;
-        }
-        liveW = -1;
-        liveH = -1;
-        liveRect = null;
+        // 实时路径：画布上已经挂了 uiScale 的 CTM，所以 sigma 用逻辑 px（Skia 自己缩放）
+        drawFluid(canvas, fullRect, w, h, time, fadeProgress(nowNs), DYNAMIC_BLUR);
     }
 
     // Fade progress 0..1 since the last cover swap; releases the previous cover once done.
@@ -338,6 +320,9 @@ public final class FluidBackground {
             coverPrevAdjustedShader = null;
         }
         if (coverPrevAdjusted != null) { coverPrevAdjusted.close(); coverPrevAdjusted = null; }
+        if (coverPrevArtShader != null) { coverPrevArtShader.close(); coverPrevArtShader = null; }
+        if (coverPrevArt != null) { coverPrevArt.close(); coverPrevArt = null; }
+        coverPrevWarp = null;
         coverPrevAngles = null;
         coverPrevMesh = null;
     }
@@ -346,9 +331,17 @@ public final class FluidBackground {
     // runtime shader bakes its uniforms at makeShader time, so an animated `time`
     // rebuilds it each call -- but that just instantiates the already-compiled
     // effect; the cover child shader and the Paint are reused.
-    private void drawFluid(Canvas canvas, Rect dstRect, float resW, float resH, float time, float fade) {
+    private void drawFluid(Canvas canvas, Rect dstRect, float resW, float resH, float time, float fade,
+                           float blurSigma) {
+        // 老一档的 `beat` 是「0..1 的响度脉冲」，低频电平是它最接近的等价物
+        // （旧音频栈那个钩子没了之后它一直是 0，等于这些着色器的响应项从没生效过）
+        float beat = levels[0];
+        if (activeStyle == STYLE_DYNAMIC_MESH) {
+            drawDynamicMesh(canvas, resW, resH, time, fade, blurSigma);
+            return;
+        }
         if (activeStyle == STYLE_MESH_GRADIENT) {
-            drawMeshGradient(canvas, resW, resH, time, fade);
+            drawMeshGradient(canvas, resW, resH, time, fade, beat);
             return;
         }
         boolean fading = coverPrevShader != null && fade < 1f;
@@ -360,6 +353,7 @@ public final class FluidBackground {
             try (RuntimeEffectBuilder b = new RuntimeEffectBuilder(makeEffect(activeStyle, fading))) {
                 b.setUniform("resolution", resW, resH);
                 b.setUniform("time", time);
+                b.setUniform("beat", beat);
                 b.setChild("cover", currentChild);
                 if (activeStyle == STYLE_PIXI_RENDERER) b.setUniform("bend", bendDirection);
                 if (activeStyle != STYLE_CLASSIC) b.setUniform("angles", coverAngles);
@@ -381,19 +375,121 @@ public final class FluidBackground {
         }
     }
 
-    private void drawMeshGradient(Canvas canvas, float w, float h, float time, float fade) {
+    /**
+     * 动态背景（网格形变）：三层旋转封面 + 网格形变 + 大半径模糊。
+     *
+     * <p>相位与原型一致：{@code phase += 0.13 × dtMs}（这里由秒换算），
+     * {@code uTime = phase / 60}，形变插值走 {@link MeshWarp#morphAt(double)}。
+     *
+     * <p>换曲的交叉淡入用两趟 draw 完成：先把上一张封面<strong>不透明</strong>画出来，
+     * 再把这一张按 {@code alpha = fade} 预乘叠上去——几何不同（网格变体不同）没法在一个
+     * 着色器里插值，两趟叠加得到的是同一个结果。
+     */
+    private void drawDynamicMesh(Canvas canvas, float w, float h, float time, float fade,
+                                 float blurSigma) {
+        MeshWarp.Base base = coverWarp;
+        Shader art = coverArtShader;
+        if (base == null || art == null) {
+            return;
+        }
+        boolean fading = coverPrevWarp != null && coverPrevArtShader != null && fade < 1f;
+        double phase = (double) time * 1000.0 * DYNAMIC_PHASE_RATE;
+        float morph = MeshWarp.morphAt(phase);
+        float shaderTime = (float) (phase * DYNAMIC_TIME_SCALE);
+        if (fading) {
+            drawDynamicState(canvas, coverPrevWarp, coverPrevArtShader, w, h, shaderTime, morph, 1f,
+                    blurSigma);
+        }
+        drawDynamicState(canvas, base, art, w, h, shaderTime, morph, fading ? fade : 1f, blurSigma);
+    }
+
+    private void drawDynamicState(Canvas canvas, MeshWarp.Base mesh, Shader art,
+                                  float w, float h, float time, float morph, float alpha,
+                                  float blurSigma) {
+        if (mesh == null || art == null || alpha <= 0f) {
+            return;
+        }
+        Shader shaded = null;
+        try {
+            try (RuntimeEffectBuilder b = new RuntimeEffectBuilder(
+                    makeEffect(STYLE_DYNAMIC_MESH, false))) {
+                b.setUniform("resolution", w, h);
+                b.setUniform("time", time);
+                b.setUniform("low", levels[0]);
+                b.setUniform("mid", levels[1]);
+                b.setUniform("high", levels[2]);
+                b.setUniform("hasLyric", hasLyricLines ? 1f : 0f);
+                b.setUniform("alpha", alpha);
+                b.setChild("cover", art);
+                shaded = b.makeShader();
+            }
+            // 模糊挂在**整块画布那一层**的 paint 上，不能挂在画网格的那支画刷上。
+            //
+            // 这一条是实测出来的：同一份网格与着色器，把 image filter 挂在画刷上时
+            // Skia 只画出中间约一半的像素（覆盖率 51.3%，四周变透明），而同样内容的
+            // 矩形绘制完全正常。
+            //
+            // 两层坑都要绕开（都是本机实测）：
+            //   ① filter 必须挂在 saveLayer 的层 paint 上，不能挂在画网格的画刷上；
+            //   ② 层边界必须**正好是画面**（Rect.makeWH(w,h)）。把层边界外扩 80 想让
+            //      模糊有内容可借，反而又丢掉 43.5% 的覆盖率——所以别「贴心」地加 padding，
+            //      边缘的 CLAMP 由 filter 自己处理。
+            // 两条都由 desktop-host 的 FluidBackdropRenderTest 钉着。
+            try (Paint layerPaint = new Paint()) {
+                layerPaint.setImageFilter(dynamicBlurFilter(blurSigma));
+                int save = canvas.saveLayer(Rect.makeWH(w, h), layerPaint);
+                try {
+                    fluidPaint.setShader(shaded);
+                    // _nDrawVertices 的形参顺序是 (positions, colors, texCoords, indices, ...)：
+                    // colors 传 null（顶点色不走这里，取色由片元着色器按 texCoords 做）
+                    Canvas._nDrawVertices(canvas._ptr, 0,
+                            mesh.positions(morph, MeshWarp.STRENGTH, MeshWarp.EXPANSION, w, h),
+                            null, mesh.uvs, mesh.indices, BlendMode.SRC_OVER.ordinal(), fluidPaint._ptr);
+                } finally {
+                    canvas.restoreToCount(save);
+                }
+            }
+        } catch (Throwable e) {
+            dev.t1m3.qplayer.util.Logger.warn(
+                    "dynamic mesh backdrop render failed: {}", e.getMessage());
+            renderFallback(canvas, w, h, 0xFF0A0A0E);
+        } finally {
+            fluidPaint.setShader(null);
+            if (shaded != null) shaded.close();
+        }
+    }
+
+    /**
+     * 这一档的模糊滤镜：按 sigma 缓存（原型 backgroundLogicalBlur = 80 逻辑 px）。
+     *
+     * <p>实时与静态两条路的 sigma 单位不同（见 {@link #staticBlurSigma}），所以缓存要认 sigma：
+     * 两种模式来回切时不重建就会拿错尺度。
+     */
+    private ImageFilter dynamicBlurFilter(float sigma) {
+        if (dynamicBlur != null && dynamicBlurSigma == sigma) {
+            return dynamicBlur;
+        }
+        if (dynamicBlur != null) {
+            dynamicBlur.close();
+        }
+        dynamicBlur = ImageFilter.makeBlur(sigma, sigma, FilterTileMode.CLAMP);
+        dynamicBlurSigma = sigma;
+        return dynamicBlur;
+    }
+
+    private void drawMeshGradient(Canvas canvas, float w, float h, float time, float fade, float beat) {
         boolean fading = coverPrevAdjustedShader != null && coverPrevMesh != null;
         // AMLL keeps previous mesh states fully opaque underneath while the
         // newest state rises linearly from alpha 0, then discards older states at 1.1.
         if (fading) drawMeshGradientState(
-                canvas, coverPrevMesh, coverPrevAdjustedShader, w, h, time, 1f);
+                canvas, coverPrevMesh, coverPrevAdjustedShader, w, h, time, 1f, beat);
         drawMeshGradientState(
-                canvas, coverMesh, coverAdjustedShader, w, h, time, fading ? fade : 1f);
+                canvas, coverMesh, coverAdjustedShader, w, h, time, fading ? fade : 1f, beat);
     }
 
     private void drawMeshGradientState(Canvas canvas, AMLLMeshGradient.Data mesh,
                                        Shader coverChild, float w, float h,
-                                       float time, float alpha) {
+                                       float time, float alpha, float beat) {
         if (mesh == null || coverChild == null || alpha <= 0f) return;
         Shader shaded = null;
         try {
@@ -401,6 +497,7 @@ public final class FluidBackground {
                     makeEffect(STYLE_MESH_GRADIENT, false))) {
                 b.setUniform("time", time);
                 b.setUniform("alpha", alpha);
+                b.setUniform("beat", beat);
                 b.setChild("cover", coverChild);
                 shaded = b.makeShader();
             }
@@ -419,10 +516,13 @@ public final class FluidBackground {
 
     // Render the fluid once into an offscreen device-resolution image (frozen at the
     // current `time`) so static mode can blit it each frame.
-    private void buildStatic(DirectContext ctx, int dw, int dh, float time) {
+    private void buildStatic(DirectContext ctx, int dw, int dh, float time, float uiScale) {
         invalidateStatic();
         try (Surface off = Surface.makeRenderTarget(ctx, false, ImageInfo.makeN32Premul(dw, dh))) {
-            drawFluid(off.getCanvas(), Rect.makeWH(dw, dh), dw, dh, time, 1f);
+            // 静态缓存冻结在当下这一帧：频谱与歌词状态用的就是 render 里刚写下的那份。
+            // 离屏没有 CTM，模糊 sigma 要按设备像素给（见 staticBlurSigma）。
+            drawFluid(off.getCanvas(), Rect.makeWH(dw, dh), dw, dh, time, 1f,
+                    staticBlurSigma(DYNAMIC_BLUR, uiScale));
             staticImage = off.makeImageSnapshot();
             staticW = dw;
             staticH = dh;
@@ -450,16 +550,12 @@ public final class FluidBackground {
      * and will be uploaded again when the next context lazily rebuilds caches.
      */
     public void invalidateGpuContext() {
-        releaseLive();
         invalidateStatic();
     }
 
     public void dispose() {
-        synchronized (this) {
-            disposed = true;
-            if (decoded != null) { decoded.close(); decoded = null; }
-        }
         decoder.shutdownNow();
+        if (decoded != null) { decoded.close(); decoded = null; }
         if (coverShader != null) {
             coverShader.close();
             coverShader = null;
@@ -476,26 +572,14 @@ public final class FluidBackground {
             coverAdjusted.close();
             coverAdjusted = null;
         }
+        if (coverArtShader != null) { coverArtShader.close(); coverArtShader = null; }
+        if (coverArt != null) { coverArt.close(); coverArt = null; }
+        coverWarp = null;
+        if (dynamicBlur != null) { dynamicBlur.close(); dynamicBlur = null; dynamicBlurSigma = -1f; }
         releasePrev();
-        releaseLive();
         invalidateStatic();
-        if (saturationFilter != null) { saturationFilter.close(); saturationFilter = null; }
         fluidPaint.close();
         coverKey = null;
-    }
-
-    /** Same 4x5 RGBA matrix Android's ColorMatrix.setSaturation uses: desaturate
-     *  toward each channel's NTSC luminance weight, scaled back up by {@code sat}. */
-    private static ColorMatrix saturationMatrix(float sat) {
-        float invSat = 1f - sat;
-        float r = 0.213f * invSat;
-        float g = 0.715f * invSat;
-        float b = 0.072f * invSat;
-        return new ColorMatrix(
-                r + sat, g,       b,       0f, 0f,
-                r,       g + sat, b,       0f, 0f,
-                r,       g,       b + sat, 0f, 0f,
-                0f,      0f,      0f,      1f, 0f);
     }
 
     // PixiRenderer starts every sprite at an independent random rotation. Keep those
@@ -535,21 +619,28 @@ public final class FluidBackground {
         final String key;
         final Image raw;
         final Image adjusted;
+        /** 动态背景那一档用的 192px 封面（见 {@link MeshWarp#ART}）；构建失败时为 null。 */
+        final Image art;
         final float[] angles;
         final AMLLMeshGradient.Data mesh;
+        /** 动态背景那一档的形变网格；构建失败时为 null（那一档会退化成不画）。 */
+        final MeshWarp.Base warp;
 
-        DecodedTextures(String key, Image raw, Image adjusted, float[] angles,
-                        AMLLMeshGradient.Data mesh) {
+        DecodedTextures(String key, Image raw, Image adjusted, Image art, float[] angles,
+                        AMLLMeshGradient.Data mesh, MeshWarp.Base warp) {
             this.key = key;
             this.raw = raw;
             this.adjusted = adjusted;
+            this.art = art;
             this.angles = angles;
             this.mesh = mesh;
+            this.warp = warp;
         }
 
         void close() {
             raw.close();
             adjusted.close();
+            if (art != null) art.close();
         }
     }
 
@@ -559,20 +650,19 @@ public final class FluidBackground {
             // Decode + downscale to TEX_SIZE with Skija (no platform image lib):
             // raster the encoded cover into a 32x32 RGBA bitmap, then read back its
             // pixels for the blur-chain approximation.
-            byte[] raw;
-            try (Image src = Image.makeDeferredFromEncodedBytes(coverBytes);
-                 Bitmap thumb = new Bitmap()) {
-                ImageInfo thumbInfo = new ImageInfo(TEX_SIZE, TEX_SIZE,
-                        ColorType.RGBA_8888, ColorAlphaType.UNPREMUL);
-                thumb.allocPixels(thumbInfo);
-                try (Canvas tc = new Canvas(thumb)) {
-                    tc.drawImageRect(src,
-                            Rect.makeWH(src.getWidth(), src.getHeight()),
-                            Rect.makeWH(TEX_SIZE, TEX_SIZE),
-                            SamplingMode.LINEAR, null, true);
-                }
-                raw = thumb.readPixels();
-            }
+            Image src = Image.makeDeferredFromEncodedBytes(coverBytes);
+            ImageInfo thumbInfo = new ImageInfo(TEX_SIZE, TEX_SIZE,
+                    ColorType.RGBA_8888, ColorAlphaType.UNPREMUL);
+            Bitmap thumb = new Bitmap();
+            thumb.allocPixels(thumbInfo);
+            Canvas tc = new Canvas(thumb);
+            tc.drawImageRect(src,
+                    Rect.makeWH(src.getWidth(), src.getHeight()),
+                    Rect.makeWH(TEX_SIZE, TEX_SIZE),
+                    SamplingMode.LINEAR, null, true);
+            src.close();
+            byte[] raw = thumb.readPixels();
+            thumb.close();
             if (raw == null) return null;
 
             float[] rgb = new float[TEX_SIZE * TEX_SIZE * 3];
@@ -593,25 +683,55 @@ public final class FluidBackground {
             boxBlur(rgb, TEX_SIZE, TEX_SIZE, 2, 4);
             Image rawTexture = imageFromRgb(rgb);
 
-            Image adjustedTexture = null;
-            boolean transferred = false;
+            // AMLL MeshGradientRenderer and QPlayer's classic renderer use the
+            // same cover pipeline before the mesh/warp: contrast .4,
+            // saturation 3, contrast 1.7, brightness .75, then the same blur.
+            float[] adjustedRgb = amllAdjust(argb);
+            boxBlur(adjustedRgb, TEX_SIZE, TEX_SIZE, 2, 4);
+            Image adjustedTexture = imageFromRgb(adjustedRgb);
+
+            // 动态背景那一档要的 192px 封面（不调色、不预模糊：模糊由那一档的 80px 滤镜统一做）
+            Image artTexture = buildArtTexture(coverBytes);
+
+            // 网格形变：变体按曲目种子挑（同一首歌每次打开都是同一个形状，见 MeshWarp.variantFor）。
+            // 单独 try/catch：网格数据缺失不该让其它三档一起没背景。
+            MeshWarp.Base warp = null;
             try {
-                // Mesh/classic use contrast .4, saturation 3, contrast 1.7,
-                // brightness .75, a chroma cap, and the same blur as the raw cover.
-                float[] adjustedRgb = amllAdjust(argb);
-                boxBlur(adjustedRgb, TEX_SIZE, TEX_SIZE, 2, 4);
-                adjustedTexture = imageFromRgb(adjustedRgb);
-                DecodedTextures textures = new DecodedTextures(trackKey, rawTexture, adjustedTexture,
-                        generateAngles(trackKey, coverBytes), AMLLMeshGradient.create());
-                transferred = true;
-                return textures;
-            } finally {
-                if (!transferred) {
-                    rawTexture.close();
-                    if (adjustedTexture != null) adjustedTexture.close();
-                }
+                MeshWarp.Grids grids = MeshWarp.grids();
+                warp = new MeshWarp.Base(grids,
+                        MeshWarp.variantFor(seedFor(trackKey, coverBytes), grids.variants.length));
+            } catch (Throwable e) {
+                dev.t1m3.qplayer.util.Logger.warn(
+                        "dynamic mesh backdrop disabled: {}", e.toString());
             }
+            return new DecodedTextures(trackKey, rawTexture, adjustedTexture, artTexture,
+                    generateAngles(trackKey, coverBytes), AMLLMeshGradient.create(), warp);
         } catch (Throwable e) {
+            return null;
+        }
+    }
+
+    /** 192px 的封面纹理（动态背景那一档用）：直接从编码字节缩放，不做任何调色。 */
+    private static Image buildArtTexture(byte[] coverBytes) {
+        try {
+            Image src = Image.makeDeferredFromEncodedBytes(coverBytes);
+            ImageInfo info = new ImageInfo(MeshWarp.ART, MeshWarp.ART,
+                    ColorType.RGBA_8888, ColorAlphaType.OPAQUE);
+            Bitmap thumb = new Bitmap();
+            thumb.allocPixels(info);
+            Canvas canvas = new Canvas(thumb);
+            canvas.drawImageRect(src,
+                    Rect.makeWH(src.getWidth(), src.getHeight()),
+                    Rect.makeWH(MeshWarp.ART, MeshWarp.ART),
+                    SamplingMode.LINEAR, null, true);
+            src.close();
+            byte[] pixels = thumb.readPixels();
+            thumb.close();
+            if (pixels == null) return null;
+            return Image.makeRasterFromBytes(info, pixels, MeshWarp.ART * 4L);
+        } catch (Throwable e) {
+            dev.t1m3.qplayer.util.Logger.warn(
+                    "dynamic mesh cover texture failed: {}", e.toString());
             return null;
         }
     }
@@ -629,19 +749,7 @@ public final class FluidBackground {
         return Image.makeRasterFromBytes(info, px, TEX_SIZE * 4L);
     }
 
-    /**
-     * Max channel-from-luma distance after the AMLL sat boost, in 0–255.
-     * Saturation ×3 on an already-vivid cover (anime, solid-color, neon logo)
-     * clips to a fluorescent primary; this cap only bites that tail. Quiet
-     * photography is already under it and is left alone.
-     */
-    static final float CHROMA_CAP = 72f;
-    /** Soft ceiling on luma after the AMLL boost, in 0–255. Pale / white
-     *  covers otherwise sit around 160 and wash out the (white) lyrics;
-     *  mid-grey photography lands near 96 and is left alone. */
-    static final float LUMA_CAP = 108f;
-
-    static float[] amllAdjust(int[] argb) {
+    private static float[] amllAdjust(int[] argb) {
         float[] out = new float[argb.length * 3];
         for (int i = 0; i < argb.length; i++) {
             int p = argb[i];
@@ -661,22 +769,6 @@ public final class FluidBackground {
             r = ((r - 128f) * 1.7f + 128f) * 0.75f;
             g = ((g - 128f) * 1.7f + 128f) * 0.75f;
             b = ((b - 128f) * 1.7f + 128f) * 0.75f;
-
-            float y = r * 0.3f + g * 0.59f + b * 0.11f;
-            float cr = r - y, cg = g - y, cb = b - y;
-            float chroma = Math.max(Math.abs(cr), Math.max(Math.abs(cg), Math.abs(cb)));
-            if (chroma > CHROMA_CAP) {
-                float k = CHROMA_CAP / chroma;
-                r = y + cr * k;
-                g = y + cg * k;
-                b = y + cb * k;
-            }
-            if (y > LUMA_CAP) {
-                float k = LUMA_CAP / y;
-                r *= k;
-                g *= k;
-                b *= k;
-            }
 
             out[i * 3] = r;
             out[i * 3 + 1] = g;

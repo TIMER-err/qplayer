@@ -12,7 +12,6 @@ public class GitHubDownloadUrlsTest {
 
     @Test public void enabledGlobalProxyPutsMirrorsBeforeGitHub() {
         assertArrayEquals(new String[]{
-                "https://github.cnxiaobai.com/" + RELEASE,
                 "https://gh.ddlc.top/" + RELEASE,
                 "https://ghfast.top/" + RELEASE,
                 "https://gh-proxy.com/" + RELEASE,
@@ -23,7 +22,6 @@ public class GitHubDownloadUrlsTest {
     @Test public void disabledGlobalProxyPutsGitHubBeforeFallbackMirrors() {
         assertArrayEquals(new String[]{
                 RELEASE,
-                "https://github.cnxiaobai.com/" + RELEASE,
                 "https://gh.ddlc.top/" + RELEASE,
                 "https://ghfast.top/" + RELEASE,
                 "https://gh-proxy.com/" + RELEASE

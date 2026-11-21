@@ -17,11 +17,11 @@ import java.io.IOException;
  * kept open only so any inherited method stays harmless, and closed in
  * {@link #close()}.
  */
-final class SeekableRandomFileInputStream extends RandomFileInputStream {
+public final class SeekableRandomFileInputStream extends RandomFileInputStream {
 
     private final SeekableByteSource src;
 
-    SeekableRandomFileInputStream(SeekableByteSource src) throws IOException {
+    public SeekableRandomFileInputStream(SeekableByteSource src) throws IOException {
         super(src.backingFile());
         this.src = src;
     }

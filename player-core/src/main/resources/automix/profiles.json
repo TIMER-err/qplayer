@@ -1,0 +1,1182 @@
+{
+  "version": 4,
+  "score_core": {
+    "boundary_coefficient": 0.001,
+    "provenance": "0x227456e54 + 0x227456d24: positive product plus signed outgoing upper bound minus incoming upper bound"
+  },
+  "policy": {
+    "min_beat_confidence": 0.55,
+    "min_beat_stability": 0.55,
+    "max_acousticness": 0.65,
+    "min_danceability": 0.4,
+    "low_melodicness": 0.25,
+    "min_key_confidence": 0.3,
+    "unknown_factor": 0.75,
+    "max_overlap_seconds": 12,
+    "fallback_seconds": 4,
+    "max_incoming_offset": 24,
+    "max_outgoing_skip": 30,
+    "max_loudness_gain_db": 6,
+    "min_score": 0.001,
+    "stretch_sigma": 0.09,
+    "loudness_sigma_db": 8,
+    "energy_sigma": 0.4,
+    "max_tempo_log_distance": 0.16
+  },
+  "policy_provenance": "Natural-log tempo distance 0.16 and normalized melodicness <0.25 follow static helper semantics. Other thresholds, generic missing-feature discount, continuous factors and common target tempo are independent calibration choices. Native 0.75 discounts leading incoming high/veryHigh vocals in traced paths; it is not a generic unknown discount.",
+  "profiles": [
+    {
+      "id": 0,
+      "name": "Gapless",
+      "family": "gapless",
+      "tier": 0,
+      "base_score": 1,
+      "key_policy": "none",
+      "preferred_beats": 0,
+      "effect": "none",
+      "beat_matched": false,
+      "vocal_suppression": 0.0,
+      "raw_duration_observed": null,
+      "processors_observed": [
+        "RECEIVE_MIXER"
+      ],
+      "parameters_observed": [
+        "out_gain"
+      ],
+      "curves_observed": [
+        "ease-in-0.5",
+        "ease-out-0.5"
+      ],
+      "automation_ramps_observed": 2,
+      "base_score_provenance": "representative base from a confirmed direct candidate path; automatic region generation and factor policy are independent",
+      "policy_provenance": "independent prototype; not a recovered Apple rule",
+      "duration_provenance": "independent beats/seconds policy; not interpreting raw Apple duration",
+      "required_complexity": 0,
+      "native_path_names": [
+        "dead-air"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "constant-power cross-fade",
+      "family": "fallback",
+      "tier": 0,
+      "base_score": 1,
+      "key_policy": "none",
+      "preferred_beats": 4,
+      "effect": "none",
+      "beat_matched": false,
+      "vocal_suppression": 0.0,
+      "raw_duration_observed": null,
+      "processors_observed": [
+        "RECEIVE_MIXER"
+      ],
+      "parameters_observed": [
+        "out_gain"
+      ],
+      "curves_observed": [
+        "ease-in-0.5",
+        "ease-out-0.5"
+      ],
+      "automation_ramps_observed": 2,
+      "base_score_provenance": "representative base from a confirmed direct candidate path; automatic region generation and factor policy are independent",
+      "policy_provenance": "independent prototype; not a recovered Apple rule",
+      "duration_provenance": "independent beats/seconds policy; not interpreting raw Apple duration",
+      "required_complexity": 0,
+      "native_path_names": [
+        "fallback-crossfade"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "constant-power long fade-out short fade-in",
+      "family": "smart",
+      "tier": 1,
+      "base_score": 10,
+      "key_policy": "soft",
+      "preferred_beats": 6,
+      "effect": "none",
+      "beat_matched": false,
+      "vocal_suppression": 0.0,
+      "raw_duration_observed": null,
+      "processors_observed": [
+        "RECEIVE_MIXER"
+      ],
+      "parameters_observed": [
+        "out_gain"
+      ],
+      "curves_observed": [
+        "ease-in-0.5",
+        "ease-out-0.5"
+      ],
+      "automation_ramps_observed": 2,
+      "base_score_provenance": "family_transfer_or_independent_assignment; full-catalog prototype assignment, not a path-specific native score; see recovered_candidate_paths",
+      "policy_provenance": "independent prototype; not a recovered Apple rule",
+      "duration_provenance": "independent beats/seconds policy; not interpreting raw Apple duration",
+      "required_complexity": 0,
+      "native_path_names": []
+    },
+    {
+      "id": 22,
+      "name": "splice",
+      "family": "splice",
+      "tier": 1,
+      "base_score": 1,
+      "key_policy": "none",
+      "preferred_beats": 0,
+      "effect": "none",
+      "beat_matched": false,
+      "vocal_suppression": 0.0,
+      "raw_duration_observed": null,
+      "processors_observed": [],
+      "parameters_observed": [],
+      "curves_observed": [],
+      "automation_ramps_observed": 0,
+      "base_score_provenance": "family_transfer_or_independent_assignment; full-catalog prototype assignment, not a path-specific native score; see recovered_candidate_paths",
+      "policy_provenance": "independent prototype; not a recovered Apple rule",
+      "duration_provenance": "independent beats/seconds policy; not interpreting raw Apple duration",
+      "required_complexity": 0,
+      "native_path_names": []
+    },
+    {
+      "id": 3,
+      "name": "overlap",
+      "family": "smart",
+      "tier": 1,
+      "base_score": 10,
+      "key_policy": "soft",
+      "preferred_beats": 4,
+      "effect": "none",
+      "beat_matched": false,
+      "vocal_suppression": 0.0,
+      "raw_duration_observed": null,
+      "processors_observed": [],
+      "parameters_observed": [],
+      "curves_observed": [],
+      "automation_ramps_observed": 0,
+      "base_score_provenance": "representative base from a confirmed direct candidate path; automatic region generation and factor policy are independent",
+      "policy_provenance": "independent prototype; not a recovered Apple rule",
+      "duration_provenance": "independent beats/seconds policy; not interpreting raw Apple duration",
+      "required_complexity": 0,
+      "native_path_names": [
+        "smart-crossfade"
+      ]
+    },
+    {
+      "id": 33,
+      "name": "overlap + Reverb",
+      "family": "smart",
+      "tier": 1,
+      "base_score": 10,
+      "key_policy": "soft",
+      "preferred_beats": 4,
+      "effect": "reverb",
+      "beat_matched": false,
+      "vocal_suppression": 0.0,
+      "raw_duration_observed": null,
+      "processors_observed": [
+        "AUX_REVERB",
+        "RECEIVE_MIXER",
+        "SEND_MIXER"
+      ],
+      "parameters_observed": [
+        "fx_mixer_wet",
+        "fx_reverb_dry_wet",
+        "fx_reverb_high_frequency_decay_time",
+        "fx_reverb_low_frequency_decay_time",
+        "fx_reverb_min_delay_time",
+        "send_mixer_gain"
+      ],
+      "curves_observed": [
+        "linear"
+      ],
+      "automation_ramps_observed": 6,
+      "base_score_provenance": "representative base from a confirmed direct candidate path; automatic region generation and factor policy are independent",
+      "policy_provenance": "independent prototype; not a recovered Apple rule",
+      "duration_provenance": "independent beats/seconds policy; not interpreting raw Apple duration",
+      "required_complexity": 1,
+      "native_path_names": [
+        "smart-crossfade"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "Ease-in Ring-out",
+      "family": "smart",
+      "tier": 1,
+      "base_score": 10,
+      "key_policy": "soft",
+      "preferred_beats": 4,
+      "effect": "none",
+      "beat_matched": false,
+      "vocal_suppression": 0.0,
+      "raw_duration_observed": null,
+      "processors_observed": [
+        "RECEIVE_MIXER"
+      ],
+      "parameters_observed": [
+        "out_gain"
+      ],
+      "curves_observed": [
+        "ease-out-0.5"
+      ],
+      "automation_ramps_observed": 1,
+      "base_score_provenance": "representative base from a confirmed direct candidate path; automatic region generation and factor policy are independent",
+      "policy_provenance": "independent prototype; not a recovered Apple rule",
+      "duration_provenance": "independent beats/seconds policy; not interpreting raw Apple duration",
+      "required_complexity": 0,
+      "native_path_names": [
+        "smart-crossfade"
+      ]
+    },
+    {
+      "id": 44,
+      "name": "Ease-in Ring-out + Reverb",
+      "family": "smart",
+      "tier": 1,
+      "base_score": 10,
+      "key_policy": "soft",
+      "preferred_beats": 4,
+      "effect": "reverb",
+      "beat_matched": false,
+      "vocal_suppression": 0.0,
+      "raw_duration_observed": null,
+      "processors_observed": [
+        "AUX_REVERB",
+        "RECEIVE_MIXER",
+        "SEND_MIXER"
+      ],
+      "parameters_observed": [
+        "fx_mixer_wet",
+        "fx_reverb_dry_wet",
+        "fx_reverb_high_frequency_decay_time",
+        "fx_reverb_low_frequency_decay_time",
+        "fx_reverb_min_delay_time",
+        "out_gain",
+        "send_mixer_gain"
+      ],
+      "curves_observed": [
+        "ease-out-0.5",
+        "linear"
+      ],
+      "automation_ramps_observed": 7,
+      "base_score_provenance": "representative base from a confirmed direct candidate path; automatic region generation and factor policy are independent",
+      "policy_provenance": "independent prototype; not a recovered Apple rule",
+      "duration_provenance": "independent beats/seconds policy; not interpreting raw Apple duration",
+      "required_complexity": 1,
+      "native_path_names": [
+        "smart-crossfade"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "BM - Short filter high to low",
+      "family": "filtered",
+      "tier": 2,
+      "base_score": 10,
+      "key_policy": "compatible",
+      "preferred_beats": 4,
+      "effect": "filter",
+      "beat_matched": true,
+      "vocal_suppression": 0.15,
+      "raw_duration_observed": 2,
+      "processors_observed": [
+        "HI_PASS",
+        "LOW_PASS",
+        "RECEIVE_MIXER",
+        "TIME_STRETCHING"
+      ],
+      "parameters_observed": [
+        "hp_cutoff_freq",
+        "lp_cutoff_freq",
+        "out_gain",
+        "ts_rate"
+      ],
+      "curves_observed": [
+        "ease-in-4",
+        "ease-out-2",
+        "linear"
+      ],
+      "automation_ramps_observed": 7,
+      "base_score_provenance": "representative base from a confirmed direct candidate path; automatic region generation and factor policy are independent",
+      "policy_provenance": "independent prototype; not a recovered Apple rule",
+      "duration_provenance": "independent beats/seconds policy; not interpreting raw Apple duration",
+      "required_complexity": 1,
+      "native_path_names": [
+        "soft-skip"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "Beat-matched long fade-out short fade-in - Same Bar num",
+      "family": "filtered",
+      "tier": 2,
+      "base_score": 20,
+      "key_policy": "compatible",
+      "preferred_beats": 8,
+      "effect": "none",
+      "beat_matched": true,
+      "vocal_suppression": 0.0,
+      "raw_duration_observed": null,
+      "processors_observed": [
+        "RECEIVE_MIXER",
+        "TIME_STRETCHING"
+      ],
+      "parameters_observed": [
+        "out_gain",
+        "ts_rate"
+      ],
+      "curves_observed": [
+        "ease-in-0.5",
+        "ease-out-0.5",
+        "linear"
+      ],
+      "automation_ramps_observed": 4,
+      "base_score_provenance": "family_transfer_or_independent_assignment; full-catalog prototype assignment, not a path-specific native score; see recovered_candidate_paths",
+      "policy_provenance": "independent prototype; not a recovered Apple rule",
+      "duration_provenance": "independent beats/seconds policy; not interpreting raw Apple duration",
+      "required_complexity": 1,
+      "native_path_names": []
+    },
+    {
+      "id": 7,
+      "name": "Beat-matched long fade-out dynamic fade-in",
+      "family": "filtered",
+      "tier": 2,
+      "base_score": 20,
+      "key_policy": "compatible",
+      "preferred_beats": 8,
+      "effect": "none",
+      "beat_matched": true,
+      "vocal_suppression": 0.0,
+      "raw_duration_observed": null,
+      "processors_observed": [
+        "RECEIVE_MIXER",
+        "TIME_STRETCHING"
+      ],
+      "parameters_observed": [
+        "out_gain",
+        "ts_rate"
+      ],
+      "curves_observed": [
+        "ease-in-0.5",
+        "ease-out-0.5",
+        "linear"
+      ],
+      "automation_ramps_observed": 4,
+      "base_score_provenance": "family_transfer_or_independent_assignment; full-catalog prototype assignment, not a path-specific native score; see recovered_candidate_paths",
+      "policy_provenance": "independent prototype; not a recovered Apple rule",
+      "duration_provenance": "independent beats/seconds policy; not interpreting raw Apple duration",
+      "required_complexity": 1,
+      "native_path_names": []
+    },
+    {
+      "id": 8,
+      "name": "BM - Filter high to low",
+      "family": "filtered",
+      "tier": 2,
+      "base_score": 20,
+      "key_policy": "compatible",
+      "preferred_beats": 8,
+      "effect": "filter",
+      "beat_matched": true,
+      "vocal_suppression": 0.15,
+      "raw_duration_observed": 8,
+      "processors_observed": [
+        "HI_PASS",
+        "LOW_PASS",
+        "RECEIVE_MIXER",
+        "TIME_STRETCHING"
+      ],
+      "parameters_observed": [
+        "hp_cutoff_freq",
+        "lp_cutoff_freq",
+        "out_gain",
+        "ts_rate"
+      ],
+      "curves_observed": [
+        "ease-in-4",
+        "ease-out-2",
+        "linear"
+      ],
+      "automation_ramps_observed": 7,
+      "base_score_provenance": "representative base from a confirmed direct candidate path; automatic region generation and factor policy are independent",
+      "policy_provenance": "independent prototype; not a recovered Apple rule",
+      "duration_provenance": "independent beats/seconds policy; not interpreting raw Apple duration",
+      "required_complexity": 1,
+      "native_path_names": [
+        "filtered-direct"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "BM - Filter expansion",
+      "family": "filtered",
+      "tier": 2,
+      "base_score": 50,
+      "key_policy": "compatible",
+      "preferred_beats": 8,
+      "effect": "filter",
+      "beat_matched": true,
+      "vocal_suppression": 0.15,
+      "raw_duration_observed": 8,
+      "processors_observed": [
+        "HI_PASS",
+        "LOW_PASS",
+        "RECEIVE_MIXER",
+        "TIME_STRETCHING"
+      ],
+      "parameters_observed": [
+        "hp_cutoff_freq",
+        "lp_cutoff_freq",
+        "out_gain",
+        "ts_rate"
+      ],
+      "curves_observed": [
+        "ease-out-0.5",
+        "ease-out-2",
+        "linear"
+      ],
+      "automation_ramps_observed": 8,
+      "base_score_provenance": "representative base from a confirmed direct candidate path; automatic region generation and factor policy are independent",
+      "policy_provenance": "independent prototype; not a recovered Apple rule",
+      "duration_provenance": "independent beats/seconds policy; not interpreting raw Apple duration",
+      "required_complexity": 1,
+      "native_path_names": [
+        "filtered-direct"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "BM - Filter long out short in + delay",
+      "family": "filtered",
+      "tier": 2,
+      "base_score": 20,
+      "key_policy": "compatible",
+      "preferred_beats": 8,
+      "effect": "delay",
+      "beat_matched": true,
+      "vocal_suppression": 0.0,
+      "raw_duration_observed": null,
+      "processors_observed": [
+        "AUX_DELAY",
+        "HI_PASS",
+        "LOW_PASS",
+        "RECEIVE_MIXER",
+        "SEND_MIXER",
+        "TIME_STRETCHING"
+      ],
+      "parameters_observed": [
+        "fx_delay_delay_time",
+        "fx_delay_dry_wet",
+        "fx_mixer_wet",
+        "hp_cutoff_freq",
+        "lp_cutoff_freq",
+        "out_gain",
+        "send_mixer_gain",
+        "ts_rate"
+      ],
+      "curves_observed": [
+        "ease-out-2",
+        "linear"
+      ],
+      "automation_ramps_observed": 10,
+      "base_score_provenance": "family_transfer_or_independent_assignment; full-catalog prototype assignment, not a path-specific native score; see recovered_candidate_paths",
+      "policy_provenance": "independent prototype; not a recovered Apple rule",
+      "duration_provenance": "independent beats/seconds policy; not interpreting raw Apple duration",
+      "required_complexity": 2,
+      "native_path_names": []
+    },
+    {
+      "id": 11,
+      "name": "BM - Filter long out short in + Reverb",
+      "family": "filtered",
+      "tier": 2,
+      "base_score": 20,
+      "key_policy": "compatible",
+      "preferred_beats": 8,
+      "effect": "reverb",
+      "beat_matched": true,
+      "vocal_suppression": 0.0,
+      "raw_duration_observed": null,
+      "processors_observed": [
+        "AUX_REVERB",
+        "HI_PASS",
+        "LOW_PASS",
+        "RECEIVE_MIXER",
+        "SEND_MIXER",
+        "TIME_STRETCHING"
+      ],
+      "parameters_observed": [
+        "fx_reverb_dry_wet",
+        "fx_reverb_high_frequency_decay_time",
+        "fx_reverb_low_frequency_decay_time",
+        "fx_reverb_max_delay_time",
+        "fx_reverb_min_delay_time",
+        "fx_reverb_randomize_reflections",
+        "hp_cutoff_freq",
+        "lp_cutoff_freq",
+        "out_gain",
+        "send_mixer_gain",
+        "ts_rate"
+      ],
+      "curves_observed": [
+        "ease-in-4",
+        "ease-out-2",
+        "ease-out-4",
+        "linear"
+      ],
+      "automation_ramps_observed": 14,
+      "base_score_provenance": "family_transfer_or_independent_assignment; full-catalog prototype assignment, not a path-specific native score; see recovered_candidate_paths",
+      "policy_provenance": "independent prototype; not a recovered Apple rule",
+      "duration_provenance": "independent beats/seconds policy; not interpreting raw Apple duration",
+      "required_complexity": 2,
+      "native_path_names": []
+    },
+    {
+      "id": 12,
+      "name": "BM - Long filter high to low",
+      "family": "filtered",
+      "tier": 2,
+      "base_score": 20,
+      "key_policy": "compatible",
+      "preferred_beats": 16,
+      "effect": "filter",
+      "beat_matched": true,
+      "vocal_suppression": 0.15,
+      "raw_duration_observed": 16,
+      "processors_observed": [
+        "HI_PASS",
+        "LOW_PASS",
+        "RECEIVE_MIXER",
+        "TIME_STRETCHING"
+      ],
+      "parameters_observed": [
+        "hp_cutoff_freq",
+        "lp_cutoff_freq",
+        "out_gain",
+        "ts_rate"
+      ],
+      "curves_observed": [
+        "ease-in-4",
+        "ease-out-2",
+        "linear"
+      ],
+      "automation_ramps_observed": 7,
+      "base_score_provenance": "representative base from a confirmed direct candidate path; automatic region generation and factor policy are independent",
+      "policy_provenance": "independent prototype; not a recovered Apple rule",
+      "duration_provenance": "independent beats/seconds policy; not interpreting raw Apple duration",
+      "required_complexity": 2,
+      "native_path_names": [
+        "filtered-shifted"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "BM - Filter soft + Reverb",
+      "family": "filtered",
+      "tier": 2,
+      "base_score": 20,
+      "key_policy": "compatible",
+      "preferred_beats": 8,
+      "effect": "reverb",
+      "beat_matched": true,
+      "vocal_suppression": 0.0,
+      "raw_duration_observed": 10,
+      "processors_observed": [
+        "AUX_REVERB",
+        "HI_PASS",
+        "INPUT_GAIN",
+        "LOW_PASS",
+        "RECEIVE_MIXER",
+        "SEND_MIXER",
+        "TIME_STRETCHING"
+      ],
+      "parameters_observed": [
+        "fx_mixer_dry",
+        "fx_mixer_wet",
+        "fx_reverb_dry_wet",
+        "fx_reverb_high_frequency_decay_time",
+        "fx_reverb_low_frequency_decay_time",
+        "fx_reverb_max_delay_time",
+        "fx_reverb_min_delay_time",
+        "fx_reverb_randomize_reflections",
+        "hp_cutoff_freq",
+        "lp_cutoff_freq",
+        "lp_reso",
+        "out_gain",
+        "player_gain",
+        "send_mixer_gain",
+        "ts_rate"
+      ],
+      "curves_observed": [
+        "ease-in-2",
+        "ease-out-0.5",
+        "ease-out-2",
+        "linear"
+      ],
+      "automation_ramps_observed": 22,
+      "base_score_provenance": "family_transfer_or_independent_assignment; full-catalog prototype assignment, not a path-specific native score; see recovered_candidate_paths",
+      "policy_provenance": "independent prototype; not a recovered Apple rule",
+      "duration_provenance": "independent beats/seconds policy; not interpreting raw Apple duration",
+      "required_complexity": 2,
+      "native_path_names": []
+    },
+    {
+      "id": 14,
+      "name": "No vocal clash one",
+      "family": "filtered",
+      "tier": 2,
+      "base_score": 20,
+      "key_policy": "compatible",
+      "preferred_beats": 8,
+      "effect": "vocal_filter",
+      "beat_matched": true,
+      "vocal_suppression": 0.45,
+      "raw_duration_observed": 10,
+      "processors_observed": [
+        "AUX_REVERB",
+        "HI_PASS",
+        "INPUT_GAIN",
+        "LOW_PASS",
+        "RECEIVE_MIXER",
+        "SEND_MIXER",
+        "TIME_STRETCHING"
+      ],
+      "parameters_observed": [
+        "fx_mixer_dry",
+        "fx_mixer_wet",
+        "fx_reverb_dry_wet",
+        "fx_reverb_high_frequency_decay_time",
+        "fx_reverb_low_frequency_decay_time",
+        "fx_reverb_max_delay_time",
+        "fx_reverb_min_delay_time",
+        "hp_cutoff_freq",
+        "lp_cutoff_freq",
+        "lp_reso",
+        "out_gain",
+        "player_gain",
+        "send_mixer_gain",
+        "ts_rate"
+      ],
+      "curves_observed": [
+        "ease-in-2",
+        "ease-out-0.5",
+        "ease-out-2",
+        "linear"
+      ],
+      "automation_ramps_observed": 20,
+      "base_score_provenance": "family_transfer_or_independent_assignment; full-catalog prototype assignment, not a path-specific native score; see recovered_candidate_paths",
+      "policy_provenance": "independent prototype; not a recovered Apple rule",
+      "duration_provenance": "independent beats/seconds policy; not interpreting raw Apple duration",
+      "required_complexity": 1,
+      "native_path_names": []
+    },
+    {
+      "id": 15,
+      "name": "Hiphop - Delay out",
+      "family": "hiphop",
+      "tier": 2,
+      "base_score": 100,
+      "key_policy": "compatible",
+      "preferred_beats": 4,
+      "effect": "delay",
+      "beat_matched": true,
+      "vocal_suppression": 0.0,
+      "raw_duration_observed": 4,
+      "processors_observed": [
+        "AUX_DELAY",
+        "HI_PASS",
+        "LOW_PASS",
+        "RECEIVE_MIXER",
+        "SEND_MIXER",
+        "TIME_STRETCHING"
+      ],
+      "parameters_observed": [
+        "fx_delay_delay_time",
+        "fx_delay_dry_wet",
+        "fx_delay_feedback",
+        "fx_delay_lp_cutoff_frequency",
+        "fx_mixer_dry",
+        "fx_mixer_wet",
+        "hp_cutoff_freq",
+        "lp_cutoff_freq",
+        "out_gain",
+        "send_mixer_gain",
+        "ts_rate"
+      ],
+      "curves_observed": [
+        "ease-in-2",
+        "ease-in-4",
+        "ease-out-0.5",
+        "ease-out-2",
+        "linear"
+      ],
+      "automation_ramps_observed": 14,
+      "base_score_provenance": "representative base from a confirmed direct candidate path; automatic region generation and factor policy are independent",
+      "policy_provenance": "independent prototype; not a recovered Apple rule",
+      "duration_provenance": "independent beats/seconds policy; not interpreting raw Apple duration",
+      "required_complexity": 2,
+      "native_path_names": [
+        "hiphop-shifted"
+      ]
+    },
+    {
+      "id": 16,
+      "name": "Pop - Delay out",
+      "family": "pop",
+      "tier": 2,
+      "base_score": 50,
+      "key_policy": "compatible",
+      "preferred_beats": 4,
+      "effect": "delay",
+      "beat_matched": true,
+      "vocal_suppression": 0.0,
+      "raw_duration_observed": 4,
+      "processors_observed": [
+        "AUX_DELAY",
+        "HI_PASS",
+        "INPUT_GAIN",
+        "LOW_PASS",
+        "RECEIVE_MIXER",
+        "SEND_MIXER",
+        "TIME_STRETCHING"
+      ],
+      "parameters_observed": [
+        "fx_delay_delay_time",
+        "fx_delay_dry_wet",
+        "fx_delay_feedback",
+        "fx_delay_lp_cutoff_frequency",
+        "fx_mixer_wet",
+        "hp_cutoff_freq",
+        "lp_cutoff_freq",
+        "out_gain",
+        "player_gain",
+        "send_mixer_gain",
+        "ts_rate"
+      ],
+      "curves_observed": [
+        "ease-in-2",
+        "ease-out-2",
+        "linear"
+      ],
+      "automation_ramps_observed": 13,
+      "base_score_provenance": "representative base from a confirmed direct candidate path; automatic region generation and factor policy are independent",
+      "policy_provenance": "independent prototype; not a recovered Apple rule",
+      "duration_provenance": "independent beats/seconds policy; not interpreting raw Apple duration",
+      "required_complexity": 2,
+      "native_path_names": [
+        "pop-scaled-shifted"
+      ]
+    },
+    {
+      "id": 17,
+      "name": "Dance - Repeater",
+      "family": "dance",
+      "tier": 2,
+      "base_score": 17,
+      "key_policy": "identical",
+      "preferred_beats": 16,
+      "effect": "repeater",
+      "beat_matched": true,
+      "vocal_suppression": 0.0,
+      "raw_duration_observed": 18,
+      "processors_observed": [
+        "RECEIVE_MIXER",
+        "REMIX_FX",
+        "TIME_STRETCHING"
+      ],
+      "parameters_observed": [
+        "out_gain",
+        "remixfx_beats_per_minute",
+        "remixfx_filter_a_cutoff",
+        "remixfx_filter_a_on",
+        "remixfx_filter_a_resonance",
+        "remixfx_filter_a_type",
+        "remixfx_filter_b_cutoff",
+        "remixfx_filter_b_on",
+        "remixfx_filter_b_resonance",
+        "remixfx_filter_b_type",
+        "remixfx_flanger_center",
+        "remixfx_flanger_depth",
+        "remixfx_flanger_feedback",
+        "remixfx_flanger_mix",
+        "remixfx_flanger_on",
+        "remixfx_flanger_rate",
+        "remixfx_lfo_phase_sync",
+        "remixfx_repeater_mix",
+        "remixfx_repeater_on",
+        "remixfx_repeater_rate",
+        "remixfx_reverb_dry",
+        "remixfx_reverb_on",
+        "remixfx_reverb_send",
+        "remixfx_reverb_time",
+        "remixfx_reverb_wet",
+        "ts_rate"
+      ],
+      "curves_observed": [
+        "ease-out-2",
+        "linear"
+      ],
+      "automation_ramps_observed": 46,
+      "base_score_provenance": "representative base from a confirmed direct candidate path; automatic region generation and factor policy are independent",
+      "policy_provenance": "independent prototype; not a recovered Apple rule",
+      "duration_provenance": "independent beats/seconds policy; not interpreting raw Apple duration",
+      "required_complexity": 3,
+      "native_path_names": [
+        "dance-shifted"
+      ]
+    },
+    {
+      "id": 18,
+      "name": "Hiphop - Looping",
+      "family": "hiphop",
+      "tier": 2,
+      "base_score": 100,
+      "key_policy": "compatible",
+      "preferred_beats": 4,
+      "effect": "loop",
+      "beat_matched": true,
+      "vocal_suppression": 0.0,
+      "raw_duration_observed": 4,
+      "processors_observed": [
+        "RECEIVE_MIXER",
+        "REMIX_FX",
+        "TIME_STRETCHING"
+      ],
+      "parameters_observed": [
+        "out_gain",
+        "remixfx_beats_per_minute",
+        "remixfx_filter_a_cutoff",
+        "remixfx_filter_a_on",
+        "remixfx_filter_a_type",
+        "remixfx_lfo_phase_sync",
+        "remixfx_repeater_mix",
+        "remixfx_repeater_on",
+        "remixfx_repeater_rate",
+        "ts_rate"
+      ],
+      "curves_observed": [
+        "ease-in-0.5",
+        "ease-out-2",
+        "linear"
+      ],
+      "automation_ramps_observed": 16,
+      "base_score_provenance": "representative base from a confirmed direct candidate path; automatic region generation and factor policy are independent",
+      "policy_provenance": "independent prototype; not a recovered Apple rule",
+      "duration_provenance": "independent beats/seconds policy; not interpreting raw Apple duration",
+      "required_complexity": 3,
+      "native_path_names": [
+        "hiphop-direct"
+      ]
+    },
+    {
+      "id": 19,
+      "name": "Dance - Any Key",
+      "family": "dance",
+      "tier": 2,
+      "base_score": 17,
+      "key_policy": "any",
+      "preferred_beats": 8,
+      "effect": "filter",
+      "beat_matched": true,
+      "vocal_suppression": 0.15,
+      "raw_duration_observed": 8,
+      "processors_observed": [
+        "RECEIVE_MIXER",
+        "REMIX_FX",
+        "TIME_STRETCHING"
+      ],
+      "parameters_observed": [
+        "out_gain",
+        "remixfx_beats_per_minute",
+        "remixfx_delay_feedback",
+        "remixfx_delay_level",
+        "remixfx_delay_on",
+        "remixfx_delay_rate",
+        "remixfx_filter_a_cutoff",
+        "remixfx_filter_a_on",
+        "remixfx_filter_a_resonance",
+        "remixfx_filter_a_type",
+        "remixfx_filter_b_cutoff",
+        "remixfx_filter_b_on",
+        "remixfx_filter_b_resonance",
+        "remixfx_filter_b_type",
+        "remixfx_flanger_center",
+        "remixfx_flanger_depth",
+        "remixfx_flanger_feedback",
+        "remixfx_flanger_mix",
+        "remixfx_flanger_on",
+        "remixfx_flanger_rate",
+        "remixfx_gater_depth",
+        "remixfx_gater_noise_cutoff",
+        "remixfx_gater_noise_level",
+        "remixfx_gater_on",
+        "remixfx_gater_pw",
+        "remixfx_gater_rate",
+        "remixfx_lfo_phase_sync",
+        "remixfx_repeater_mix",
+        "remixfx_repeater_on",
+        "remixfx_repeater_rate",
+        "remixfx_reverb_dry",
+        "remixfx_reverb_on",
+        "remixfx_reverb_send",
+        "remixfx_reverb_time",
+        "remixfx_reverb_wet",
+        "ts_rate"
+      ],
+      "curves_observed": [
+        "ease-in-4",
+        "ease-out-2",
+        "linear"
+      ],
+      "automation_ramps_observed": 47,
+      "base_score_provenance": "representative base from a confirmed direct candidate path; automatic region generation and factor policy are independent",
+      "policy_provenance": "independent prototype; not a recovered Apple rule",
+      "duration_provenance": "independent beats/seconds policy; not interpreting raw Apple duration",
+      "required_complexity": 2,
+      "native_path_names": [
+        "dance-original"
+      ]
+    },
+    {
+      "id": 20,
+      "name": "Pop - Reverb",
+      "family": "pop",
+      "tier": 2,
+      "base_score": 50,
+      "key_policy": "compatible",
+      "preferred_beats": 4,
+      "effect": "reverb",
+      "beat_matched": true,
+      "vocal_suppression": 0.0,
+      "raw_duration_observed": 4,
+      "processors_observed": [
+        "RECEIVE_MIXER",
+        "REMIX_FX",
+        "TIME_STRETCHING"
+      ],
+      "parameters_observed": [
+        "out_gain",
+        "remixfx_beats_per_minute",
+        "remixfx_filter_a_cutoff",
+        "remixfx_filter_a_on",
+        "remixfx_filter_a_resonance",
+        "remixfx_filter_a_type",
+        "remixfx_filter_b_cutoff",
+        "remixfx_filter_b_on",
+        "remixfx_filter_b_resonance",
+        "remixfx_filter_b_type",
+        "remixfx_lfo_phase_sync",
+        "remixfx_reverb_dry",
+        "remixfx_reverb_on",
+        "remixfx_reverb_send",
+        "remixfx_reverb_time",
+        "remixfx_reverb_wet",
+        "ts_rate"
+      ],
+      "curves_observed": [
+        "ease-in-4",
+        "ease-out-2",
+        "ease-out-4",
+        "linear"
+      ],
+      "automation_ramps_observed": 30,
+      "base_score_provenance": "representative base from a confirmed direct candidate path; automatic region generation and factor policy are independent",
+      "policy_provenance": "independent prototype; not a recovered Apple rule",
+      "duration_provenance": "independent beats/seconds policy; not interpreting raw Apple duration",
+      "required_complexity": 2,
+      "native_path_names": [
+        "pop-scaled-shifted"
+      ]
+    }
+  ],
+  "recovered_candidate_paths": [
+    {
+      "path": "dance-original",
+      "style_ids": [
+        19
+      ],
+      "base": 17,
+      "factor_names": [
+        "strict_tempo",
+        "matching_bars",
+        "leading_vocal"
+      ],
+      "source": "0x22745b338"
+    },
+    {
+      "path": "filtered-direct",
+      "style_ids": [
+        9
+      ],
+      "base": 50,
+      "factors": [
+        "strict tempo compatibility",
+        "upstream key gate",
+        "matching bars >= 8",
+        "no aligned vocal overlap",
+        "leading incoming vocal 0.75 or 1",
+        "incoming raw loudness ratio or 1"
+      ],
+      "state": "confirmed"
+    },
+    {
+      "path": "filtered-direct",
+      "style_ids": [
+        8
+      ],
+      "base": 20,
+      "factors": [
+        "strict tempo compatibility",
+        "leading incoming vocal 0.75 or 1",
+        "floor(alias-adjusted incoming beat count / 4) / target bar count",
+        "incoming raw loudness ratio or 1"
+      ],
+      "state": "confirmed"
+    },
+    {
+      "path": "filtered-shifted",
+      "style_ids": [
+        12
+      ],
+      "base": 20,
+      "factors": [
+        "strict incompatible AND loose compatible",
+        "matching bars >= 8",
+        "leading incoming vocal 0.75 or 1",
+        "incoming raw loudness ratio or 1"
+      ],
+      "state": "confirmed_direct_reachability"
+    },
+    {
+      "path": "hiphop-direct",
+      "style_ids": [
+        18
+      ],
+      "base": 100,
+      "factors": [
+        "leading incoming vocal 0.75 or 1",
+        "incoming normalized bars / outgoing bars >= 0.75",
+        "incoming normalized bars / target bar count",
+        "incoming raw loudness ratio or 1"
+      ],
+      "state": "confirmed"
+    },
+    {
+      "path": "hiphop-shifted",
+      "style_ids": [
+        15
+      ],
+      "base": 100,
+      "factors": [
+        "leading incoming vocal 0.75 or 1",
+        "incoming normalized bars / outgoing bars >= 0.75",
+        "incoming normalized bars / target bar count",
+        "incoming raw loudness ratio or 1"
+      ],
+      "state": "confirmed_direct_reachability"
+    },
+    {
+      "path": "pop-scaled-shifted",
+      "style_ids": [
+        16,
+        20
+      ],
+      "base": 50,
+      "factors": [
+        "outgoing bars == target bar count",
+        "incoming normalized bars / outgoing bars >= 0.75",
+        "leading incoming vocal 0.75 or 1",
+        "outgoing region loudness significance",
+        "incoming raw loudness ratio or 1"
+      ],
+      "state": "confirmed"
+    },
+    {
+      "path": "smart-crossfade",
+      "style_ids": [
+        3,
+        33,
+        4,
+        44
+      ],
+      "base": 10,
+      "state": "confirmed"
+    },
+    {
+      "path": "dead-air",
+      "style_ids": [
+        0
+      ],
+      "base": 1,
+      "state": "confirmed"
+    },
+    {
+      "path": "fallback-crossfade",
+      "style_ids": [
+        1
+      ],
+      "base": 1,
+      "state": "confirmed"
+    },
+    {
+      "path": "soft-skip",
+      "style_ids": [
+        5
+      ],
+      "base": 10,
+      "state": "confirmed"
+    },
+    {
+      "path": "dance-shifted",
+      "style_ids": [
+        17
+      ],
+      "base": 17,
+      "state": "existing_formula_confirmed_direct_reachability_corrected"
+    }
+  ],
+  "native_scoring_coverage": {
+    "confirmed_style_ids": [
+      0,
+      1,
+      3,
+      33,
+      4,
+      44,
+      5,
+      8,
+      9,
+      12,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20
+    ],
+    "generation": "Recovered default routing16, scoring11 paths, native final selection; automatic region generation and complete eligibility remain partly independent.",
+    "catalog_only_style_ids": [
+      2,
+      6,
+      7,
+      10,
+      11,
+      13,
+      14,
+      22
+    ],
+    "unconfirmed_style_ids": [],
+    "catalog_only_note": "These eight IDs are present in the catalog but absent from all inspected default family style arrays; custom/external generation is not ruled out."
+  },
+  "renderer_policy": {
+    "time_rate_endpoints": "recovered structured source-range ratio",
+    "window": "recovered template ts_rate source-clock windows",
+    "time_integration": "recovered source-domain linear-rate integral",
+    "effect_backend": "independent NumPy DSP; not Apple Audio Units",
+    "catalog_time_expansion": "recovered clipped source placement and source-clock evaluation",
+    "catalog_offset": "decoded style.startTime retained; arithmetic consumer unresolved",
+    "unstructured_alignment": "recovered bar/alias virtual-rate endpoints and incoming end alignment; explicit inputs required"
+  }
+}

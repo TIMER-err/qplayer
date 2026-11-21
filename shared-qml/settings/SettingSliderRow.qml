@@ -12,6 +12,13 @@ import "."
 Item {
     id: row
     property var spec: null
+    // 活文案：provider 返回的"说明的活版本"（2026-11-15 ✓ 你的行一直有 ✓ 2.1.1 只有 action 行有）
+    property string providerText: spec && spec.provider && spec.provider.length > 0 ? settings.info(spec.provider) : ""
+    // 有活文案就顶替静态 desc ✓ 否则回落静态说明
+    function descText() {
+        if (providerText.length > 0) return providerText
+        return spec ? i18n.t(spec.desc) : ""
+    }
     property bool separator: false
     objectName: spec ? "setting_" + spec.key : ""
     property int storedValue: row.spec ? settings.value(row.spec.key) : 0
@@ -34,7 +41,7 @@ Item {
         width: row.width
         height: implicitHeight
         title: row.spec ? i18n.t(row.spec.title) : ""
-        summary: row.spec ? i18n.t(row.spec.desc) : ""
+        summary: row.descText()
         separator: row.separator
         clickable: false
         minHeight: 0

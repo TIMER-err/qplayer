@@ -53,9 +53,8 @@ public final class PluginRegistry {
 
     public synchronized void activate(VerifiedPluginPackage pkg, Set<PluginPermission> grants)
             throws IOException {
-        State next = copyState();
         PluginManifest manifest = pkg.manifest();
-        Entry entry = next.plugins.get(manifest.id);
+        Entry entry = state.plugins.get(manifest.id);
         if (entry == null) entry = new Entry();
         entry.id = manifest.id;
         entry.name = manifest.name;
@@ -65,24 +64,23 @@ public final class PluginRegistry {
         entry.enabled = true;
         entry.grantedPermissions.clear();
         for (PluginPermission grant : grants) entry.grantedPermissions.add(grant.wireName());
-        next.plugins.put(entry.id, entry);
-        if (!next.providerOrder.contains(entry.id)) next.providerOrder.add(entry.id);
-        if (next.primaryProvider.isEmpty()) next.primaryProvider = entry.id;
-        save(next);
+        state.plugins.put(entry.id, entry);
+        if (!state.providerOrder.contains(entry.id)) state.providerOrder.add(entry.id);
+        if (state.primaryProvider.isEmpty()) state.primaryProvider = entry.id;
+        save();
     }
 
     public synchronized void setEnabled(String pluginId, boolean enabled) throws IOException {
-        State next = copyState();
-        required(next, pluginId).enabled = enabled;
-        save(next);
+        Entry entry = required(pluginId);
+        entry.enabled = enabled;
+        save();
     }
 
     public synchronized void setPrimaryProvider(String pluginId) throws IOException {
-        State next = copyState();
-        Entry entry = required(next, pluginId);
+        Entry entry = required(pluginId);
         if (!entry.enabled) throw new IllegalArgumentException("primary provider is disabled");
-        next.primaryProvider = pluginId;
-        save(next);
+        state.primaryProvider = pluginId;
+        save();
     }
 
     public synchronized void setProviderOrder(List<String> order) throws IOException {
@@ -93,46 +91,33 @@ public final class PluginRegistry {
             normalized.add(id);
         }
         for (String id : state.plugins.keySet()) normalized.add(id);
-        State next = copyState();
-        next.providerOrder = new ArrayList<>(normalized);
-        save(next);
+        state.providerOrder = new ArrayList<>(normalized);
+        save();
     }
 
     public synchronized void remove(String pluginId) throws IOException {
-        State next = copyState();
-        next.plugins.remove(pluginId);
-        next.providerOrder.remove(pluginId);
-        if (pluginId.equals(next.primaryProvider)) {
-            next.primaryProvider = firstEnabled(next);
+        state.plugins.remove(pluginId);
+        state.providerOrder.remove(pluginId);
+        if (pluginId.equals(state.primaryProvider)) {
+            state.primaryProvider = firstEnabled();
         }
-        save(next);
+        save();
     }
 
-    static final class Snapshot {
-        private final State state;
-        private Snapshot(State state) { this.state = state; }
-    }
-
-    synchronized Snapshot snapshot() { return new Snapshot(copyState()); }
-
-    synchronized void restore(Snapshot previous) throws IOException {
+    synchronized void restore(Entry previous) throws IOException {
         if (previous == null) throw new IllegalArgumentException("previous == null");
-        // Even if the storage device stops accepting writes, never publish a
-        // pointer to a failed update in this process.
-        try {
-            save(previous.state);
-        } finally {
-            state = previous.state;
-        }
+        state.plugins.put(previous.id, previous.copy());
+        if (!state.providerOrder.contains(previous.id)) state.providerOrder.add(previous.id);
+        save();
     }
 
-    private static Entry required(State state, String id) {
+    private Entry required(String id) {
         Entry entry = state.plugins.get(id);
         if (entry == null) throw new IllegalArgumentException("unknown plugin " + id);
         return entry;
     }
 
-    private static String firstEnabled(State state) {
+    private String firstEnabled() {
         for (String id : state.providerOrder) {
             Entry entry = state.plugins.get(id);
             if (entry != null && entry.enabled) return id;
@@ -185,19 +170,8 @@ public final class PluginRegistry {
         }
     }
 
-    private State copyState() {
-        State copy = new State();
-        copy.primaryProvider = state.primaryProvider;
-        copy.providerOrder = new ArrayList<>(state.providerOrder);
-        for (Map.Entry<String, Entry> item : state.plugins.entrySet()) {
-            copy.plugins.put(item.getKey(), item.getValue().copy());
-        }
-        return copy;
-    }
-
-    private void save(State next) throws IOException {
-        StorageFiles.writeUtf8Atomic(file, gson.toJson(next));
-        state = next;
+    private void save() throws IOException {
+        StorageFiles.writeUtf8Atomic(file, gson.toJson(state));
     }
 
     private static final class State {

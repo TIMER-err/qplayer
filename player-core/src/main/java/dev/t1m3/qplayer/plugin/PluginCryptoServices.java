@@ -1,7 +1,5 @@
 package dev.t1m3.qplayer.plugin;
 
-import static dev.t1m3.qplayer.plugin.PluginHashes.hex;
-
 import javax.crypto.Cipher;
 import javax.crypto.Mac;
 import javax.crypto.spec.GCMParameterSpec;
@@ -246,7 +244,11 @@ final class PluginCryptoServices {
         return value instanceof Number ? ((Number) value).intValue() : fallback;
     }
 
-    
+    private static String hex(byte[] bytes) {
+        StringBuilder out = new StringBuilder(bytes.length * 2);
+        for (byte value : bytes) out.append(String.format(Locale.ROOT, "%02x", value & 0xff));
+        return out.toString();
+    }
 
     private static BigInteger littleEndian(byte[] bytes) {
         byte[] reversed = new byte[bytes.length];
