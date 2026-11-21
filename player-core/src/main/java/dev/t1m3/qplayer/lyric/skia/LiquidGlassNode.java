@@ -79,6 +79,8 @@ public final class LiquidGlassNode extends SkijaItem {
     private Surface shadow;
     private Image outerShadowMask;
     private boolean outerShadowMaskDark;
+    private float outerShadowMaskW = Float.NaN;
+    private float outerShadowMaskH = Float.NaN;
     private Image outerShadowImage;
     private Surface outerShadowSurface;
     private final float[] outerShadowTransform = new float[9];
@@ -490,7 +492,7 @@ public final class LiquidGlassNode extends SkijaItem {
     }
 
     private void drawOuterShadowFiltered(Canvas canvas, float w, float h, float offset, boolean dark) {
-        if (outerShadowMask == null || outerShadowMaskDark != dark) {
+        if (outerShadowMask == null || outerShadowMaskDark != dark || outerShadowMaskW != w || outerShadowMaskH != h) {
             if (outerShadowMask != null) outerShadowMask.close();
             Canvas mask = shadow.getCanvas();
             mask.clear(0);
@@ -501,6 +503,8 @@ public final class LiquidGlassNode extends SkijaItem {
             mask.restoreToCount(saved);
             outerShadowMask = shadow.makeImageSnapshot();
             outerShadowMaskDark = dark;
+            outerShadowMaskW = w;
+            outerShadowMaskH = h;
         }
         filterPaint.setImageFilter(outerShadow).setAlphaf(1);
         int saved = canvas.save();
@@ -801,6 +805,8 @@ public final class LiquidGlassNode extends SkijaItem {
         if (outerShadowSurface != null) { outerShadowSurface.close(); outerShadowSurface = null; }
         if (outerShadowMask != null) { outerShadowMask.close(); outerShadowMask = null; }
         outerShadowOffset = Float.NaN;
+        outerShadowMaskW = Float.NaN;
+        outerShadowMaskH = Float.NaN;
         if (low != null) { low.close(); low = null; }
         if (high != null) { high.close(); high = null; }
         if (raw != null) { raw.close(); raw = null; }

@@ -129,6 +129,47 @@ public class ResponsiveNavigationTest {
         });
     }
 
+    @Test
+    public void liquidGlassMiniPlayerAdaptsToCompactAndWideLayouts() throws Exception {
+        withShell(480, 806, true, (view, player) -> {
+            Item mini = view.findByObjectName("miniPlayer");
+            Item cover = view.findByObjectName("miniPlayerCover");
+            Item progressRing = view.findByObjectName("miniPlayerProgressRing");
+            Item glassSurface = view.findByObjectName("liquidGlassMiniPlayerSurface");
+            assertNotNull(mini);
+            assertNotNull(cover);
+            assertNotNull(progressRing);
+            assertNotNull(glassSurface);
+            assertTrue("Liquid glass surface must be visible on compact layout",
+                    Boolean.TRUE.equals(glassSurface.visible.peek()));
+            assertEquals(80f, mini.height.peekFloat(), 0.5f);
+            assertEquals(60f, cover.width.peekFloat(), 0.5f);
+            assertTrue("Progress ring must be visible on compact liquid glass mini player",
+                    Boolean.TRUE.equals(progressRing.visible.peek()));
+        });
+
+        withShell(1134, 806, true, (view, player) -> {
+            Item mini = view.findByObjectName("miniPlayer");
+            Item cover = view.findByObjectName("miniPlayerCover");
+            Item progressRing = view.findByObjectName("miniPlayerProgressRing");
+            Item glassSurface = view.findByObjectName("liquidGlassMiniPlayerSurface");
+            Item wideTransport = view.findByObjectName("miniPlayerWideTransport");
+            assertNotNull(mini);
+            assertNotNull(cover);
+            assertNotNull(progressRing);
+            assertNotNull(glassSurface);
+            assertNotNull(wideTransport);
+            assertTrue("Liquid glass surface must be visible on wide layout",
+                    Boolean.TRUE.equals(glassSurface.visible.peek()));
+            assertEquals(76f, mini.height.peekFloat(), 0.5f);
+            assertEquals(52f, cover.width.peekFloat(), 0.5f);
+            assertTrue("Progress ring must not be visible on wide liquid glass mini player",
+                    !Boolean.TRUE.equals(progressRing.visible.peek()));
+            assertTrue("Wide transport must be visible on wide liquid glass mini player",
+                    Boolean.TRUE.equals(wideTransport.visible.peek()));
+        });
+    }
+
     private static void settle(QmlView view) {
         DirtyQueue queue = view.dirtyQueue();
         long start = System.nanoTime();
@@ -145,6 +186,10 @@ public class ResponsiveNavigationTest {
     }
 
     private void withShell(int width, int height, ShellCheck check) throws Exception {
+        withShell(width, height, false, check);
+    }
+
+    private void withShell(int width, int height, boolean liquidGlass, ShellCheck check) throws Exception {
         String oldBase = AppDirs.base();
         String oldCache = AppDirs.cacheBase();
         PlayerController player = null;
@@ -167,6 +212,9 @@ public class ResponsiveNavigationTest {
             player.sourceSetupPending.set(false);
             SettingsCore settings = new SettingsCore();
             settings.load(new JsonSettingsStore(), SettingsCatalog.DESKTOP);
+            if (liquidGlass) {
+                settings.setValue("liquidGlassNavigation", true);
+            }
             ClasspathResourceLoader resources = new ClasspathResourceLoader();
             view = QmlView.withStockTypes(new QmlEngine()).resources(resources)
                     .context("player", player).context("settings", settings)
