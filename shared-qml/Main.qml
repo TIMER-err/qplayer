@@ -166,7 +166,10 @@ Rectangle {
     property bool wide: app.width >= 600
     property bool expanded: app.width >= 840
     readonly property bool liquidGlassEffects: settings.value("liquidGlassNavigation") === true
-    readonly property bool floatingBottomChrome: !app.wide && app.liquidGlassEffects
+    // Liquid glass is a look, not a compact-layout feature: any width whose bar
+    // is wide enough for the ordinary transport keeps it, and the capsule grows
+    // to the window. See MiniPlayer's wideLayout for which controls it carries.
+    readonly property bool floatingBottomChrome: app.liquidGlassEffects
     // Every page extends behind the player; scroll padding keeps its last item
     // above the transport, including compact navigation and system insets.
     readonly property real bottomContentInset: Math.max(0, app.height - mini.y + 8)
@@ -933,7 +936,10 @@ Rectangle {
         anchors.leftMargin: app.floatingBottomChrome ? 24 : 12
         anchors.rightMargin: settings.rightInset + (app.floatingBottomChrome ? 24 : 12)
         anchors.bottom: bottomNav.top
-        anchors.bottomMargin: app.wide ? 12 : 8
+        // The compact pill keeps the bottom navigation's own 36dp safe-area
+        // padding; where the rail replaces that bar there is nothing below the
+        // pill, so glass needs its own 24dp gap like the one on both sides.
+        anchors.bottomMargin: app.wide ? (app.floatingBottomChrome ? 24 : 12) : 8
         height: implicitHeight
         liquidGlass: app.floatingBottomChrome
         onLyricsRequested: app.pushPage("lyrics", 0)
