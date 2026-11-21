@@ -104,6 +104,9 @@ public final class QPlayerActivity extends Activity {
     private Consumer<Boolean> systemBarsListener;
     private BroadcastReceiver debugReceiver;
     private java.util.concurrent.CompletableFuture<PlayerController> initializing;
+    private EngineState scene;
+    private boolean reusedScene;
+    private boolean resumed;
 
     /** Caches the process controller across Activity recreations, and waits for
      * full old-engine termination before creating a replacement. */
@@ -116,6 +119,8 @@ public final class QPlayerActivity extends Activity {
                     new Thread(r, "qplayer-engine-init"));
     private static Object activeUiToken;
     private static Object boundUiToken;
+    // Main-thread-owned; the retained view uses Application context, never an old window.
+    private static EngineState retainedScene;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -123,17 +128,21 @@ public final class QPlayerActivity extends Activity {
         logSceneLifecycle("create");
         activeUiToken = uiToken;
 
-        // Paint a loading UI before PlayerController, plugins, and scene construction.
-        // Android 11 has no system splash; a SurfaceView otherwise leaves a black window.
-        splashView = buildSplash();
+        EngineState retained = retainedScene;
+        retainedScene = null;
         android.widget.FrameLayout root = new android.widget.FrameLayout(this);
-        root.addView(splashView, new android.widget.FrameLayout.LayoutParams(
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        if (retained == null) {
+            // Android 11 has no system splash; cold scene construction needs a loading UI.
+            splashView = buildSplash();
+            root.addView(splashView, new android.widget.FrameLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        }
         setContentView(root);
         enableEdgeToEdge();
         attachInsetListener(root);
-        splashView.post(this::startEngine);
+        if (retained != null) attachEngine(retained);
+        else splashView.post(this::startEngine);
     }
 
     private void startEngine() {
@@ -184,7 +193,8 @@ public final class QPlayerActivity extends Activity {
 
     private static void retireUnclaimedEngine(
             java.util.concurrent.CompletableFuture<PlayerController> initialization) {
-        if (activeUiToken != null || boundUiToken != null || PlaybackService.isRunning()) return;
+        if (activeUiToken != null || boundUiToken != null || retainedScene != null
+                || PlaybackService.isRunning()) return;
         if (initialization != null && initialization.isDone()
                 && !initialization.isCompletedExceptionally()) {
             PlayerController engine = initialization.getNow(null);
@@ -199,6 +209,7 @@ public final class QPlayerActivity extends Activity {
     private static final class EngineState {
         final PlayerController controller;
         final SettingsCore settings;
+        QmlGLSurfaceView view;
         EngineState(PlayerController controller, SettingsCore settings) {
             this.controller = controller;
             this.settings = settings;
@@ -206,20 +217,21 @@ public final class QPlayerActivity extends Activity {
     }
 
     private void attachEngine(EngineState state) {
+        scene = state;
+        reusedScene = state.view != null;
         boundUiToken = uiToken;
         controller = state.controller;
         settings = state.settings;
+        synchronized (dev.t1m3.qplayer.qml.QmlRuntimeLock.MONITOR) {
+            settings.setSystemDark(isSystemDark(this));
+        }
         reader = new AndroidMetadataReader(getApplicationContext());
         final PlayerController boundController = controller;
         DiskDecompressedResourceCache resources =
                 ((dev.t1m3.qplayer.android.app.QPlayerApplication) getApplication()).sceneResources();
-        // A reused controller still carries the one-shot event counters the
-        // previous Activity's scene already consumed. The scene built below
-        // mirrors each into a QML watch property, so a non-zero count reads as a
-        // fresh event and replays the last prompt -- mid-construction, before
-        // the scene is parented, which strands the dialog in the top-left corner
-        // with no scrim. Hand the new scene a clean slate.
-        controller.resetSceneEventRevisions();
+        // A new scene must not replay event counters consumed by its predecessor.
+        // A retained scene keeps its own watches and must keep those counters intact.
+        if (!reusedScene) controller.resetSceneEventRevisions();
         controller.setColorExtractor(new AndroidColorExtractor());
         // Copy-to-clipboard sink for the song menu's "复制链接". The QML action fires on
         // the render thread; ClipboardManager wants the main thread, so hop there.
@@ -340,10 +352,10 @@ public final class QPlayerActivity extends Activity {
         // republished when that finishes. Started here rather than in
         // Application.onCreate because it needs Skija's natives, which the
         // Activity has just brought up.
-        AndroidFontIndex.instance().scanAsync(() -> runOnUiThread(() -> {
+        if (!reusedScene) AndroidFontIndex.instance().scanAsync(() -> runOnUiThread(() -> {
             QmlGLSurfaceView view = glView;
             SettingsCore s = settings;
-            if (view == null || s == null) return;
+            if (destroyed || view == null || s == null) return;
             view.queueEvent(() -> {
                 // A font only the index knows about was unresolvable when the
                 // selection was first applied; resolve it again now.
@@ -352,13 +364,17 @@ public final class QPlayerActivity extends Activity {
             });
         }));
 
-        BundledQml bundle = new BundledQml("Main.qml");
         float density = getResources().getDisplayMetrics().density;
         // QML is authored in dp and qml4j does not scale Image.sourceSize by the
         // density, so covers need it to decode at display resolution rather than at
         // 1x and be upscaled -- see CoverImage.qml.
         controller.setPixelRatio(density * settings.uiScaleFactor());
-        glView = new QmlGLSurfaceView(this, bundle, resources, density);
+        glView = state.view;
+        if (glView == null) {
+            glView = new QmlGLSurfaceView(this, new BundledQml("Main.qml"), resources, density);
+            state.view = glView;
+        }
+        glView.attachHost(this);
         glView.setUserScale(settings.uiScaleFactor());
         registerSettingsHook(SettingsCatalog.UI_SCALE_KEY, ignored -> {
             float factor = settings.uiScaleFactor();
@@ -369,23 +385,24 @@ public final class QPlayerActivity extends Activity {
         glView.setSettings(settings);
         glView.setErrorListener(trace -> runOnUiThread(() -> showError(trace)));
 
-        // glView under the splash already on screen. Inserted at index 0 so the
-        // loading UI stays in front of the SurfaceView hole on Android 11.
+        // A warm attachment has no loading overlay and does not reconstruct QML.
         android.widget.FrameLayout root = (android.widget.FrameLayout) rootView;
-        root.addView(glView, 0, new android.widget.FrameLayout.LayoutParams(
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT));
-        if (splashView != null) splashView.bringToFront();
         glView.setSplashListener(new QmlGLSurfaceView.SplashListener() {
             @Override public void onReady() {
                 runOnUiThread(QPlayerActivity.this::onSceneReady);
             }
         });
+        root.addView(glView, 0, new android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        if (splashView != null) splashView.bringToFront();
+        if (resumed) glView.onResume();
+        else glView.onPause();
         applySystemBars(settings.resolvedDarkValue());
         updateImmersive();
         updateKeepScreenOn();
 
-        controller.loadHome();
+        if (!reusedScene) controller.loadHome();
         registerDebugReceiver();
         // Wait for the first painted scene before presenting a permission dialog.
     }
@@ -613,9 +630,11 @@ public final class QPlayerActivity extends Activity {
     /** First painted frame: the QML tree is fully built and rendering. Now hide the
      *  splash and request the audio permission (and scan) — see onCreate. */
     private void onSceneReady() {
-        logSceneLifecycle("ready");
         if (destroyed || activeUiToken != uiToken || glView == null) return;
+        logSceneLifecycle("ready reused=" + reusedScene
+                + " scene=" + Integer.toHexString(glView.sceneIdentity()));
         hideSplash();
+        if (reusedScene) return;
         requestAudioPermission();
         requestNotificationPermission();
         // Don't auto-check for app updates on debug builds — only release builds nag.
@@ -1001,8 +1020,9 @@ public final class QPlayerActivity extends Activity {
         final double top = insets.top / density;
         final double right = insets.right / density;
         final double bottom = insets.bottom / density;
-        if (glView != null) {
-            glView.queueEvent(() -> settings.setInsets(left, top, right, bottom));
+        SettingsCore boundSettings = settings;
+        if (glView != null && boundSettings != null) {
+            glView.queueEvent(() -> boundSettings.setInsets(left, top, right, bottom));
         }
     }
 
@@ -1192,12 +1212,14 @@ public final class QPlayerActivity extends Activity {
 
     @Override
     protected void onPause() {
+        resumed = false;
         super.onPause();
         if (glView != null) glView.onPause();
     }
 
     @Override
     protected void onResume() {
+        resumed = true;
         super.onResume();
         if (glView != null) glView.onResume();
         // System overlays (permission dialogs, PiP, the install grant) can reset the
@@ -1240,6 +1262,8 @@ public final class QPlayerActivity extends Activity {
         logSceneLifecycle("destroy");
         destroyed = true;
         boolean ownsUi = boundUiToken == uiToken;
+        boolean retain = ownsUi && activeUiToken == uiToken && !isFinishing()
+                && glView != null && glView.hasScene();
         if (ownsUi) boundUiToken = null;
         if (activeUiToken == uiToken && !isChangingConfigurations()) activeUiToken = null;
         for (AudioSaveRequest request : audioSaves) request.cancel();
@@ -1270,19 +1294,30 @@ public final class QPlayerActivity extends Activity {
             webAuthScript.shutdown();
             webAuthScript = null;
         }
-        // A configuration recreation reuses the process controller. A genuine
-        // idle exit releases it without synchronously serializing state on main.
-        if (ownsUi && activeUiToken == null && !isChangingConfigurations() && controller != null
-                && !controller.isPlaying() && !PlaybackService.isRunning()) {
+        if (glView != null) {
+            glView.detachHost();
+            if (retain) {
+                retainedScene = scene;
+                android.view.ViewParent parent = glView.getParent();
+                if (parent instanceof android.view.ViewGroup) {
+                    ((android.view.ViewGroup) parent).removeView(glView);
+                }
+                logSceneLifecycle("retain scene=" + Integer.toHexString(glView.sceneIdentity()));
+            } else {
+                glView.dispose();
+            }
+            glView = null;
+        }
+        scene = null;
+        // Only a real idle exit retires the engine. System Activity reclamation
+        // leaves the process-owned scene and controller available for immediate reuse.
+        if (!retain && ownsUi && activeUiToken == null && !isChangingConfigurations()
+                && controller != null && !controller.isPlaying() && !PlaybackService.isRunning()) {
             OverlayLyricWindow.clearSettings(settings);
             ENGINE.retire(controller.shutdownAsync());
             PlaybackService.detachController(controller);
         }
         if (!isChangingConfigurations()) retireUnclaimedEngine(initializing);
-        if (glView != null) {
-            glView.dispose();
-            glView = null;
-        }
         if (settings != null && systemBarsListener != null) {
             synchronized (dev.t1m3.qplayer.qml.QmlRuntimeLock.MONITOR) {
                 settings.resolvedDark.removeListener(systemBarsListener);
