@@ -142,7 +142,7 @@ public final class QPlayerActivity extends Activity {
         enableEdgeToEdge();
         attachInsetListener(root);
         if (retained != null) attachEngine(retained);
-        else splashView.post(this::startEngine);
+        else startEngine();
     }
 
     private void startEngine() {
@@ -153,12 +153,15 @@ public final class QPlayerActivity extends Activity {
         java.util.concurrent.CompletableFuture<PlayerController> initialization =
                 ENGINE.getOrStart(() -> {
                     dev.t1m3.qplayer.store.AppDirs.migrateLegacyLayout();
-                    java.io.File updates = new java.io.File(app.getExternalFilesDir(null), "updates");
-                    dev.t1m3.qplayer.util.Logger.info("updates cache: {} bytes before sweep",
-                            dirSizeBytes(updates));
-                    deleteRecursive(updates);
-                    deleteRecursive(dev.t1m3.qplayer.store.AppDirs.cacheDir()
-                            .resolve("plugin-imports").toFile());
+                    ENGINE_IO.execute(() -> {
+                        try {
+                            java.io.File updates = new java.io.File(app.getExternalFilesDir(null), "updates");
+                            deleteRecursive(updates);
+                            deleteRecursive(dev.t1m3.qplayer.store.AppDirs.cacheDir()
+                                    .resolve("plugin-imports").toFile());
+                        } catch (Throwable ignored) {
+                        }
+                    });
                     try {
                         dev.t1m3.qplayer.plugin.PluginCompatibility.setHostVersion(
                                 app.getPackageManager().getPackageInfo(app.getPackageName(), 0).versionName);
@@ -346,7 +349,6 @@ public final class QPlayerActivity extends Activity {
         registerSettingsHook(SettingsCatalog.KEEP_SCREEN_ON_KEY,
                 value -> runOnUiThread(this::updateKeepScreenOn));
 
-
         // Learning a font file's family name means parsing it, so the ~200 files
         // on a device are indexed off the main thread and the picker's list is
         // republished when that finishes. Started here rather than in
@@ -402,7 +404,6 @@ public final class QPlayerActivity extends Activity {
         updateImmersive();
         updateKeepScreenOn();
 
-        if (!reusedScene) controller.loadHome();
         registerDebugReceiver();
         // Wait for the first painted scene before presenting a permission dialog.
     }
@@ -436,8 +437,11 @@ public final class QPlayerActivity extends Activity {
     public static final String DEBUG_ACTION = "dev.t1m3.qplayer.DEBUG";
 
     private void registerDebugReceiver() {
-        if (debugReceiver != null || (getApplicationInfo().flags
-                & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0) return;
+        if (debugReceiver != null) return;
+        boolean allowed = (getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+                || getPackageName().endsWith(".perf")
+                || getPackageName().endsWith(".debug");
+        if (!allowed) return;
         debugReceiver = new BroadcastReceiver() {
             @Override public void onReceive(Context context, Intent intent) {
                 if (controller == null || intent == null) return;
@@ -628,20 +632,41 @@ public final class QPlayerActivity extends Activity {
     }
 
     /** First painted frame: the QML tree is fully built and rendering. Now hide the
-     *  splash and request the audio permission (and scan) — see onCreate. */
+     *  splash and transition smoothly into the main UI. Heavy deferred loading begins
+     *  after the splash animation finishes. */
     private void onSceneReady() {
         if (destroyed || activeUiToken != uiToken || glView == null) return;
         logSceneLifecycle("ready reused=" + reusedScene
                 + " scene=" + Integer.toHexString(glView.sceneIdentity()));
         hideSplash();
+    }
+
+    private boolean postSplashStarted;
+
+    private void onPostSplash() {
+        if (postSplashStarted || destroyed || activeUiToken != uiToken) return;
+        postSplashStarted = true;
         if (reusedScene) return;
-        requestAudioPermission();
-        requestNotificationPermission();
-        // Don't auto-check for app updates on debug builds — only release builds nag.
-        if ((getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0) {
-            controller.checkForUpdate();
-        }
-        controller.refreshPluginCatalog();
+
+        controller.start();
+
+        if (mainHandler == null) mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+
+        mainHandler.postDelayed(() -> {
+            if (!destroyed && activeUiToken == uiToken) {
+                requestAudioPermission();
+            }
+        }, 2000);
+
+        mainHandler.postDelayed(() -> {
+            if (!destroyed && activeUiToken == uiToken) {
+                requestNotificationPermission();
+                if ((getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0) {
+                    controller.checkForUpdate();
+                }
+                controller.refreshPluginCatalog();
+            }
+        }, 4000);
     }
 
     /** Playback state / track changed (main thread): poke the foreground service to
@@ -712,13 +737,25 @@ public final class QPlayerActivity extends Activity {
     }
 
     private void hideSplash() {
-        if (splashView == null) return;
+        if (splashView == null) {
+            onPostSplash();
+            return;
+        }
         final android.view.View v = splashView;
         splashView = null;
-        v.animate().alpha(0f).setDuration(280).withEndAction(() -> {
-            android.view.ViewParent p = v.getParent();
-            if (p instanceof android.view.ViewGroup) ((android.view.ViewGroup) p).removeView(v);
-        }).start();
+        v.setClickable(false);
+        v.setFocusable(false);
+        v.animate()
+                .alpha(0f)
+                .setDuration(140)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                .withEndAction(() -> {
+                    android.view.ViewParent p = v.getParent();
+                    if (p instanceof android.view.ViewGroup) ((android.view.ViewGroup) p).removeView(v);
+                    onPostSplash();
+                }).start();
+        if (mainHandler == null) mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+        mainHandler.postDelayed(this::onPostSplash, 250);
     }
 
     private void requestAudioPermission() {
@@ -1048,6 +1085,8 @@ public final class QPlayerActivity extends Activity {
         return night == Configuration.UI_MODE_NIGHT_YES;
     }
 
+    private Boolean lastImmersive;
+
     /** True when the top status bar should be hidden: any landscape view (the whole
      *  app goes fullscreen), or the portrait lyric page (a dedicated immersive
      *  surface). Hidden means the top inset collapses to 0 and the QML scene pads
@@ -1058,6 +1097,9 @@ public final class QPlayerActivity extends Activity {
         boolean immersive = getResources().getConfiguration().orientation
                         == Configuration.ORIENTATION_LANDSCAPE
                 || (controller != null && Boolean.TRUE.equals(controller.lyricsOpen.peek()));
+        if (lastImmersive != null && lastImmersive == immersive) return;
+        lastImmersive = immersive;
+        long u0 = System.nanoTime();
         // HarmonyOS places the window below the (even hidden) status bar unless the
         // window itself carries the fullscreen flag -- the decor-level system UI
         // visibility flags alone leave the GL surface shrunk by the bar height, so a
@@ -1188,14 +1230,13 @@ public final class QPlayerActivity extends Activity {
         Context app = getApplicationContext();
         PlayerController target = controller;
         Object token = uiToken;
-        android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
         AndroidLibraryScanner scanner = new AndroidLibraryScanner(
                 app.getContentResolver(), reader);
         new Thread(() -> {
             List<Track> tracks = scanner.scan();
-            main.post(() -> {
-                if (activeUiToken == token) target.scanTracks(tracks);
-            });
+            if (activeUiToken == token && target != null) {
+                target.scanTracks(tracks);
+            }
         }, "qplayer-scan").start();
     }
 
@@ -1261,6 +1302,8 @@ public final class QPlayerActivity extends Activity {
     protected void onDestroy() {
         logSceneLifecycle("destroy");
         destroyed = true;
+        postSplashStarted = false;
+        lastImmersive = null;
         boolean ownsUi = boundUiToken == uiToken;
         boolean retain = ownsUi && activeUiToken == uiToken && !isFinishing()
                 && glView != null && glView.hasScene();
