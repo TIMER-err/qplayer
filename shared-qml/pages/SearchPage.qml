@@ -252,6 +252,7 @@ Item {
                         subtitle: modelData.artistName || ""
                         coverUrl: modelData.coverUrl
                         coverThumbPath: modelData.coverThumbPath || ""
+                        coverDeferMs: Math.min(index * 24, 480)
                         onClicked: player.openMediaAlbum("" + modelData.id)
                     }
                 }
@@ -298,6 +299,7 @@ Item {
                         count: modelData.songCount || modelData.musicSize || 0
                         coverUrl: modelData.coverUrl
                         coverThumbPath: modelData.coverThumbPath || ""
+                        coverDeferMs: Math.min(index * 24, 480)
                         onClicked: player.openMediaArtist("" + modelData.id)
                     }
                 }

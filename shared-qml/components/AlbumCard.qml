@@ -17,6 +17,7 @@ Item {
     property string subtitle: ""
     property string coverUrl: ""
     property string coverThumbPath: ""
+    property int coverDeferMs: 0
     property real tile: 130
     signal clicked()
     scale: cardRipple.pressed ? 0.97 : 1.0
@@ -74,6 +75,7 @@ Item {
         icon: "album"
         iconSize: Math.max(28, Math.round(44 * card._scale))
         fadeIn: true
+        deferMs: card.coverDeferMs
         source: card.coverThumbPath || card.coverUrl
     }
 

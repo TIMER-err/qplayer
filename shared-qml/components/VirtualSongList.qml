@@ -52,21 +52,41 @@ Flickable {
     property bool queueList: false
     property bool selectMode: false
     property string selectedKey: ""
-    readonly property int selectedN: {
-        if (view.selectedKey === "") return 0
-        var n = 0
-        var parts = view.selectedKey.split("\n")
-        for (var i = 0; i < parts.length; i++) if (parts[i] !== "") n++
-        return n
+    property var _selectedMap: ({})
+    property int _selectedCount: 0
+    property int _selectionRev: 0
+    property bool _syncingKey: false
+
+    onSelectedKeyChanged: {
+        if (view._syncingKey) return
+        var map = {}
+        var count = 0
+        if (view.selectedKey !== "") {
+            var parts = view.selectedKey.split("\n")
+            for (var i = 0; i < parts.length; i++) {
+                var p = parts[i]
+                if (p !== "" && !map[p]) {
+                    map[p] = true
+                    count++
+                }
+            }
+        }
+        view._selectedMap = map
+        view._selectedCount = count
+        view._selectionRev++
     }
+
+    readonly property int selectedN: _selectedCount
     // True only when every selected row is one of the account's liked songs:
     // the batch "unlike" action is offered for that selection alone. Same row id
     // the per-row heart uses; likedRevision makes the liked set observable.
     readonly property bool selectionAllLiked: {
-        if (view.selectedKey === "" || player.likedRevision < 0) return false
-        var parts = view.selectedKey.split("\n")
-        for (var i = 0; i < parts.length; i++)
-            if (parts[i] !== "" && !player.isMediaLiked(parts[i])) return false
+        if (!view.selectMode || view._selectedCount === 0 || player.likedRevision < 0) return false
+        var map = view._selectedMap
+        var rev = view._selectionRev
+        for (var k in map) {
+            if (map[k] && !player.isMediaLiked(k)) return false
+        }
         return true
     }
     // Every real song row gets the same right-click/long-press menu. Callers can
@@ -256,6 +276,19 @@ Flickable {
     signal likeClicked()
     signal downloadClicked()
 
+    function _commitSelection(map, count) {
+        view._selectedMap = map
+        view._selectedCount = count
+        view._selectionRev++
+        var keys = []
+        for (var k in map) {
+            if (map[k]) keys.push(k)
+        }
+        view._syncingKey = true
+        view.selectedKey = keys.join("\n")
+        view._syncingKey = false
+    }
+
     function rowId(item) {
         if (!item) return ""
         if (item.mediaId) return "" + item.mediaId
@@ -264,41 +297,51 @@ Flickable {
         return ""
     }
     function rowSelected(item) {
+        if (!view.selectMode || view._selectedCount === 0 || !item) return false
         var id = view.rowId(item)
-        if (!id || view.selectedKey === "") return false
-        return ("\n" + view.selectedKey + "\n").indexOf("\n" + id + "\n") >= 0
+        return !!(id && view._selectedMap[id])
+    }
+    function isRowSelected(item, rev) {
+        return rowSelected(item)
     }
     function toggleSelected(item) {
         var id = view.rowId(item)
         if (!id) return
-        var parts = view.selectedKey === "" ? [] : view.selectedKey.split("\n")
-        var next = []
-        var found = false
-        for (var i = 0; i < parts.length; i++) {
-            if (parts[i] === id) found = true
-            else if (parts[i] !== "") next.push(parts[i])
+        var map = {}
+        var old = view._selectedMap
+        var count = 0
+        for (var k in old) {
+            if (old[k] && k !== id) {
+                map[k] = true
+                count++
+            }
         }
-        if (!found) next.push(id)
-        view.selectedKey = next.join("\n")
+        if (!old[id]) {
+            map[id] = true
+            count++
+        }
+        _commitSelection(map, count)
     }
     function selectAll() {
         var rows = view.list
-        var next = []
+        var map = {}
+        var count = 0
         if (rows) {
             for (var i = 0; i < rows.length; i++) {
                 var id = view.rowId(rows[i])
-                if (id) next.push(id)
+                if (id && !map[id]) {
+                    map[id] = true
+                    count++
+                }
             }
         }
-        view.selectedKey = next.join("\n")
+        _commitSelection(map, count)
     }
-    function clearSelection() { view.selectedKey = "" }
+    function clearSelection() {
+        _commitSelection({}, 0)
+    }
     function selectedCount() {
-        if (view.selectedKey === "") return 0
-        var n = 0
-        var parts = view.selectedKey.split("\n")
-        for (var i = 0; i < parts.length; i++) if (parts[i] !== "") n++
-        return n
+        return view._selectedCount
     }
     signal loadMoreRequested()
 
@@ -409,9 +452,7 @@ Flickable {
                 inQueue: view.queueList
                 sharedMenu: songMenuShared
                 selectMode: view.selectMode
-                selected: view.selectMode && view.selectedKey !== ""
-                          && (("\n" + view.selectedKey + "\n").indexOf(
-                              "\n" + view.rowId(modelData) + "\n") >= 0)
+                selected: view.selectMode && view.isRowSelected(modelData, view._selectionRev)
                 onSelectionToggled: view.toggleSelected(modelData)
                 onActivated: { view.activatedIndex = index; view.activated() }
                 onRemoveRequested: { view.removeIndex = index; view.removeRequested() }
