@@ -13,6 +13,9 @@ Item {
     objectName: spec ? "setting_" + spec.key : ""
     property string providerText: spec && spec.provider.length > 0 ? settings.info(spec.provider) : ""
 
+    width: parent ? parent.width : 0
+    height: frame.implicitHeight
+    implicitWidth: width
     implicitHeight: frame.implicitHeight
 
     SettingRowFrame {

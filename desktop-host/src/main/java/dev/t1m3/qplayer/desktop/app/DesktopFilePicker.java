@@ -66,6 +66,17 @@ final class DesktopFilePicker {
                 suggestedFileName == null ? "" : suggestedFileName, ".qpl.json", onPicked);
     }
 
+    static void saveSettings(String suggestedFileName, Consumer<String> onPicked) {
+        show(I18n.tr("settings.exportSettings.title"), initialDirectory(homeSubdirectory("Documents")), false,
+                "JSON (*.json)", new String[]{"json"},
+                suggestedFileName == null ? "qplayer-settings.json" : suggestedFileName, ".json", onPicked);
+    }
+
+    static void pickSettings(Consumer<String> onPicked) {
+        show(I18n.tr("settings.importSettings.title"), initialDirectory(homeSubdirectory("Documents")), false,
+                "JSON (*.json)", new String[]{"json"}, null, null, onPicked);
+    }
+
     private static CompletableFuture<String> show(String title, File directory, boolean directoryOnly,
                              String description, String[] extensions, String suggestedName,
                              String suffix, Consumer<String> onPicked) {

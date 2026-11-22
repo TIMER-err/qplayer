@@ -148,6 +148,49 @@ public final class Main {
         settings.registerAction("clearCache", controller::clearDiskCache);
         settings.registerAction("checkUpdate", controller::checkForUpdateManual);
         settings.registerAction("openRepo", () -> openUrl("https://github.com/TIMER-err/qplayer"));
+        settings.registerAction("exportSettings", () -> settings.exportConfigOpen.set(Boolean.TRUE));
+        settings.registerAction("exportEncryptedSettings", () -> {
+            String dateStr = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(new java.util.Date());
+            String fileName = "qplayer_settings_enc_" + dateStr + ".json";
+            String json = dev.t1m3.qplayer.settings.SettingsTransfer.exportEncrypted(settings, controller, controller.appVersion.peek());
+            DesktopFilePicker.saveSettings(fileName, path -> {
+                if (path == null || path.trim().isEmpty()) return;
+                try {
+                    dev.t1m3.qplayer.store.StorageFiles.writeUtf8Atomic(java.nio.file.Paths.get(path), json);
+                    controller.showToast(I18n.tr("toast.settings.exportEncryptedSuccess"));
+                } catch (Throwable t) {
+                    controller.showToast(I18n.tr("toast.settings.exportFailed", t.getMessage()));
+                }
+            });
+        });
+        settings.registerAction("exportPlainSettings", () -> {
+            String dateStr = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(new java.util.Date());
+            String fileName = "qplayer_settings_" + dateStr + ".json";
+            String json = dev.t1m3.qplayer.settings.SettingsTransfer.export(settings, controller, controller.appVersion.peek());
+            DesktopFilePicker.saveSettings(fileName, path -> {
+                if (path == null || path.trim().isEmpty()) return;
+                try {
+                    dev.t1m3.qplayer.store.StorageFiles.writeUtf8Atomic(java.nio.file.Paths.get(path), json);
+                    controller.showToast(I18n.tr("toast.settings.exportSuccess"));
+                } catch (Throwable t) {
+                    controller.showToast(I18n.tr("toast.settings.exportFailed", t.getMessage()));
+                }
+            });
+        });
+        settings.registerAction("importSettings", () -> {
+            DesktopFilePicker.pickSettings(path -> {
+                if (path == null || path.trim().isEmpty()) return;
+                try {
+                    String json = dev.t1m3.qplayer.store.StorageFiles.readUtf8(java.nio.file.Paths.get(path));
+                    boolean ok = dev.t1m3.qplayer.settings.SettingsTransfer.importInto(json, settings, controller);
+                    controller.showToast(I18n.tr(ok
+                            ? "toast.settings.importSuccess"
+                            : "toast.settings.importInvalid"));
+                } catch (Throwable t) {
+                    controller.showToast(I18n.tr("toast.settings.importFailed", t.getMessage()));
+                }
+            });
+        });
         settings.registerInfo("version", () -> "v" + controller.appVersion.peek());
         settings.registerInfo("cacheUsage", () -> controller.cacheSizeMB.peek() + " MB");
         JsonSettingsStore desktopStore = new JsonSettingsStore();

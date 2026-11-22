@@ -50,6 +50,8 @@ Item {
         + (summaryText.visible ? 3 + summaryText.implicitHeight : 0)
     readonly property bool hovered: hit.containsMouse
     readonly property bool pressed: hit.pressed
+    readonly property real actualWidth: width > 0 ? width : (parent && parent.width > 0 ? parent.width : 0)
+    readonly property real actualHeight: height > 0 ? height : implicitHeight
 
     implicitHeight: Math.max(minHeight, labelsHeight + topPadding + bottomPadding)
 
@@ -57,8 +59,8 @@ Item {
         objectName: "settingRowHover"
         x: 4
         y: 2
-        width: Math.max(0, frame.width - 8)
-        height: Math.max(0, frame.height - 4)
+        width: Math.max(0, frame.actualWidth - 8)
+        height: Math.max(0, frame.actualHeight - 4)
         radius: Ui.radiusLg - 4
         visible: frame.clickable && frame.rowEnabled
         color: frame.pressed ? Ui.surfacePressed
@@ -142,7 +144,10 @@ Item {
 
     MouseArea {
         id: hit
-        anchors.fill: parent
+        x: 0
+        y: 0
+        width: frame.actualWidth
+        height: frame.actualHeight
         enabled: frame.clickable && frame.rowEnabled
         hoverEnabled: enabled
         cursorShape: Qt.PointingHandCursor
