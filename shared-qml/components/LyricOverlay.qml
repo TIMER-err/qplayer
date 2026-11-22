@@ -139,7 +139,7 @@ Item {
     // Smoothly flies and scales from miniCover (bottom player) to the target position.
     PlaybackCoverImage {
         id: heroCover
-        explicitDecodeSize: 800
+        explicitDecodeSize: 1024
         animationActive: player.lyricSlide > 0.001
         readonly property bool heroAnimating: player.lyricSlide > 0.001 && player.lyricSlide < 0.999
         heroProgress: heroAnimating ? overlay.transitionEase : (player.lyricSlide >= 0.999 ? 1.0 : 0.0)
