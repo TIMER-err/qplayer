@@ -8984,7 +8984,7 @@ public final class PlayerController {
                     () -> {
                         byte[] data;
                         try {
-                            data = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path));
+                            data = StorageFiles.readBytes(java.nio.file.Paths.get(path));
                         } catch (Throwable e) {
                             Logger.warn("read cover file {} failed: {}", path, e.getMessage());
                             showToast(I18n.tr("toast.cover.readFailed"));

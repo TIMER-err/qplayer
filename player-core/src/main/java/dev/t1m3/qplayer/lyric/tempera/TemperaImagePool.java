@@ -1,6 +1,7 @@
 package dev.t1m3.qplayer.lyric.tempera;
 
 import dev.t1m3.qplayer.store.AppDirs;
+import dev.t1m3.qplayer.store.StorageFiles;
 import io.github.humbleui.skija.Image;
 import io.github.humbleui.skija.Bitmap;
 
@@ -157,7 +158,7 @@ public final class TemperaImagePool {
 
     private void decode(String id, Entry entry) {
         Image decoded = null;
-        try (Image encoded = Image.makeFromEncoded(Files.readAllBytes(entry.path));
+        try (Image encoded = Image.makeFromEncoded(StorageFiles.readBytes(entry.path));
              Bitmap pixels = new Bitmap()) {
             // Encoded Images can be lazy: force the actual codec work here,
             // then share immutable CPU pixels with the render-owned image.

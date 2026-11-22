@@ -195,10 +195,7 @@ public class PlayerControllerSessionTest {
         song.title = "changed";
         cover[0] = 9;
         assertEquals("snapshot", first.track().title());
-        assertEquals(1, first.track().artwork().copyBytes()[0]);
-        byte[] copy = first.track().artwork().copyBytes();
-        copy[0] = 8;
-        assertEquals(1, first.track().artwork().copyBytes()[0]);
+        assertEquals(1, first.track().artwork().openStream().read());
         assertSame(first.track().artwork(), controller.playbackSnapshot().track().artwork());
     }
 

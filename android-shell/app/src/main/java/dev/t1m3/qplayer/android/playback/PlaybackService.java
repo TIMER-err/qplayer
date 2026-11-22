@@ -71,10 +71,14 @@ public final class PlaybackService extends Service {
     private boolean stopping;
     private boolean taskRemoved;
     private PlaybackSnapshot.Artwork artworkVersion;
-    private ArtworkData artworkData;
     private int artworkSize;
     private Bitmap artwork;
     private long artworkGeneration;
+    // What the session currently publishes. setMetadata copies the album-art Bitmap
+    // into ashmem (and the compat conversion copies it again), so resubmitting
+    // unchanged metadata on every transport change drove GC with native pressure.
+    private String metadataKey;
+    private Bitmap metadataArt;
     // Headphones / Bluetooth output disconnected: the system has already moved audio
     // to the speaker, so pause instead of continuing out loud.
     private final android.content.BroadcastReceiver noisyReceiver = new android.content.BroadcastReceiver() {
@@ -208,8 +212,9 @@ public final class PlaybackService extends Service {
         stopping = true;
         artworkGeneration++;
         artworkVersion = null;
-        artworkData = null;
         artwork = null;
+        metadataKey = null;
+        metadataArt = null;
         if (noisyRegistered) {
             noisyRegistered = false;
             try { unregisterReceiver(noisyReceiver); } catch (Throwable ignored) {}
@@ -326,16 +331,22 @@ public final class PlaybackService extends Service {
         long pos = snapshot.positionMs();
         long dur = snapshot.durationMs();
 
-        MediaMetadataCompat.Builder mb = new MediaMetadataCompat.Builder();
         Bitmap art = notificationArtwork(t != null ? t.artwork() : null);
-        if (t != null) {
-            mb.putString(MediaMetadataCompat.METADATA_KEY_TITLE, nz(t.title()));
-            mb.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, nz(t.artist()));
-            mb.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, nz(t.album()));
-            if (dur > 0) mb.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, dur);
-            if (art != null) mb.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, art);
+        String key = t == null ? "" : t.canonicalId() + '\n' + nz(t.title()) + '\n' + nz(t.artist())
+                + '\n' + nz(t.album()) + '\n' + dur;
+        if (!key.equals(metadataKey) || art != metadataArt) {
+            MediaMetadataCompat.Builder mb = new MediaMetadataCompat.Builder();
+            if (t != null) {
+                mb.putString(MediaMetadataCompat.METADATA_KEY_TITLE, nz(t.title()));
+                mb.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, nz(t.artist()));
+                mb.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, nz(t.album()));
+                if (dur > 0) mb.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, dur);
+                if (art != null) mb.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, art);
+            }
+            session.setMetadata(mb.build());
+            metadataKey = key;
+            metadataArt = art;
         }
-        session.setMetadata(mb.build());
 
         PlaybackStateCompat.Builder state = new PlaybackStateCompat.Builder()
                 .setActions(PlaybackStateCompat.ACTION_PLAY
@@ -449,37 +460,18 @@ public final class PlaybackService extends Service {
         if (nm != null) nm.createNotificationChannel(ch);
     }
 
-    /** One encoded copy per immutable Artwork identity, independent of transport
-     * changes and target-size changes. Only checkpointWorker accesses bytes. */
-    private static final class ArtworkData {
-        final PlaybackSnapshot.Artwork source;
-        byte[] bytes;
-
-        ArtworkData(PlaybackSnapshot.Artwork source) {
-            this.source = source;
-        }
-
-        byte[] bytes() {
-            if (bytes == null) bytes = source.copyBytes();
-            return bytes;
-        }
-    }
-
+    /** Decoded off the main thread straight from the snapshot's immutable bytes. */
     private Bitmap notificationArtwork(PlaybackSnapshot.Artwork version) {
         int size = Math.min(512, Math.max(128,
                 Math.round(192f * getResources().getDisplayMetrics().density)));
         if (artworkVersion == version && artworkSize == size) return artwork;
-        if (artworkVersion != version) {
-            artworkVersion = version;
-            artworkData = version != null ? new ArtworkData(version) : null;
-        }
+        artworkVersion = version;
         artworkSize = size;
         artwork = null;
         long generation = ++artworkGeneration;
-        ArtworkData data = artworkData;
-        if (data == null || checkpointWorker == null) return null;
+        if (version == null || checkpointWorker == null) return null;
         checkpointWorker.execute(() -> {
-            Bitmap decoded = decode(data.bytes(), size);
+            Bitmap decoded = decode(version, size);
             main.post(() -> {
                 if (stopping || instance != this || artworkGeneration != generation) return;
                 artwork = decoded;
@@ -489,18 +481,18 @@ public final class PlaybackService extends Service {
         return null;
     }
 
-    private static Bitmap decode(byte[] bytes, int size) {
+    private static Bitmap decode(PlaybackSnapshot.Artwork artwork, int size) {
         try {
             BitmapFactory.Options options = new BitmapFactory.Options();
             options.inJustDecodeBounds = true;
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+            BitmapFactory.decodeStream(artwork.openStream(), null, options);
             options.inSampleSize = 1;
             while (options.outWidth / options.inSampleSize > size * 2
                     || options.outHeight / options.inSampleSize > size * 2) {
                 options.inSampleSize *= 2;
             }
             options.inJustDecodeBounds = false;
-            Bitmap decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+            Bitmap decoded = BitmapFactory.decodeStream(artwork.openStream(), null, options);
             if (decoded == null || (decoded.getWidth() <= size && decoded.getHeight() <= size)) {
                 return decoded;
             }

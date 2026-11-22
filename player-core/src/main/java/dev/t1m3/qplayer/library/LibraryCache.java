@@ -99,7 +99,7 @@ public final class LibraryCache {
         resources.clear();
         if (!Files.exists(indexFile)) return out;
         try {
-            String json = new String(Files.readAllBytes(indexFile), StandardCharsets.UTF_8);
+            String json = StorageFiles.readUtf8(indexFile);
             Index index = gson.fromJson(json, Index.class);
             if (index == null || index.version != CACHE_VERSION || index.entries == null) {
                 Logger.info("LibraryCache: schema {} != {}, discarding cache",

@@ -11,6 +11,7 @@ import dev.t1m3.qplayer.qml.QmlRuntimeLock;
 import dev.t1m3.qplayer.lyric.skia.Fonts;
 import dev.t1m3.qplayer.resources.CompressedResources;
 import dev.t1m3.qplayer.settings.SettingsCore;
+import dev.t1m3.qplayer.store.StorageFiles;
 import dev.t1m3.qplayer.lyric.skia.LyricCompositor;
 import dev.t1m3.qplayer.util.Logger;
 
@@ -591,7 +592,7 @@ public final class DesktopWindow {
             String path = java.nio.file.Files.readString(output, StandardCharsets.UTF_8).trim();
             if (path.isEmpty()) return null;
             java.io.File f = new java.io.File(path);
-            return f.isFile() ? java.nio.file.Files.readAllBytes(f.toPath()) : null;
+            return f.isFile() ? StorageFiles.readBytes(f.toPath()) : null;
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             return null;
@@ -643,7 +644,7 @@ public final class DesktopWindow {
             }
         }
         try {
-            return best != null ? java.nio.file.Files.readAllBytes(best.toPath()) : null;
+            return best != null ? StorageFiles.readBytes(best.toPath()) : null;
         } catch (Throwable ignored) {
             return null;
         }
@@ -684,7 +685,7 @@ public final class DesktopWindow {
             if (bestFile == null) return null;
             java.io.File f = new java.io.File(bestFile);
             if (!f.isAbsolute()) f = new java.io.File(winDir + "\\Fonts\\" + bestFile);
-            return f.isFile() ? java.nio.file.Files.readAllBytes(f.toPath()) : null;
+            return f.isFile() ? StorageFiles.readBytes(f.toPath()) : null;
         } catch (Throwable ignored) {
             return null; // missing registry key, JNA unavailable, unreadable file, ...
         }

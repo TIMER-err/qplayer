@@ -7,6 +7,8 @@ import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -109,8 +111,10 @@ public final class DiskDecompressedResourceCache implements ResourceLoader {
     }
 
     private static void encode(Path file, byte[] payload) throws IOException {
+        // java.io streams, not Files.newOutputStream: a channel write of the whole
+        // payload would leave a payload-sized direct buffer cached on this thread.
         try (DataOutputStream output = new DataOutputStream(
-                new BufferedOutputStream(Files.newOutputStream(file)))) {
+                new BufferedOutputStream(new FileOutputStream(file.toFile())))) {
             output.writeInt(MAGIC);
             output.writeInt(FORMAT_VERSION);
             output.writeInt(payload.length);
@@ -126,8 +130,10 @@ public final class DiskDecompressedResourceCache implements ResourceLoader {
         }
         // A CJK font is about 13 MiB. Read directly into its final array instead
         // of holding a second, full-file copy while an Activity rebuilds its UI.
+        // FileInputStream rather than a channel stream, which would cache another
+        // font-sized temporary direct buffer on every thread that loads a font.
         try (DataInputStream input = new DataInputStream(
-                new BufferedInputStream(Files.newInputStream(file)))) {
+                new BufferedInputStream(new FileInputStream(file.toFile())))) {
             if (input.readInt() != MAGIC) throw new IOException("wrong cache magic");
             if (input.readInt() != FORMAT_VERSION) throw new IOException("wrong cache version");
             int length = input.readInt();

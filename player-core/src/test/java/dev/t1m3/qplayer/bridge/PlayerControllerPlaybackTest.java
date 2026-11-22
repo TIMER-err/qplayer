@@ -58,7 +58,7 @@ public class PlayerControllerPlaybackTest {
                 controller.pump();
                 assertEquals(i + 1, controller.coverBytes.peek()[0]);
                 assertEquals("system media controls still receive current artwork", i + 1,
-                        controller.playbackSnapshot().track().artwork().copyBytes()[0]);
+                        controller.playbackSnapshot().track().artwork().openStream().read());
                 for (Track track : tracks) {
                     org.junit.Assert.assertNull("played covers must not accumulate on queue records",
                             track.coverBytes);

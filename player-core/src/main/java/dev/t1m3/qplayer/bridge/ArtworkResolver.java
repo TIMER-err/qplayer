@@ -2,8 +2,9 @@ package dev.t1m3.qplayer.bridge;
 
 import dev.t1m3.qplayer.cache.DiskCache;
 import dev.t1m3.qplayer.model.Track;
+import dev.t1m3.qplayer.store.StorageFiles;
+
 import java.io.IOException;
-import java.nio.file.Files;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -57,7 +58,7 @@ final class ArtworkResolver {
         String path = track.source == Track.Source.LOCAL
                 ? cachedPath(track) : cache.getImage(url(track, "1024"));
         byte[] bytes = track.coverBytes;
-        if (bytes == null && path != null && !path.isEmpty()) bytes = Files.readAllBytes(java.nio.file.Paths.get(path));
+        if (bytes == null && path != null && !path.isEmpty()) bytes = StorageFiles.readBytes(java.nio.file.Paths.get(path));
         Cover cover = new Cover(bytes, path == null ? "" : path);
         if (bytes != null && track.source == Track.Source.LOCAL) {
             synchronized (this) {

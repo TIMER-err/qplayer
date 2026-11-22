@@ -3,6 +3,7 @@ package dev.t1m3.qplayer.android.app;
 import android.os.Build;
 
 import dev.t1m3.qplayer.lyric.skia.Fonts;
+import dev.t1m3.qplayer.store.StorageFiles;
 import dev.t1m3.qplayer.util.Logger;
 
 import io.github.humbleui.skija.FontMgr;
@@ -271,7 +272,7 @@ public final class AndroidFontIndex implements Fonts.FileIndex {
             path = best.path;
         }
         try {
-            return java.nio.file.Files.readAllBytes(new File(path).toPath());
+            return StorageFiles.readBytes(new File(path).toPath());
         } catch (Throwable ignored) {
             return null;
         }

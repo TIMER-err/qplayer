@@ -9,6 +9,7 @@ import dev.t1m3.qplayer.audio.MetadataReader;
 import dev.t1m3.qplayer.library.EmbeddedLyrics;
 import dev.t1m3.qplayer.library.LibraryCache;
 import dev.t1m3.qplayer.model.Track;
+import dev.t1m3.qplayer.store.StorageFiles;
 import dev.t1m3.qplayer.util.Logger;
 
 import java.io.File;
@@ -184,7 +185,7 @@ public final class AndroidLibraryScanner {
             Path p = dir.resolve(name);
             if (Files.exists(p)) {
                 try {
-                    return Files.readAllBytes(p);
+                    return StorageFiles.readBytes(p);
                 } catch (Throwable ignored) { }
             }
         }

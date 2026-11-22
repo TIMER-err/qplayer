@@ -1,6 +1,7 @@
 package dev.t1m3.qplayer.lyric.skia;
 
 import dev.t1m3.qplayer.store.AppDirs;
+import dev.t1m3.qplayer.store.StorageFiles;
 import dev.t1m3.qplayer.util.Logger;
 
 import io.github.humbleui.skija.Data;
@@ -213,7 +214,7 @@ public final class ImportedFonts implements Fonts.FileIndex {
             path = best.path;
         }
         try {
-            return Files.readAllBytes(path);
+            return StorageFiles.readBytes(path);
         } catch (Throwable ignored) {
             return null;
         }

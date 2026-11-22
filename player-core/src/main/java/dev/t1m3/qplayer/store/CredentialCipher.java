@@ -150,7 +150,7 @@ public final class CredentialCipher {
         if (Files.exists(keyFile)) {
             // A crash after persisting the explicit fallback marker but before
             // removing the old system-wrapped envelope must not re-enter the store.
-            byte[] stored = forceOwnerOnly ? Files.readAllBytes(keyFile) : null;
+            byte[] stored = forceOwnerOnly ? StorageFiles.readBytes(keyFile) : null;
             if (stored != null && startsWith(stored, KEY_MAGIC)) {
                 Files.delete(keyFile);
             } else {
@@ -189,7 +189,7 @@ public final class CredentialCipher {
             throws IOException, GeneralSecurityException {
         if (!Files.exists(keyFile)) throw new IOException("credential key is missing");
         StorageFiles.restrictOwnerOnly(keyFile);
-        byte[] stored = Files.readAllBytes(keyFile);
+        byte[] stored = StorageFiles.readBytes(keyFile);
         if (startsWith(stored, KEY_MAGIC)) {
             byte[] key = readProtectedKey(stored, interactive);
             lastKeyAccess = KeyAccess.PLATFORM_READ;
@@ -354,7 +354,7 @@ public final class CredentialCipher {
         }
         if (!Files.exists(keyFile)) throw new IOException("credential key is missing");
         StorageFiles.restrictOwnerOnly(keyFile);
-        byte[] stored = Files.readAllBytes(keyFile);
+        byte[] stored = StorageFiles.readBytes(keyFile);
         if (!startsWith(stored, KEY_MAGIC)) {
             throw new IOException("credential key is not protected by the platform store");
         }
@@ -367,7 +367,7 @@ public final class CredentialCipher {
         if (forceOwnerOnly || Files.exists(ownerOnlyMarker)) return true;
         if (!Files.exists(keyFile)) return false;
         try {
-            return !startsWith(Files.readAllBytes(keyFile), KEY_MAGIC);
+            return !startsWith(StorageFiles.readBytes(keyFile), KEY_MAGIC);
         } catch (IOException e) {
             return forceOwnerOnly;
         }
@@ -392,7 +392,7 @@ public final class CredentialCipher {
         }
 
         StorageFiles.restrictOwnerOnly(keyFile);
-        byte[] stored = Files.readAllBytes(keyFile);
+        byte[] stored = StorageFiles.readBytes(keyFile);
         if (startsWith(stored, KEY_MAGIC)) {
             byte[] key = readProtectedKey(stored, true);
             Arrays.fill(key, (byte) 0);

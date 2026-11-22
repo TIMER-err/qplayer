@@ -84,7 +84,7 @@ public final class PluginCredentialVault {
         if (!Files.isRegularFile(source)) return null;
         final byte[] plaintext;
         try {
-            plaintext = cipher.decrypt(Files.readAllBytes(source));
+            plaintext = cipher.decrypt(StorageFiles.readBytes(source));
             observeKeyAccess(true, false);
         } catch (IOException | GeneralSecurityException error) {
             emit(CredentialEvent.KEYSTORE_READ_FAILED);
@@ -108,7 +108,7 @@ public final class PluginCredentialVault {
         if (!Files.isRegularFile(source)) return null;
         final byte[] plaintext;
         try {
-            plaintext = cipher.decryptInteractively(Files.readAllBytes(source));
+            plaintext = cipher.decryptInteractively(StorageFiles.readBytes(source));
             observeKeyAccess(true, false);
         } catch (IOException | GeneralSecurityException error) {
             emit(CredentialEvent.KEYSTORE_READ_FAILED);

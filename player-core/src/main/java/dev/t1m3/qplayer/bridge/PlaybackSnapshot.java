@@ -65,6 +65,7 @@ public final class PlaybackSnapshot {
     public static final class Artwork {
         private final byte[] bytes;
         Artwork(byte[] bytes) { this.bytes = bytes.clone(); }
-        public byte[] copyBytes() { return bytes.clone(); }
+        /** Read-only view of the encoded bytes; hosts decode without another copy. */
+        public java.io.InputStream openStream() { return new java.io.ByteArrayInputStream(bytes); }
     }
 }

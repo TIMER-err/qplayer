@@ -1,5 +1,7 @@
 package dev.t1m3.qplayer.plugin;
 
+import dev.t1m3.qplayer.store.StorageFiles;
+
 import org.mozilla.javascript.BaseFunction;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.ContextFactory;
@@ -13,7 +15,6 @@ import org.mozilla.javascript.ScriptableObject;
 import org.mozilla.javascript.Undefined;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -187,7 +188,7 @@ public final class PluginRuntime implements AutoCloseable {
         Path path = resolveModule(relativePath);
         long size = Files.size(path);
         if (size < 0 || size > MAX_MODULE_BYTES) throw new IOException("plugin module is too large");
-        String source = new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
+        String source = StorageFiles.readUtf8(path);
         String wrapped = "(function(exports,module,require,qplayer){\n" + source
                 + "\n;return module.exports;\n})";
         Script script = cx.compileString(wrapped, manifest.id + "/" + relativePath, 1, null);

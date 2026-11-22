@@ -227,8 +227,8 @@ public final class NeteaseClient {
         try {
             String json = encrypted
                     ? new String(interactive
-                            ? cookieCipher.decryptInteractively(Files.readAllBytes(cookieFile))
-                            : cookieCipher.decrypt(Files.readAllBytes(cookieFile)),
+                            ? cookieCipher.decryptInteractively(StorageFiles.readBytes(cookieFile))
+                            : cookieCipher.decrypt(StorageFiles.readBytes(cookieFile)),
                             StandardCharsets.UTF_8)
                     : StorageFiles.readUtf8(legacyCookieFile);
             JsonElement parsed = new JsonParser().parse(json);

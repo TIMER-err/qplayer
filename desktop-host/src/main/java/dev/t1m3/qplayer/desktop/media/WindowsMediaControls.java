@@ -19,6 +19,7 @@ import com.sun.jna.win32.StdCallLibrary;
 import dev.t1m3.qplayer.bridge.PlayerController;
 import dev.t1m3.qplayer.bridge.PlaybackSnapshot;
 import dev.t1m3.qplayer.bridge.PlaybackSnapshot.TrackMetadata;
+import dev.t1m3.qplayer.store.StorageFiles;
 import dev.t1m3.qplayer.util.Logger;
 
 import org.lwjgl.glfw.GLFWNativeWin32;
@@ -421,7 +422,7 @@ public final class WindowsMediaControls implements DesktopMediaControls {
                     String idStr = exchange.getRequestURI().getPath().substring("/cover/".length());
                     String path = coverFiles.get(Integer.parseInt(idStr));
                     byte[] bytes = path != null
-                            ? java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)) : null;
+                            ? StorageFiles.readBytes(java.nio.file.Paths.get(path)) : null;
                     if (bytes == null) {
                         exchange.sendResponseHeaders(404, -1);
                     } else {

@@ -1,12 +1,12 @@
 package dev.t1m3.qplayer.lyric;
 
 import dev.t1m3.qplayer.media.LyricsPayload;
+import dev.t1m3.qplayer.store.StorageFiles;
 import dev.t1m3.qplayer.util.Logger;
 
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.List;
@@ -145,7 +145,7 @@ public final class LyricParser {
 
     private static String readWithEncodingFallback(String path) {
         try {
-            byte[] bytes = Files.readAllBytes(Paths.get(path));
+            byte[] bytes = StorageFiles.readBytes(Paths.get(path));
             // UTF-8 first; fall back to GBK if it produces replacement chars in
             // the result (a quick heuristic that catches mis-decoded CJK).
             String utf8 = new String(bytes, StandardCharsets.UTF_8);

@@ -118,6 +118,47 @@ public class DiskDecompressedResourceCacheTest {
         }
     }
 
+    /**
+     * Reading or writing a whole payload through an NIO channel makes the JDK cache
+     * a payload-sized temporary direct buffer on the calling thread until it dies.
+     * On Android that buffer is Java heap, and every font-loading thread kept one.
+     */
+    @Test
+    public void storingAndReadingAnEntryLeavesNoPayloadSizedBufferOnTheThread() throws Exception {
+        byte[] original = new byte[4 * 1024 * 1024];
+        for (int i = 0; i < original.length; i++) original[i] = (byte) (i * 7);
+        byte[] compressed = xz(original);
+        Path directory = temporaryFolder.getRoot().toPath();
+        io.github.timer_err.qml4j.render.ResourceLoader loader =
+                source -> "fonts/Large.otf.xz".equals(source) ? compressed : null;
+        java.lang.management.BufferPoolMXBean direct = java.lang.management.ManagementFactory
+                .getPlatformMXBeans(java.lang.management.BufferPoolMXBean.class).stream()
+                .filter(pool -> "direct".equals(pool.getName()))
+                .findFirst().orElseThrow(AssertionError::new);
+        long[] retained = new long[1];
+        Throwable[] failure = new Throwable[1];
+        // A fresh thread starts with an empty buffer cache, so nothing from an
+        // earlier test can satisfy the request and hide a new allocation.
+        Thread worker = new Thread(() -> {
+            try {
+                long before = direct.getMemoryUsed();
+                new DiskDecompressedResourceCache(loader, directory).load("fonts/Large.otf");
+                byte[] decoded = new DiskDecompressedResourceCache(loader, directory)
+                        .load("fonts/Large.otf");
+                assertArrayEquals(original, decoded);
+                retained[0] = direct.getMemoryUsed() - before;
+            } catch (Throwable error) {
+                failure[0] = error;
+            }
+        });
+        worker.start();
+        worker.join();
+        if (failure[0] instanceof Exception) throw (Exception) failure[0];
+        if (failure[0] != null) throw new AssertionError(failure[0]);
+        assertTrue("the loading thread kept " + retained[0] + " bytes of temporary direct buffers",
+                retained[0] < 1024 * 1024);
+    }
+
     public static final class SmallHeapReader {
         public static void main(String[] args) throws Exception {
             Path directory = java.nio.file.Paths.get(args[0]);

@@ -25,6 +25,7 @@ import dev.t1m3.qplayer.model.Track;
 import dev.t1m3.qplayer.settings.SettingsCatalog;
 import dev.t1m3.qplayer.settings.SettingsCore;
 import dev.t1m3.qplayer.store.AppDirs;
+import dev.t1m3.qplayer.store.StorageFiles;
 import dev.t1m3.qplayer.util.Logger;
 import com.sun.jna.WString;
 import com.sun.jna.platform.win32.Shell32;
@@ -251,7 +252,7 @@ public final class Main {
         settings.setFontPicker(() -> DesktopFilePicker.pickFont(selected -> {
             byte[] bytes;
             try {
-                bytes = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(selected));
+                bytes = StorageFiles.readBytes(java.nio.file.Paths.get(selected));
             } catch (Throwable error) {
                 dev.t1m3.qplayer.util.Logger.warn("reading picked font failed: {}", error.toString());
                 return;

@@ -2,6 +2,7 @@ package dev.t1m3.qplayer.library;
 
 import dev.t1m3.qplayer.audio.MetadataReader;
 import dev.t1m3.qplayer.model.Track;
+import dev.t1m3.qplayer.store.StorageFiles;
 import dev.t1m3.qplayer.util.Logger;
 
 import java.io.IOException;
@@ -132,7 +133,7 @@ public final class LibraryScanner {
                 track.coverLocalPath = null;
                 if (cover != null) {
                     try {
-                        cache.writeCovers(track, track.filePath, Files.readAllBytes(cover));
+                        cache.writeCovers(track, track.filePath, StorageFiles.readBytes(cover));
                     } catch (IOException e) {
                         Logger.warn("LibraryScanner: cover read failed for {}: {}", cover, e.getMessage());
                     }

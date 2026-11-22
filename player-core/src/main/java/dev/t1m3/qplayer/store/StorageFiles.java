@@ -2,12 +2,15 @@ package dev.t1m3.qplayer.store;
 
 import dev.t1m3.qplayer.util.Logger;
 
+import java.io.ByteArrayOutputStream;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.Arrays;
 
 /**
  * Common persistence primitives for QPlayer's state, configuration and cache files.
@@ -20,7 +23,40 @@ public final class StorageFiles {
     }
 
     public static String readUtf8(Path file) throws IOException {
-        return new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
+        return new String(readBytes(file), StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Read a whole file into one array without an NIO channel.
+     *
+     * <p>{@code Files.readAllBytes} and {@code Files.newInputStream} read through a
+     * channel. A large single read there allocates a temporary direct buffer of the
+     * same size, and the JDK keeps it in a per-thread cache for the lifetime of the
+     * thread. On Android that buffer is a non-movable Java heap array, so every
+     * worker that once read a font, image or index kept an equally large copy.
+     * {@link FileInputStream} reads straight into the destination array.</p>
+     */
+    public static byte[] readBytes(Path file) throws IOException {
+        try (FileInputStream input = new FileInputStream(file.toFile())) {
+            long expected = file.toFile().length();
+            if (expected > Integer.MAX_VALUE - 8) throw new IOException("file is too large: " + file);
+            byte[] data = new byte[(int) expected];
+            int filled = 0;
+            while (filled < data.length) {
+                int read = input.read(data, filled, data.length - filled);
+                if (read < 0) return Arrays.copyOf(data, filled);
+                filled += read;
+            }
+            int next = input.read();
+            if (next < 0) return data;
+            // The file grew after its length was read; keep everything it now has.
+            ByteArrayOutputStream grown = new ByteArrayOutputStream(data.length + 8192);
+            grown.write(data, 0, data.length);
+            grown.write(next);
+            byte[] chunk = new byte[8192];
+            for (int read; (read = input.read(chunk)) >= 0; ) grown.write(chunk, 0, read);
+            return grown.toByteArray();
+        }
     }
 
     public static void writeUtf8Atomic(Path target, String content) throws IOException {

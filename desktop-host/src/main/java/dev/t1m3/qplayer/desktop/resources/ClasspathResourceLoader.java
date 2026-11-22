@@ -1,5 +1,6 @@
 package dev.t1m3.qplayer.desktop.resources;
 
+import dev.t1m3.qplayer.store.StorageFiles;
 import io.github.timer_err.qml4j.render.ResourceLoader;
 
 import java.io.ByteArrayOutputStream;
@@ -7,7 +8,6 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
-import java.nio.file.Files;
 
 /**
  * Resolves runtime fonts, images and JavaScript modules from the classpath or disk.
@@ -30,7 +30,7 @@ public final class ClasspathResourceLoader implements ResourceLoader {
         try {
             File f = source.startsWith("file:") ? new File(URI.create(source)) : new File(source);
             if (f.isAbsolute() && f.isFile()) {
-                return Files.readAllBytes(f.toPath());
+                return StorageFiles.readBytes(f.toPath());
             }
         } catch (Exception ignored) {
             // not a readable file path — fall through to the classpath
