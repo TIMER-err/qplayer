@@ -24,8 +24,9 @@ Item {
     property var appActions
 
     readonly property bool expanded: pageManager.expanded
+    readonly property real effectiveTopInset: hostWindow.available ? settings.topInset : (settings.topInset > 0 ? settings.topInset : 8)
     readonly property real brandHeight: hostWindow.available ? settings.topInset + 8
-                                                             : settings.topInset + 64
+                                                             : effectiveTopInset + 64
 
     anchors.left: parent.left
     anchors.leftMargin: settings.leftInset
@@ -51,7 +52,7 @@ Item {
         width: 32
         height: 32
         x: rail.expanded ? 24 : (rail.width - width) / 2
-        y: settings.topInset + 16
+        y: rail.effectiveTopInset + 12
         source: "app-icon.png"
         // Decode at the drawn device size; the mipmapped downscale avoids aliasing
         // the disc grooves. The artwork carries its own rounded corners.

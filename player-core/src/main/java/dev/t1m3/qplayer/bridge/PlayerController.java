@@ -885,7 +885,7 @@ public final class PlayerController {
      *  request was already running and could surface tens of seconds late (a
      *  15s connect + 30s read timeout is the worst case) — long after whatever
      *  the user did to trigger it. It also no longer blocks a thread to wait. */
-    private void showToast(String msg) {
+    public void showToast(String msg) {
         post(() -> toast.set(""));
         try {
             fadeWorker.schedule(() -> post(() -> toast.set(msg)), 30, TimeUnit.MILLISECONDS);
@@ -3514,6 +3514,30 @@ public final class PlayerController {
                 });
     }
 
+    /**
+     * Blank the column for a new track WITHOUT declaring "no lyrics" yet.
+     *
+     * <p>Switching tracks used to publish an empty lyric list through
+     * {@link #applyLyrics}, which also flips {@link #lyricsCoverOnly} — so the page
+     * animated the cover to the centre (cover-only layout) the instant the track
+     * changed, and then animated all the way back when the new track's lyrics
+     * arrived a few hundred ms later. Two full layouts for a decision that was not
+     * known yet. Hold the previous layout instead and let the loader publish the
+     * answer: {@link #applyLyrics} runs when the fetch resolves, including the
+     * empty result that means "this track really has no lyrics", and
+     * {@link #publishNoLyricsIfPending} settles it when no answer will come.</p>
+     *
+     * <p>Package-private so PlayerControllerPlaybackTest can pin the hold itself
+     * without racing the lyric loader's thread.</p>
+     */
+    void clearLyricsPending() {
+        lyrics.set(Collections.emptyList());
+        lyricIndex.set(-1);
+        // Deliberately NOT touching lyricsCoverOnly: the page keeps the layout it
+        // already had (column at the side, or centred cover) until we know.
+        wakeRenderer();
+    }
+
     /** Publish a new lyric list and derive {@link #lyricsCoverOnly}. */
     private void applyLyrics(List<LyricLine> ly) {
         lyrics.set(ly);
@@ -5918,7 +5942,7 @@ public final class PlayerController {
                         && lyrics.peek() != null
                         && !lyrics.peek().isEmpty();
         if (!keepLyrics) {
-            applyLyrics(Collections.emptyList());
+            clearLyricsPending();
             coverModeManual.set(false);
         }
         applyTrackLyricOffset(track);

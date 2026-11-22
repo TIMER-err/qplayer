@@ -286,8 +286,12 @@ public final class LyricCompositor {
     }
 
     /** Lyric column top, in logical px: the status-bar inset plus the QML title band. */
+    public float effectiveTopInset(float topInset) {
+        return topInset > 0f ? topInset : 12f;
+    }
+
     public float lyricTopY(float topInset) {
-        return topInset + 144f;
+        return effectiveTopInset(topInset) + 144f;
     }
 
     /** Whether a touch/drag at logical {@code (x,y)} should scroll the lyric column: the
@@ -300,16 +304,17 @@ public final class LyricCompositor {
         for (int i = 0; i < lyricNotificationCards.size(); i++) {
             if (notificationContains(lyricNotificationCards.get(i), x, y)) return false;
         }
+        float effTop = effectiveTopInset(topInset);
         if (surfaceWLogical > surfaceHeightLogical) {
             if (coverOnlyCached) return false;
-            if (x >= surfaceWLogical - OFFSET_BTN_CORNER_W && y <= topInset + OFFSET_BTN_CORNER_H) {
+            if (x >= surfaceWLogical - OFFSET_BTN_CORNER_W && y <= effTop + OFFSET_BTN_CORNER_H) {
                 return false;
             }
             boolean wide = fullWidthApplied;
-            if (wide && x <= BACK_BTN_CORNER_W && y <= topInset + OFFSET_BTN_CORNER_H) {
+            if (wide && x <= BACK_BTN_CORNER_W && y <= effTop + OFFSET_BTN_CORNER_H) {
                 return false;
             }
-            float topY = topInset + L_LANDSCAPE_TOP;
+            float topY = effTop + L_LANDSCAPE_TOP;
             float bottomY = surfaceHeightLogical
                     - (wide ? L_FULLWIDTH_BOTTOM : L_LANDSCAPE_BOTTOM);
             return x >= (wide ? 0f : surfaceWLogical * 0.5f) && y >= topY && y <= bottomY;
@@ -687,9 +692,10 @@ public final class LyricCompositor {
 
         float pad = 28f;
         float colLeft, colTopY, colW, colH;
+        float effTop = effectiveTopInset(topInset);
         if (landscape) {
             colLeft = fullWidthApplied ? 0f : w * 0.5f;
-            colTopY = topInset + L_LANDSCAPE_TOP;
+            colTopY = effTop + L_LANDSCAPE_TOP;
             colW = (w - colLeft) - 2f * pad;
             colH = h - colTopY
                     - (fullWidthApplied ? L_FULLWIDTH_BOTTOM : L_LANDSCAPE_BOTTOM);

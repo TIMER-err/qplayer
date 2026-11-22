@@ -30,8 +30,8 @@ Item {
     // Top row inset for the three title buttons. Desktop overrides this to 6
     // (Main.qml hides the custom title bar while the lyric page is open, so the
     // buttons sit flush at the very top of the window); mobile keeps the status
-    // bar inset so they clear the system bar.
-    property real topPad: settings.topInset + 6
+    // bar inset (or 20dp fallback in immersive) so they clear the system bar.
+    property real topPad: hostWindow.available ? 6 : (settings.topInset > 0 ? settings.topInset + 6 : 12)
     onOffsetPanelOpenChanged: {
         player.setLyricOffsetPanelOpen(offsetPanelOpen)
         // Synchronize once on entry. Do not feed every player property change back

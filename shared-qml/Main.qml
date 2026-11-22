@@ -65,6 +65,9 @@ Rectangle {
     // the separately composited lyric page, uses this same motion vocabulary.
     // Zoom is the default; the final preset is an instant accessibility fallback.
     property int pageTransitionPreset: settings.value("pageTransitionPreset")
+    // Mobile/Android guarantees a minimum top clearance in fullscreen/immersive modes
+    // where settings.topInset collapses to 0. Desktop keeps its custom caption bar inset.
+    readonly property real effectiveTopInset: hostWindow.available ? settings.topInset : (settings.topInset > 0 ? settings.topInset : 8)
     // Build only the initial home page on startup; the idle prewarm (see
     // prewarmTimer) then builds the lazy root destinations in idle time. Once
     // built, a page remains loaded so navigation state and close animations are
@@ -664,7 +667,7 @@ Rectangle {
         id: rootTopChrome
         property real baseLeft: rail.x + rail.width
         x: baseLeft + rootPageMotion.contentX
-        y: settings.topInset + rootPageMotion.contentY
+        y: app.effectiveTopInset + rootPageMotion.contentY
         width: app.width - baseLeft - settings.rightInset
         height: Ui.headerHeight
         scale: rootPageMotion.contentScale
@@ -688,7 +691,7 @@ Rectangle {
     Item {
         id: pageWrap
         anchors.top: parent.top
-        anchors.topMargin: settings.topInset
+        anchors.topMargin: app.effectiveTopInset
         anchors.left: rail.right
         anchors.right: parent.right
         anchors.rightMargin: settings.rightInset
@@ -908,7 +911,7 @@ Rectangle {
         x: settings.leftInset
            + (app.width >= Ui.expandedMin ? Ui.sidebarWide
               : (app.width >= Ui.compactMax ? Ui.sidebarNarrow : 0))
-        y: settings.topInset
+        y: app.effectiveTopInset
            + (app.currentOverlay === "" ? rootTopChrome.height : 0)
         width: Math.max(0, app.width - settings.leftInset - settings.rightInset
                         - (app.width >= Ui.expandedMin ? Ui.sidebarWide
@@ -969,7 +972,7 @@ Rectangle {
         visible: player.lyricSlide > 0.001
         // Desktop hides its custom title bar while the lyric page is open (see the
         // TitleBar below), so the three title buttons sit flush at the very top.
-        topPad: hostWindow.available ? 6 : settings.topInset + 6
+        topPad: hostWindow.available ? 6 : (settings.topInset > 0 ? settings.topInset + 6 : 12)
         onCloseRequested: app.popPage()
         y: (1 - transitionEase) * height
     }

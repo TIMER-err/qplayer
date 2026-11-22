@@ -1282,13 +1282,13 @@ public class PlayerControllerPlaybackTest {
     }
 
     @Test
-    public void switchingTracksShowsCoverUntilLyricsArrive() throws Exception {
+    public void switchingTracksHoldsTheLayoutUntilTheLoaderAnswers() throws Exception {
         String oldBase = AppDirs.base();
         String oldCacheBase = AppDirs.cacheBase();
         PlayerController controller = null;
         java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
         try {
-            Path base = temporaryFolder.newFolder("lyric-loading-cover").toPath();
+            Path base = temporaryFolder.newFolder("lyric-loading-hold").toPath();
             AppDirs.setBase(base.toString());
             AppDirs.setCacheBase(base.resolve("cache").toString());
             // No queue.json: nothing restored, so no restore-time lyric load races this test.
@@ -1321,15 +1321,15 @@ public class PlayerControllerPlaybackTest {
             controller.playQueueIndex(1);
             assertTrue("the outgoing track's lyrics must be cleared",
                     controller.lyrics.peek().isEmpty());
-            assertTrue("show the centered cover while the next track's lyrics load",
+            assertFalse("layout must hold, not flip to cover-only, until lyrics arrive",
                     controller.lyricsCoverOnly.peek());
 
             release.countDown();
             long deadline = System.currentTimeMillis() + ASYNC_FADE_TIMEOUT_MS;
-            while (controller.lyricsCoverOnly.peek() && System.currentTimeMillis() < deadline) {
+            while (controller.lyrics.peek().isEmpty() && System.currentTimeMillis() < deadline) {
                 Thread.sleep(10L);
             }
-            assertFalse("return to the lyric layout once the new lyrics arrive",
+            assertFalse("stay in lyric layout once the new lyrics arrive",
                     controller.lyricsCoverOnly.peek());
             assertEquals("incoming line one", controller.lyrics.peek().get(0).text());
         } finally {
