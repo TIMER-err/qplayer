@@ -1012,6 +1012,7 @@ Rectangle {
     PluginDialogs { id: pluginDialogs }
     PluginDialog { id: pluginContributionDialog }
     DownloadQualityDialog { id: downloadQualityDialog }
+    PlaybackQualityDialog { id: playbackQualityDialog }
     PluginUpdateDialog { id: pluginUpdateDialog }
     AppUpdateDialog { id: appUpdateDialog }
 

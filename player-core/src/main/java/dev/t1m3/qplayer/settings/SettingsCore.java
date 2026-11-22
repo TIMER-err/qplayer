@@ -89,6 +89,9 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
      *  controller sees the persisted values as they're seeded. */
     public void attach(PlayerController controller) {
         this.controller = controller;
+        if (controller != null) {
+            controller.attachSettingsCore(this);
+        }
     }
 
     /** A button row's handler ({@link SettingSpec#action}). */
@@ -557,6 +560,9 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
             case "monet": controller.setMonetEnabled(bool(key)); break;
             case "mirror": controller.setUpdateMirror(bool(key)); break;
             case "fade": controller.setFadeEnabled(bool(key)); break;
+            case SettingsCatalog.PLAYBACK_QUALITY_KEY:
+                controller.setPlaybackQuality(SettingsCatalog.qualityNameOf(intOf(key)));
+                break;
             case "highQuality": controller.setHighQualityEnabled(bool(key)); break;
             case "maxCacheSizeMB": controller.setCacheMaxSizeMB(intOf(key)); break;
             case SettingsCatalog.HOME_PLAYLIST_LIMIT_KEY:
@@ -703,6 +709,12 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
         // "lyricBgStatic" (bool) -> "lyricBgMode" (0 dynamic / 1 static).
         if (!store.has(SettingsCatalog.BG_MODE_KEY) && store.getBool("lyricBgStatic", false)) {
             store.putInt(SettingsCatalog.BG_MODE_KEY, 1);
+        }
+        // "highQuality" (bool) -> "playbackQuality" (0 standard / 2 exhigh).
+        if (!store.has(SettingsCatalog.PLAYBACK_QUALITY_KEY) && store.has("highQuality")) {
+            boolean hq = store.getBool("highQuality", true);
+            store.putInt(SettingsCatalog.PLAYBACK_QUALITY_KEY,
+                    hq ? SettingsCatalog.QUALITY_EXHIGH : SettingsCatalog.QUALITY_STANDARD);
         }
     }
 

@@ -27,17 +27,22 @@ Item {
     // the host-drawn column move on exactly the same value.
     property real fullWidthK: player.lyricFullWidth
     property bool offsetPanelOpen: false
+    property bool qualityPanelOpen: false
     // Top row inset for the three title buttons. Desktop overrides this to 6
     // (Main.qml hides the custom title bar while the lyric page is open, so the
     // buttons sit flush at the very top of the window); mobile keeps the status
     // bar inset so they clear the system bar.
     property real topPad: settings.topInset + 6
     onOffsetPanelOpenChanged: {
+        if (offsetPanelOpen) overlay.qualityPanelOpen = false
         player.setLyricOffsetPanelOpen(offsetPanelOpen)
         // Synchronize once on entry. Do not feed every player property change back
         // into Slider.value while its MouseArea is dragging: that re-entrant write
         // interrupts qml4j's active gesture as soon as the thumb moves one step.
         if (offsetPanelOpen) offsetPanel.syncFromPlayer()
+    }
+    onQualityPanelOpenChanged: {
+        if (qualityPanelOpen) overlay.offsetPanelOpen = false
     }
     // Host actions can also close the lyric page, so clear the local panel when
     // the authoritative page state changes. Mirror it with a plain binding, not
@@ -46,9 +51,18 @@ Item {
     // QObject target (a non-QObject target crashes with a ClassCastException at
     // Property.fireListeners on load).
     property bool lyricsOpenMirror: player.lyricsOpen
-    onLyricsOpenMirrorChanged: if (!lyricsOpenMirror) overlay.offsetPanelOpen = false
+    onLyricsOpenMirrorChanged: {
+        if (!lyricsOpenMirror) {
+            overlay.offsetPanelOpen = false
+            overlay.qualityPanelOpen = false
+        }
+    }
 
     function handleBack() {
+        if (overlay.qualityPanelOpen || qualityPanel.opacity > 0.01) {
+            overlay.qualityPanelOpen = false
+            return true
+        }
         if (!overlay.offsetPanelOpen && offsetPanel.opacity <= 0.01) return false
         overlay.offsetPanelOpen = false
         return true
@@ -176,6 +190,25 @@ Item {
         }
     }
 
+    // Audio stream quality quick picker
+    IconButton {
+        id: qualityBtn
+        objectName: "lyricQualityBtn"
+        visible: player.currentMediaId !== "" && player.currentMediaId.indexOf("local:") !== 0
+        anchors.top: parent.top
+        anchors.topMargin: overlay.topPad
+        anchors.left: keepAwakeBtn.visible ? keepAwakeBtn.right : backBtn.right
+        anchors.leftMargin: 6
+        type: "standard"
+        icon: "tune"
+        containerColor: overlay.qualityPanelOpen ? overlay.chromeActiveFill : "transparent"
+        contentColor: overlay.chromeFg
+        onClicked: {
+            overlay.offsetPanelOpen = false
+            overlay.qualityPanelOpen = !overlay.qualityPanelOpen
+        }
+    }
+
     // Quick lyric-timing offset adjust: some LRC files don't quite line up with the
     // audio, so this lets the offset be nudged without leaving the lyric page. A
     // local panel, NOT a root Dialog: Dialog.open() reparents to the true QML root,
@@ -265,6 +298,27 @@ Item {
         anchors.rightMargin: 6
     }
 
+    MouseArea {
+        id: qualityScrim
+        visible: overlay.qualityPanelOpen
+        anchors.fill: parent
+        z: 1
+        onClicked: overlay.qualityPanelOpen = false
+    }
+
+    LyricQualityPanel {
+        id: qualityPanel
+        open: overlay.qualityPanelOpen
+        z: 2
+        anchors.top: parent.top
+        anchors.topMargin: overlay.topPad + 48
+        anchors.left: parent.left
+        anchors.leftMargin: 20
+        onQualityChosen: function(q) {
+            overlay.showToast(i18n.t("toast.playbackQuality.switched", i18n.t("menu.download." + q)))
+        }
+    }
+
     MarqueeText {
         id: titleText
         visible: !overlay.landscape
@@ -303,6 +357,19 @@ Item {
         hoverEnabled: enabled
         cursorShape: Qt.PointingHandCursor
         onClicked: player.openPlayingArtist()
+    }
+
+    PlaybackQualityBadge {
+        id: portraitQualityBadge
+        visible: !overlay.landscape && player.currentMediaId !== "" && player.currentMediaId.indexOf("local:") !== 0
+        anchors.top: artistText.bottom
+        anchors.topMargin: 8
+        anchors.left: parent.left
+        anchors.leftMargin: 28
+        onClicked: {
+            overlay.offsetPanelOpen = false
+            overlay.qualityPanelOpen = !overlay.qualityPanelOpen
+        }
     }
 
     // --- bottom: transport (portrait) ---------------------------------
@@ -477,10 +544,21 @@ Item {
                 cursorShape: Qt.PointingHandCursor
                 onClicked: player.openPlayingArtist()
             }
+            PlaybackQualityBadge {
+                id: landscapeQualityBadge
+                visible: player.currentMediaId !== "" && player.currentMediaId.indexOf("local:") !== 0
+                anchors.top: lArtist.bottom
+                anchors.topMargin: 6
+                anchors.horizontalCenter: parent.horizontalCenter
+                onClicked: {
+                    overlay.offsetPanelOpen = false
+                    overlay.qualityPanelOpen = !overlay.qualityPanelOpen
+                }
+            }
             LyricProgress {
                 id: lProgress
-                anchors.top: lArtist.bottom
-                anchors.topMargin: 22
+                anchors.top: landscapeQualityBadge.visible ? landscapeQualityBadge.bottom : lArtist.bottom
+                anchors.topMargin: landscapeQualityBadge.visible ? 10 : 22
                 anchors.left: parent.left
                 anchors.right: parent.right
                 wavy: settings.value("lyricProgressStyle") === 0

@@ -1726,6 +1726,15 @@ public final class PlayerController {
     public final Property<String> downloadQualityMediaId = new Property<>("");
     public final Property<String> downloadQualityTitle = new Property<>("");
 
+    public final Property<String> playbackQuality = new Property<>("exhigh");
+    public final Property<Boolean> playbackQualityOpen = new Property<>(false);
+    public final Property<String> playbackQualityTitle = new Property<>("");
+    private volatile dev.t1m3.qplayer.settings.SettingsCore settingsCore;
+
+    public void attachSettingsCore(dev.t1m3.qplayer.settings.SettingsCore settings) {
+        this.settingsCore = settings;
+    }
+
     /**
      * Open the host quality sheet. qml4j drops JS closures on Menu subItems, so the picker cannot
      * live in the context-menu model.
@@ -6498,21 +6507,69 @@ public final class PlayerController {
         }
     }
 
-    public void setPlayLevel(String level) {
+    public void setPlaybackQuality(String raw) {
         synchronized (QmlRuntimeLock.MONITOR) {
-            if (level != null && !level.isEmpty()) playLevel = level;
+            String sanitized = sanitizeDownloadQuality(raw, "exhigh");
+            boolean changed = !sanitized.equals(this.playLevel) || !sanitized.equals(playbackQuality.peek());
+            this.playLevel = sanitized;
+            playbackQuality.set(sanitized);
+            dev.t1m3.qplayer.settings.SettingsCore sc = this.settingsCore;
+            if (sc != null) {
+                int idx = dev.t1m3.qplayer.settings.SettingsCatalog.qualityIndexOf(sanitized);
+                if (sc.intOf(dev.t1m3.qplayer.settings.SettingsCatalog.PLAYBACK_QUALITY_KEY) != idx) {
+                    sc.put(dev.t1m3.qplayer.settings.SettingsCatalog.PLAYBACK_QUALITY_KEY, idx);
+                }
+            }
+            if (changed) {
+                hotSwitchCurrentTrackQuality();
+            }
         }
+    }
+
+    public void setPlaybackQualityIndex(int index) {
+        setPlaybackQuality(dev.t1m3.qplayer.settings.SettingsCatalog.qualityNameOf(index));
+    }
+
+    public void setPlayLevel(String level) {
+        setPlaybackQuality(level);
     }
 
     /**
      * Settings toggle: netease playback quality. On (default) requests "exhigh" (~320kbps); off
-     * requests "standard" (~128kbps) to save bandwidth. Only affects tracks resolved after the
-     * change, not the currently playing one.
+     * requests "standard" (~128kbps) to save bandwidth.
      */
     public void setHighQualityEnabled(boolean enabled) {
+        setPlaybackQuality(enabled ? "exhigh" : "standard");
+    }
+
+    public void openPlaybackQualityDialog() {
         synchronized (QmlRuntimeLock.MONITOR) {
-            setPlayLevel(enabled ? "exhigh" : "standard");
+            Track t = currentTrack();
+            playbackQualityTitle.set(t != null && t.title != null ? t.title : "");
+            playbackQualityOpen.set(true);
         }
+    }
+
+    public void closePlaybackQualityDialog() {
+        synchronized (QmlRuntimeLock.MONITOR) {
+            playbackQualityOpen.set(false);
+        }
+    }
+
+    private void hotSwitchCurrentTrackQuality() {
+        Track track = playbackSession.current();
+        if (track == null || track.source != Track.Source.PLUGIN) {
+            return;
+        }
+        long backendMs = Math.max(0L, backend.position());
+        Long shown = positionMs.peek();
+        long resumeMs = Math.max(backendMs, shown != null ? shown : 0L);
+        beginLyricClockLoad(resumeMs);
+        track.streamUrl = null;
+        track.streamHeaders.clear();
+        playbackSession.startPositionMs = resumeMs;
+        playbackSession.invalidate();
+        resolveAndPlayPlugin(track, resumeMs, coverRevision.get());
     }
 
     /**

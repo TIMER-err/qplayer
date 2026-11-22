@@ -54,6 +54,32 @@ public final class SettingsCatalog {
      *  migration in SettingsCore.load. */
     public static final String BG_MODE_KEY = "lyricBgMode";
 
+    /** Online audio streaming quality. */
+    public static final String PLAYBACK_QUALITY_KEY = "playbackQuality";
+    public static final int QUALITY_STANDARD = 0;
+    public static final int QUALITY_HIGHER = 1;
+    public static final int QUALITY_EXHIGH = 2;
+    public static final int QUALITY_LOSSLESS = 3;
+    public static final int QUALITY_HIRES = 4;
+    public static final String[] PLAYBACK_QUALITIES = {"standard", "higher", "exhigh", "lossless", "hires"};
+
+    public static String qualityNameOf(int index) {
+        if (index >= 0 && index < PLAYBACK_QUALITIES.length) {
+            return PLAYBACK_QUALITIES[index];
+        }
+        return "exhigh";
+    }
+
+    public static int qualityIndexOf(String quality) {
+        if (quality != null) {
+            String q = quality.trim().toLowerCase(java.util.Locale.ROOT);
+            for (int i = 0; i < PLAYBACK_QUALITIES.length; i++) {
+                if (PLAYBACK_QUALITIES[i].equals(q)) return i;
+            }
+        }
+        return QUALITY_EXHIGH;
+    }
+
     /** Fluid backdrop renderer, kept separate from dynamic/static so every style
      *  can still use the existing battery-saving static cache. */
     public static final String BG_STYLE_KEY = "lyricBgStyle";
@@ -244,8 +270,12 @@ public final class SettingsCatalog {
                 .desc("settings.fade.desc")
                 .group("audio")
                 .build());
-        out.add(SettingSpec.toggle("highQuality", PLAYBACK, "settings.highQuality.title", true)
-                .desc("settings.highQuality.desc")
+        out.add(SettingSpec.dropdown(PLAYBACK_QUALITY_KEY, PLAYBACK,
+                        "settings.playbackQuality.title", QUALITY_EXHIGH,
+                        "menu.download.standard", "menu.download.higher",
+                        "menu.download.exhigh", "menu.download.lossless",
+                        "menu.download.hires")
+                .desc("settings.playbackQuality.desc")
                 .group("audio")
                 .build());
         // 播放页常亮: the value says how the PAGE behaves while a track plays, and
