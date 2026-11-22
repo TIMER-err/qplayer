@@ -32,6 +32,9 @@ SmoothRectangle {
 
     readonly property bool desktopVolumeControl: settings.has("desktopLyricEnabled")
     readonly property real coverSize: liquidGlass && !wideLayout ? 60 : (wideLayout ? 52 : 48)
+    readonly property real coverRadius: cover.radius
+    readonly property real coverX: mini.x + cover.x
+    readonly property real coverY: mini.y + cover.y
     // Width the 播放列表 button claims at the far right of the bar. The clusters
     // that used to end at the right edge stop short of it (see compactCluster.x
     // and wideVolume.x), so the button is always the outermost control.

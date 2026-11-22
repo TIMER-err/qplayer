@@ -942,6 +942,7 @@ Rectangle {
         anchors.bottomMargin: app.wide ? (app.floatingBottomChrome ? 24 : 12) : 8
         height: implicitHeight
         liquidGlass: app.floatingBottomChrome
+        opacity: player.lyricSlide > 0.001 ? Math.max(0, 1 - player.lyricSlide * 3.0) : 1
         onLyricsRequested: app.pushPage("lyrics", 0)
         onQueueRequested: app.openQueue()
     }
@@ -972,6 +973,7 @@ Rectangle {
     LyricOverlay {
         id: lyricOverlay
         objectName: "lyricChrome"   // host renders this subtree in its own pass, over the fluid
+        miniPlayer: mini
         property real transitionEase: {
             var s = player.lyricSlide
             return s * s * (3 - 2 * s)
@@ -983,9 +985,9 @@ Rectangle {
         opacity: player.lyricSlide > 0.001 ? 1 : 0
         // Desktop hides its custom title bar while the lyric page is open (see the
         // TitleBar below), so the three title buttons sit flush at the very top.
-        topPad: hostWindow.available ? 6 : settings.topInset + 6
+        topPad: hostWindow.available ? 6 : (settings.topInset > 0 ? settings.topInset + 6 : 12)
         onCloseRequested: app.popPage()
-        y: player.lyricSlide > 0.001 ? (1 - transitionEase) * height : height
+        y: 0
     }
 
     TemperaLayer { anchors.fill: parent }

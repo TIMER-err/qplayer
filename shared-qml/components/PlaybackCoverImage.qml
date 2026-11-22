@@ -18,15 +18,22 @@ Item {
     property alias icon: image.icon
     property alias iconSize: image.iconSize
     property alias fadeIn: image.fadeIn
+    property alias explicitDecodeSize: image.explicitDecodeSize
     property real radius: 8
 
     readonly property bool vinyl: settings.value("lyricCoverStyle") === 1
 
-    property bool playing: true
+    property real playing: true
     // Item.visible is not ancestor-effective in qml4j.
     property bool animationActive: true
     property real baseScale: 1.0
     property real pauseShrinkAspect: cover.vinyl ? 1.0 : 0.75
+
+    // Progress of the Hero transition (0 = at MiniPlayer size/position, 1 = fully expanded).
+    // During transition, playback pause shrink and vinyl disc styling are smoothly blended
+    // from 0 so the start frame exactly matches the ordinary mini player cover.
+    property real heroProgress: 1.0
+    readonly property real transitionScale: (1.0 - heroProgress) * 1.0 + heroProgress * playbackScale
 
     property real playbackScale: playing ? 1.0 : pauseShrinkAspect
     property real motionProgress: 1.0
@@ -35,7 +42,12 @@ Item {
     property bool motionResuming: playing
     property bool motionReady: false
 
-    scale: baseScale * playbackScale
+    scale: baseScale * transitionScale
+
+    onHeroProgressChanged: {
+        if (heroProgress < 0.99 && disc.rotation !== 0)
+            disc.rotation = 0
+    }
 
     onVinylChanged: {
         if (cover.vinyl) {
@@ -46,12 +58,16 @@ Item {
         }
     }
 
+    readonly property real vinylProgressOpacity: Math.max(0, Math.min(1, (cover.heroProgress - 0.05) / 0.95))
+    readonly property real artRatio: cover.vinyl ? ((1.0 - cover.heroProgress) * 1.0 + cover.heroProgress * 0.64) : 1.0
+
     // Soft circular drop under the disc. The lyric page's MultiEffect shadow is
     // a rectangular saveLayer and looks wrong around a round record, so vinyl
     // draws this instead and the page turns that effect off.
     Rectangle {
         objectName: "playbackCoverVinylShadow"
-        visible: cover.vinyl
+        visible: cover.vinyl && cover.heroProgress > 0.05
+        opacity: cover.vinylProgressOpacity
         width: cover.width + 10
         height: width
         x: (cover.width - width) / 2
@@ -68,7 +84,8 @@ Item {
 
         Rectangle {
             objectName: "playbackCoverVinyl"
-            visible: cover.vinyl
+            visible: cover.vinyl && cover.heroProgress > 0.05
+            opacity: cover.vinylProgressOpacity
             width: disc.width
             height: disc.height
             radius: width / 2
@@ -78,7 +95,8 @@ Item {
         }
 
         Rectangle {
-            visible: cover.vinyl
+            visible: cover.vinyl && cover.heroProgress > 0.05
+            opacity: cover.vinylProgressOpacity
             width: disc.width * 0.92
             height: width
             x: (disc.width - width) / 2
@@ -89,7 +107,8 @@ Item {
             border.color: "#1A1A1A"
         }
         Rectangle {
-            visible: cover.vinyl
+            visible: cover.vinyl && cover.heroProgress > 0.05
+            opacity: cover.vinylProgressOpacity
             width: disc.width * 0.84
             height: width
             x: (disc.width - width) / 2
@@ -100,7 +119,8 @@ Item {
             border.color: "#1A1A1A"
         }
         Rectangle {
-            visible: cover.vinyl
+            visible: cover.vinyl && cover.heroProgress > 0.05
+            opacity: cover.vinylProgressOpacity
             width: disc.width * 0.76
             height: width
             x: (disc.width - width) / 2
@@ -114,15 +134,18 @@ Item {
         CoverImage {
             id: image
             objectName: "playbackCoverArt"
-            width: cover.vinyl ? disc.width * 0.64 : disc.width
+            width: disc.width * cover.artRatio
             height: width
             x: (disc.width - width) / 2
             y: (disc.height - height) / 2
-            radius: cover.vinyl ? width / 2 : cover.radius
+            radius: cover.vinyl
+                ? ((1.0 - cover.heroProgress) * cover.radius + cover.heroProgress * (width / 2))
+                : cover.radius
         }
 
         Rectangle {
-            visible: cover.vinyl
+            visible: cover.vinyl && cover.heroProgress > 0.05
+            opacity: cover.vinylProgressOpacity
             width: image.width + 2
             height: width
             x: (disc.width - width) / 2
@@ -135,7 +158,8 @@ Item {
 
         Rectangle {
             objectName: "playbackCoverSpindle"
-            visible: cover.vinyl
+            visible: cover.vinyl && cover.heroProgress > 0.05
+            opacity: cover.vinylProgressOpacity
             width: Math.max(8, disc.width * 0.055)
             height: width
             x: (disc.width - width) / 2
@@ -150,7 +174,7 @@ Item {
     Timer {
         interval: 32
         repeat: true
-        running: cover.animationActive && cover.vinyl && cover.playing && cover.visible
+        running: cover.animationActive && cover.vinyl && cover.playing && cover.visible && cover.heroProgress >= 0.99
         onTriggered: disc.rotation = (disc.rotation + 0.6) % 360
     }
 

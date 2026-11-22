@@ -30,6 +30,9 @@ Item {
     // at display resolution; refresh only on a real resize.
     property int decodeW: 0
     property int decodeH: 0
+    // Explicit decode resolution (e.g. 1024 for now-playing hero artwork so
+    // animating from a small bar never locks the texture at thumbnail size).
+    property int explicitDecodeSize: 0
     // Stagger the first decode across a grid of covers. Cards that all receive
     // their source on the same frame decode every cover in one frame: opening 我的
     // measured a 744 ms frame gap, a 29 MB burst and a 410 ms GC. A card sets this
@@ -41,6 +44,11 @@ Item {
     // the artwork of the previous entity.
 
     function latchDecodeSize() {
+        if (explicitDecodeSize > 0) {
+            decodeW = explicitDecodeSize
+            decodeH = explicitDecodeSize
+            return
+        }
         var w = Math.round(width * player.pixelRatio)
         var h = Math.round(height * player.pixelRatio)
         if (w <= 0 || h <= 0) return
@@ -50,6 +58,7 @@ Item {
         }
     }
 
+    onExplicitDecodeSizeChanged: latchDecodeSize()
     onWidthChanged: latchDecodeSize()
     onHeightChanged: latchDecodeSize()
     Component.onCompleted: latchDecodeSize()

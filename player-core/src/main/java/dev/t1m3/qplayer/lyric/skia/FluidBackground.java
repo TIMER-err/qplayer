@@ -128,6 +128,7 @@ public final class FluidBackground {
     // Reused across frames -- the per-frame `new Paint()` was a native alloc/free
     // each frame the lyric page is visible.
     private final Paint fluidPaint = new Paint();
+    private final Paint blitPaint = new Paint();
     // Cached full-bleed draw rect -- rebuilt only when the viewport size changes,
     // instead of a fresh Rect.makeXYWH every frame.
     private Rect fullRect;
@@ -167,6 +168,13 @@ public final class FluidBackground {
     public void render(Canvas canvas, DirectContext ctx, float uiScale, float w, float h,
                        byte[] coverBytes, String trackKey, long nowNs, boolean staticMode,
                        int style, int saturationPct) {
+        render(canvas, ctx, uiScale, w, h, coverBytes, trackKey, nowNs, staticMode, style, saturationPct, 1.0f);
+    }
+
+    public void render(Canvas canvas, DirectContext ctx, float uiScale, float w, float h,
+                       byte[] coverBytes, String trackKey, long nowNs, boolean staticMode,
+                       int style, int saturationPct, float alpha) {
+        if (alpha <= 0.001f) return;
         int selectedStyle = normalizeStyle(style);
         if (selectedStyle != activeStyle) {
             activeStyle = selectedStyle;
@@ -184,7 +192,7 @@ public final class FluidBackground {
         prewarmCover(coverBytes, trackKey);
         adoptDecodedIfReady(trackKey, nowNs);
         if (coverShader == null) {
-            renderFallback(canvas, w, h, 0xFF0A0A0E);
+            renderFallback(canvas, w, h, 0xFF0A0A0E, alpha);
             return;
         }
 
@@ -211,7 +219,12 @@ public final class FluidBackground {
                 buildStatic(ctx, dw, dh, time);
             }
             if (staticImage != null) {
-                canvas.drawImageRect(staticImage, fullRect);
+                if (alpha < 0.999f) {
+                    blitPaint.setAlpha(Math.round(alpha * 255f));
+                    canvas.drawImageRect(staticImage, fullRect, blitPaint);
+                } else {
+                    canvas.drawImageRect(staticImage, fullRect);
+                }
                 return;
             }
             // build failed -> fall through to the live shader this frame
@@ -227,9 +240,9 @@ public final class FluidBackground {
         if (ctx != null) {
             int dw = Math.max(1, Math.round(w * uiScale * LIVE_RENDER_SCALE));
             int dh = Math.max(1, Math.round(h * uiScale * LIVE_RENDER_SCALE));
-            if (drawFluidScaled(canvas, ctx, fullRect, dw, dh, time, fade)) return;
+            if (drawFluidScaled(canvas, ctx, fullRect, dw, dh, time, fade, alpha)) return;
         }
-        drawFluid(canvas, fullRect, w, h, time, fade);
+        drawFluid(canvas, fullRect, w, h, time, fade, alpha);
     }
 
     /** Pre-decode cover textures off-thread as soon as track/cover is loaded. */
@@ -356,7 +369,7 @@ public final class FluidBackground {
      *  blit it up. Returns false when the offscreen surface is unavailable, in which
      *  case the caller draws at full resolution. */
     private boolean drawFluidScaled(Canvas canvas, DirectContext ctx, Rect dstRect,
-                                    int dw, int dh, float time, float fade) {
+                                    int dw, int dh, float time, float fade, float alpha) {
         if (liveSurface == null || liveW != dw || liveH != dh) {
             releaseLive();
             try {
@@ -371,9 +384,14 @@ public final class FluidBackground {
         }
         Canvas off = liveSurface.getCanvas();
         off.clear(0);
-        drawFluid(off, liveRect, dw, dh, time, fade);
+        drawFluid(off, liveRect, dw, dh, time, fade, 1f);
         try (Image image = liveSurface.makeImageSnapshot()) {
-            canvas.drawImageRect(image, liveRect, dstRect, SamplingMode.LINEAR, null, true);
+            if (alpha < 0.999f) {
+                blitPaint.setAlpha(Math.round(alpha * 255f));
+                canvas.drawImageRect(image, liveRect, dstRect, SamplingMode.LINEAR, blitPaint, true);
+            } else {
+                canvas.drawImageRect(image, liveRect, dstRect, SamplingMode.LINEAR, null, true);
+            }
         }
         return true;
     }
@@ -419,9 +437,9 @@ public final class FluidBackground {
     // runtime shader bakes its uniforms at makeShader time, so an animated `time`
     // rebuilds it each call -- but that just instantiates the already-compiled
     // effect; the cover child shader and the Paint are reused.
-    private void drawFluid(Canvas canvas, Rect dstRect, float resW, float resH, float time, float fade) {
+    private void drawFluid(Canvas canvas, Rect dstRect, float resW, float resH, float time, float fade, float alpha) {
         if (activeStyle == STYLE_MESH_GRADIENT) {
-            drawMeshGradient(canvas, resW, resH, time, fade);
+            drawMeshGradient(canvas, resW, resH, time, fade, alpha);
             return;
         }
         boolean fading = coverPrevShader != null && fade < 1f;
@@ -444,24 +462,28 @@ public final class FluidBackground {
                 shaded = b.makeShader();
             }
             fluidPaint.setShader(shaded);
+            if (alpha < 0.999f) {
+                fluidPaint.setAlpha(Math.round(alpha * 255f));
+            }
             canvas.drawRect(dstRect, fluidPaint);
         } catch (Throwable e) {
             dev.t1m3.qplayer.util.Logger.warn("fluid render failed: {}", e.getMessage());
-            renderFallback(canvas, resW, resH, 0xFF0A0A0E);
+            renderFallback(canvas, resW, resH, 0xFF0A0A0E, alpha);
         } finally {
             fluidPaint.setShader(null);
+            fluidPaint.setAlpha(255);
             if (shaded != null) shaded.close();
         }
     }
 
-    private void drawMeshGradient(Canvas canvas, float w, float h, float time, float fade) {
+    private void drawMeshGradient(Canvas canvas, float w, float h, float time, float fade, float alpha) {
         boolean fading = coverPrevAdjustedShader != null && coverPrevMesh != null;
         // AMLL keeps previous mesh states fully opaque underneath while the
         // newest state rises linearly from alpha 0, then discards older states at 1.1.
         if (fading) drawMeshGradientState(
-                canvas, coverPrevMesh, coverPrevAdjustedShader, w, h, time, 1f);
+                canvas, coverPrevMesh, coverPrevAdjustedShader, w, h, time, alpha);
         drawMeshGradientState(
-                canvas, coverMesh, coverAdjustedShader, w, h, time, fading ? fade : 1f);
+                canvas, coverMesh, coverAdjustedShader, w, h, time, (fading ? fade : 1f) * alpha);
     }
 
     private void drawMeshGradientState(Canvas canvas, AMLLMeshGradient.Data mesh,
@@ -495,7 +517,7 @@ public final class FluidBackground {
     private void buildStatic(DirectContext ctx, int dw, int dh, float time) {
         invalidateStatic();
         try (Surface off = Surface.makeRenderTarget(ctx, false, ImageInfo.makeN32Premul(dw, dh))) {
-            drawFluid(off.getCanvas(), Rect.makeWH(dw, dh), dw, dh, time, 1f);
+            drawFluid(off.getCanvas(), Rect.makeWH(dw, dh), dw, dh, time, 1f, 1f);
             staticImage = off.makeImageSnapshot();
             staticW = dw;
             staticH = dh;
@@ -554,6 +576,7 @@ public final class FluidBackground {
         invalidateStatic();
         if (saturationFilter != null) { saturationFilter.close(); saturationFilter = null; }
         fluidPaint.close();
+        blitPaint.close();
         coverKey = null;
     }
 
@@ -813,8 +836,16 @@ public final class FluidBackground {
     }
 
     private void renderFallback(Canvas canvas, float w, float h, int color) {
+        renderFallback(canvas, w, h, color, 1.0f);
+    }
+
+    private void renderFallback(Canvas canvas, float w, float h, int color, float alpha) {
+        if (alpha <= 0.001f) return;
         try (Paint p = new Paint()) {
             p.setColor(color);
+            if (alpha < 0.999f) {
+                p.setAlpha(Math.round(alpha * 255f));
+            }
             canvas.drawRect(Rect.makeXYWH(0, 0, w, h), p);
         }
     }
