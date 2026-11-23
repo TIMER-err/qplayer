@@ -66,6 +66,8 @@ public final class LyricCompositor {
          *  and progress along the bottom. Desktop-only setting, so this stays
          *  false on hosts that don't offer the row. */
         default boolean lyricFullWidth() { return false; }
+        /** Hardware screen corner radius in logical px (0 if sharp/desktop). */
+        default float screenCornerRadius() { return 0f; }
     }
 
     // Reserved height (logical px) for the lyric-page transport bar at the bottom
@@ -307,8 +309,12 @@ public final class LyricCompositor {
     }
 
     /** Lyric column top, in logical px: the status-bar inset plus the QML title band. */
+    public float effectiveTopInset(float topInset) {
+        return topInset > 0f ? topInset : 12f;
+    }
+
     public float lyricTopY(float topInset) {
-        return topInset + 144f;
+        return effectiveTopInset(topInset) + 144f;
     }
 
     /** Whether a touch/drag at logical {@code (x,y)} should scroll the lyric column: the
@@ -321,16 +327,17 @@ public final class LyricCompositor {
         for (int i = 0; i < lyricNotificationCards.size(); i++) {
             if (notificationContains(lyricNotificationCards.get(i), x, y)) return false;
         }
+        float effTop = effectiveTopInset(topInset);
         if (surfaceWLogical > surfaceHeightLogical) {
             if (coverOnlyCached) return false;
-            if (x >= surfaceWLogical - OFFSET_BTN_CORNER_W && y <= topInset + OFFSET_BTN_CORNER_H) {
+            if (x >= surfaceWLogical - OFFSET_BTN_CORNER_W && y <= effTop + OFFSET_BTN_CORNER_H) {
                 return false;
             }
             boolean wide = fullWidthApplied;
-            if (wide && x <= BACK_BTN_CORNER_W && y <= topInset + OFFSET_BTN_CORNER_H) {
+            if (wide && x <= BACK_BTN_CORNER_W && y <= effTop + OFFSET_BTN_CORNER_H) {
                 return false;
             }
-            float topY = topInset + L_LANDSCAPE_TOP;
+            float topY = effTop + L_LANDSCAPE_TOP;
             float bottomY = surfaceHeightLogical
                     - (wide ? L_FULLWIDTH_BOTTOM : L_LANDSCAPE_BOTTOM);
             return x >= (wide ? 0f : surfaceWLogical * 0.5f) && y >= topY && y <= bottomY;
@@ -640,16 +647,20 @@ public final class LyricCompositor {
             float ease = (float) (slideNow * slideNow * (3.0 - 2.0 * slideNow));
             boolean isDark = settings == null || settings.resolvedDarkValue();
             boolean isLg = isMiniPlayerLiquidGlass();
-            float maxAlpha = isLg ? (isDark ? 0.16f : 0.06f) : (isDark ? 0.22f : 0.09f);
+            // For liquid glass, don't scrim the background behind the glass capsule to prevent
+            // jarring jumps in glass refraction sampling when the slide starts/ends.
+            float maxAlpha = isLg ? 0f : (isDark ? 0.22f : 0.09f);
             float scrimAlpha = Math.min(maxAlpha, ease * maxAlpha);
-            int scrimColor = isDark ? 0xFF000000 : 0xFF181818;
-            scrimPaint.setColor(scrimColor);
-            scrimPaint.setAlpha(Math.round(scrimAlpha * 255f));
+            if (scrimAlpha > 0.001f) {
+                int scrimColor = isDark ? 0xFF000000 : 0xFF181818;
+                scrimPaint.setColor(scrimColor);
+                scrimPaint.setAlpha(Math.round(scrimAlpha * 255f));
 
-            int scS = canvas.save();
-            canvas.scale(uiScale, uiScale);
-            canvas.drawRect(Rect.makeWH(lw, lh), scrimPaint);
-            canvas.restoreToCount(scS);
+                int scS = canvas.save();
+                canvas.scale(uiScale, uiScale);
+                canvas.drawRect(Rect.makeWH(lw, lh), scrimPaint);
+                canvas.restoreToCount(scS);
+            }
         }
 
         drawLyricOverlay(canvas, controller, settings, ctx, uiScale, fbW, fbH);
@@ -886,9 +897,10 @@ public final class LyricCompositor {
 
         float pad = 28f;
         float colLeft, colTopY, colW, colH;
+        float effTop = effectiveTopInset(topInset);
         if (landscape) {
             colLeft = fullWidthApplied ? 0f : w * 0.5f;
-            colTopY = topInset + L_LANDSCAPE_TOP;
+            colTopY = effTop + L_LANDSCAPE_TOP;
             colW = (w - colLeft) - 2f * pad;
             colH = h - colTopY
                     - (fullWidthApplied ? L_FULLWIDTH_BOTTOM : L_LANDSCAPE_BOTTOM);
@@ -914,7 +926,8 @@ public final class LyricCompositor {
         float curY = (1f - ease) * startY;
         float curW = (1f - ease) * startW + ease * w;
         float curH = (1f - ease) * startH + ease * h;
-        float curR = (1f - ease) * startR;
+        float targetR = settings != null ? settings.screenCornerRadius() : 0f;
+        float curR = (1f - ease) * startR + ease * targetR;
 
         expandingRect = Rect.makeXYWH(curX, curY, curW, curH);
         expandingRadius = curR;
@@ -923,7 +936,7 @@ public final class LyricCompositor {
         canvas.scale(uiScale, uiScale);
 
         int clipCount = -1;
-        if (lyricSlide < 0.999f) {
+        if (lyricSlide < 0.999f || targetR > 0.5f) {
             clipCount = canvas.save();
             canvas.clipRRect(RRect.makeXYWH(curX, curY, curW, curH, curR), true);
         }
@@ -931,29 +944,15 @@ public final class LyricCompositor {
         // Fill expanding container base with MiniPlayer's exact surfaceColor
         // so at ease=0 it matches the MiniPlayer's appearance perfectly without color jumps.
         // For liquid glass:
-        // The MiniPlayer capsule is already a live translucent glass element. Drawing an opaque
-        // card base over it completely hides the glass state when collapsing back.
-        // Thus for liquid glass, keep baseAlpha low and gracefully fade it to 0 as ease -> 0,
-        // so the live liquid glass with its refraction, blur, and bloom smoothly shines through.
-        if (lyricSlide < 0.999f) {
-            float baseAlpha;
-            if (isLiquidGlass) {
-                baseAlpha = Math.max(0f, 1f - ease * 1.6f) * Math.min(1f, ease * 5f);
-                boolean isDark = settings == null || settings.resolvedDarkValue();
-                float maxGlassAlpha = isDark ? 36f : 24f;
-                int alpha = Math.round(baseAlpha * maxGlassAlpha);
-                if (alpha > 0) {
-                    cardBasePaint.setColor(surfaceColor);
-                    cardBasePaint.setAlpha(alpha);
-                    canvas.drawRect(expandingRect, cardBasePaint);
-                }
-            } else {
-                baseAlpha = Math.max(0f, 1f - ease * 1.6f);
-                if (baseAlpha > 0.001f) {
-                    cardBasePaint.setColor(surfaceColor);
-                    cardBasePaint.setAlpha(Math.round(baseAlpha * 255f));
-                    canvas.drawRect(expandingRect, cardBasePaint);
-                }
+        // The MiniPlayer capsule is already a live translucent glass element rendered directly in the scene.
+        // Drawing a flat color over expandingRect would mask the live refraction and cause visual jump/flashing.
+        // Thus for liquid glass we do not draw cardBasePaint, letting the fluid backdrop smoothly crossfade over it.
+        if (lyricSlide < 0.999f && !isLiquidGlass) {
+            float baseAlpha = Math.max(0f, 1f - ease * 1.6f);
+            if (baseAlpha > 0.001f) {
+                cardBasePaint.setColor(surfaceColor);
+                cardBasePaint.setAlpha(Math.round(baseAlpha * 255f));
+                canvas.drawRect(expandingRect, cardBasePaint);
             }
         }
 

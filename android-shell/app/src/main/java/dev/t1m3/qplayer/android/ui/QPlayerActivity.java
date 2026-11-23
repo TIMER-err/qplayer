@@ -1020,10 +1020,39 @@ public final class QPlayerActivity extends Activity {
         final double top = insets.top / density;
         final double right = insets.right / density;
         final double bottom = insets.bottom / density;
+        final double cornerRadius = queryScreenCornerRadius(density);
         SettingsCore boundSettings = settings;
         if (glView != null && boundSettings != null) {
-            glView.queueEvent(() -> boundSettings.setInsets(left, top, right, bottom));
+            glView.queueEvent(() -> {
+                boundSettings.setInsets(left, top, right, bottom);
+                boundSettings.screenCornerRadius.set(cornerRadius);
+            });
         }
+    }
+
+    private double queryScreenCornerRadius(float density) {
+        if (Build.VERSION.SDK_INT >= 31) {
+            try {
+                android.view.Window w = getWindow();
+                if (w != null) {
+                    android.view.View decor = w.getDecorView();
+                    if (decor != null) {
+                        android.view.WindowInsets insets = decor.getRootWindowInsets();
+                        if (insets != null) {
+                            android.view.RoundedCorner tl = insets.getRoundedCorner(android.view.RoundedCorner.POSITION_TOP_LEFT);
+                            if (tl != null && tl.getRadius() > 0) {
+                                return tl.getRadius() / (double) density;
+                            }
+                            android.view.RoundedCorner tr = insets.getRoundedCorner(android.view.RoundedCorner.POSITION_TOP_RIGHT);
+                            if (tr != null && tr.getRadius() > 0) {
+                                return tr.getRadius() / (double) density;
+                            }
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {}
+        }
+        return 0.0;
     }
 
     /** Re-read the window's current system-bar insets and push them to the scene.
@@ -1204,6 +1233,9 @@ public final class QPlayerActivity extends Activity {
         super.onConfigurationChanged(newConfig);
         updateImmersive();
         updateKeepScreenOn();
+        if (settings != null) {
+            settings.applyLanguage();
+        }
         if (glView != null) {
             glView.onSystemNightChanged(isSystemDark(this));
         }

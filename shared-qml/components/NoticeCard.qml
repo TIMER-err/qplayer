@@ -43,6 +43,17 @@ Item {
         hideAnim.restart()
     }
 
+    function dismissImmediately() {
+        lifeTimer.stop()
+        showAnim.stop()
+        hideAnim.stop()
+        slot.entry = null
+        slot.text = ""
+        slot.visible = false
+        slot.opacity = 0
+        slot._offsetY = 12
+    }
+
     ParallelAnimation {
         id: showAnim
         NumberAnimation { target: slot; property: "opacity"; to: 1; duration: Ui.motionFast; easing.type: Ui.easeEnter }

@@ -64,6 +64,41 @@ Item {
         var defY = overlay.height - botMargin - barH + (barH - cSize) / 2
         return defY - overlay.y
     }
+
+    readonly property real miniTransportX: {
+        if (miniPlayer && miniPlayer.transportTargetX !== undefined && miniPlayer.transportTargetX > 0)
+            return miniPlayer.transportTargetX - overlay.x
+        var sideW = overlay.landscape ? (overlay.width >= 840 ? 232 : 80) : 0
+        var isGlass = settings.has("liquidGlassNavigation") && settings.value("liquidGlassNavigation") === true
+        var margin = isGlass ? 24 : 12
+        var isWideBar = overlay.landscape || overlay.width >= 720
+        var barW = overlay.width - margin * 2
+        if (isWideBar) {
+            var tw = Math.min(460, barW * 0.44)
+            var trw = 40 * 4 + 44 + 6 * 4
+            return sideW + margin + (barW - tw) / 2 + (tw - trw) / 2 - overlay.x
+        } else {
+            var cw = (isGlass ? 0 : 0) + 44 + 40 + 8
+            return sideW + margin + (barW - cw - 6 - 44) - overlay.x
+        }
+    }
+    readonly property real miniTransportY: {
+        if (miniPlayer && miniPlayer.transportTargetY !== undefined && miniPlayer.transportTargetY > 0)
+            return miniPlayer.transportTargetY - overlay.y
+        var isGlass = settings.has("liquidGlassNavigation") && settings.value("liquidGlassNavigation") === true
+        var isWideBar = overlay.landscape || overlay.width >= 720
+        var barH = isGlass && !isWideBar ? 80 : 64
+        var botMargin = overlay.landscape ? (isGlass ? 24 : 12) : ((settings.bottomInset > 0 ? settings.bottomInset : 0) + 72)
+        var defY = overlay.height - botMargin - barH + (isWideBar ? 6 : (barH - 44) / 2)
+        return defY - overlay.y
+    }
+    readonly property real miniTransportWidth: {
+        if (miniPlayer && miniPlayer.transportTargetWidth !== undefined && miniPlayer.transportTargetWidth > 0)
+            return miniPlayer.transportTargetWidth
+        var isWideBar = overlay.landscape || overlay.width >= 720
+        return isWideBar ? (40 * 4 + 44 + 6 * 4) : 132
+    }
+    readonly property bool animating: player.lyricSlide > 0.001 && player.lyricSlide < 0.999
     readonly property real chromeOpacity: Math.min(1, Math.max(0, (player.lyricSlide - 0.20) / 0.65))
 
     readonly property real targetCoverSize: overlay.landscape
@@ -87,11 +122,49 @@ Item {
             return (overlay.height - targetCoverSize) / 2
         }
     }
+    readonly property real targetTransportWidth: {
+        if (overlay.landscape) {
+            if (overlay.fullWidthK > 0.005) {
+                return overlay.width - 56
+            } else {
+                var colW = overlay.coverOnly ? overlay.width : overlay.width / 2
+                return Math.max(targetCoverSize, Math.min(colW - 48, 280))
+            }
+        } else {
+            return overlay.width - 56
+        }
+    }
+    readonly property real targetTransportX: {
+        if (overlay.landscape) {
+            if (overlay.fullWidthK > 0.005) {
+                return 28
+            } else {
+                var colW = overlay.coverOnly ? overlay.width : overlay.width / 2
+                return (colW - targetTransportWidth) / 2
+            }
+        } else {
+            return 28
+        }
+    }
+    readonly property real targetTransportY: {
+        if (overlay.landscape) {
+            if (overlay.fullWidthK > 0.005) {
+                return overlay.height - 152 + 16
+            } else {
+                var colH = targetCoverSize + 196
+                var colTop = (overlay.height - colH) / 2
+                return colTop + targetCoverSize + 20 + 196 - 20 - 50
+            }
+        } else {
+            return overlay.height - (settings.bottomInset + 12) - 8 - 50
+        }
+    }
+
     // Top row inset for the three title buttons. Desktop overrides this to 6
     // (Main.qml hides the custom title bar while the lyric page is open, so the
     // buttons sit flush at the very top of the window); mobile keeps the status
-    // bar inset so they clear the system bar.
-    property real topPad: settings.topInset + 6
+    // bar inset (or 20dp fallback in immersive) so they clear the system bar.
+    property real topPad: hostWindow.available ? 6 : (settings.topInset > 0 ? settings.topInset + 6 : 12)
     onOffsetPanelOpenChanged: {
         player.setLyricOffsetPanelOpen(offsetPanelOpen)
         // Synchronize once on entry. Do not feed every player property change back
@@ -132,8 +205,16 @@ Item {
         lyricSnack.show(message)
     }
 
+    function clearToast() {
+        lyricSnack.clearImmediately()
+    }
+
     // Swallow taps on the empty (lyrics) area so they don't leak through.
-    MouseArea { anchors.fill: parent }
+    // When the sheet is closing (!player.lyricsOpen), disable so taps can reach the MiniPlayer.
+    MouseArea {
+        anchors.fill: parent
+        enabled: player.lyricsOpen
+    }
 
     // --- Hero Cover: unified cover for both portrait and landscape transitions ---
     // Smoothly flies and scales from miniCover (bottom player) to the target position.
@@ -185,16 +266,40 @@ Item {
 
         MouseArea {
             anchors.fill: parent
+            enabled: player.lyricsOpen && overlay.coverOnly
             onClicked: player.setCoverMode(false)
         }
     }
+
+    // --- Hero Transport: smoothly flies between lyric transport and mini player transport ---
+    Item {
+        id: heroTransport
+        visible: overlay.animating
+        x: (1 - overlay.transitionEase) * overlay.miniTransportX + overlay.transitionEase * overlay.targetTransportX
+        y: (1 - overlay.transitionEase) * overlay.miniTransportY + overlay.transitionEase * overlay.targetTransportY
+        width: (1 - overlay.transitionEase) * overlay.miniTransportWidth + overlay.transitionEase * overlay.targetTransportWidth
+        height: 50
+        opacity: Math.min(1.0, Math.max(0.0, (player.lyricSlide - 0.05) / 0.35))
+
+        LyricTransportRow {
+            anchors.fill: parent
+            gap: Math.max(4, Math.min(18, (heroTransport.width - 200) / 4))
+        }
+    }
+
+    readonly property real miniPlayerTopY: (miniPlayer && miniPlayer.playerY !== undefined && miniPlayer.playerY > 0)
+        ? (miniPlayer.playerY - overlay.y)
+        : (overlay.height - 80)
+    readonly property real containerTopY: (1 - overlay.transitionEase) * overlay.miniPlayerTopY
+    readonly property real topButtonsAnimY: overlay.animating
+        ? (overlay.containerTopY + overlay.topPad)
+        : overlay.topPad
 
     // --- top: dismiss + title + artist ---------------------------------
     IconButton {
         id: backBtn
         opacity: overlay.chromeOpacity
-        anchors.top: parent.top
-        anchors.topMargin: overlay.topPad
+        y: overlay.topButtonsAnimY
         anchors.left: parent.left
         anchors.leftMargin: 6
         type: "standard"
@@ -217,8 +322,7 @@ Item {
         objectName: "lyricKeepAwakeBtn"
         visible: settings.has("keepScreenOnPlayerPage")
         opacity: overlay.chromeOpacity
-        anchors.top: parent.top
-        anchors.topMargin: overlay.topPad
+        y: overlay.topButtonsAnimY
         anchors.left: backBtn.right
         anchors.leftMargin: 6
         type: "standard"
@@ -251,8 +355,7 @@ Item {
     IconButton {
         id: offsetBtn
         opacity: overlay.chromeOpacity
-        anchors.top: parent.top
-        anchors.topMargin: overlay.topPad
+        y: overlay.topButtonsAnimY
         anchors.right: parent.right
         anchors.rightMargin: 6
         type: "standard"
@@ -272,8 +375,7 @@ Item {
         objectName: "lyricCoverModeBtn"
         visible: !overlay.coverOnly
         opacity: overlay.chromeOpacity
-        anchors.top: parent.top
-        anchors.topMargin: overlay.topPad
+        y: overlay.topButtonsAnimY
         anchors.right: offsetBtn.left
         anchors.rightMargin: 6
         type: "standard"
@@ -292,8 +394,7 @@ Item {
         visible: overlay.landscape && !overlay.coverOnly
                  && settings.has("lyricFullWidth")
         opacity: overlay.chromeOpacity
-        anchors.top: parent.top
-        anchors.topMargin: overlay.topPad
+        y: overlay.topButtonsAnimY
         anchors.right: coverModeBtn.left
         anchors.rightMargin: 6
         type: "standard"
@@ -432,6 +533,7 @@ Item {
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             anchors.bottomMargin: 8
+            opacity: overlay.animating ? 0 : 1
             gap: 18
         }
     }
@@ -563,6 +665,7 @@ Item {
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
+                    opacity: overlay.animating ? 0 : 1
                     gap: Math.max(4, Math.min(18, (col.width - 200) / 4))
                 }
             }
@@ -632,6 +735,7 @@ Item {
             anchors.rightMargin: 28
             anchors.top: parent.top
             anchors.topMargin: 16
+            opacity: overlay.animating ? 0 : 1
             gap: 20
         }
 

@@ -21,6 +21,7 @@ Rectangle {
     property bool showLog: false
     property bool volumeOpen: false
     property bool sleepTimerOpen: false
+    property real lastBackPressTime: 0
     // 播放队列 is a bottom sheet, not a route: it slides up over whatever page is
     // showing, so opening it never disturbs the page/route the user is on.
     property bool queueSheetOpen: false
@@ -65,6 +66,9 @@ Rectangle {
     // the separately composited lyric page, uses this same motion vocabulary.
     // Zoom is the default; the final preset is an instant accessibility fallback.
     property int pageTransitionPreset: settings.value("pageTransitionPreset")
+    // Mobile/Android guarantees a minimum top clearance in fullscreen/immersive modes
+    // where settings.topInset collapses to 0. Desktop keeps its custom caption bar inset.
+    readonly property real effectiveTopInset: hostWindow.available ? settings.topInset : (settings.topInset > 0 ? settings.topInset : 8)
     // Build only the initial home page on startup; the idle prewarm (see
     // prewarmTimer) then builds the lazy root destinations in idle time. Once
     // built, a page remains loaded so navigation state and close animations are
@@ -252,7 +256,15 @@ Rectangle {
         if (app.showLog)            { app.showLog = false; return; }
         if (app.navigationStack.length > 0) { app.popPage(); return; }
         if (app.page !== 0)         { app.switchTo(0); return; }
-        // Android hosts move the task to the background; they do not finish it.
+        // Android hosts move the task to the background; prompt "Swipe again to return to home" on first back.
+        if (!hostWindow.available) {
+            var now = Date.now()
+            if (now - app.lastBackPressTime > 2000) {
+                app.lastBackPressTime = now
+                app.showToast(i18n.t("toast.exitPrompt"))
+                return
+            }
+        }
         player.requestExit();
     }
 
@@ -261,7 +273,10 @@ Rectangle {
         if (which === "localPlaylist") app.localPlaylistLoaded = true
         if (which === "artist") app.artistLoaded = true
         if (which === "album") app.albumLoaded = true
-        if (which === "settings") app.settingsLoaded = true
+        if (which === "settings") {
+            app.settingsLoaded = true
+            settingsPageLoader.prewarming = false
+        }
         if (which === "pluginSettings") app.pluginSettingsLoaded = true
         if (which === "account") app.accountLoaded = true
         if (which === "cachedSongs") app.cacheListLoaded = true
@@ -321,6 +336,7 @@ Rectangle {
     }
 
     function pushPage(which, entityId) {
+        app.clearToast()
         app.dismissTextInput()
         if (which === "") return
         app.ensurePageLoaded(which)
@@ -368,6 +384,7 @@ Rectangle {
     }
 
     function popPage() {
+        app.clearToast()
         if (app.navigationStack.length === 0) return
         var departing = app.topRouteValue()
         app.navigationDirection = "back"
@@ -390,6 +407,7 @@ Rectangle {
     }
 
     function clearPages() {
+        app.clearToast()
         pageTransitionCleanup.stop()
         app.navigationDirection = "replace"
         app.transitionUnderlayType = ""
@@ -566,16 +584,23 @@ Rectangle {
             }
             else if (app.prewarmStep === 3) app.searchLoaded = true
             else if (app.prewarmStep === 4) app.libraryLoaded = true
-            else if (app.prewarmStep === 5 && app.showLocalTab) app.localLoaded = true
-            else if (app.prewarmStep === 6) app.recentLoaded = true
-            else if (app.prewarmStep === 7) {
+            else if (app.prewarmStep === 5) {
+                app.settingsLoaded = true
+                settingsPageLoader.prewarming = true
+            }
+            else if (app.prewarmStep === 6) {
+                settingsPageLoader.prewarming = false
+            }
+            else if (app.prewarmStep === 7 && app.showLocalTab) app.localLoaded = true
+            else if (app.prewarmStep === 8) app.recentLoaded = true
+            else if (app.prewarmStep === 9) {
                 // 已下载 also re-reads the downloaded list when it opens
                 // (AppActions: player.refreshCachedSongs() then replacePage), and
                 // that read was the remaining 258 ms on its first visit.
                 app.cacheListLoaded = true
                 player.refreshCachedSongs()
             }
-            else if (app.prewarmStep >= 8) prewarmTimer.stop()
+            else if (app.prewarmStep >= 10) prewarmTimer.stop()
         }
     }
     // Late enough that the first painted frames and the initial data fetch are
@@ -594,6 +619,7 @@ Rectangle {
     // trees being laid out during the transition.
     function switchTo(idx) {
         if (idx < 0 || idx >= app.navItems.length) return
+        app.clearToast()
         var returningFromRoute = app.navigationStack.length > 0
         app.clearPages()
         if (idx === app.page) {
@@ -647,6 +673,10 @@ Rectangle {
         snack.show(message)
         lyricOverlay.showToast(message)
     }
+    function clearToast() {
+        snack.clearImmediately()
+        lyricOverlay.clearToast()
+    }
     property string toastWatch: player.toast
     onToastWatchChanged: if (player.toast.length > 0) app.showToast(player.toast)
 
@@ -674,7 +704,7 @@ Rectangle {
         id: rootTopChrome
         property real baseLeft: rail.x + rail.width
         x: baseLeft + rootPageMotion.contentX
-        y: settings.topInset + rootPageMotion.contentY
+        y: app.effectiveTopInset + rootPageMotion.contentY
         width: app.width - baseLeft - settings.rightInset
         height: Ui.headerHeight
         scale: rootPageMotion.contentScale
@@ -698,7 +728,7 @@ Rectangle {
     Item {
         id: pageWrap
         anchors.top: parent.top
-        anchors.topMargin: settings.topInset
+        anchors.topMargin: app.effectiveTopInset
         anchors.left: rail.right
         anchors.right: parent.right
         anchors.rightMargin: settings.rightInset
@@ -853,6 +883,7 @@ Rectangle {
             }
 
             ManagedPageLoader {
+                id: settingsPageLoader
                 pageManager: app
                 motion: rootPageMotion
                 routeType: "settings"
@@ -918,7 +949,7 @@ Rectangle {
         x: settings.leftInset
            + (app.width >= Ui.expandedMin ? Ui.sidebarWide
               : (app.width >= Ui.compactMax ? Ui.sidebarNarrow : 0))
-        y: settings.topInset
+        y: app.effectiveTopInset
            + (app.currentOverlay === "" ? rootTopChrome.height : 0)
         width: Math.max(0, app.width - settings.leftInset - settings.rightInset
                         - (app.width >= Ui.expandedMin ? Ui.sidebarWide
@@ -942,7 +973,6 @@ Rectangle {
         anchors.bottomMargin: app.wide ? (app.floatingBottomChrome ? 24 : 12) : 8
         height: implicitHeight
         liquidGlass: app.floatingBottomChrome
-        opacity: player.lyricSlide > 0.001 ? Math.max(0, 1 - player.lyricSlide * 3.0) : 1
         onLyricsRequested: app.pushPage("lyrics", 0)
         onQueueRequested: app.openQueue()
     }

@@ -34,6 +34,12 @@ Item {
         slot.beginDismiss()
     }
 
+    function clearImmediately() {
+        slot0.dismissImmediately()
+        slot1.dismissImmediately()
+        slot2.dismissImmediately()
+    }
+
     function firstEmpty() {
         if (slot0.entry === null) return slot0
         if (slot1.entry === null) return slot1

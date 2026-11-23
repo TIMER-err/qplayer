@@ -35,6 +35,13 @@ SmoothRectangle {
     readonly property real coverRadius: cover.radius
     readonly property real coverX: mini.x + cover.x
     readonly property real coverY: mini.y + cover.y
+
+    // Transport position exported for LyricOverlay transition
+    readonly property real playerY: mini.y
+    readonly property real transportTargetX: mini.x + (wideLayout ? (wideCluster.x + transportRow.x) : compactCluster.x)
+    readonly property real transportTargetY: mini.y + (wideLayout ? (wideCluster.y + transportRow.y) : compactCluster.y)
+    readonly property real transportTargetWidth: wideLayout ? transportRow.width : compactCluster.width
+    readonly property real transportTargetHeight: wideLayout ? transportRow.height : compactCluster.height
     // Width the 播放列表 button claims at the far right of the bar. The clusters
     // that used to end at the right edge stop short of it (see compactCluster.x
     // and wideVolume.x), so the button is always the outermost control.
