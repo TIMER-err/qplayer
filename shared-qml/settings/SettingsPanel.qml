@@ -16,8 +16,9 @@ ColumnLayout {
     property bool showTitle: false
 
     property bool pluginsTab: panel.category === "plugins"
-    property var installedPlugins: player.sourcePlugins || []
+    property var installedPlugins: panel.pluginsTab ? (player.sourcePlugins || []) : []
     property var availablePlugins: {
+        if (!panel.pluginsTab) return []
         var out = []
         var rows = player.pluginCatalogEntries || []
         for (var i = 0; i < rows.length; i++) {

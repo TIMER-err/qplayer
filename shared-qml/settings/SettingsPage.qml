@@ -109,6 +109,29 @@ Rectangle {
         contentWidth: width
         contentHeight: page.categories.length * 44 + Ui.space4 + page.bottomContentInset
 
+        Behavior on contentY { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+        // Continuous sliding selection pill across categories in settings sidebar
+        Rectangle {
+            id: categorySelection
+            objectName: "settingsCategorySelection"
+            readonly property int index: page.categories.indexOf(page.nextCategory)
+            property int shownIndex: Math.max(0, page.categories.indexOf(page.currentCategory))
+            onIndexChanged: if (categorySelection.index >= 0) categorySelection.shownIndex = categorySelection.index
+            readonly property real targetY: categorySelection.shownIndex * 44 + 2
+            x: 12
+            y: categorySelection.targetY
+            width: page.navWidth - 24
+            height: 40
+            radius: Ui.radiusMd
+            color: Ui.accentSoft
+            opacity: categorySelection.index >= 0 ? 1 : 0
+            visible: opacity > 0.01
+
+            Behavior on y { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+            Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+        }
+
         Repeater {
             model: page.wide ? page.categories : null
             SidebarItem {
@@ -118,6 +141,7 @@ Rectangle {
                 icon: page.categoryIcon(modelData)
                 text: i18n.t("settings.category." + modelData)
                 selected: modelData === page.nextCategory
+                pillDrawnByParent: true
                 onClicked: page.selectCategory(modelData)
             }
         }
@@ -189,11 +213,34 @@ Rectangle {
         }
     }
 
-    FontPickerDialog {
+    Loader {
         active: settings.fontPickerOpen
-        targetKey: settings.fontPickerTarget
-        onClosed: settings.fontPickerOpen = false
+        sourceComponent: Component {
+            FontPickerDialog {
+                active: settings.fontPickerOpen
+                targetKey: settings.fontPickerTarget
+                onClosed: settings.fontPickerOpen = false
+            }
+        }
     }
 
-    ColorPickerDialog { objectName: "settingsColorPicker" }
+    Loader {
+        active: settings.colorPickerKey.length > 0
+        sourceComponent: Component {
+            ColorPickerDialog { objectName: "settingsColorPicker" }
+        }
+    }
+
+    Loader {
+        active: settings.exportConfigOpen
+        sourceComponent: Component {
+            ExportConfigDialog {
+                objectName: "settingsExportConfigDialog"
+                active: settings.exportConfigOpen
+                onClosed: settings.exportConfigOpen = false
+                onExportEncrypted: settings.invoke("exportEncryptedSettings")
+                onExportPlain: settings.invoke("exportPlainSettings")
+            }
+        }
+    }
 }

@@ -78,11 +78,15 @@ public final class QPlayerActivity extends Activity {
     private static final int REQ_PLUGIN_PICK = 5;
     private static final int REQ_FONT_PICK = 6;
     private static final int REQ_AUDIO_SAVE = 7;
+    private static final int REQ_SETTINGS_EXPORT = 8;
+    private static final int REQ_SETTINGS_IMPORT = 9;
 
     /** Canonical playlist id awaiting a picked cover image, set right before
      *  launching the gallery picker and consumed in {@link #onActivityResult}. */
     private String pendingCoverPlaylistKey;
     private AudioSaveRequest pendingAudioSave;
+    private String pendingExportJson;
+    private boolean pendingExportIsEncrypted;
     private final java.util.Set<AudioSaveRequest> audioSaves =
             java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final java.util.Map<String, Consumer<Object>> settingsHooks = new java.util.HashMap<>();
@@ -333,6 +337,10 @@ public final class QPlayerActivity extends Activity {
         settings.registerAction("checkUpdate", boundController::checkForUpdateManual);
         settings.registerAction("openRepo",
                 () -> boundController.openExternalUrl("https://github.com/TIMER-err/qplayer"));
+        settings.registerAction("exportSettings", () -> settings.exportConfigOpen.set(Boolean.TRUE));
+        settings.registerAction("exportEncryptedSettings", this::requestExportEncryptedSettings);
+        settings.registerAction("exportPlainSettings", this::requestExportSettings);
+        settings.registerAction("importSettings", this::requestImportSettings);
         settings.registerInfo("version", () -> "v" + boundController.appVersion.peek());
         settings.registerInfo("cacheUsage", () -> boundController.cacheSizeMB.peek() + " MB");
         OverlayLyricWindow.bindSettings(getApplicationContext(), settings);
@@ -822,6 +830,65 @@ public final class QPlayerActivity extends Activity {
         }
     }
 
+    private void requestExportEncryptedSettings() {
+        dev.t1m3.qplayer.util.Logger.info("requestExportEncryptedSettings called");
+        if (settings == null) return;
+        try {
+            String appVer = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            String json = dev.t1m3.qplayer.settings.SettingsTransfer.exportEncrypted(settings, controller, appVer);
+            pendingExportJson = json;
+            pendingExportIsEncrypted = true;
+            String dateStr = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(new java.util.Date());
+            String fileName = "qplayer_settings_enc_" + dateStr + ".json";
+            Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("application/json");
+            intent.putExtra(Intent.EXTRA_TITLE, fileName);
+            startActivityForResult(intent, REQ_SETTINGS_EXPORT);
+        } catch (Throwable t) {
+            dev.t1m3.qplayer.util.Logger.error("export encrypted settings failed: {}", t.toString());
+            if (controller != null) {
+                controller.showToast(dev.t1m3.qplayer.i18n.I18n.tr("toast.settings.exportFailed", t.getMessage()));
+            }
+        }
+    }
+
+    private void requestExportSettings() {
+        dev.t1m3.qplayer.util.Logger.info("requestExportSettings called");
+        if (settings == null) return;
+        try {
+            String appVer = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            String json = dev.t1m3.qplayer.settings.SettingsTransfer.export(settings, controller, appVer);
+            pendingExportJson = json;
+            pendingExportIsEncrypted = false;
+            String dateStr = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(new java.util.Date());
+            String fileName = "qplayer_settings_" + dateStr + ".json";
+            Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("application/json");
+            intent.putExtra(Intent.EXTRA_TITLE, fileName);
+            startActivityForResult(intent, REQ_SETTINGS_EXPORT);
+        } catch (Throwable t) {
+            dev.t1m3.qplayer.util.Logger.error("export settings failed: {}", t.toString());
+            if (controller != null) {
+                controller.showToast(dev.t1m3.qplayer.i18n.I18n.tr("toast.settings.exportFailed", t.getMessage()));
+            }
+        }
+    }
+
+    private void requestImportSettings() {
+        dev.t1m3.qplayer.util.Logger.info("requestImportSettings called");
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/json", "text/plain", "*/*"});
+        try {
+            startActivityForResult(intent, REQ_SETTINGS_IMPORT);
+        } catch (Throwable t) {
+            dev.t1m3.qplayer.util.Logger.error("open settings import document failed: {}", t.toString());
+        }
+    }
+
     private void openWebLogin(String loginUrl, String cookieUrl,
             String credentialCookieName, String providerName) {
         runOnUiThread(() -> {
@@ -888,6 +955,66 @@ public final class QPlayerActivity extends Activity {
                 android.content.ContentResolver resolver = getApplicationContext().getContentResolver();
                 request.write(() -> resolver.openOutputStream(uri, "wt"));
             }
+            return;
+        }
+        if (requestCode == REQ_SETTINGS_EXPORT) {
+            String json = pendingExportJson;
+            boolean isEnc = pendingExportIsEncrypted;
+            pendingExportJson = null;
+            pendingExportIsEncrypted = false;
+            if (resultCode != Activity.RESULT_OK || data == null || data.getData() == null || json == null) return;
+            android.net.Uri uri = data.getData();
+            new Thread(() -> {
+                try (java.io.OutputStream out = getContentResolver().openOutputStream(uri)) {
+                    if (out != null) {
+                        out.write(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                        out.flush();
+                        if (controller != null) {
+                            controller.showToast(dev.t1m3.qplayer.i18n.I18n.tr(isEnc
+                                    ? "toast.settings.exportEncryptedSuccess"
+                                    : "toast.settings.exportSuccess"));
+                        }
+                    }
+                } catch (Throwable t) {
+                    dev.t1m3.qplayer.util.Logger.error("save exported settings failed: {}", t.toString());
+                    if (controller != null) {
+                        controller.showToast(dev.t1m3.qplayer.i18n.I18n.tr("toast.settings.exportFailed", t.getMessage()));
+                    }
+                }
+            }, "qplayer-settings-export").start();
+            return;
+        }
+        if (requestCode == REQ_SETTINGS_IMPORT) {
+            if (resultCode != Activity.RESULT_OK || data == null || data.getData() == null) return;
+            android.net.Uri uri = data.getData();
+            new Thread(() -> {
+                try (java.io.InputStream in = getContentResolver().openInputStream(uri)) {
+                    if (in == null) return;
+                    java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+                    byte[] chunk = new byte[16 * 1024];
+                    int n;
+                    while ((n = in.read(chunk)) > 0) buf.write(chunk, 0, n);
+                    String json = new String(buf.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
+                    QmlGLSurfaceView view = glView;
+                    SettingsCore s = settings;
+                    PlayerController c = controller;
+                    if (view != null && s != null) {
+                        view.queueEvent(() -> {
+                            boolean ok = dev.t1m3.qplayer.settings.SettingsTransfer.importInto(json, s, c);
+                            if (c != null) {
+                                c.showToast(dev.t1m3.qplayer.i18n.I18n.tr(ok
+                                        ? "toast.settings.importSuccess"
+                                        : "toast.settings.importInvalid"));
+                            }
+                        });
+                    }
+                } catch (Throwable t) {
+                    dev.t1m3.qplayer.util.Logger.error("read settings import failed: {}", t.toString());
+                    if (controller != null) {
+                        controller.showToast(dev.t1m3.qplayer.i18n.I18n.tr("toast.settings.importFailed", t.getMessage()));
+                    }
+                }
+            }, "qplayer-settings-import").start();
             return;
         }
         if (requestCode == REQ_PLUGIN_PICK) {

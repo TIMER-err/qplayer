@@ -545,6 +545,7 @@ public final class SettingsCatalog {
         // ---- 本地 -----------------------------------------------------------
         out.add(SettingSpec.slider("maxCacheSizeMB", LOCAL, "settings.maxCacheSize.title",
                         200, 50, 1024, 1)
+                .desc("settings.maxCacheSize.desc")
                 .unit(" MB").group("cache")
                 .build());
         out.add(SettingSpec.action("clearCache", LOCAL, "settings.cacheUsage.title",
@@ -563,6 +564,16 @@ public final class SettingsCatalog {
                 .hint("settings.folder.hint")
                 .onlyOn(DESKTOP)
                 .group("folders")
+                .build());
+        out.add(SettingSpec.action("exportSettings", LOCAL, "settings.exportSettings.title", "")
+                .desc("settings.exportSettings.desc")
+                .icon("upload_file")
+                .group("backup")
+                .build());
+        out.add(SettingSpec.action("importSettings", LOCAL, "settings.importSettings.title", "")
+                .desc("settings.importSettings.desc")
+                .icon("download")
+                .group("backup")
                 .build());
 
         // ---- 关于 -----------------------------------------------------------

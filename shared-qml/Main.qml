@@ -258,7 +258,10 @@ Rectangle {
         if (which === "localPlaylist") app.localPlaylistLoaded = true
         if (which === "artist") app.artistLoaded = true
         if (which === "album") app.albumLoaded = true
-        if (which === "settings") app.settingsLoaded = true
+        if (which === "settings") {
+            app.settingsLoaded = true
+            settingsPageLoader.prewarming = false
+        }
         if (which === "pluginSettings") app.pluginSettingsLoaded = true
         if (which === "account") app.accountLoaded = true
         if (which === "cachedSongs") app.cacheListLoaded = true
@@ -556,16 +559,23 @@ Rectangle {
             app.prewarmStep = app.prewarmStep + 1
             if (app.prewarmStep === 1) app.searchLoaded = true
             else if (app.prewarmStep === 2) app.libraryLoaded = true
-            else if (app.prewarmStep === 3 && app.showLocalTab) app.localLoaded = true
-            else if (app.prewarmStep === 4) app.recentLoaded = true
-            else if (app.prewarmStep === 5) {
+            else if (app.prewarmStep === 3) {
+                app.settingsLoaded = true
+                settingsPageLoader.prewarming = true
+            }
+            else if (app.prewarmStep === 4) {
+                settingsPageLoader.prewarming = false
+            }
+            else if (app.prewarmStep === 5 && app.showLocalTab) app.localLoaded = true
+            else if (app.prewarmStep === 6) app.recentLoaded = true
+            else if (app.prewarmStep === 7) {
                 // 已下载 also re-reads the downloaded list when it opens
                 // (AppActions: player.refreshCachedSongs() then replacePage), and
                 // that read was the remaining 258 ms on its first visit.
                 app.cacheListLoaded = true
                 player.refreshCachedSongs()
             }
-            else if (app.prewarmStep >= 6) prewarmTimer.stop()
+            else if (app.prewarmStep >= 8) prewarmTimer.stop()
         }
     }
     // Late enough that the first painted frames and the initial data fetch are
@@ -843,6 +853,7 @@ Rectangle {
             }
 
             ManagedPageLoader {
+                id: settingsPageLoader
                 pageManager: app
                 motion: rootPageMotion
                 routeType: "settings"

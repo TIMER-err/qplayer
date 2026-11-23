@@ -885,7 +885,7 @@ public final class PlayerController {
      *  request was already running and could surface tens of seconds late (a
      *  15s connect + 30s read timeout is the worst case) — long after whatever
      *  the user did to trigger it. It also no longer blocks a thread to wait. */
-    private void showToast(String msg) {
+    public void showToast(String msg) {
         post(() -> toast.set(""));
         try {
             fadeWorker.schedule(() -> post(() -> toast.set(msg)), 30, TimeUnit.MILLISECONDS);
@@ -7347,6 +7347,27 @@ public final class PlayerController {
         } catch (Throwable e) {
             Logger.warn("save lyric offsets failed: {}", e.getMessage());
         }
+    }
+
+    /** Copy of all persisted track lyric offsets for settings export. */
+    public Map<String, Integer> getLyricOffsets() {
+        synchronized (lyricOffsets) {
+            return new HashMap<>(lyricOffsets);
+        }
+    }
+
+    /** Merge imported track lyric offsets into the current store and persist. */
+    public void importLyricOffsets(Map<String, Integer> offsets) {
+        if (offsets == null || offsets.isEmpty()) return;
+        synchronized (lyricOffsets) {
+            for (Map.Entry<String, Integer> entry : offsets.entrySet()) {
+                String canonical = canonicalLyricOffsetKey(entry.getKey());
+                if (!canonical.isEmpty() && entry.getValue() != null && entry.getValue() != 0) {
+                    lyricOffsets.put(canonical, entry.getValue());
+                }
+            }
+        }
+        saveLyricOffsets();
     }
 
     // --- Netease discovery ------------------------------------------------

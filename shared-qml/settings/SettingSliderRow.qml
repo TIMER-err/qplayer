@@ -17,6 +17,9 @@ Item {
     property int storedValue: row.spec ? settings.value(row.spec.key) : 0
     onStoredValueChanged: valueSlider.value = storedValue
 
+    width: parent ? parent.width : 0
+    implicitWidth: width
+
     function displayValue(value) {
         if (!row.spec) return ""
         var stored = Math.round(value)
@@ -26,8 +29,8 @@ Item {
         return shown + row.spec.unit
     }
 
-    readonly property real sliderY: frame.height + Ui.space2
-    implicitHeight: sliderY + valueSlider.height + Ui.space2 + rangeMin.implicitHeight + Ui.space4
+    readonly property real sliderY: Math.max(frame.height, valuePill.y + valuePill.height) + Ui.space3
+    implicitHeight: rangeMin.y + rangeMin.implicitHeight + Ui.space4
 
     SettingRowFrame {
         id: frame
@@ -37,7 +40,7 @@ Item {
         summary: row.spec ? i18n.t(row.spec.desc) : ""
         separator: row.separator
         clickable: false
-        minHeight: 0
+        minHeight: Math.max(38, valuePill.height + topPadding)
         bottomPadding: 0
         controlWidth: valuePill.width
     }
@@ -46,7 +49,9 @@ Item {
         id: valuePill
         objectName: "settingSliderValue"
         x: row.width - Ui.space4 - width
-        y: frame.topPadding
+        y: frame.summary.length > 0
+            ? frame.topPadding
+            : frame.topPadding + Math.max(0, (frame.height - frame.topPadding - height) / 2)
         width: Math.max(56, valueLabel.implicitWidth + Ui.space5)
         height: 28
         radius: height / 2

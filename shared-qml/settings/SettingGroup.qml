@@ -46,6 +46,11 @@ Item {
                 property var rowSpec: modelData
                 property bool rowSeparator: index > section.firstVisibleRow
                 visible: section.rowVisible(rowSpec)
+                onLoaded: {
+                    if (item) {
+                        item.width = width
+                    }
+                }
                 sourceComponent: rowSpec.type === "switch" ? switchRow
                     : rowSpec.type === "stepper" ? stepperRow
                     : rowSpec.type === "slider" ? sliderRow
