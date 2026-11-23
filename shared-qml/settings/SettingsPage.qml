@@ -29,28 +29,13 @@ Rectangle {
         return out
     }
 
+    // Category switching fades the panel out, swaps, then fades it back in while
+    // rising. Selection highlights follow nextCategory so they react at once.
     property string currentCategory: page.categories.length > 0 ? page.categories[0] : ""
     property string nextCategory: page.currentCategory
     property real panelOpacity: 1
-
-    property var loadedCategories: {
-        var m = {}
-        if (page.currentCategory.length > 0) m[page.currentCategory] = true
-        return m
-    }
-    property real currentContentHeight: 0
-
-    function updateContentHeight() {
-        for (var i = 0; i < categoryRepeater.count; i++) {
-            var loader = categoryRepeater.itemAt(i)
-            if (loader && loader.catName === page.currentCategory) {
-                if (loader.item) {
-                    page.currentContentHeight = loader.item.implicitHeight
-                }
-                return
-            }
-        }
-    }
+    property real panelShift: 0
+    property var groups: settings.groups(page.currentCategory)
 
     readonly property bool wide: width >= Ui.expandedMin
     readonly property real gutter: Ui.gutter(width)
@@ -80,38 +65,32 @@ Rectangle {
     function selectCategory(name) {
         if (!name || name === page.nextCategory) return
         page.nextCategory = name
-        if (!page.loadedCategories[name]) {
-            var updated = Object.assign({}, page.loadedCategories)
-            updated[name] = true
-            page.loadedCategories = updated
-        }
-        page.currentCategory = name
-        settingsFlickable.contentY = 0
-        panelFadeAnim.restart()
-        page.updateContentHeight()
-
-        if (page.wide) {
-            var idx = page.categories.indexOf(name)
-            if (idx >= 0) {
-                var top = idx * 44
-                var bottom = top + 44
-                if (top < categoryList.contentY) {
-                    categoryList.contentY = top
-                } else if (bottom > categoryList.contentY + categoryList.height) {
-                    categoryList.contentY = Math.max(0, bottom - categoryList.height)
-                }
-            }
-        }
+        categoryAnim.restart()
     }
 
-    NumberAnimation {
-        id: panelFadeAnim
-        target: page
-        property: "panelOpacity"
-        from: 0.35
-        to: 1
-        duration: 140
-        easing.type: Easing.OutCubic
+    SequentialAnimation {
+        id: categoryAnim
+        NumberAnimation {
+            target: page; property: "panelOpacity"; to: 0
+            duration: Ui.motionInstant; easing.type: Ui.easeEnter
+        }
+        ScriptAction {
+            onTrigger: {
+                page.currentCategory = page.nextCategory
+                settingsFlickable.contentY = 0
+                page.panelShift = 24
+            }
+        }
+        ParallelAnimation {
+            NumberAnimation {
+                target: page; property: "panelOpacity"; from: 0; to: 1
+                duration: Ui.motionBase; easing.type: Ui.easeEnter
+            }
+            NumberAnimation {
+                target: page; property: "panelShift"; from: 24; to: 0
+                duration: Ui.motionBase; easing.type: Ui.easeEnter
+            }
+        }
     }
 
     // Catch-all so taps on empty areas don't fall through to the page beneath.
@@ -199,40 +178,19 @@ Rectangle {
         height: Math.max(0, page.height - y)
         clip: true
         contentWidth: width
-        contentHeight: Math.max(height, page.currentContentHeight + (page.wide ? Ui.space1 : Ui.space3) + Ui.space8 + page.bottomContentInset)
+        contentHeight: panel.implicitHeight + panel.topPad + Ui.space8 + page.bottomContentInset
 
-        Repeater {
-            id: categoryRepeater
-            model: page.categories
-            Loader {
-                id: catLoader
-                readonly property string catName: modelData
-                readonly property bool isCurrent: page.currentCategory === catName
-                active: page.loadedCategories[catName] === true
-                visible: isCurrent
-                x: page.panelLeft + (page.panelAvailable - page.panelWidth) / 2
-                y: page.wide ? Ui.space1 : Ui.space3
-                width: page.panelWidth
-                opacity: isCurrent ? page.panelOpacity : 0
-
-                sourceComponent: Component {
-                    SettingsPanel {
-                        id: panelInstance
-                        objectName: catLoader.isCurrent ? "settingsSingleColumn" : ""
-                        width: page.panelWidth
-                        category: catLoader.catName
-                        groups: settings.groups(catLoader.catName)
-                        showTitle: page.wide
-                        onImplicitHeightChanged: {
-                            if (catLoader.isCurrent) page.updateContentHeight()
-                        }
-                    }
-                }
-
-                onLoaded: {
-                    if (isCurrent) page.updateContentHeight()
-                }
-            }
+        SettingsPanel {
+            id: panel
+            objectName: "settingsSingleColumn"
+            readonly property real topPad: page.wide ? Ui.space1 : Ui.space3
+            x: page.panelLeft + (page.panelAvailable - page.panelWidth) / 2
+            y: topPad + page.panelShift
+            width: page.panelWidth
+            opacity: page.panelOpacity
+            category: page.currentCategory
+            groups: page.groups
+            showTitle: page.wide
         }
 
         ViewportScrollBar {
