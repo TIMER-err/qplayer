@@ -122,6 +122,15 @@ Item {
             return (overlay.height - targetCoverSize) / 2
         }
     }
+
+    // Landscape cover position and size dynamically tracking landscapeChrome during transitions
+    readonly property real landscapeCoverSize: landscapeChrome.coverSize
+    readonly property real landscapeCoverX: landscapeChrome.x + (landscapeChrome.width - landscapeChrome.coverSize) / 2
+    readonly property real landscapeCoverY: (overlay.height - (landscapeChrome.coverSize + 196)) / 2
+
+    readonly property real currentCoverSize: overlay.landscape ? landscapeCoverSize : targetCoverSize
+    readonly property real currentCoverX: overlay.landscape ? landscapeCoverX : targetCoverX
+    readonly property real currentCoverY: overlay.landscape ? landscapeCoverY : targetCoverY
     readonly property real targetTransportWidth: {
         if (overlay.landscape) {
             if (overlay.fullWidthK > 0.005) {
@@ -227,18 +236,18 @@ Item {
         visible: overlay.landscape ? (overlay.fullWidthK < 0.995) : (overlay.coverOnly || heroAnimating || opacity > 0.01)
 
         x: heroAnimating
-            ? ((1 - overlay.transitionEase) * overlay.miniCoverX + overlay.transitionEase * overlay.targetCoverX)
-            : (overlay.targetCoverX - (overlay.landscape ? (overlay.coverOnly ? overlay.width : overlay.width / 2) * overlay.fullWidthK : 0))
+            ? ((1 - overlay.transitionEase) * overlay.miniCoverX + overlay.transitionEase * overlay.currentCoverX)
+            : overlay.currentCoverX
         y: heroAnimating
-            ? ((1 - overlay.transitionEase) * overlay.miniCoverY + overlay.transitionEase * overlay.targetCoverY)
-            : overlay.targetCoverY
+            ? ((1 - overlay.transitionEase) * overlay.miniCoverY + overlay.transitionEase * overlay.currentCoverY)
+            : overlay.currentCoverY
         width: heroAnimating
-            ? ((1 - overlay.transitionEase) * overlay.miniCoverSize + overlay.transitionEase * overlay.targetCoverSize)
-            : overlay.targetCoverSize
+            ? ((1 - overlay.transitionEase) * overlay.miniCoverSize + overlay.transitionEase * overlay.currentCoverSize)
+            : overlay.currentCoverSize
         height: width
         radius: heroAnimating
-            ? ((1 - overlay.transitionEase) * overlay.miniCoverRadius + overlay.transitionEase * (overlay.targetCoverSize * 0.06))
-            : (overlay.targetCoverSize * 0.06)
+            ? ((1 - overlay.transitionEase) * overlay.miniCoverRadius + overlay.transitionEase * (overlay.currentCoverSize * 0.06))
+            : (overlay.currentCoverSize * 0.06)
         iconSize: overlay.landscape ? 64 : 72
         fadeIn: true
         playing: player.playing
