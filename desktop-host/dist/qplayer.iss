@@ -24,7 +24,11 @@
 #endif
 
 [Setup]
+#ifdef PerUser
+AppId={{F642344E-5942-428F-9EA5-1EAA0BB9B832}
+#else
 AppId={{8F3A1C2E-5B6D-4E7F-9A0B-1C2D3E4F5A6B}
+#endif
 AppName=QPlayer
 AppVersion={#AppVersion}
 VersionInfoVersion={#NumericAppVersion}
@@ -32,6 +36,7 @@ VersionInfoTextVersion={#AppVersion}
 AppPublisher=t1m3
 #ifdef PerUser
 PrivilegesRequired=lowest
+UninstallDisplayName=QPlayer (current user)
 DefaultDirName={localappdata}\Programs\QPlayer
 ; Never switch an existing machine-wide installation to a different scope.
 UsePreviousAppDir=no
@@ -83,6 +88,11 @@ Source: "{#IconFile}"; DestDir: "{app}"; DestName: "qplayer.ico"; Flags: ignorev
 Type: files; Name: "{app}\.qplayer-user-install"
 
 [Code]
+function IsNormalUserInstall: Boolean;
+begin
+  Result := ExpandConstant('{param:QPLAYERMIGRATION|0}') <> '1';
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
@@ -103,7 +113,11 @@ Name: "{group}\QPlayer"; Filename: "{app}\qplayer.exe"; IconFilename: "{app}\qpl
 Name: "{autodesktop}\QPlayer"; Filename: "{app}\qplayer.exe"; IconFilename: "{app}\qplayer.ico"; Tasks: desktopicon; AppUserModelID: "dev.t1m3.qplayer"
 
 [Run]
+#ifdef PerUser
+Filename: "{app}\qplayer.exe"; Description: "{cm:LaunchProgram,QPlayer}"; Flags: nowait postinstall skipifsilent; Check: IsNormalUserInstall
+#else
 Filename: "{app}\qplayer.exe"; Description: "{cm:LaunchProgram,QPlayer}"; Flags: nowait postinstall skipifsilent
+#endif
 
 #endif
 

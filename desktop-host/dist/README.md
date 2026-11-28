@@ -328,3 +328,13 @@ the Maven OS profiles select native dependencies for the current architecture.
 - **Android 12+**：侧载权限已授予、播放器空闲且用户明确离开后，以 PackageInstaller 请求免确认自更新。系统校验包签名和版本。如系统要求确认，不在后台弹窗，保留原手动入口。Android 8–11 保持原功能和手动更新。
 
 发布前必须用真实发行包分别验收两次启动、禁用开关、播放不中断、取消或损坏资产、权限拒绝、升级中断、重新启动及旧文件清理。Windows 分别检查机器/用户/便携安装，Android 分别检查 8–11 兼容、12+ 成功以及拒绝安装权限，macOS 用真实签名公证的连续两版。
+
+A legacy Windows installation registered under HKLM shows **Switch to per-user install**
+below the silent-update setting. This opens the verified user installer (including a
+same-version install), then shuts down normally and launches the new executable
+under the same account. Both installs use the same home profile; no library,
+settings, playlists, credentials or cache are copied or deleted. The machine
+uninstaller is not started until the new copy opens that profile. It may request
+one-time administrator approval to remove the old installation for all users.
+If the new copy cannot start, the machine installation is retained; if old
+uninstall is canceled, the user installation remains usable alongside it.

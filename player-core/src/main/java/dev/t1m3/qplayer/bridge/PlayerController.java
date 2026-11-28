@@ -885,7 +885,7 @@ public final class PlayerController {
      *  request was already running and could surface tens of seconds late (a
      *  15s connect + 30s read timeout is the worst case) — long after whatever
      *  the user did to trigger it. It also no longer blocks a thread to wait. */
-    private void showToast(String msg) {
+    public void showToast(String msg) {
         post(() -> toast.set(""));
         try {
             fadeWorker.schedule(() -> post(() -> toast.set(msg)), 30, TimeUnit.MILLISECONDS);
@@ -4015,6 +4015,17 @@ public final class PlayerController {
             updateAvailable.set(true);
             updatePromptRevision.set(updatePromptRevision.peek() + 1);
         });
+    }
+
+    /** Explicit installation-scope change can reinstall this exact release, but cannot downgrade. */
+    public String prepareWindowsUserInstaller(java.nio.file.Path destination) throws java.io.IOException {
+        ReleaseUpdateChecker.Update release = releaseUpdateChecker.checkDirect(currentVersion,
+                        "QPlayer-windows-x64-user-setup.exe"::equals, true)
+                .orElseThrow(() -> new java.io.IOException("No current or newer user installer"));
+        StagedAppUpdate update = new StagedAppUpdate(release, destination.getParent());
+        update.download(() -> !appShuttingDown);
+        update.copyVerified(destination, () -> !appShuttingDown);
+        return update.sha256();
     }
 
     private void stageAppUpdate(ReleaseUpdateChecker.Update release) {

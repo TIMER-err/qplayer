@@ -22,6 +22,15 @@ public class ReleaseUpdateCheckerTest {
             "https://github.com/TIMER-err/qplayer/releases/tag/v1.9.3";
 
     @Test
+    public void scopeSwitchAllowsSameVersionButNeverDowngrades() throws IOException {
+        ReleaseUpdateChecker checker = new ReleaseUpdateChecker(url -> release("[]"));
+        assertTrue(checker.checkDirect("1.9.3", null, true).isPresent());
+        assertTrue(checker.checkDirect("1.9.2", null, true).isPresent());
+        assertFalse(checker.checkDirect("1.9.4", null, true).isPresent());
+        assertFalse(checker.checkDirect("1.9.3", null).isPresent());
+    }
+
+    @Test
     public void aHigherPatchReleaseIsNewer() {
         assertTrue(ReleaseUpdateChecker.isNewer("1.8.1", "1.8.0"));
         assertTrue(ReleaseUpdateChecker.isNewer("1.9.0", "1.8.22"));

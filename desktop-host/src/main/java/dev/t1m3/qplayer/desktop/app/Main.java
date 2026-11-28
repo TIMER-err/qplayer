@@ -140,7 +140,16 @@ public final class Main {
         // player-core (shared with Android). The host contributes a store, the
         // platform id, the defaults only it knows, and the actions/live text its
         // own rows need.
+        WindowsUserUpdate.Target windowsUserInstall = PACKAGED ? WindowsUserUpdate.installedDirectory() : null;
+        WindowsInstallMigration migration = PACKAGED && osName.contains("win") && windowsUserInstall == null
+                ? WindowsInstallMigration.find() : null;
+        java.util.concurrent.atomic.AtomicReference<DesktopWindow> migrationWindow =
+                new java.util.concurrent.atomic.AtomicReference<>();
         SettingsCore settings = new SettingsCore();
+        if (migration != null) settings.registerAction("switchToUserInstall", () -> {
+            DesktopWindow current = migrationWindow.get();
+            if (current != null) migration.start(controller, current);
+        });
         settings.attach(controller);
         settings.setDefault("musicFolder",
                 new File(System.getProperty("user.home", "."), "Music").getAbsolutePath());
@@ -170,6 +179,7 @@ public final class Main {
         Fonts.addFileIndex(dev.t1m3.qplayer.lyric.skia.ImportedFonts.instance());
         Fonts.warmupFromConfig();
         DesktopWindow window = new DesktopWindow(resources, controller, settings);
+        migrationWindow.set(window);
         window.setUserScale(settings.uiScaleFactor());
         settings.onChange(SettingsCatalog.UI_SCALE_KEY, ignored ->
                 window.postMainTask(() -> window.setUserScale(settings.uiScaleFactor())));
@@ -204,7 +214,6 @@ public final class Main {
         // PlayerController's default matcher, unchanged for Android, would never
         // match anything here). "setup.exe" (not the plain .zip) so the in-app
         // downloader hands off to the real installer.
-        WindowsUserUpdate.Target windowsUserInstall = PACKAGED ? WindowsUserUpdate.installedDirectory() : null;
         controller.setAssetMatcher(name -> {
             String n = name.toLowerCase();
             String os = System.getProperty("os.name", "").toLowerCase();
@@ -374,6 +383,9 @@ public final class Main {
         window.spawnRenderThread();
         themeMonitor.start();
 
+        if (PACKAGED && osName.contains("win"))
+            window.postMainTask(WindowsInstallMigration::acknowledgeProfile);
+
         window.runEventLoop(); // blocks on the main thread until quit
 
         // From here the process must end: a hung cleanup step or a leftover
@@ -410,6 +422,7 @@ public final class Main {
             status = 1;
         }
         if (status == 0 && shutdownSaved) {
+            if (migration != null) migration.switchAfterExit();
             controller.handOffSilentUpdate((asset, digest) -> {
                 if (windowsUserInstall != null)
                     WindowsUserUpdate.runAfterExit(windowsUserInstall.directory(), asset, digest);

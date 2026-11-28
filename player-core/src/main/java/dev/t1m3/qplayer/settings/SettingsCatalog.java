@@ -583,6 +583,12 @@ public final class SettingsCatalog {
                 .desc("settings.silentUpdate.desc")
                 .group("app")
                 .build());
+        out.add(SettingSpec.action("switchToUserInstall", ABOUT, "settings.userInstall.title",
+                        "settings.userInstall.button")
+                .desc("settings.userInstall.desc")
+                .onlyOn(DESKTOP)
+                .group("app")
+                .build());
         out.add(SettingSpec.action("checkUpdate", ABOUT, "settings.checkUpdate.title", "")
                 .icon("system_update")
                 .group("app")

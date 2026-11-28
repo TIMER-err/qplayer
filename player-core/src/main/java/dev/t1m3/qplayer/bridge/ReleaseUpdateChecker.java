@@ -129,28 +129,34 @@ public final class ReleaseUpdateChecker {
         if (currentVersion == null || currentVersion.isEmpty()) {
             throw new IllegalStateException("current version is unset");
         }
-        return selectUpdate(fetchRelease(preferMirror), currentVersion, assetMatcher);
+        return selectUpdate(fetchRelease(preferMirror), currentVersion, assetMatcher, false);
     }
 
     /** Background installs must not trust a third-party mirror to supply the digest. */
     Optional<Update> checkDirect(String currentVersion, Predicate<String> assetMatcher)
             throws IOException {
+        return checkDirect(currentVersion, assetMatcher, false);
+    }
+
+    Optional<Update> checkDirect(String currentVersion, Predicate<String> assetMatcher,
+                                 boolean allowSameVersion) throws IOException {
         if (currentVersion == null || currentVersion.isEmpty()) {
             throw new IllegalStateException("current version is unset");
         }
         checkCancelled();
         try {
-            return selectUpdate(parseReleaseObject(transport.get(RELEASE_API)), currentVersion, assetMatcher);
+            return selectUpdate(parseReleaseObject(transport.get(RELEASE_API)), currentVersion, assetMatcher, allowSameVersion);
         } catch (RuntimeException error) {
             throw new IOException("Direct release response is invalid", error);
         }
     }
 
     private Optional<Update> selectUpdate(JsonObject release, String currentVersion,
-                                          Predicate<String> assetMatcher) {
+                                          Predicate<String> assetMatcher, boolean allowSameVersion) {
         String tag = optString(release, "tag_name");
         String latest = tag.startsWith("v") ? tag.substring(1) : tag;
-        if (!isNewer(latest, currentVersion)) return Optional.empty();
+        if (!isNewer(latest, currentVersion) && !(allowSameVersion && latest.equals(currentVersion)))
+            return Optional.empty();
 
         Predicate<String> matcher = assetMatcher != null ? assetMatcher : APK_MATCHER;
         String assetUrl = "";
