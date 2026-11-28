@@ -556,6 +556,7 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
         switch (key) {
             case "monet": controller.setMonetEnabled(bool(key)); break;
             case "mirror": controller.setUpdateMirror(bool(key)); break;
+            case "silentUpdate": controller.setSilentUpdate(bool(key)); break;
             case "fade": controller.setFadeEnabled(bool(key)); break;
             case "highQuality": controller.setHighQualityEnabled(bool(key)); break;
             case "maxCacheSizeMB": controller.setCacheMaxSizeMB(intOf(key)); break;

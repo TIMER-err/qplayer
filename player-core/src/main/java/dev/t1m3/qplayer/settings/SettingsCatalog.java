@@ -579,6 +579,10 @@ public final class SettingsCatalog {
                 .desc("settings.about.desc")
                 .group("app")
                 .build());
+        out.add(SettingSpec.toggle("silentUpdate", ABOUT, "settings.silentUpdate.title", false)
+                .desc("settings.silentUpdate.desc")
+                .group("app")
+                .build());
         out.add(SettingSpec.action("checkUpdate", ABOUT, "settings.checkUpdate.title", "")
                 .icon("system_update")
                 .group("app")

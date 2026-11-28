@@ -47,12 +47,21 @@ public final class ReleaseUpdateChecker {
         private final String notes;
         private final String assetUrl;
         private final String browserUrl;
+        private final String digest;
+        private final long size;
 
         public Update(String version, String notes, String assetUrl, String browserUrl) {
+            this(version, notes, assetUrl, browserUrl, "", 0);
+        }
+
+        private Update(String version, String notes, String assetUrl, String browserUrl,
+                       String digest, long size) {
             this.version = version;
             this.notes = notes;
             this.assetUrl = assetUrl;
             this.browserUrl = browserUrl;
+            this.digest = digest;
+            this.size = size;
         }
 
         public String version() {
@@ -66,6 +75,9 @@ public final class ReleaseUpdateChecker {
         public String assetUrl() {
             return assetUrl;
         }
+
+        String digest() { return digest; }
+        long size() { return size; }
 
         public String browserUrl() {
             return browserUrl;
@@ -117,25 +129,51 @@ public final class ReleaseUpdateChecker {
         if (currentVersion == null || currentVersion.isEmpty()) {
             throw new IllegalStateException("current version is unset");
         }
-        JsonObject release = fetchRelease(preferMirror);
+        return selectUpdate(fetchRelease(preferMirror), currentVersion, assetMatcher);
+    }
+
+    /** Background installs must not trust a third-party mirror to supply the digest. */
+    Optional<Update> checkDirect(String currentVersion, Predicate<String> assetMatcher)
+            throws IOException {
+        if (currentVersion == null || currentVersion.isEmpty()) {
+            throw new IllegalStateException("current version is unset");
+        }
+        checkCancelled();
+        try {
+            return selectUpdate(parseReleaseObject(transport.get(RELEASE_API)), currentVersion, assetMatcher);
+        } catch (RuntimeException error) {
+            throw new IOException("Direct release response is invalid", error);
+        }
+    }
+
+    private Optional<Update> selectUpdate(JsonObject release, String currentVersion,
+                                          Predicate<String> assetMatcher) {
         String tag = optString(release, "tag_name");
         String latest = tag.startsWith("v") ? tag.substring(1) : tag;
         if (!isNewer(latest, currentVersion)) return Optional.empty();
 
         Predicate<String> matcher = assetMatcher != null ? assetMatcher : APK_MATCHER;
         String assetUrl = "";
+        String digest = "";
+        long size = 0;
         if (release.has("assets") && release.get("assets").isJsonArray()) {
             for (JsonElement element : release.getAsJsonArray("assets")) {
                 if (!element.isJsonObject()) continue;
                 JsonObject asset = element.getAsJsonObject();
                 if (matcher.test(optString(asset, "name"))) {
                     assetUrl = optString(asset, "browser_download_url");
+                    try {
+                        digest = optString(asset, "digest");
+                        if (asset.has("size")) size = asset.get("size").getAsLong();
+                    } catch (RuntimeException ignored) {
+                        // Bad/missing integrity metadata must not break manual updates.
+                    }
                     break;
                 }
             }
         }
         String browserUrl = assetUrl.isEmpty() ? optString(release, "html_url") : assetUrl;
-        return Optional.of(new Update(latest, optString(release, "body"), assetUrl, browserUrl));
+        return Optional.of(new Update(latest, optString(release, "body"), assetUrl, browserUrl, digest, size));
     }
 
     /** An invalid successful response must fall back just like a failed request. */

@@ -316,3 +316,20 @@ The APK installs beside the release app as `QPlayer (perf)` and uses the debug k
 
 CI produces an Apple Silicon DMG on `macos-15`. Intel Mac users build locally;
 the Maven OS profiles select native dependencies for the current architecture.
+
+### 静默更新验收
+
+「设置 → 关于 → 静默更新」默认关闭。关闭时，启动更新提示、手动检查和各平台现有安装入口不变。
+开启后，启动检查只从 GitHub 官方 API 获取后台下载所需的 SHA-256 和大小；校验成功后可重复使用缓存。
+官方元数据不可用、文件损坏或空间不足时，回退到原有更新提示/手动流程。
+
+- Linux x64：只对正在运行且可写的发布 AppImage 做同目录原子替换。
+  旧进程继续使用打开的旧文件，无需留下 `.old`，下次正常启动使用新版。
+  只读路径、符号链接或不支持原子替换的文件系统保留手动安装流程。
+- Windows 安装版/便携版、macOS DMG、Android APK：后台只准备安装包，
+  不关闭当前会话、更改安装布局或绕过 UAC、Gatekeeper、Android 安装确认。
+  通过原有「检查更新」入口安装，版本匹配且校验通过时可复用后台下载。
+
+发行包实测时，应先验证关闭开关的旧流程，再开启开关并在播放中检查。
+Linux 需验证播放不中断、退出后启动显示新版，以及安装目录没有旧文件；其余平台需验证
+重用对应包的旧安装流程，且安装权限/签名检查仍然生效。

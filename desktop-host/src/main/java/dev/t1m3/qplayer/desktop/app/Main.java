@@ -210,6 +210,8 @@ public final class Main {
             if (os.contains("mac")) return n.endsWith(".dmg");
             return n.endsWith(".appimage");
         });
+        if (PACKAGED) controller.setSilentUpdateActivator((copy, allowed) ->
+                AppImageUpdate.activateRunningImage(copy::copyTo, allowed));
         controller.setInstaller(urls -> downloadAndInstallUpdate(controller, window, urls));
 
         TrayController tray = new TrayController(controller, window, resources.load("app-icon.png"));
@@ -464,8 +466,9 @@ public final class Main {
             File dir = AppDirs.updatesDir().toFile();
             dir.mkdirs();
             File out = new File(dir, name);
+            boolean staged = controller.copyStagedAppUpdate(out.toPath());
             for (String url : urls) {
-                if (downloadOne(url, out, controller)) {
+                if (staged || downloadOne(url, out, controller)) {
                     out.setExecutable(true, false);
                     controller.setUpdateProgress(100);
                     InstallerLaunch launch = launchInstaller(out);

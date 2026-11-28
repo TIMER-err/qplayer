@@ -516,8 +516,9 @@ public final class QPlayerActivity extends Activity {
             java.io.File out = new java.io.File(getExternalFilesDir(null), "updates/qplayer-update.apk");
             java.io.File dir = out.getParentFile();
             if (dir != null) dir.mkdirs();
+            boolean staged = controller.copyStagedAppUpdate(out.toPath());
             for (String url : urls) {
-                if (downloadOne(url, out)) {
+                if (staged || downloadOne(url, out)) {
                     controller.setUpdateProgress(100);
                     runOnUiThread(() -> installApk(out));
                     return;
