@@ -165,6 +165,11 @@ public final class LiquidGlassNode extends SkijaItem {
         return true;
     }
 
+    /** True for the bottom navigation bar, false for the floating MiniPlayer surface. */
+    public boolean isNavigation() {
+        return navigation;
+    }
+
     public boolean isAnimating() {
         return navigation && isActive() && motion.isAnimating();
     }

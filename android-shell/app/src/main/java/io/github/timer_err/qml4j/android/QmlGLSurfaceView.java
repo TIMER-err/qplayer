@@ -879,7 +879,7 @@ public final class QmlGLSurfaceView extends GLSurfaceView {
                 compositor.setLiquidGlassGravityAngle(liquidGlassTilt.angle());
                 compositor.composite(canvas, renderer, view, controller, settings,
                         surface.recordingContext(), scale, surface.width(), surface.height());
-                liquidGlassTilt.setActive(compositor.liquidGlassActive());
+                liquidGlassTilt.setActive(compositor.liquidGlassNavigationActive());
                 if (compositor.skippedLayout()) profSkips++;
                 long t1b = System.nanoTime();
                 surface.present();

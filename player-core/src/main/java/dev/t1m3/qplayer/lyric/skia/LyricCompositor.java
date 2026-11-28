@@ -129,6 +129,9 @@ public final class LyricCompositor {
     private final Item[] liquidGlassBoundary = new Item[2];
     private boolean chromeLookupDone;
     private boolean liquidGlassActive;
+    // Only the phone bottom bar uses device tilt. The MiniPlayer glass also shows on
+    // tablets and landscape layouts, where the sensor must stay unregistered.
+    private boolean liquidGlassNavigationActive;
     private float liquidGlassGravityAngle = (float) (-Math.PI / 2);
 
     // Wall-clock extrapolation of the coarse backend position for smooth lyric motion.
@@ -344,8 +347,9 @@ public final class LyricCompositor {
         temperaPage.advanceFade(controller, System.nanoTime());
         view.dirtyQueue().flush();
         boolean temperaActive = temperaVisible(controller);
-        liquidGlassActive = anyLiquidGlassActive()
+        liquidGlassActive = anyLiquidGlassActive(false)
                 && !temperaActive && lyricSlide <= 0.001f;
+        liquidGlassNavigationActive = liquidGlassActive && anyLiquidGlassActive(true);
         if (temperaActive) {
             configureTempera(settings);
             if (temperaChrome == null) temperaChrome = view.findByObjectName("temperaChrome");
@@ -421,9 +425,9 @@ public final class LyricCompositor {
         return x >= left && x < right && y >= top && y < bottom;
     }
 
-    private boolean anyLiquidGlassActive() {
+    private boolean anyLiquidGlassActive(boolean navigationOnly) {
         for (LiquidGlassNode node : liquidGlass) {
-            if (node != null && node.isActive()) return true;
+            if (node != null && (!navigationOnly || node.isNavigation()) && node.isActive()) return true;
         }
         return false;
     }
@@ -434,6 +438,11 @@ public final class LyricCompositor {
 
     public boolean liquidGlassActive() {
         return liquidGlassActive;
+    }
+
+    /** Whether the glass bottom navigation bar, the only tilt-driven surface, is drawn. */
+    public boolean liquidGlassNavigationActive() {
+        return liquidGlassNavigationActive;
     }
 
     public boolean liquidGlassAnimating() {
@@ -1098,6 +1107,7 @@ public final class LyricCompositor {
         }
         chromeLookupDone = false;
         liquidGlassActive = false;
+        liquidGlassNavigationActive = false;
         renderedVersion = -1;
     }
 
