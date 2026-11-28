@@ -347,6 +347,10 @@ public final class Main {
         // watcher all start after a real frame is visible, avoiding CPU/I/O/JNA
         // contention while qml4j instantiates Main.qml.
         window.setFirstFrameListener(() -> {
+            // The migration helper may retire the legacy install after this signal.
+            // A running main loop alone does not prove the new renderer started.
+            if (PACKAGED && osName.contains("win"))
+                WindowsInstallMigration.acknowledgeProfile();
             long elapsedMs = (System.nanoTime() - startupStartedNanos) / 1_000_000L;
             Logger.info("startup first frame ready in {} ms; starting deferred services", elapsedMs);
             // Neither the host-drawn icon face nor stale installer cleanup is
@@ -382,9 +386,6 @@ public final class Main {
         // wired, then enter the native event loop immediately.
         window.spawnRenderThread();
         themeMonitor.start();
-
-        if (PACKAGED && osName.contains("win"))
-            window.postMainTask(WindowsInstallMigration::acknowledgeProfile);
 
         window.runEventLoop(); // blocks on the main thread until quit
 
