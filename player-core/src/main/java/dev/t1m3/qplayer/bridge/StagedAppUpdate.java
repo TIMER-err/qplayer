@@ -19,7 +19,8 @@ import java.util.function.BooleanSupplier;
 /** A single verified background download. Never selects or runs an installer. */
 final class StagedAppUpdate {
     private static final List<String> ASSETS = Arrays.asList("QPlayer-android.apk",
-            "QPlayer-windows-x64-setup.exe", "QPlayer-macos-arm64.dmg",
+            "QPlayer-windows-x64-setup.exe", "QPlayer-windows-x64-user-setup.exe",
+            "QPlayer-windows-x64-portable-update.exe", "QPlayer-macos-arm64.dmg",
             "QPlayer-linux-x64.AppImage");
     private static final long MAX_BYTES = 512L * 1024 * 1024;
     final String url;
@@ -37,6 +38,9 @@ final class StagedAppUpdate {
         }
         file = directory.resolve("verified-update");
     }
+
+    Path file() { return file; }
+    String sha256() { return digest.substring("sha256:".length()); }
 
     static boolean isTrustedAsset(String url, String version) {
         try {

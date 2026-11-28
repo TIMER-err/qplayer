@@ -29,5 +29,6 @@ Get-ChildItem "$T\*.dll" -File -ErrorAction SilentlyContinue |
     ForEach-Object { Copy-Item $_.FullName $dir }
 Copy-Item -Recurse "$T\native-legal" "$dir\licenses"
 
+Set-Content -LiteralPath "$dir\qplayer-portable.marker" -Value "QPlayer portable" -Encoding Ascii
 Compress-Archive -Path "$dir\*" -DestinationPath "$T\QPlayer-windows-x64.zip" -Force
 Write-Host "-> $T\QPlayer-windows-x64.zip"

@@ -32,6 +32,7 @@ import com.sun.jna.platform.win32.Shell32;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
+import java.nio.file.Path;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.util.List;
@@ -203,15 +204,30 @@ public final class Main {
         // PlayerController's default matcher, unchanged for Android, would never
         // match anything here). "setup.exe" (not the plain .zip) so the in-app
         // downloader hands off to the real installer.
+        WindowsUserUpdate.Target windowsUserInstall = PACKAGED ? WindowsUserUpdate.installedDirectory() : null;
         controller.setAssetMatcher(name -> {
             String n = name.toLowerCase();
             String os = System.getProperty("os.name", "").toLowerCase();
-            if (os.contains("win")) return n.endsWith("setup.exe");
+            if (os.contains("win")) return n.equals(windowsUserInstall != null
+                    && "QPlayer-windows-x64-user-setup.exe".equals(windowsUserInstall.asset())
+                    ? "qplayer-windows-x64-user-setup.exe" : "qplayer-windows-x64-setup.exe");
             if (os.contains("mac")) return n.endsWith(".dmg");
             return n.endsWith(".appimage");
         });
-        if (PACKAGED) controller.setSilentUpdateActivator((copy, allowed) ->
-                AppImageUpdate.activateRunningImage(copy::copyTo, allowed));
+        if (osName.contains("win")) {
+            controller.setSilentUpdateSupported(windowsUserInstall != null);
+            if (windowsUserInstall != null)
+                controller.setSilentAssetMatcher(windowsUserInstall.asset()::equals);
+        }
+        java.util.concurrent.atomic.AtomicReference<MacBundleUpdate> macBundle =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        if (PACKAGED) controller.setSilentUpdateActivator((copy, allowed) -> {
+            if (!osName.contains("mac")) return AppImageUpdate.activateRunningImage(copy::copyTo, allowed);
+            MacBundleUpdate updater = MacBundleUpdate.findRunningBundle();
+            if (updater == null) return false;
+            macBundle.set(updater);
+            return updater.prepare(copy, allowed);
+        });
         controller.setInstaller(urls -> downloadAndInstallUpdate(controller, window, urls));
 
         TrayController tray = new TrayController(controller, window, resources.load("app-icon.png"));
@@ -378,8 +394,10 @@ public final class Main {
         // Native WKWebView close requests must drain on the AppKit main loop
         // before GLFW destroys the application's native event infrastructure.
         org.lwjgl.glfw.GLFW.glfwPollEvents();
+        boolean shutdownSaved = false;
         try {
             controller.shutdownAsync().join();
+            shutdownSaved = true;
         } catch (Throwable ignored) {
         }
         window.shutdown();
@@ -390,6 +408,14 @@ public final class Main {
         } catch (IllegalStateException renderingFailed) {
             renderingFailed.printStackTrace();
             status = 1;
+        }
+        if (status == 0 && shutdownSaved) {
+            controller.handOffSilentUpdate((asset, digest) -> {
+                if (windowsUserInstall != null)
+                    WindowsUserUpdate.runAfterExit(windowsUserInstall.directory(), asset, digest);
+                MacBundleUpdate mac = macBundle.get();
+                if (mac != null) mac.switchAfterPlaybackStops();
+            });
         }
         System.exit(status);
     }

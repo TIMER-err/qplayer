@@ -283,6 +283,22 @@ jobs:
             throw "Inno Setup compiler failed ($LASTEXITCODE)"
           }
           Copy-Item "desktop-host\dist\QPlayer-windows-x64-setup.exe" "out\"
+          & "$iscc" /DPerUser=1 /DAppVersion=$ver `
+            /DSourceFolder="$PWD\desktop-host\target\QPlayer" `
+            /DIconFile="$PWD\desktop-host\src\main\resources\app-icon.ico" `
+            "desktop-host\dist\qplayer.iss"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup per-user compiler failed ($LASTEXITCODE)"
+          }
+          Copy-Item "desktop-host\dist\QPlayer-windows-x64-user-setup.exe" "out\"
+          & "$iscc" /DPerUser=1 /DPortableUpdate=1 /DAppVersion=$ver `
+            /DSourceFolder="$PWD\desktop-host\target\QPlayer" `
+            /DIconFile="$PWD\desktop-host\src\main\resources\app-icon.ico" `
+            "desktop-host\dist\qplayer.iss"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup portable updater compiler failed ($LASTEXITCODE)"
+          }
+          Copy-Item "desktop-host\dist\QPlayer-windows-x64-portable-update.exe" "out\"
 
       - uses: actions/upload-artifact@v6
         with:
@@ -325,7 +341,7 @@ jobs:
           expected="QPlayer-android.apk"
           if [ "$ANDROID_ONLY" != true ]; then
             expected="$expected QPlayer-linux-x64.AppImage QPlayer-macos-arm64.dmg
-                      QPlayer-windows-x64.zip QPlayer-windows-x64-setup.exe"
+                      QPlayer-windows-x64.zip QPlayer-windows-x64-setup.exe QPlayer-windows-x64-user-setup.exe QPlayer-windows-x64-portable-update.exe"
           fi
           for f in $expected; do
             [ -s "out/$f" ] || { echo "::error::missing $f"; exit 1; }

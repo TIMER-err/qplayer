@@ -11,6 +11,7 @@ cd "$(dirname "$0")/../.."
 T=desktop-host/target
 BINARY="$T/qplayer"
 APP="$T/QPlayer.app"
+DIST_UPDATE_STAGE=desktop-host/dist/macos-update-stage.sh
 [ -x "$BINARY" ] || { echo "$BINARY not found — run 'mvn -pl desktop-host -am -Pdist package' first"; exit 1; }
 [ -d "$T/native-legal" ] || { echo "$T/native-legal not found — rebuild with -Pdist"; exit 1; }
 
@@ -38,6 +39,9 @@ for library in "$T"/*.dylib "$T"/*.jnilib; do
   cp "$library" "$APP/Contents/MacOS/"
 done
 cp -R "$T/native-legal/." "$APP/Contents/Resources/licenses/"
+install -m 755 "$DIST_UPDATE_STAGE" "$APP/Contents/Resources/qplayer-update-stage"
+xcrun clang -O2 -mmacosx-version-min=13.0 desktop-host/dist/macos-update-swap.c \
+  -o "$APP/Contents/MacOS/qplayer-update-swap"
 
 sips -s format icns docs/icon.png --out "$APP/Contents/Resources/qplayer.icns" >/dev/null
 cat > "$APP/Contents/Info.plist" <<EOF
@@ -59,7 +63,19 @@ cat > "$APP/Contents/Info.plist" <<EOF
 EOF
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 # Ad-hoc signing is required on Apple Silicon; this is not Developer ID signing.
-codesign --force --deep --sign - "$APP"
+if [ -n "${QPLAYER_MAC_SIGN_IDENTITY:-}" ]; then
+  : "${QPLAYER_MAC_NOTARY_PROFILE:?Missing notarytool keychain profile}"
+  for native in "$APP"/Contents/MacOS/*; do
+    codesign --force --options runtime --timestamp --sign "$QPLAYER_MAC_SIGN_IDENTITY" "$native"
+  done
+  codesign --force --options runtime --timestamp --sign "$QPLAYER_MAC_SIGN_IDENTITY" "$APP"
+  (cd "$T" && ditto -c -k --keepParent QPlayer.app QPlayer-notary.zip)
+  xcrun notarytool submit "$T/QPlayer-notary.zip" --keychain-profile "$QPLAYER_MAC_NOTARY_PROFILE" --wait
+  xcrun stapler staple "$APP"
+  rm -f "$T/QPlayer-notary.zip"
+else
+  codesign --force --deep --sign - "$APP"
+fi
 cp -R "$APP" "$T/dmg-root/"
 ln -s /Applications "$T/dmg-root/Applications"
 hdiutil create -volname QPlayer -srcfolder "$T/dmg-root" -ov -format UDZO "$T/QPlayer.new.dmg"

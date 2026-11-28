@@ -3739,6 +3739,11 @@ public final class PlayerController {
     /** When true, application and plugin GitHub downloads prefer proxy URLs. */
     private volatile boolean updateMirror = false;
     private volatile boolean silentUpdate;
+    private volatile boolean silentUpdateSupported = true;
+
+    public void setSilentUpdateSupported(boolean supported) {
+        silentUpdateSupported = supported;
+    }
     private volatile StagedAppUpdate stagedUpdate;
     private final java.util.concurrent.atomic.AtomicBoolean stagingUpdate =
             new java.util.concurrent.atomic.AtomicBoolean();
@@ -3760,9 +3765,34 @@ public final class PlayerController {
     }
 
     private volatile SilentUpdateActivator silentUpdateActivator;
+    private volatile AssetMatcher silentAssetMatcher;
+
+    public void setSilentAssetMatcher(AssetMatcher matcher) {
+        silentAssetMatcher = matcher;
+    }
+    /** Hand off to an OS-specific updater that verifies the digest again after process exit. */
+    public void handOffSilentUpdate(
+            java.util.function.BiConsumer<java.nio.file.Path, String> handoff) {
+        StagedAppUpdate update = stagedUpdate;
+        if (update != null && silentUpdate && silentUpdateSupported) {
+            handoff.accept(update.file(), update.sha256());
+        }
+    }
 
     public void setSilentUpdateActivator(SilentUpdateActivator activator) {
         silentUpdateActivator = activator;
+    }
+
+    /** Supply the approved staged payload to a platform that activates only after normal exit. */
+    public void copySilentUpdate(java.nio.file.Path destination) throws java.io.IOException {
+        StagedAppUpdate update = stagedUpdate;
+        if (update == null || !silentUpdate || !silentUpdateSupported || appShuttingDown)
+            throw new java.io.IOException("No eligible staged update");
+        update.copyVerified(destination, () -> silentUpdate && silentUpdateSupported && !appShuttingDown);
+    }
+
+    public boolean hasSilentUpdateReady() {
+        return stagedUpdate != null && silentUpdate && silentUpdateSupported && !appShuttingDown;
     }
 
     /** Called by the existing manual installer on its download thread. */
@@ -3942,12 +3972,14 @@ public final class PlayerController {
             worker.submit(
                     () -> {
                         try {
-                            if (!manual && silentUpdate) {
+                            if (!manual && silentUpdate && silentUpdateSupported) {
                                 try {
+                                    AssetMatcher silentMatcher = silentAssetMatcher;
                                     java.util.Optional<ReleaseUpdateChecker.Update> trusted =
-                                            releaseUpdateChecker.checkDirect(version, matcher::matches);
+                                            releaseUpdateChecker.checkDirect(version,
+                                                    silentMatcher != null ? silentMatcher::matches : matcher::matches);
                                     if (!trusted.isPresent()) return;
-                                    if (silentUpdate) {
+                                    if (silentUpdate && !trusted.get().assetUrl().isEmpty()) {
                                         stageAppUpdate(trusted.get());
                                         return;
                                     }

@@ -30,12 +30,32 @@ AppVersion={#AppVersion}
 VersionInfoVersion={#NumericAppVersion}
 VersionInfoTextVersion={#AppVersion}
 AppPublisher=t1m3
+#ifdef PerUser
+PrivilegesRequired=lowest
+DefaultDirName={localappdata}\Programs\QPlayer
+; Never switch an existing machine-wide installation to a different scope.
+UsePreviousAppDir=no
+DisableDirPage=yes
+DisableStartupPrompt=yes
+CloseApplications=no
+RestartApplications=no
+#else
 DefaultDirName={autopf}\QPlayer
+#endif
 DefaultGroupName=QPlayer
 DisableProgramGroupPage=yes
 UninstallDisplayIcon={app}\qplayer.exe
 OutputDir=.
+#ifdef PerUser
+#ifdef PortableUpdate
+Uninstallable=no
+OutputBaseFilename=QPlayer-windows-x64-portable-update
+#else
+OutputBaseFilename=QPlayer-windows-x64-user-setup
+#endif
+#else
 OutputBaseFilename=QPlayer-windows-x64-setup
+#endif
 Compression=lzma2/max
 SolidCompression=yes
 ArchitecturesAllowed=x64compatible
@@ -50,8 +70,26 @@ Name: "en"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
+#ifdef PortableUpdate
 Source: "{#SourceFolder}\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
+#else
+Source: "{#SourceFolder}\*"; Excludes: "qplayer-portable.marker"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
+#endif
+#ifndef PortableUpdate
 Source: "{#IconFile}"; DestDir: "{app}"; DestName: "qplayer.ico"; Flags: ignoreversion
+
+#ifdef PerUser
+[UninstallDelete]
+Type: files; Name: "{app}\.qplayer-user-install"
+
+[Code]
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    if not SaveStringToFile(ExpandConstant('{app}\.qplayer-user-install'), 'QPlayer', False) then
+      Log('Could not write the QPlayer user installation marker.');
+end;
+#endif
 
 [Icons]
 ; AppUserModelID must match Main.java's configureWindowsAppIdentity() call
@@ -66,3 +104,17 @@ Name: "{autodesktop}\QPlayer"; Filename: "{app}\qplayer.exe"; IconFilename: "{ap
 
 [Run]
 Filename: "{app}\qplayer.exe"; Description: "{cm:LaunchProgram,QPlayer}"; Flags: nowait postinstall skipifsilent
+
+#endif
+
+#ifdef PortableUpdate
+[Code]
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  if not FileExists(ExpandConstant('{app}\qplayer-portable.marker')) or
+     not FileExists(ExpandConstant('{app}\qplayer.exe')) then
+    Result := 'The destination is not an existing QPlayer portable installation.'
+  else
+    Result := '';
+end;
+#endif

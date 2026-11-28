@@ -32,6 +32,7 @@ public class StagedAppUpdateTest {
 
     @Test public void restrictsAssetsToOfficialStableReleases() {
         for (String name : new String[] {APK, "QPlayer-windows-x64-setup.exe",
+                "QPlayer-windows-x64-user-setup.exe", "QPlayer-windows-x64-portable-update.exe",
                 "QPlayer-macos-arm64.dmg", "QPlayer-linux-x64.AppImage"}) {
             assertTrue(StagedAppUpdate.isTrustedAsset(BASE + name, "2.0.0"));
         }

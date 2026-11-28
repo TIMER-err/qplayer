@@ -249,6 +249,7 @@ public final class QPlayerActivity extends Activity {
         } catch (PackageManager.NameNotFoundException ignored) {
         }
         controller.setHostPlatform("android");
+        controller.setSilentUpdateSupported(Build.VERSION.SDK_INT >= 31);
         controller.setUrlOpener(url -> runOnUiThread(() -> {
             try {
                 startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
@@ -290,7 +291,11 @@ public final class QPlayerActivity extends Activity {
         // Back on the home screen sends the app to the background (like Home) instead
         // of finishing — playback keeps running and the QML scene survives, so
         // re-entering doesn't reconstruct/reload the whole UI.
-        controller.setExitListener(() -> runOnUiThread(() -> moveTaskToBack(true)));
+        controller.setExitListener(() -> runOnUiThread(() -> {
+            silentUpdateExitRequested = !controller.isPlaying()
+                    && !PlaybackService.isRunning() && controller.hasSilentUpdateReady();
+            if (!moveTaskToBack(true)) silentUpdateExitRequested = false;
+        }));
 
         // Immersive system bars: fullscreen when landscape, and on the lyric page in
         // portrait too (a dedicated immersive surface). Fires off the render thread, so
@@ -1218,8 +1223,47 @@ public final class QPlayerActivity extends Activity {
         if (glView != null) glView.onPause();
     }
 
+    private volatile boolean silentUpdateExitRequested;
+    private volatile boolean silentUpdateBackground;
+    private final java.util.concurrent.atomic.AtomicBoolean silentUpdateInstalling =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        silentUpdateBackground = true;
+        PlayerController engine = controller;
+        Context app = getApplicationContext();
+        if (!silentUpdateExitRequested || engine == null
+                || !dev.t1m3.qplayer.android.update.SilentApkInstaller.supported(app)
+                || !silentUpdateInstalling.compareAndSet(false, true)) return;
+        Object owner = uiToken;
+        java.util.function.BooleanSupplier eligible = () -> silentUpdateExitRequested
+                && silentUpdateBackground && activeUiToken == owner && !engine.isPlaying()
+                && !PlaybackService.isRunning() && engine.hasSilentUpdateReady();
+        engine.saveSessionStateAsync().whenCompleteAsync((unused, error) -> {
+            java.nio.file.Path apk = null;
+            try {
+                if (error != null || !eligible.getAsBoolean()) return;
+                apk = java.nio.file.Files.createTempFile(app.getCacheDir().toPath(), "qplayer-", ".apk");
+                engine.copySilentUpdate(apk);
+                dev.t1m3.qplayer.android.update.SilentApkInstaller.install(app, apk, eligible);
+            } catch (Exception failure) {
+                dev.t1m3.qplayer.util.Logger.warn("Silent APK installation skipped: {}", failure.toString());
+            } finally {
+                if (apk != null) {
+                    try { java.nio.file.Files.deleteIfExists(apk); } catch (java.io.IOException ignored) { }
+                }
+                silentUpdateExitRequested = false;
+                silentUpdateInstalling.set(false);
+            }
+        }, ENGINE_IO);
+    }
+
     @Override
     protected void onResume() {
+        silentUpdateExitRequested = false;
+        silentUpdateBackground = false;
         resumed = true;
         super.onResume();
         if (glView != null) glView.onResume();
