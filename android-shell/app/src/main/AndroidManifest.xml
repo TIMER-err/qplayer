@@ -13,6 +13,7 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
 
     <!-- Lyricon's central service is injected into System UI. Android 11+
          package visibility otherwise hides it from explicit register broadcasts. -->
@@ -100,6 +101,10 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <receiver
+            android:name="dev.t1m3.qplayer.android.update.SilentApkInstaller$Result"
+            android:exported="false" />
 
         <!-- Routes hardware / bluetooth media buttons to the session. -->
         <receiver

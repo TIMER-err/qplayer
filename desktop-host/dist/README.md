@@ -316,3 +316,25 @@ The APK installs beside the release app as `QPlayer (perf)` and uses the debug k
 
 CI produces an Apple Silicon DMG on `macos-15`. Intel Mac users build locally;
 the Maven OS profiles select native dependencies for the current architecture.
+
+### 静默更新验收
+
+「设置 → 关于 → 静默更新」默认关闭。关闭时保留发行包原有更新入口。
+开启时先从 GitHub 官方发布元数据校验资产名、大小和 SHA-256，再准备更新。不要用开关开启后的下载提示作为安装成功依据。
+
+- **Windows x64**：选用新增的独立非管理员安装器。首次从 `QPlayer-windows-x64-user-setup.exe` 安装到当前用户目录，或使用带标记的新版便携 ZIP。正常退出并保存播放状态后，后台进程等待旧进程退出，校验安装器，使用 `/VERYSILENT /NORESTART /NOCLOSEAPPLICATIONS` 等参数。原有 Program Files 安装保留原安装器；要启用静默安装，需要先换用用户版，不由后台更新修改系统级安装。不能通过命令行参数跳过 UAC。
+- **macOS arm64**：更新只接受同一 Developer ID 团队的签名及通过系统检查的完整应用包。准备和验签在后台，正常退出时原子交换 bundle，已退出的旧 bundle 在后台删除。用于验证的发布构建要在 macOS CI 的钥匙串装入 Developer ID，并设置 `QPLAYER_MAC_SIGN_IDENTITY` 和 `QPLAYER_MAC_NOTARY_PROFILE`。临时签名的开发包不能验证真实公证更新。
+- **Linux x64**：只对可写的发布 AppImage 做同文件系统原子替换。旧进程继续使用旧 inode，下次正常启动使用新版，不留下 `.old`。
+- **Android 12+**：侧载权限已授予、播放器空闲且用户明确离开后，以 PackageInstaller 请求免确认自更新。系统校验包签名和版本。如系统要求确认，不在后台弹窗，保留原手动入口。Android 8–11 保持原功能和手动更新。
+
+发布前必须用真实发行包分别验收两次启动、禁用开关、播放不中断、取消或损坏资产、权限拒绝、升级中断、重新启动及旧文件清理。Windows 分别检查机器/用户/便携安装，Android 分别检查 8–11 兼容、12+ 成功以及拒绝安装权限，macOS 用真实签名公证的连续两版。
+
+A legacy Windows installation registered under HKLM shows **Switch to per-user install**
+below the silent-update setting. This opens the verified user installer (including a
+same-version install), then shuts down normally and launches the new executable
+under the same account. Both installs use the same home profile; no library,
+settings, playlists, credentials or cache are copied or deleted. The machine
+uninstaller is not started until the new copy opens that profile. It may request
+one-time administrator approval to remove the old installation for all users.
+If the new copy cannot start, the machine installation is retained; if old
+uninstall is canceled, the user installation remains usable alongside it.

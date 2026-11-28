@@ -192,6 +192,7 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
         this.specs = new ArrayList<>();
         for (SettingSpec s : SettingsCatalog.specs()) {
             if (!s.appliesTo(platform)) continue;
+            if ("switchToUserInstall".equals(s.key) && !actions.containsKey(s.key)) continue;
             specs.add(s);
             specsByKey.put(s.key, s);
             if (s.hasValue()) values.put(s.key, new Property<>(read(s)));
@@ -556,6 +557,7 @@ public final class SettingsCore extends QObject implements LyricCompositor.Setti
         switch (key) {
             case "monet": controller.setMonetEnabled(bool(key)); break;
             case "mirror": controller.setUpdateMirror(bool(key)); break;
+            case "silentUpdate": controller.setSilentUpdate(bool(key)); break;
             case "fade": controller.setFadeEnabled(bool(key)); break;
             case "highQuality": controller.setHighQualityEnabled(bool(key)); break;
             case "maxCacheSizeMB": controller.setCacheMaxSizeMB(intOf(key)); break;

@@ -32,6 +32,7 @@ import com.sun.jna.platform.win32.Shell32;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
+import java.nio.file.Path;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.util.List;
@@ -139,7 +140,16 @@ public final class Main {
         // player-core (shared with Android). The host contributes a store, the
         // platform id, the defaults only it knows, and the actions/live text its
         // own rows need.
+        WindowsUserUpdate.Target windowsUserInstall = PACKAGED ? WindowsUserUpdate.installedDirectory() : null;
+        WindowsInstallMigration migration = PACKAGED && osName.contains("win") && windowsUserInstall == null
+                ? WindowsInstallMigration.find() : null;
+        java.util.concurrent.atomic.AtomicReference<DesktopWindow> migrationWindow =
+                new java.util.concurrent.atomic.AtomicReference<>();
         SettingsCore settings = new SettingsCore();
+        if (migration != null) settings.registerAction("switchToUserInstall", () -> {
+            DesktopWindow current = migrationWindow.get();
+            if (current != null) migration.start(controller, current);
+        });
         settings.attach(controller);
         settings.setDefault("musicFolder",
                 new File(System.getProperty("user.home", "."), "Music").getAbsolutePath());
@@ -169,6 +179,7 @@ public final class Main {
         Fonts.addFileIndex(dev.t1m3.qplayer.lyric.skia.ImportedFonts.instance());
         Fonts.warmupFromConfig();
         DesktopWindow window = new DesktopWindow(resources, controller, settings);
+        migrationWindow.set(window);
         window.setUserScale(settings.uiScaleFactor());
         settings.onChange(SettingsCatalog.UI_SCALE_KEY, ignored ->
                 window.postMainTask(() -> window.setUserScale(settings.uiScaleFactor())));
@@ -206,9 +217,25 @@ public final class Main {
         controller.setAssetMatcher(name -> {
             String n = name.toLowerCase();
             String os = System.getProperty("os.name", "").toLowerCase();
-            if (os.contains("win")) return n.endsWith("setup.exe");
+            if (os.contains("win")) return n.equals(windowsUserInstall != null
+                    && "QPlayer-windows-x64-user-setup.exe".equals(windowsUserInstall.asset())
+                    ? "qplayer-windows-x64-user-setup.exe" : "qplayer-windows-x64-setup.exe");
             if (os.contains("mac")) return n.endsWith(".dmg");
             return n.endsWith(".appimage");
+        });
+        if (osName.contains("win")) {
+            controller.setSilentUpdateSupported(windowsUserInstall != null);
+            if (windowsUserInstall != null)
+                controller.setSilentAssetMatcher(windowsUserInstall.asset()::equals);
+        }
+        java.util.concurrent.atomic.AtomicReference<MacBundleUpdate> macBundle =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        if (PACKAGED) controller.setSilentUpdateActivator((copy, allowed) -> {
+            if (!osName.contains("mac")) return AppImageUpdate.activateRunningImage(copy::copyTo, allowed);
+            MacBundleUpdate updater = MacBundleUpdate.findRunningBundle();
+            if (updater == null) return false;
+            macBundle.set(updater);
+            return updater.prepare(copy, allowed);
         });
         controller.setInstaller(urls -> downloadAndInstallUpdate(controller, window, urls));
 
@@ -356,6 +383,9 @@ public final class Main {
         window.spawnRenderThread();
         themeMonitor.start();
 
+        if (PACKAGED && osName.contains("win"))
+            window.postMainTask(WindowsInstallMigration::acknowledgeProfile);
+
         window.runEventLoop(); // blocks on the main thread until quit
 
         // From here the process must end: a hung cleanup step or a leftover
@@ -376,8 +406,10 @@ public final class Main {
         // Native WKWebView close requests must drain on the AppKit main loop
         // before GLFW destroys the application's native event infrastructure.
         org.lwjgl.glfw.GLFW.glfwPollEvents();
+        boolean shutdownSaved = false;
         try {
             controller.shutdownAsync().join();
+            shutdownSaved = true;
         } catch (Throwable ignored) {
         }
         window.shutdown();
@@ -388,6 +420,15 @@ public final class Main {
         } catch (IllegalStateException renderingFailed) {
             renderingFailed.printStackTrace();
             status = 1;
+        }
+        if (status == 0 && shutdownSaved) {
+            if (migration != null) migration.switchAfterExit();
+            controller.handOffSilentUpdate((asset, digest) -> {
+                if (windowsUserInstall != null)
+                    WindowsUserUpdate.runAfterExit(windowsUserInstall.directory(), asset, digest);
+                MacBundleUpdate mac = macBundle.get();
+                if (mac != null) mac.switchAfterPlaybackStops();
+            });
         }
         System.exit(status);
     }
@@ -464,8 +505,9 @@ public final class Main {
             File dir = AppDirs.updatesDir().toFile();
             dir.mkdirs();
             File out = new File(dir, name);
+            boolean staged = controller.copyStagedAppUpdate(out.toPath());
             for (String url : urls) {
-                if (downloadOne(url, out, controller)) {
+                if (staged || downloadOne(url, out, controller)) {
                     out.setExecutable(true, false);
                     controller.setUpdateProgress(100);
                     InstallerLaunch launch = launchInstaller(out);

@@ -885,7 +885,7 @@ public final class PlayerController {
      *  request was already running and could surface tens of seconds late (a
      *  15s connect + 30s read timeout is the worst case) — long after whatever
      *  the user did to trigger it. It also no longer blocks a thread to wait. */
-    private void showToast(String msg) {
+    public void showToast(String msg) {
         post(() -> toast.set(""));
         try {
             fadeWorker.schedule(() -> post(() -> toast.set(msg)), 30, TimeUnit.MILLISECONDS);
@@ -3738,6 +3738,76 @@ public final class PlayerController {
 
     /** When true, application and plugin GitHub downloads prefer proxy URLs. */
     private volatile boolean updateMirror = false;
+    private volatile boolean silentUpdate;
+    private volatile boolean silentUpdateSupported = true;
+
+    public void setSilentUpdateSupported(boolean supported) {
+        silentUpdateSupported = supported;
+    }
+    private volatile StagedAppUpdate stagedUpdate;
+    private final java.util.concurrent.atomic.AtomicBoolean stagingUpdate =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
+    public void setSilentUpdate(boolean enabled) {
+        silentUpdate = enabled;
+    }
+
+    /** Platform-specific activation. The callback may copy only the verified staged asset. */
+    @FunctionalInterface
+    public interface SilentUpdateActivator {
+        boolean activate(VerifiedUpdateCopy copy, java.util.function.BooleanSupplier allowed)
+                throws java.io.IOException;
+    }
+
+    @FunctionalInterface
+    public interface VerifiedUpdateCopy {
+        void copyTo(java.nio.file.Path destination) throws java.io.IOException;
+    }
+
+    private volatile SilentUpdateActivator silentUpdateActivator;
+    private volatile AssetMatcher silentAssetMatcher;
+
+    public void setSilentAssetMatcher(AssetMatcher matcher) {
+        silentAssetMatcher = matcher;
+    }
+    /** Hand off to an OS-specific updater that verifies the digest again after process exit. */
+    public void handOffSilentUpdate(
+            java.util.function.BiConsumer<java.nio.file.Path, String> handoff) {
+        StagedAppUpdate update = stagedUpdate;
+        if (update != null && silentUpdate && silentUpdateSupported) {
+            handoff.accept(update.file(), update.sha256());
+        }
+    }
+
+    public void setSilentUpdateActivator(SilentUpdateActivator activator) {
+        silentUpdateActivator = activator;
+    }
+
+    /** Supply the approved staged payload to a platform that activates only after normal exit. */
+    public void copySilentUpdate(java.nio.file.Path destination) throws java.io.IOException {
+        StagedAppUpdate update = stagedUpdate;
+        if (update == null || !silentUpdate || !silentUpdateSupported || appShuttingDown)
+            throw new java.io.IOException("No eligible staged update");
+        update.copyVerified(destination, () -> silentUpdate && silentUpdateSupported && !appShuttingDown);
+    }
+
+    public boolean hasSilentUpdateReady() {
+        return stagedUpdate != null && silentUpdate && silentUpdateSupported && !appShuttingDown;
+    }
+
+    /** Called by the existing manual installer on its download thread. */
+    public boolean copyStagedAppUpdate(java.nio.file.Path destination) {
+        StagedAppUpdate update = stagedUpdate;
+        if (update == null || !update.url.equals(updateApkRaw)) return false;
+        try {
+            update.copyVerified(destination, () -> !appShuttingDown);
+            return true;
+        } catch (java.io.IOException error) {
+            Logger.warn("staged update could not be reused: {}", error.toString());
+            return false;
+        }
+    }
+
 
     /** Toggle the GitHub download mirror (driven by the settings switch). */
     public void setUpdateMirror(boolean enabled) {
@@ -3902,23 +3972,29 @@ public final class PlayerController {
             worker.submit(
                     () -> {
                         try {
+                            if (!manual && silentUpdate && silentUpdateSupported) {
+                                try {
+                                    AssetMatcher silentMatcher = silentAssetMatcher;
+                                    java.util.Optional<ReleaseUpdateChecker.Update> trusted =
+                                            releaseUpdateChecker.checkDirect(version,
+                                                    silentMatcher != null ? silentMatcher::matches : matcher::matches);
+                                    if (!trusted.isPresent()) return;
+                                    if (silentUpdate && !trusted.get().assetUrl().isEmpty()) {
+                                        stageAppUpdate(trusted.get());
+                                        return;
+                                    }
+                                } catch (java.io.IOException unavailable) {
+                                    Logger.warn("direct update lookup unavailable: {}", unavailable.toString());
+                                    // Even with the toggle on, preserve the old mirror/manual path.
+                                }
+                            }
                             java.util.Optional<ReleaseUpdateChecker.Update> update =
                                     releaseUpdateChecker.check(version, mirror, matcher::matches);
                             if (!update.isPresent()) {
                                 if (manual) showToast(I18n.tr("toast.update.upToDate"));
                                 return;
                             }
-                            ReleaseUpdateChecker.Update release = update.get();
-                            post(
-                                    () -> {
-                                        if (manual) appUpdatePromptDismissed = false;
-                                        updateApkRaw = release.assetUrl();
-                                        updateUrl = release.browserUrl();
-                                        updateVersion.set(release.version());
-                                        updateNotes.set(release.notes());
-                                        updateAvailable.set(true);
-                                        updatePromptRevision.set(updatePromptRevision.peek() + 1);
-                                    });
+                            publishAppUpdate(update.get(), manual);
                         } catch (Exception error) {
                             if (appShuttingDown) return;
                             Logger.warn("update check failed: {}", error.toString());
@@ -3926,6 +4002,67 @@ public final class PlayerController {
                         }
                     });
         }
+    }
+
+    private void publishAppUpdate(ReleaseUpdateChecker.Update release, boolean manual) {
+        post(() -> {
+            if (appShuttingDown) return;
+            if (manual) appUpdatePromptDismissed = false;
+            updateApkRaw = release.assetUrl();
+            updateUrl = release.browserUrl();
+            updateVersion.set(release.version());
+            updateNotes.set(release.notes());
+            updateAvailable.set(true);
+            updatePromptRevision.set(updatePromptRevision.peek() + 1);
+        });
+    }
+
+    /** Explicit installation-scope change can reinstall this exact release, but cannot downgrade. */
+    public String prepareWindowsUserInstaller(java.nio.file.Path destination) throws java.io.IOException {
+        ReleaseUpdateChecker.Update release = releaseUpdateChecker.checkDirect(currentVersion,
+                        "QPlayer-windows-x64-user-setup.exe"::equals, true)
+                .orElseThrow(() -> new java.io.IOException("No current or newer user installer"));
+        StagedAppUpdate update = new StagedAppUpdate(release, destination.getParent());
+        update.download(() -> !appShuttingDown);
+        update.copyVerified(destination, () -> !appShuttingDown);
+        return update.sha256();
+    }
+
+    private void stageAppUpdate(ReleaseUpdateChecker.Update release) {
+        if (appShuttingDown || !stagingUpdate.compareAndSet(false, true)) return;
+        Thread thread = new Thread(() -> {
+            try {
+                StagedAppUpdate update = new StagedAppUpdate(release,
+                        AppDirs.cacheDir().resolve("staged-app-update"));
+                update.download(() -> silentUpdate && !appShuttingDown);
+                if (!silentUpdate || appShuttingDown) return;
+                stagedUpdate = update;
+                SilentUpdateActivator activator = silentUpdateActivator;
+                boolean activated = false;
+                if (activator != null) {
+                    try {
+                        java.util.function.BooleanSupplier allowed = () -> silentUpdate && !appShuttingDown;
+                        activated = activator.activate(destination -> update.copyVerified(destination, allowed), allowed);
+                    } catch (java.io.IOException | RuntimeException error) {
+                        Logger.warn("background update activation skipped: {}", error.toString());
+                    }
+                }
+                if (silentUpdate && !appShuttingDown) {
+                    showToast(I18n.tr(activated ? "toast.update.applied" : "toast.update.staged",
+                            release.version()));
+                }
+            } catch (java.io.IOException | RuntimeException error) {
+                if (appShuttingDown) return;
+                Logger.warn("background update unavailable: {}", error.toString());
+                post(() -> {
+                    if (!Boolean.TRUE.equals(updateAvailable.peek())) publishAppUpdate(release, false);
+                });
+            } finally {
+                stagingUpdate.set(false);
+            }
+        }, "qplayer-update-stage");
+        thread.setDaemon(true);
+        thread.start();
     }
 
     /** Open an arbitrary external url via the host browser (e.g. the project page). */
